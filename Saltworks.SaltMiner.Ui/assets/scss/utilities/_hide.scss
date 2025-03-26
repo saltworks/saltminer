@@ -1,0 +1,15 @@
+.hide {
+  display: none;
+}
+
+.hide-above-medium {
+  @include bp($bp-medium) {
+    display: none;
+  }
+}
+
+.hide-below-medium {
+  @include bp(0, $bp-medium) {
+    display: none;
+  }
+}

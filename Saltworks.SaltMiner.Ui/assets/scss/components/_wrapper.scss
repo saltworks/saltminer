@@ -1,0 +1,15 @@
+.wrapper {
+  margin: 0 auto;
+  max-width: 1920px;
+  padding: 0 24px;
+  width: 100%;
+
+  @include bp($bp-medium) {
+    padding: 0 24px;
+    width: 100%;
+  }
+}
+
+.wrapper--full-width {
+  //max-width:none;
+}

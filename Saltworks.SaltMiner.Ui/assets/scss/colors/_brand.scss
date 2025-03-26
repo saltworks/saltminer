@@ -1,0 +1,45 @@
+$brand-white: #fff;
+$brand-off-white-1: #f1f1f1;
+$brand-off-white-2: #ffffff;
+$brand-black: #000000;
+
+//This is your main color throughout the site
+$brand-primary-color: #187308;
+$brand-primary-light-color: #1b8409;
+$brand-primary-lighter-color: #22a60c;
+$brand-primary-color-transparent: #18730833;
+
+//This can be another main color used in the scale below, or just a general greyscale as used currently
+$brand-secondary-color: #f6f6f6;
+
+//This is a single color scale used to accent the site
+$brand-color-scale-1: #f6f6f6;
+$brand-color-scale-2: #e6e6e6;
+$brand-color-scale-3: #d3d3d3;
+$brand-color-scale-4: #a6a6a6;
+$brand-color-scale-5: #828282;
+$brand-color-scale-6: #303030;
+
+//These are the color changes you see on rows in tables based on the current state of the row
+$brand-table-row-hover: rgba(188, 245, 178, 0.25);
+$brand-table-row-active: rgba(148, 195, 158, 0.25);
+$brand-table-row-checked: rgba(229, 240, 224, 1);
+$brand-table-row-published: rgba(229, 240, 224, 1);
+$brand-table-row-historical: rgb(240, 236, 224);
+
+//This is your general bad color, to use in cancels/deletes or things that are not general happy path
+$brand-danger-color: #bb0000;
+
+//General body colors of the site
+$brand-body-background-color: $brand-white;
+$brand-body-color: #303030;
+
+//These are mainly used for status messages
+$brand-success: #9fe086;
+$brand-warning: #ffdd29;
+$brand-danger: #b90000;
+
+//These are general status color changes on various elements throughout the site
+$brand-focus-color: #fbfffa;
+$brand-active-color: #cee3c5;
+$brand-hover-color: #e5f0e0;
