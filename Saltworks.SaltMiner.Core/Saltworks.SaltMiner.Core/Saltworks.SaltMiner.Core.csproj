@@ -22,6 +22,9 @@
 
   <ItemGroup>
     <PackageReference Include="MailKit" Version="4.11.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.3" />
-    <PackageReference Include="Saltworks.Common.Data" Version="1.0.0" />  </ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.3" />  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Saltworks.Common.Data\Saltworks.Common.Data\Saltworks.Common.Data.csproj" />
+  </ItemGroup>
 </Project>
