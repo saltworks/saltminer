@@ -1,0 +1,55 @@
+{
+  "TestAppConfig": {
+    "EncryptionKey": "",
+    "EncryptionIv": "",
+    "DataApiBaseUrl": "",
+    "DataApiBaseUrlLocal": "",
+    "DataApiBaseUrlTest2": "",
+    "DataApiVerifySsl": "true",
+    "DataApiKeyIs": "",
+    "DataApiKey": "",
+    "DataApiKeyHeader": "",
+    "DataApiTimeoutSec": 10,
+    "QueueProcessIntervalMin": 15,
+    "QueueProcessorInstances": 1,
+    "QueueProcessorBatchSize": 300,
+    "SnapshotProcessorBatchSize": 500,
+    "SnapshotProcessorApiBatchSize": 100,
+    "SnapshotProcessorMaxErrors": 3,
+    "SnapshotProcessorErrorRetryDelaySec": 60
+  },
+  "TestLogConfig": {
+    "Serilog": {
+      "Using": [ "Serilog.Sinks.Console", "Serilog.Sinks.File" ],
+      "MinimumLevel": {
+        "Default": "Debug",
+        "Override": {
+          "Microsoft": "Warning",
+          "System.Net": "Warning",
+          "Saltworks.Utility.ApiHelper.ApiClient": "Warning",
+          "ApiHelper": "Warning"
+        }
+      },
+      "WriteTo": [
+        {
+          "Name": "Console",
+          "Args": {
+            "outputTemplate": "[{Timestamp:g} {Level:u3}] [{SourceContext}] {Message:lj}{NewLine}"
+          }
+        },
+        {
+          "Name": "File",
+          "Args": {
+            "path": "sm.log",
+            "outputTemplate": "[{Timestamp:g} {Level:u3}] [{SourceContext}] {Message:lj}{NewLine}",
+            "restrictedToMinimumLevel": "Debug"
+          }
+        }
+      ],
+      "Enrich": [ "FromLogContext", "WithExceptionDetails", "WithThreadId" ],
+      "Properties": {
+        "Application": "Test Thingy"
+      }
+    }
+  }
+}
