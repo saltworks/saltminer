@@ -1,0 +1,8 @@
+@import 'imports';
+
+// Load fonts outside of imports, because we load imports in all Vue components
+@import '_fonts';
+@import 'base/base';
+@import 'libs/libs';
+@import 'components/components';
+@import 'utilities/utilities';

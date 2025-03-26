@@ -1,0 +1,87 @@
+@use 'sass:math';
+@import 'generate-columns';
+$maxDivisor: 12 !default;
+
+.row {
+  margin-left: math.div(-$gutter, 2);
+  margin-right: math.div(-$gutter, 2);
+  display: flex;
+
+  @media screen {
+    flex-wrap: wrap;
+  }
+}
+
+.row--thin {
+  margin-left: math.div(-$gutter, 5);
+  margin-right: math.div(-$gutter, 5);
+}
+
+.row > [class*='col-'],
+.row > .col {
+  padding: 0 math.div($gutter, 2);
+}
+
+.row--thin > [class*='col-'],
+.row--thin > .col {
+  padding: 0 math.div($gutter, 5);
+}
+
+.row--align-center {
+  align-items: center;
+}
+
+.row--align-right {
+  .btn {
+    margin: 0 0 0 auto;
+  }
+}
+
+.col {
+  width: 100%;
+}
+
+.row > [class*='col-'] {
+  width: 100%;
+}
+
+.col--flex {
+  display: flex;
+  flex-direction: column;
+}
+
+.col-medium-order-2 {
+  @include bp($bp-medium) {
+    order: 2;
+  }
+}
+
+.col-large-order-1 {
+  @include bp($bp-large) {
+    order: 1;
+  }
+}
+
+.col-large-order-2 {
+  @include bp($bp-large) {
+    order: 2;
+  }
+}
+
+// By Default, we only generate breakpoint specific classes for small, medium, and large
+// breakpoints. You can follow the pattern below to create additional classes if necessary.
+
+// Generate classes for small breakpoint
+@media screen and (min-width: $bp-xsmall) {
+  @include generateColumns(xs, $maxDivisor);
+}
+
+// Generate classes for medium breakpoint
+@media screen and (min-width: $bp-medium) {
+  @include generateColumns(medium, $maxDivisor);
+}
+
+// Generate classes for large breakpoint
+@media screen and (min-width: $bp-large) {
+  @include generateColumns(large, $maxDivisor);
+}
