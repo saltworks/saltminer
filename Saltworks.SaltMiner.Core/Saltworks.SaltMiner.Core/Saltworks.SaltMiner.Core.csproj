@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Authors>Saltworks, LLC</Authors>
+    <Company>Saltworks, LLC</Company>
+    <Description>Core models and other resources used across multiple SaltMiner components</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <NoWarn>1701;1702;1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Entities\ScanInfo.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Entities\Scan\ScanInfo.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MailKit" Version="4.11.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.3" />
+    <PackageReference Include="Saltworks.Common.Data" Version="1.0.0" />  </ItemGroup>
+</Project>
