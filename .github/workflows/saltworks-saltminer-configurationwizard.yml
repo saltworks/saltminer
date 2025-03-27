@@ -13,7 +13,8 @@ on:
     - '.github/workflows/saltworks-saltminer-configurationwizard.yml'
 
 jobs:
-  build:
+  build_config_wizard:
+    name: Build Saltworks.SaltMiner.ConfigurationWizard
 
     runs-on:
     - self-hosted
