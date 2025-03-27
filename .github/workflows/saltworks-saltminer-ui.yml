@@ -67,7 +67,7 @@ jobs:
       with:
         images: saltworks/saltminer
         tags: |
-          type=raw,value=ui-{{ github.ref_name }}.{{commit_date 'YYYYMMDD-HHmmss'}}
+          type=raw,value=ui-{{ github.ref_name }}.{{date 'YYYYMMDD-HHmmss'}}
         labels: |
           org.opencontainers.image.title=saltminer-ui
           org.opencontainers.image.description=SaltMiner UI
