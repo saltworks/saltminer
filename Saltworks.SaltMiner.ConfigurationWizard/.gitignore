@@ -1,0 +1,10 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/Saltworks.SaltMiner.ConfigurationWizard/.vs/Saltworks.SaltMiner.ConfigurationWizard/v16
+/Saltworks.SaltMiner.ConfigurationWizard/Saltworks.SaltMiner.ConfigurationWizard/obj
+/Saltworks.SaltMiner.ConfigurationWizard/Saltworks.SaltMiner.ConfigurationWizard/bin/
+/Saltworks.SaltMiner.ConfigurationWizard/obj
+/Saltworks.SaltMiner.ConfigurationWizard/bin/
+/.vs
