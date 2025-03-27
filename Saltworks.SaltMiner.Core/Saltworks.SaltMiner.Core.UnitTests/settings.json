@@ -1,7 +1,7 @@
 {
   "SomeConfig": {
     "ThisIsSecret": "ThisIsSecret",
-    "ApiBaseAddress": "https://smdev-vm1.saltminer.io/smapi"
+    "ApiBaseAddress": ""
   },
   "LogConfig": {
 
