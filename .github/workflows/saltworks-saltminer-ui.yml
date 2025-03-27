@@ -1,0 +1,89 @@
+# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
+
+name: Saltworks.SaltMiner.Ui
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'Saltworks.SaltMiner.Ui/**'
+      - '.github/workflows/saltworks-saltminer-ui.yml'      
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build_ui:
+    name: Build UI
+    runs-on: 
+    - self-hosted
+    - node
+
+    strategy:
+      matrix:
+        node-version: [18.x]
+        # node-version: [18.x, 20.x, 22.x]
+        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+
+    steps:
+    #- name: Docker Setup Buildx
+    #  uses: docker/setup-buildx-action@v3.10.0
+    - uses: actions/checkout@v4
+    - name: Setup Python
+      uses: actions/setup-python@v5.4.0
+      with:
+        python-version: '3.9.21'
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: './Saltworks.SaltMiner.Ui'
+    - run: pwd
+    - run: ls -la
+    - run: cd Saltworks.SaltMiner.Ui && npm ci
+      name: npm install
+    - run: npm run generate --prefix ./Saltworks.SaltMiner.Ui
+      name: Build app
+    - run: ls -la ./Saltworks.SaltMiner.Ui/dist/smpgui
+      name: Show npm output
+    # This is just a temporary hack to use existing Dockerfile
+    - run: mkdir -p ./artifacts/dist/ui-web/smpgui
+      name: Create legacy artifacts dir
+    - run: cp -r ./Saltworks.SaltMiner.Ui/dist/smpgui/* ./artifacts/dist/ui-web/smpgui
+      name: Copy output to legacy dir
+    - run: ls -la ./artifacts/dist/ui-web/smpgui
+      name: Show copied files
+    
+    - name: Login to the container registry
+      uses: docker/login-action@v3.4.0
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract metadata (tags, labels) for Docker
+      id: meta
+      uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+      with:
+        images: saltworks/saltminer
+        tags: |
+          type=raw,value=ui-{{date 'YYYYMMDD-HHmmss' tz='America/Chicago'}}
+        labels: |
+          org.opencontainers.image.title=saltminer-ui
+          org.opencontainers.image.description=SaltMiner UI
+          org.opencontainers.image.vendor=Saltworks Security, LLC
+          org.opencontainers.image.created={{date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
+
+    - name: Build and push Docker images
+      uses: docker/build-push-action@v6.15.0
+      with:
+        file: ./container/Dockerfile-smpgui
+        context: .
+        push: true
+        provenance: mode=max
+        sbom: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+
+    #- run: npm run build --if-present
+    #- run: npm test
