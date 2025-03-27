@@ -2,4 +2,4 @@ FROM alpine:3.20
 
 WORKDIR /usr/share/saltworks/saltminer-3.0.0/ui-web/smpgui
 
-COPY ./artifacts/dist/ui-web/smpgui .
+COPY ./Saltworks.SaltMiner.Ui/dist/smpgui .
