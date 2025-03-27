@@ -10,7 +10,7 @@ on:
   #  branches: [ "main" ]
     paths:
     - 'Saltworks.SaltMiner.ConfigurationWizard/**'
-    - '.github/workflows/saltworks-saltminer-configurationWizard.yml'
+    - '.github/workflows/saltworks-saltminer-configurationwizard.yml'
 
 jobs:
   build:
