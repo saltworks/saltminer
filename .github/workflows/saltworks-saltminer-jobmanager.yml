@@ -9,6 +9,9 @@ on:
     - 'Saltworks.SaltMiner.JobManager/**'
     - '.github/workflows/saltworks-saltminer-jobmanager.yml'
 
+env:
+  CONFIGURATION: release
+
 jobs:
   build_jobmanager:
     name: Build Saltworks.SaltMiner.JobManager
@@ -29,6 +32,6 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore --disable-build-servers
     - name: Build
-      run: dotnet build --no-restore
+      run: dotnet build --no-restore --configuration $CONFIGURATION
     #- name: Test
     #  run: dotnet test --no-build --verbosity normal
