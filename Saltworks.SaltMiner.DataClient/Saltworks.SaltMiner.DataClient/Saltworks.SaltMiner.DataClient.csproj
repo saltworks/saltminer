@@ -18,11 +18,8 @@
 	</PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Saltworks.Utility.ApiHelper" Version="2.2.11" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\..\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core.csproj" />
+    <ProjectReference Include="..\..\Saltworks.ApiClient\Saltworks.Utility.ApiHelper\Saltworks.Utility.ApiHelper.csproj" />
   </ItemGroup>
 
 </Project>
