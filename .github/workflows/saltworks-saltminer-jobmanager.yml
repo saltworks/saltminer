@@ -1,7 +1,4 @@
-# This workflow will build a .NET project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
-
-name: Saltworks.SaltMiner.UiApiClient
+name: Saltworks.SaltMiner.JobManager
 
 on:
   push:
@@ -9,19 +6,19 @@ on:
   #pull_request:
   #  branches: [ "main" ]
     paths:
-    - 'Saltworks.SaltMiner.UiApiClient/**'
-    - '.github/workflows/saltworks-saltminer-uiapiclient.yml'
+    - 'Saltworks.SaltMiner.JobManager/**'
+    - '.github/workflows/saltworks-saltminer-jobmanager.yml'
 
 jobs:
-  build_uiapiclient:
-    name: Build Saltworks.SaltMiner.UiApiClient
+  build_config_wizard:
+    name: Saltworks.SaltMiner.JobManager
 
     runs-on:
     - self-hosted
     - dotnet
     defaults:
       run:
-        working-directory: ./Saltworks.SaltMiner.UiApiClient/Saltworks.SaltMiner.UiApiClient
+        working-directory: ./Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager
 
     steps:
     - uses: actions/checkout@v4
