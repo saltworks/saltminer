@@ -1,0 +1,27 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0
+
+WORKDIR /usr/share/saltworks/saltminer-3.0.0/jobmanager
+
+ARG ARTIFACT_PATH=.
+ARG smapp=/usr/share/saltworks
+ARG smapp3=${smapp}/saltminer-3.0.0
+ARG smcfg=/etc/saltworks
+ARG smcfg3=${smcfg}/saltminer-3.0.0
+ARG smlog=/var/log/saltworks
+ARG smlog3=${smlog}/saltminer-3.0.0
+
+ENV ARTIFACT_PATH=$ARTIFACT_PATH
+RUN mkdir -p ${smcfg3}/jobmanager
+RUN mkdir -p ${smlog3}
+
+COPY  $ARTIFACT_PATH .
+#RUN mv ${smapp3}/jobmanager/JobManagerSettings.json ${smcfg3}/jobmanager/
+RUN mv ${smapp3}/jobmanager/report-templates/ ${smcfg3}/jobmanager/
+
+ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
+ENV SALTMINER_JOBMANAGER_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/jobmanager/
+
+#TODO: move and transform config file.
+#COPY ./container/docker/config/saltminer-3.0.0/jobmanager/JobManagerSettings.json /etc/saltworks/saltminer-3.0.0/jobmanager/
+
+ENTRYPOINT ["/usr/bin/dotnet", "/usr/share/saltworks/saltminer-3.0.0/jobmanager/Saltworks.SaltMiner.JobManager.dll"]
