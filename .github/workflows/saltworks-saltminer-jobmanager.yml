@@ -10,8 +10,8 @@ on:
     - '.github/workflows/saltworks-saltminer-jobmanager.yml'
 
 jobs:
-  build_config_wizard:
-    name: Saltworks.SaltMiner.JobManager
+  build_jobmanager:
+    name: Build Saltworks.SaltMiner.JobManager
 
     runs-on:
     - self-hosted
