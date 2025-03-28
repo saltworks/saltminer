@@ -1,0 +1,37 @@
+# This workflow will build a .NET project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
+
+name: Saltworks.SaltMiner.UiApiClient
+
+on:
+  push:
+    branches: [ "main" ]
+  #pull_request:
+  #  branches: [ "main" ]
+    paths:
+    - 'Saltworks.SaltMiner.UiApiClient/**'
+    - '.github/workflows/saltworks-saltminer-uiapiclient.yml'
+
+jobs:
+  build_config_wizard:
+    name: Build Saltworks.SaltMiner.UiApiClient
+
+    runs-on:
+    - self-hosted
+    - dotnet
+    defaults:
+      run:
+        working-directory: ./Saltworks.SaltMiner.UiApiClient/Saltworks.SaltMiner.UiApiClient
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    - name: Restore dependencies
+      run: dotnet restore --disable-build-servers
+    - name: Build
+      run: dotnet build --no-restore
+    #- name: Test
+    #  run: dotnet test --no-build --verbosity normal
