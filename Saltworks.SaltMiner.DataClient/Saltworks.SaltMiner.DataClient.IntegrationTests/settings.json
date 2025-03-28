@@ -1,0 +1,11 @@
+{
+  "ApiBaseAddress": "",
+  "ApiBaseAddressLocal": "",
+  "ApiKey": "",
+  "AgentApiKey": "",
+  "ManagerApiKey": "",
+  "AdminApiKey": "",
+  "ApiKeyHeader": "",
+  "TimeoutSec": 10,
+  "VerifySsl": false
+}
