@@ -25,7 +25,6 @@
   </ItemGroup>
 	
   <ItemGroup>
-    <PackageReference Include="Saltworks.SaltMiner.UiApiClient" Version="3.1.7" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.8" />
 	  <PackageReference Include="Syncfusion.DocIO.Net.Core" Version="27.1.53" />
 	  <PackageReference Include="Syncfusion.DocIORenderer.Net.Core" Version="27.1.53" />
@@ -70,6 +69,7 @@
 	
   <ItemGroup>
     <ProjectReference Include="..\..\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.UiApiClient\Saltworks.SaltMiner.UiApiClient\Saltworks.SaltMiner.UiApiClient.csproj" />
   </ItemGroup>
 	
   <ProjectExtensions><VisualStudio><UserProperties /></VisualStudio></ProjectExtensions>
