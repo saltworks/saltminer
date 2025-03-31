@@ -3,8 +3,6 @@ name: Saltworks.SaltMiner.JobManager
 on:
   push:
     branches: [ "main" ]
-  #pull_request:
-  #  branches: [ "main" ]
     paths:
     - 'Saltworks.SaltMiner.JobManager/**'
     - '.github/workflows/saltworks-saltminer-jobmanager.yml'
