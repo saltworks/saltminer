@@ -72,5 +72,6 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
           ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.JobManager/${{ env.CONFIGURATION }}
+    
     #- name: Test
     #  run: dotnet test --no-build --verbosity normal
