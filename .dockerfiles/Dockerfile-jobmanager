@@ -16,7 +16,7 @@ RUN mkdir -p ${smlog3}
 
 COPY  $ARTIFACT_PATH .
 #RUN mv ${smapp3}/jobmanager/JobManagerSettings.json ${smcfg3}/jobmanager/
-#RUN mv ${smapp3}/jobmanager/report-templates/ ${smcfg3}/jobmanager/
+RUN mv ${smapp3}/jobmanager/Template/Saltworks/ ${smcfg3}/jobmanager/report-templates/
 
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_JOBMANAGER_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/jobmanager/
