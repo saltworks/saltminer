@@ -34,7 +34,7 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration $CONFIGURATION
 
-    - name: Set working directory path
+    - name: Store working directory path
       run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
 
     - name: Show output
