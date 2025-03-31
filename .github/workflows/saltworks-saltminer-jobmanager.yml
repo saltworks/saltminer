@@ -34,12 +34,11 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore --disable-build-servers
     - name: Build
-      run: dotnet build --no-restore --configuration $CONFIGURATION -o ${{ github.workspace }}
+      run: dotnet build --no-restore --configuration $CONFIGURATION
 
     - name: Show output
       run: |
         ls -lah ./artifacts/bin/Saltworks.SaltMiner.JobManager/$CONFIGURATION --group-directories-first
-        ls -lah ${{ github.workspace }}
 
     - name: Login to the container registry
       uses: docker/login-action@v3.4.0
@@ -71,6 +70,6 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          ARTIFACT_PATH=${{ github.workspace }}/artifacts/bin/Saltworks.SaltMiner.JobManager/${{ env.CONFIGURATION }}
+          ARTIFACT_PATH=${{ jobs.build_jobmanager.defaults.run.working-directory }}/artifacts/bin/Saltworks.SaltMiner.JobManager/${{ env.CONFIGURATION }}
     #- name: Test
     #  run: dotnet test --no-build --verbosity normal
