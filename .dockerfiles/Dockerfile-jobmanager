@@ -11,7 +11,7 @@ ARG smlog=/var/log/saltworks
 ARG smlog3=${smlog}/saltminer-3.0.0
 
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
-RUN mkdir -p ${smcfg3}/jobmanager
+RUN mkdir -p ${smcfg3}/jobmanager/report-templates
 RUN mkdir -p ${smlog3}
 
 COPY  $ARTIFACT_PATH .
