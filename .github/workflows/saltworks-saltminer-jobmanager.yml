@@ -36,6 +36,9 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration $CONFIGURATION
 
+    - name: Set working directory path
+      run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
+
     - name: Show output
       run: |
         ls -lah ./artifacts/bin/Saltworks.SaltMiner.JobManager/$CONFIGURATION --group-directories-first
@@ -70,6 +73,6 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          ARTIFACT_PATH=${{ jobs.build_jobmanager.defaults.run.working-directory }}/artifacts/bin/Saltworks.SaltMiner.JobManager/${{ env.CONFIGURATION }}
+          ARTIFACT_PATH=$WORKING_DIR/artifacts/bin/Saltworks.SaltMiner.JobManager/${{ env.CONFIGURATION }}
     #- name: Test
     #  run: dotnet test --no-build --verbosity normal
