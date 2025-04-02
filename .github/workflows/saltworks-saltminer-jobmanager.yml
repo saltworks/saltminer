@@ -12,7 +12,7 @@ env:
   CONFIG_FILE: JobManagerSettings.json
   DATA_API_BASE_URL: http://api:5000
   API_BASE_URL: http://ui-api:5001
-  EXEC_TRANSFORM: ${{ true }}
+  EXEC_TRANSFORM: true
 
 jobs:
   build_jobmanager:
@@ -32,7 +32,7 @@ jobs:
       with:
         dotnet-version: 8.0.x
     - name: Configuration File Transformation
-      if: env.EXEC_TRANSFORM == true
+      if: env.EXEC_TRANSFORM == 'true'
       run: |
         echo 'Transforming configuration file'
         jq '.JobManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}
