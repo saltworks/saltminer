@@ -82,7 +82,7 @@ jobs:
       with:
         file: .dockerfiles/Dockerfile-jobmanager
         context: ${{ env.WORKING_DIR }}
-        push: false
+        push: true
         provenance: mode=max
         sbom: true
         tags: ${{ steps.meta.outputs.tags }}
