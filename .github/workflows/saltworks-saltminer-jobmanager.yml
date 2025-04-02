@@ -12,7 +12,7 @@ env:
   CONFIG_FILE: JobManagerSettings.json
   DATA_API_BASE_URL: http://api:5000
   API_BASE_URL: http://ui-api:5001
-  EXEC_TRANSFORM: ${{ false }}
+  EXEC_TRANSFORM: ${{ true }}
 
 jobs:
   build_jobmanager:
