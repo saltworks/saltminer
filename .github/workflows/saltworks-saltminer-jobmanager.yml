@@ -9,6 +9,10 @@ on:
 
 env:
   CONFIGURATION: release
+  CONFIG_FILE: JobManagerSettings.json
+  DATA_API_BASE_URL: http://api:5000
+  API_BASE_URL: http://ui-api:5001
+  EXEC_TRANSFORM: ${{ true }}
 
 jobs:
   build_jobmanager:
@@ -27,15 +31,28 @@ jobs:
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
+    - name: Configuration File Transformation
+      if: env.EXEC_TRANSFORM == true
+      run: |
+        echo 'Transforming configuration file'
+        jq '.JobManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}
+        jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
+          --arg api "${{ env.API_BASE_URL  }}" \
+          '.JobManagerConfig.DataApiBaseUrl = $dapi | .JobManagerConfig.ApiBaseUrl = $api' \
+          ${{ env.CONFIG_FILE }} \
+          > ${{ env.CONFIG_FILE }}.new
+        jq '.JobManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}.new
+        mv ${{ env.CONFIG_FILE }} ${{ env.CONFIG_FILE }}.old
+        mv ${{ env.CONFIG_FILE }}.new ${{ env.CONFIG_FILE }}
+    - name: Store working directory path
+      run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
+    
     - name: Use artifacts directory
       run: dotnet new buildprops --use-artifacts
     - name: Restore dependencies
       run: dotnet restore --disable-build-servers
     - name: Build
       run: dotnet build --no-restore --configuration $CONFIGURATION
-
-    - name: Store working directory path
-      run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
 
     - name: Show output
       run: |
