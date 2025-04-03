@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:8.0
+FROM mcr.microsoft.com/dotnet/runtime:8.0.14-alpine3.21-amd64
 
 WORKDIR /usr/share/saltworks/saltminer-3.0.0/jobmanager
 
