@@ -3,11 +3,17 @@ name: Saltworks.SaltMiner.JobManager
 on:
   push:
     branches: [ "main" ]
-  #pull_request:
-  #  branches: [ "main" ]
     paths:
     - 'Saltworks.SaltMiner.JobManager/**'
     - '.github/workflows/saltworks-saltminer-jobmanager.yml'
+    - '.dockerfiles/Dockerfile-jobmanager'
+
+env:
+  CONFIGURATION: release
+  CONFIG_FILE: JobManagerSettings.json
+  DATA_API_BASE_URL: http://api:5000
+  API_BASE_URL: http://ui-api:5001
+  EXEC_TRANSFORM: true
 
 jobs:
   build_jobmanager:
@@ -26,9 +32,64 @@ jobs:
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
+    - name: Configuration File Transformation
+      if: env.EXEC_TRANSFORM == 'true'
+      run: |
+        echo 'Transforming configuration file'
+        jq '.JobManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}
+        jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
+          --arg api "${{ env.API_BASE_URL  }}" \
+          '.JobManagerConfig.DataApiBaseUrl = $dapi | .JobManagerConfig.ApiBaseUrl = $api' \
+          ${{ env.CONFIG_FILE }} \
+          > ${{ env.CONFIG_FILE }}.new
+        jq '.JobManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}.new
+        mv ${{ env.CONFIG_FILE }} ${{ env.CONFIG_FILE }}.old
+        mv ${{ env.CONFIG_FILE }}.new ${{ env.CONFIG_FILE }}
+    - name: Store working directory path
+      run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
+    
+    - name: Use artifacts directory
+      run: dotnet new buildprops --use-artifacts
     - name: Restore dependencies
       run: dotnet restore --disable-build-servers
     - name: Build
-      run: dotnet build --no-restore
+      run: dotnet build --no-restore --configuration $CONFIGURATION
+
+    - name: Show output
+      run: |
+        ls -lah ./artifacts/bin/Saltworks.SaltMiner.JobManager/$CONFIGURATION --group-directories-first
+
+    - name: Login to the container registry
+      uses: docker/login-action@v3.4.0
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract metadata (tags, labels) for Docker
+      id: meta
+      uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+      with:
+        images: saltworks/saltminer
+        tags: |
+          type=raw,value=jobmanager-${{ github.ref_name }}.{{date 'YYYYMMDD-HHmmss'}}
+        labels: |
+          org.opencontainers.image.title=saltminer-jobmanager
+          org.opencontainers.image.description=SaltMiner JobManager
+          org.opencontainers.image.vendor=Saltworks Security, LLC
+          org.opencontainers.image.created={{date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
+
+    - name: Build and push Docker images
+      uses: docker/build-push-action@v6.15.0
+      with:
+        file: .dockerfiles/Dockerfile-jobmanager
+        context: ${{ env.WORKING_DIR }}
+        push: true
+        provenance: mode=max
+        sbom: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.JobManager/${{ env.CONFIGURATION }}
+    
     #- name: Test
     #  run: dotnet test --no-build --verbosity normal
