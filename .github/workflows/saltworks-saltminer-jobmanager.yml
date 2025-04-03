@@ -6,6 +6,7 @@ on:
     paths:
     - 'Saltworks.SaltMiner.JobManager/**'
     - '.github/workflows/saltworks-saltminer-jobmanager.yml'
+    - '.dockerfiles/Dockerfile-jobmanager'
 
 env:
   CONFIGURATION: release
