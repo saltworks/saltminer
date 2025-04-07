@@ -1,16 +1,20 @@
-# This workflow will build a .NET project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
-
 name: Saltworks.SaltMiner.Ui.Api
 
 on:
   push:
     branches: [ "main" ]
-  #pull_request:
-  #  branches: [ "main" ]
     paths:
     - 'Saltworks.SaltMiner.Ui.Api/**'
     - '.github/workflows/saltworks-saltminer-ui-api.yml'
+    - '.dockerfiles/Dockerfile-ui-api'
+
+env:
+  CONFIGURATION: release
+  CONFIG_FILE: appsettings.json
+  KIBANA_BASE_URL: http://kibana:5601
+  DATA_API_BASE_URL: http://api:5000
+  KESTREL_ALLOW_REMOTE: true
+  EXEC_TRANSFORM: true
 
 jobs:
   build_uiapi:
@@ -29,12 +33,36 @@ jobs:
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
+
+    - name: Configuration File Transformation
+      if: env.EXEC_TRANSFORM == 'true'
+      run: |
+        echo 'Transforming configuration file'
+        echo 'UiApiConfig.DataApiBaseUrl Before'
+        jq '.UiApiConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}
+        jq --arg dapi "${{ env.DATA_API_BASE_URL }}" \
+          --argjson kar ${{ env.KESTREL_ALLOW_REMOTE }} \
+          --arg kbu "${{ env.KIBANA_BASE_URL }}" \
+          '.UiApiConfig.DataApiBaseUrl = $dapi | .UiApiConfig += {"KestrelAllowRemote": $kar} | .UiApiConfig += {"KibanaBaseUrl": $kbu}' \
+          ${{ env.CONFIG_FILE }} \
+          > ${{ env.CONFIG_FILE }}.new
+        echo 'UiApiConfig.DataApiBaseUrl After'
+        jq '.UiApiConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}.new
+        mv ${{ env.CONFIG_FILE }} ${{ env.CONFIG_FILE }}.old
+        mv ${{ env.CONFIG_FILE }}.new ${{ env.CONFIG_FILE }}
+    - name: Store working directory path
+      run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
+
     - name: Use artifacts directory
       run: dotnet new buildprops --use-artifacts
     - name: Restore dependencies
       run: dotnet restore --disable-build-servers
     - name: Build
-      run: dotnet build --no-restore
+      run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=0
+
+    - name: Show output
+      run: |
+        ls -lah ./artifacts/bin/Saltworks.SaltMiner.Ui.Api/$CONFIGURATION --group-directories-first
 
     - name: Login to the container registry
       uses: docker/login-action@v3.4.0
@@ -54,5 +82,17 @@ jobs:
           org.opencontainers.image.description=SaltMiner UI API
           org.opencontainers.image.vendor=Saltworks Security, LLC
           org.opencontainers.image.created={{date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
-    #- name: Test
-    #  run: dotnet test --no-build --verbosity normal
+
+          
+    - name: Build and push Docker images
+      uses: docker/build-push-action@v6.15.0
+      with:
+        file: .dockerfiles/Dockerfile-ui-api
+        context: ${{ env.WORKING_DIR }}
+        push: false
+        provenance: mode=max
+        sbom: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.Ui.Api/${{ env.CONFIGURATION }}
