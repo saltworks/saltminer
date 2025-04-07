@@ -81,7 +81,6 @@ jobs:
           org.opencontainers.image.title=saltminer-jobmanager
           org.opencontainers.image.description=SaltMiner UI API
           org.opencontainers.image.vendor=Saltworks Security, LLC
-          org.opencontainers.image.created={{date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
 
           
     - name: Build and push Docker images
