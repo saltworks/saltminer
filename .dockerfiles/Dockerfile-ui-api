@@ -6,6 +6,9 @@ ENV SALTMINER_UI_API_CONFIG_PATH=${smcfg3}
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
 
+# curl is used for healthcheck.
+RUN apk add --no-cache curl
+
 RUN mkdir -p ${smcfg3}
 
 WORKDIR /usr/share/saltworks/saltminer-3.0.0/ui-api
