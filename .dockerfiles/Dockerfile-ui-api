@@ -1,0 +1,19 @@
+FROM mcr.microsoft.com/dotnet/runtime:8.0.14-alpine3.21-amd64
+
+ARG ARTIFACT_PATH=.
+ARG smcfg3=/etc/saltworks/saltminer-3.0.0/ui-api
+ENV SALTMINER_UI_API_CONFIG_PATH=${smcfg3}
+ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
+ENV ARTIFACT_PATH=$ARTIFACT_PATH
+
+RUN mkdir -p ${smcfg3}
+
+WORKDIR /usr/share/saltworks/saltminer-3.0.0/ui-api
+
+COPY $ARTIFACT_PATH .
+
+RUN mv appsettings.json ${smcfg3} 
+
+EXPOSE 5001
+
+ENTRYPOINT ["/usr/bin/dotnet", "/usr/share/saltworks/saltminer-3.0.0/ui-api/Saltworks.SaltMiner.Ui.Api.dll"]
