@@ -1,32 +1,31 @@
-name: Saltworks.SaltMiner.JobManager
+name: Saltworks.SaltMiner.DataApi
 
 on:
   push:
-    branches:
-      - 'main'
-      - '3.0.9'
+    branches: [ "main" ]
     paths:
-    - 'Saltworks.SaltMiner.JobManager/**'
-    - '.github/workflows/saltworks-saltminer-jobmanager.yml'
-    - '.dockerfiles/Dockerfile-jobmanager'
+    - 'Saltworks.SaltMiner.DataApi/*'
+    - '.github/workflows/saltworks-saltminer-dataapi.yml'
+    - '.dockerfiles/Dockerfile'
+  pull_request:
+    branches: [ "main" ]
 
 env:
   CONFIGURATION: release
-  CONFIG_FILE: JobManagerSettings.json
-  DATA_API_BASE_URL: http://api:5000
-  API_BASE_URL: http://ui-api:5001
+  CONFIG_FILE: appsettings.json
+  KIBANA_BASE_URL: http://kibana:5601
+  KESTREL_ALLOW_REMOTE: true
   EXEC_TRANSFORM: true
 
 jobs:
-  build_jobmanager:
-    name: Build Saltworks.SaltMiner.JobManager
-
+  build_api:
+    name: Build API
     runs-on:
     - self-hosted
     - dotnet
     defaults:
       run:
-        working-directory: ./Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager
+        working-directory: ./Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi
 
     steps:
     - uses: actions/checkout@v4
@@ -34,34 +33,40 @@ jobs:
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
+
     - name: Configuration File Transformation
       if: env.EXEC_TRANSFORM == 'true'
       run: |
         echo 'Transforming configuration file'
-        jq '.JobManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}
-        jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
-          --arg api "${{ env.API_BASE_URL  }}" \
-          '.JobManagerConfig.DataApiBaseUrl = $dapi | .JobManagerConfig.ApiBaseUrl = $api' \
+        jq --argjson kar ${{ env.KESTREL_ALLOW_REMOTE }} \
+          --arg kbu "${{ env.KIBANA_BASE_URL }}" \
+          '.ApiConfig += {"KestrelAllowRemote": $kar} | .ApiConfig += {"KibanaBaseUrl": $kbu}' \
           ${{ env.CONFIG_FILE }} \
           > ${{ env.CONFIG_FILE }}.new
-        jq '.JobManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}.new
         mv ${{ env.CONFIG_FILE }} ${{ env.CONFIG_FILE }}.old
-        mv ${{ env.CONFIG_FILE }}.new ${{ env.CONFIG_FILE }}
+        mv ${{ env.CONFIG_FILE }}.new ${{ env.CONFIG_FILE }}        
     - name: Store working directory path
       run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
     - name: Store artifact path
-      run: echo "ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.JobManager/${{ env.CONFIGURATION}}" >> $GITHUB_ENV 
+      run: echo "ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_ENV 
 
     - name: Use artifacts directory
       run: dotnet new buildprops --use-artifacts
     - name: Restore dependencies
       run: dotnet restore --disable-build-servers
     - name: Build
-      run: dotnet build --no-restore --configuration $CONFIGURATION
+      run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=0
 
     - name: Show output
       run: |
         ls -lah ${{ env.ARTIFACT_PATH }} --group-directories-first
+
+    - run: mkdir ${{ env.ARTIFACT_PATH }}/data-templates
+      name: Create data-templates directory
+    - run: cp -r ${{ github.workspace }}/Saltworks.SaltMiner.IndexTemplates/* ${{ env.ARTIFACT_PATH }}/data-templates
+      name: Copy data templates to API output
+    - run: ls -lah ${{ env.ARTIFACT_PATH }}/data-templates --group-directories-first
+      name: Show copied files
 
     - name: Login to the container registry
       uses: docker/login-action@v3.4.0
@@ -75,16 +80,17 @@ jobs:
       with:
         images: saltworks/saltminer
         tags: |
-          type=raw,value=jobmanager-${{ github.ref_name }}.{{date 'YYYYMMDD-HHmmss'}}
+          type=raw,value=api-{{date 'YYYYMMDD-HHmmss' tz='America/Chicago'}}
         labels: |
-          org.opencontainers.image.title=saltminer-jobmanager
-          org.opencontainers.image.description=SaltMiner JobManager
+          org.opencontainers.image.title=saltminer-api
+          org.opencontainers.image.description=SaltMiner API
           org.opencontainers.image.vendor=Saltworks Security, LLC
 
     - name: Build and push Docker images
+      id: push
       uses: docker/build-push-action@v6.15.0
       with:
-        file: .dockerfiles/Dockerfile-jobmanager
+        file: .dockerfiles/Dockerfile
         context: ${{ env.WORKING_DIR }}
         push: true
         provenance: mode=max
