@@ -26,3 +26,4 @@ Saltworks.SaltMiner.Python/sm-run-config-location.json
 Saltworks.SaltMiner.Python/DebugStart.py
 Saltworks.SaltMiner.Python/Config/
 
+/Saltworks.SaltMiner.SourceAdapters/Saltworks.Saltminer.SourceAdapters.IntegrationTests/settings.json
