@@ -4,7 +4,7 @@ on:
   push:
     branches:
     - main
-    - '3.0.10'
+    - '3.0.*'
     paths:
     - 'Saltworks.SaltMiner.DataApi/*'
     - '.github/workflows/saltworks-saltminer-dataapi.yml'
@@ -59,7 +59,7 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=0
 
-    - name: Show output
+    - name: Inspect output
       run: |
         ls -lah ${{ env.ARTIFACT_PATH }} --group-directories-first
 
@@ -82,7 +82,7 @@ jobs:
       with:
         images: saltworks/saltminer
         tags: |
-          type=raw,value=api-{{date 'YYYYMMDD-HHmmss' tz='America/Chicago'}}
+          type=raw,value=api-${{ github.ref_name }}.{{date 'YYYYMMDD-HHmmss' tz='America/Chicago'}}
         labels: |
           org.opencontainers.image.title=saltminer-api
           org.opencontainers.image.description=SaltMiner API
