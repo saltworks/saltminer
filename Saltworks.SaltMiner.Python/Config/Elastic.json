@@ -1,0 +1,20 @@
+{
+  "_comment": [
+    "Connection settings for elastic, ElasticUrl can be an array of servers or a single server.",
+    "ElasticUseAuth can be set to False if you want to use Elastic w/o authentication but should never be done in production."
+  ],
+  "Host": "localhost",
+  "Username": "elastic",
+  "Password": "",
+  "Scheme": "http",
+  "Port": "9200",
+  "SslVerify": "False",
+  "RequestTimeout": 30,
+  "BulkRequestTimeout": 120,
+  "DefaultScrollSize": 1000,
+  "RetryDelaySecs": 90,
+  "MappingsPath": "Mappings/",
+  "TemplateMappingsPath": "Template/Mappings/",
+  "QueryTemplates": {
+  }
+}
