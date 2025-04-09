@@ -1,9 +1,0 @@
-{
-  "_UrlComment": "SCW base URL",
-  "Url": "https://portal-api.securecodewarrior.com/api/v2",
-  "ApiKey": "",
-  "Method": "all",
-  "Proxy": "",
-  "ProxyUser": "",
-  "ProxyPassword": ""
-}

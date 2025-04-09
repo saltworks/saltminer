@@ -9,7 +9,7 @@
   "user_role": "pentester",
   "pentest_admin_role": "pentest-admin",
   "redirect_url": "/request-access",
-  "copyright": "Copyright © {year} Saltworks",
-  "pageTitle": "Saltworks",
-  "markdown_editor_wysiwyg_default": true
+  "copyright": "Copyright ©{year} Saltworks",
+  "markdown_editor_wysiwyg_default": true,
+  "pageTitle": "SaltMiner"
 }

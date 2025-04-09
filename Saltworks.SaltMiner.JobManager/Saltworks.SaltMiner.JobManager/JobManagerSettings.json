@@ -1,19 +1,19 @@
 {
   "JobManagerConfig": {
-    "EncryptionKey": "Hw4ppDxa2G6tephjlRl6lRobdmsRpIDbNmolQHAaH6k=",
-    "EncryptionIv": "IVGALn0fDALuHkyVWE78dA==",
     "DataApiBaseUrl": "http://localhost:5000",
     "DataApiVerifySsl": "true",
-    "DataApiKeyIs": "jobmanagersecret",
-    "DataApiKey": "ENC: H0xb9U\u002BW745GW94oLlpM/Vewy6RF0wAD97DARS1MedBmewjgoIM4TdPfZablgCRq",
+    "DataApiKey": "ENC: 78YyVT1gkNKKy0W461hD11Y3OioEQ//hJeUTe04yycg=",
     "DataApiKeyHeader": "Authorization",
     "DataApiTimeoutSec": 10,
     "ApiBaseUrl": "http://localhost:5001",
-    "ApiBaseUrlLocal": "http://localhost:58679",
     "ApiTimeoutSec": "10",
     "ApiVerifySsl": "true",
     "IssueImportCSVBatchSize": 50,
     "EngagementReportNameTemplate": "{Name}_{Id}",
+    "ReportOutputZip": true,
+    "EncryptionKey": "Hw4ppDxa2G6tephjlRl6lRobdmsRpIDbNmolQHAaH6k=",
+    "EncryptionIv": "IVGALn0fDALuHkyVWE78dA==",
+	"ReportTemplateFolderPath": "/etc/saltworks/saltminer-3.0.0/jobmanager/report-templates",
     "IssueImportRequiredCSVAssetHeaders": [
       "saltminer.asset.name",
       "saltminer.asset.source_id"
@@ -34,7 +34,7 @@
     "Serilog": {
       "Using": [ "Serilog.Sinks.Console", "Serilog.Sinks.File" ],
       "MinimumLevel": {
-        "Default": "Debug",
+        "Default": "Information",
         "Override": {
           "Microsoft": "Warning",
           "System.Net": "Warning",
@@ -66,11 +66,11 @@
                 {
                   "Name": "File",
                   "Args": {
-                    "path": "smjm-.log",
+                    "path": "/var/log/saltworks/saltminer-3.0.0/smjm-.log",
                     "rollingInterval": "Day",
                     "retainedFileCountLimit": "7",
                     "formatter": "Elastic.CommonSchema.Serilog.EcsTextFormatter, Elastic.CommonSchema.Serilog",
-                    "restrictedToMinimumLevel": "Debug"
+                    "restrictedToMinimumLevel": "Information"
                   }
                 }
               ]
@@ -93,7 +93,7 @@
                 {
                   "Name": "File",
                   "Args": {
-                    "path": "smjm-metric-.log",
+                    "path": "/var/log/saltworks/saltminer-3.0.0/smjm-metric-.log",
                     "rollingInterval": "Day",
                     "retainedFileCountLimit": "7",
                     "formatter": "Elastic.CommonSchema.Serilog.EcsTextFormatter, Elastic.CommonSchema.Serilog"
