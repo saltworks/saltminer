@@ -165,7 +165,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             Logger.LogInformation($"Getting Engagement Data");
 
             var engagementSummary = UiApiClient.EngagementSummaryGet(JobQueue.TargetId).Data;
-            var engagementAssets = UiApiClient.EngagementAssetsGet(JobQueue.TargetId)?.Data?.OrderBy(x => x.Name).ToList() ?? [];
+            var engagementAssets = UiApiClient.EngagementAssetsGet(JobQueue.TargetId)?.Data?.OrderBy(x => x.Name.Value).ToList() ?? [];
             var engagementIssues = new List<IssueFull>();
             var engagementIssuesRemoved = new List<IssueFull>();
             var commentSearch = new Core.Data.SearchRequest()
@@ -506,7 +506,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             var assetTocs = new List<AssetToc>();
             var issueTocs = new List<IssueToc>();
 
-            foreach (var asset in assets.OrderBy(x => x.Name))
+            foreach (var asset in assets.OrderBy(x => x.Name.Value))
             {
                 assetTocs.Add(new AssetToc
                 {
