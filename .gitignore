@@ -8,6 +8,8 @@
 **/*/ConfigPath.json
 **/*IntegrationTests/settings.json
 /Saltworks.SaltMiner.SyncAgent/Saltworks.SaltMiner.SyncAgent/SourceConfigs/
+/Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager/Template/*
+!/Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager/Template/Saltworks
 
 # Python
 **/*/__pycache__/
