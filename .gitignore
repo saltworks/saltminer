@@ -1,2 +1,27 @@
-release/.DS_Store
-.DS_Store
+**/*/.DS_Store
+**/*/[Oo]bj/
+**/*/[Dd]ebug/
+**/*/[Bb]in/
+**/*/.vs/
+**/*/[Pp]roperties/
+**/*/TestResults/
+/Saltworks.SaltMiner.ElasticClient/Saltworks.SaltMiner.ElasticClient.IntegrationTests/settings.json
+/Saltworks.SaltMiner.SyncAgent/Saltworks.SaltMiner.SyncAgent/SourceConfigs/
+
+# Python
+**/*/__pycache__/
+Saltworks.SaltMiner.Python/.venv/
+Saltworks.SaltMiner.Python/logs/
+Saltworks.SaltMiner.Python/SaltMiner Environment/
+Saltworks.SaltMiner.Python/AppVulsCustom/*
+!Saltworks.SaltMiner.Python/AppVulsCustom/__init__.py
+!Saltworks.SaltMiner.Python/AppVulsCustom/*SW.py
+Saltworks.SaltMiner.Python/AuthHelperCustom/*
+!Saltworks.SaltMiner.Python/AuthHelperCustom/*SW.py
+Saltworks.SaltMiner.Python/Custom/*
+!Saltworks.SaltMiner.Python/Custom/*.py
+Saltworks.SaltMiner.Python/saltworks.key
+Saltworks.SaltMiner.Python/sm-run-config-location.json
+Saltworks.SaltMiner.Python/DebugStart.py
+Saltworks.SaltMiner.Python/Config/
+

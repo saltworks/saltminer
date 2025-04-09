@@ -1,9 +1,0 @@
-{
-  "SomeConfig": {
-    "ThisIsSecret": "ThisIsSecret",
-    "ApiBaseAddress": ""
-  },
-  "LogConfig": {
-
-  }
-}

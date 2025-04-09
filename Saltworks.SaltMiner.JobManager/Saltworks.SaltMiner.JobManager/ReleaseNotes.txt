@@ -1,9 +1,0 @@
-3.0.2
-	- Add support for custom importers for pentest issue imports.
-	- Add standard queue list view in Kibana for the job manager queue.
-	- Add cleanup processor to clean up older completed/error queue items.
-	- Improve generated pentest report appearance / now in Word format.
-	- Job Manager now runs as a service so it can monitor and respond to job queue updates more quickly.
-
-3.0.1
-	- Initial release of JobManager, replacing Reporting service for processing imports and reports.
