@@ -21,6 +21,7 @@ env:
   DATA_API_BASE_URL: http://api:5000
   PY_ARTIFACT_PATH: Saltworks.SaltMiner.Python
   PY_CONFIG_FILE: SMv3.json
+  DEPLOY_ARTIFACT_PATH: Saltworks.SaltMiner.Deploy
   EXEC_TRANSFORM: true
   WARNING_LEVEL: 0
 
@@ -132,7 +133,7 @@ jobs:
         mv ${{ env.AGENT_CONFIG_FILE }} ${{ env.AGENT_CONFIG_FILE }}.old
         mv ${{ env.AGENT_CONFIG_FILE }}.new ${{ env.AGENT_CONFIG_FILE }}
       working-directory: ${{ github.workspace }}/${{ env.AGENT_ARTIFACT_PATH }}
-      
+
     - name: Show Agent output
       run: |
         ls -lah ${{ env.AGENT_ARTIFACT_PATH }} --group-directories-first
