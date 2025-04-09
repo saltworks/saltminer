@@ -82,7 +82,7 @@ jobs:
       with:
         images: saltworks/saltminer
         tags: |
-          type=raw,value=api-{{date 'YYYYMMDD-HHmmss' tz='America/Chicago'}}
+          type=raw,value=api-${{ github.ref_name }}.{{date 'YYYYMMDD-HHmmss' tz='America/Chicago'}}
         labels: |
           org.opencontainers.image.title=saltminer-api
           org.opencontainers.image.description=SaltMiner API
