@@ -1,18 +1,7 @@
-''' --[auto-generated, do not modify this block]--
-*
-* Copyright (c) 2025 Saltworks Security, LLC
-*
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
-*
-* Change Date: 2029-04-09
-*
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
-*
-* ----
-'''
+# Copyright (C) Saltworks Security, LLC - All Rights Reserved
+# Unauthorized copying of this file, via any medium is strictly prohibited
+# Proprietary and confidential
+# Written by Saltworks Security, LLC  (www.saltworks.io) , 2024
 
 # 10/26/21 TD
 # Originally SyncSSC.py
@@ -709,6 +698,7 @@ class SyncExtractor(object):
         #sys.exit()
 
         holdlastFPR = json.dumps(projectVersion['currentState']['lastFprUploadDate'])
+        holdAttnRequired = projectVersion['currentState']['attentionRequired']
         holdname = projectVersion['name']
         holdprojectname = projectVersion['project']['name']
 
@@ -719,11 +709,12 @@ class SyncExtractor(object):
     
         if len(foundproject) == 1:
             lastFPRdate = json.dumps(foundproject[projid]['currentState']['lastFprUploadDate'])
+            lastAttnRequired = foundproject[projid]['currentState']['attentionRequired']
             compname = foundproject[projid]['name']
             compprojectname = foundproject[projid]['project']['name'] 
             #logging.info (lastFPRdate)
 
-            if lastFPRdate == holdlastFPR:
+            if lastFPRdate == holdlastFPR and lastAttnRequired == holdAttnRequired:
                 #match found - see if counts have changed
                 issues_count = self.__SscUtils.getProjectVersionIssueCounts(projid, projectDefFilter)
 
@@ -759,9 +750,13 @@ class SyncExtractor(object):
                     updateReason = f"{updateReason}, did not find counts"
 
             else:
-                logging.info(f"{pvMessage}, found project but different lastFPRUploadDate")
+                if lastFPRdate == holdlastFPR:
+                    logging.info(f"{pvMessage}, found project but currentState.attentionRequired has changed")
+                    updateReason = f"{updateReason}, found project but currentState.attentionRequired has changed"
+                else:
+                    logging.info(f"{pvMessage}, found project but different lastFPRUploadDate")
+                    updateReason = f"{updateReason}, found project but different lastFPRUploadDate"
                 needsReset = True
-                updateReason = f"{updateReason}, found project but different lastFPRUploadDate"
         else:
             logging.info(f"{pvMessage}, did not find project at all")
             needsReset = True
