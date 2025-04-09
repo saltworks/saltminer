@@ -15,6 +15,8 @@ RUN apk add --no-cache curl
 RUN mkdir -p ${smcfg3}/api
 RUN mkdir -p ${smlog3}
 
+WORKDIR /usr/share/saltworks/saltminer-3.0.0/api
+
 COPY $ARTIFACT_PATH .
 RUN mv ${smapp3}/api/appsettings.json ${smcfg3}/api/
 
