@@ -1,0 +1,28 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "normalizer": {
+        "lc_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": [ "lowercase", "asciifolding" ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "target_id": { "type": "keyword" },
+      "target_type": { "type": "keyword" },
+      "target_instance": { "type": "keyword" },
+      "force": { "type": "boolean" },
+      "created": { "type": "date" },
+      "completed": { "type": "date" },
+      "locked": { "type": "date" },
+      "lock_id": { "type": "keyword" },
+      "priority": { "type": "integer" }
+    }
+  }
+}

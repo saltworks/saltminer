@@ -1,0 +1,38 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "normalizer": {
+        "lc_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": [ "lowercase", "asciifolding" ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "applicationId": { "type": "keyword" },
+      "applicationName": { "type": "keyword" },
+      "applicationDescription": { "type": "keyword" },
+      "applicationCreatedDate": { "type": "date" },
+      "businessCriticalityTypeId": { "type": "keyword" },
+      "businessCriticalityType": { "type": "keyword" },
+      "emailList": { "type": "keyword" },
+      "applicationTypeId": { "type": "keyword" },
+      "sourceName": { "type": "keyword" },
+      "applicationType": { "type": "keyword" },
+      "hasMicroservices": { "type": "boolean" },
+      "attributes": {
+        "type": "nested",
+        "properties": {
+          "name": { "type": "keyword" },
+          "id": { "type": "keyword" },
+          "value": { "type": "keyword" }
+        }
+      }
+    }
+  }
+}

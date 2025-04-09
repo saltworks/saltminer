@@ -1,0 +1,131 @@
+{
+  "index_patterns": [
+    "inventory_asset*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "analysis": {
+          "analyzer": {
+            "lc_keyword": {
+              "filter": [
+                "uppercase"
+              ],
+              "tokenizer": "keyword"
+            }
+          }
+        },
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "type": "date"
+        },
+        "last_updated": {
+          "type": "date"
+        },
+        "key": {
+          "type": "keyword",
+          "fields": {
+            "text": {
+              "type": "text"
+            }
+          }
+        },
+        "version": {
+          "type": "keyword",
+          "fields": {
+            "text": {
+              "type": "text"
+            }
+          }
+        },
+        "is_production": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "text"
+        },
+        "name": {
+          "type": "keyword",
+          "fields": {
+            "text": {
+              "type": "text"
+            }
+          }
+        },
+        "attributes": {
+          "type": "object"
+        },
+        "saltminer": {
+          "properties": {
+            "score": {
+              "properties": {
+                "pass_fail": {
+                  "type": "boolean"
+                },
+                "pass_fail_reasons": {
+                  "type": "text"
+                },
+                "star_rating": {
+                  "type": "integer"
+                },
+                "compliance": {
+                  "properties": {
+                    "prod": {
+                      "type": "integer"
+                    },
+                    "dev": {
+                      "type": "integer"
+                    },
+                    "test": {
+                      "type": "integer"
+                    },
+                    "overall": {
+                      "type": "integer"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "last_updated": {
+                      "type": "date"
+                    }
+                  }
+                },
+                "risk": {
+                  "properties": {
+                    "prod": {
+                      "type": "integer"
+                    },
+                    "dev": {
+                      "type": "integer"
+                    },
+                    "test": {
+                      "type": "integer"
+                    },
+                    "overall": {
+                      "type": "integer"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "last_updated": {
+                      "type": "date"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

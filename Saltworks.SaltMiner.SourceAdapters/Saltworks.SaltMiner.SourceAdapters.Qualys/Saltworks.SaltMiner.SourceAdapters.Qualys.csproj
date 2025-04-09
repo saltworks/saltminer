@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Authors>Saltworks, LLC</Authors>
+    <Company>Saltworks, LLC</Company>
+    <Description>Source adapter for Qualys</Description>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <NoWarn>1701;1702;S3236;S3925</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <NoWarn>1701;1702;S3236;S3925</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<InternalsVisibleTo Include="Saltworks.SaltMiner.SourceAdapters.IntegrationTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters.Core\Saltworks.SaltMiner.SourceAdapters.Core\Saltworks.SaltMiner.SourceAdapters.Core.csproj" />
+  </ItemGroup>
+
+</Project>

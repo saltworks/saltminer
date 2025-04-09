@@ -1,0 +1,60 @@
+{
+  "index_patterns": [
+    "sys_custom_importer*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+           "type": "date"
+         },
+         "last_updated": {
+           "type": "date"
+         },
+        "file_in_directory" : {
+          "type": "keyword"
+        },
+        "file_out_directory" : {
+          "type": "keyword"
+        },
+        "working_directory" : {
+          "type": "keyword"
+        },
+        "base_command" : {
+          "type": "keyword"
+        },
+        "parameters" : {
+          "type": "keyword"
+        },
+        "type" : {
+          "type": "keyword",
+          "fields": {
+            "text": { "type": "text" }
+          }
+        },
+        "file_extension" : {
+          "type": "keyword"
+        },
+        "timeout" : {
+          "type": "integer"
+        },
+        "delete_in_file" : {
+          "type": "boolean"
+        },
+        "delete_out_file" : {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{"processors":
+  [
+  {
+    "pipeline": {
+      "name": "saltminer-pass-fail-values-pipeline",
+      "description": "sets dependent values for  pass fail"
+    }
+  },
+  {
+    "script": {
+      "source": "try{\n    String timeNow = ctx.saltminer.score.pass_fail_reviewed ; \n    String scanDate = ctx.saltminer.scan.scan_date ; \n    String formattedTimeNow = (timeNow.substring(0,19) + 'Z') ; \n    String formattedScanDate = (scanDate + 'Z') ; \n    ZonedDateTime parsedTimeNow = ZonedDateTime.parse(formattedTimeNow) ; \n    ZonedDateTime parsedScanDate = ZonedDateTime.parse(formattedScanDate);\n    long difference = ChronoUnit.DAYS.between(parsedScanDate, parsedTimeNow) ; \n    if (ctx.saltminer.scan.assessment_type == 'SAST'){\n        ctx.saltminer.score.last_scan.sast = difference ;\n    }\n    else if (ctx.saltminer.scan.assessment_type == 'DAST'){\n        ctx.saltminer.score.last_scan.dast = difference ; \n    }\n    else if (ctx.saltminer.scan.assessment_type == 'Open'){\n        ctx.saltminer.score.last_scan.open = difference ; \n    }\n    else if (ctx.saltminer.scan.assessment_type == 'Mobile'){\n        ctx.saltminer.score.last_scan.mobile = difference ; \n    }\n}\ncatch (Exception ex)\n{\n    ctx.error = ex.toString();\n} ",
+      "ignore_failure":true,
+      "description": "Calculates score.last_scan values"
+    }
+  },
+  {
+    "script": {
+      "source": "try{\nString timeNow = ctx.saltminer.score.pass_fail_reviewed ; \nString foundDate = ctx.vulnerability.found_date ;\nString formattedFoundDate = (foundDate +'Z');\nString formattedTimeNow = (timeNow.substring(0,19) + 'Z') ; \nZonedDateTime parsedTimeNow = ZonedDateTime.parse(formattedTimeNow);\nZonedDateTime parsedFoundDate = ZonedDateTime.parse(formattedFoundDate);\nlong difference = ChronoUnit.DAYS.between(parsedFoundDate, parsedTimeNow) ;\nif (ctx.saltminer.asset.attributes.business_criticality == 'High'){\n    if (ctx.vulnerability.severity == 'Critical'){\n        if (difference > 15){\n            ctx.saltminer.score.pass_fail = false;\n        }\n    }\n    else if (ctx.vulnerability.severity == 'High'){\n        if (difference >30){\n            ctx.saltminer.score.pass_fail = false; \n        }\n    }\n}\n}\ncatch (Exception ex)\n{\n    ctx.error = ex.toString();\n}",
+      "ignore_failure":true,
+      "description": "Pass Fail Logic here"
+    }
+  }
+]}

@@ -1,0 +1,282 @@
+{
+  "index_patterns": [
+    "snapshot*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": "2",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "type": "date"
+        },
+        "last_updated": {
+          "type": "date"
+        },
+        "saltminer": {
+          "properties": {
+            "snapshot_date": {
+              "type": "date"
+            },
+            "critical": {
+              "type": "long"
+            },
+            "high": {
+              "type": "long"
+            },
+            "medium": {
+              "type": "long"
+            },
+            "low": {
+              "type": "long"
+            },
+            "info": {
+              "type": "long"
+            },
+			      "noscan": {
+              "type": "integer"
+            },
+            "is_historical": {
+              "type": "boolean"
+            },
+            "scan": {
+              "properties": {
+                "assessment_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "product_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "product": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "vendor": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                }
+              }
+            },
+            "asset": {
+              "properties": {
+                "id": {
+                  "type": "keyword"
+                },
+                "name": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "description": {
+                  "type": "text"
+                },
+                "version_id": {
+                  "type": "keyword"
+                },
+                "version": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "source_id": {
+                  "type": "keyword"
+                },
+                "instance": {
+                  "type": "keyword"
+                },
+                "source_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "asset_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "is_saltminer_source": {
+                  "type": "boolean"
+                },
+                "is_retired": {
+                  "type": "boolean"
+                },
+                "is_production": {
+                  "type": "boolean"
+                },
+                "last_scan_days_policy": {
+                  "type": "integer"
+                },
+                "host": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "ip": {
+                  "type": "ip"
+                },
+                "scheme": {
+                  "type": "keyword"
+                },
+                "port": {
+                  "type": "integer"
+                },
+                "attributes": {
+                  "type": "object"
+                }
+              }
+            },
+            "source": {
+              "properties": {
+                "analyzer": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "confidence": {
+                  "type": "float"
+                },
+                "impact": {
+                  "type": "float"
+                },
+                "issue_status": {
+                  "type": "keyword"
+                },
+                "kingdom": {
+                  "type": "keyword"
+                },
+                "likelihood": {
+                  "type": "float"
+                }
+              }
+            },
+            "inventory_asset": {
+              "properties": { 
+                "key": {
+                  "type": "keyword"
+                }
+              }
+            },
+            "engagement": {
+              "properties": {
+                "customer": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "id": {
+                  "type": "keyword"
+                },
+                "name": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "publish_date": {
+                  "type": "date"
+                },
+                "subtype": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                }
+              }
+            },
+            "vulnerability": {
+              "properties": {
+                "source_severity": {
+                  "type": "keyword"
+                },
+                "category": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "classification": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "name": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "severity": {
+                  "type": "keyword"
+                },
+                "severity_level": {
+                  "type": "integer"
+                },
+                "scanner": {
+                  "properties": {
+                    "assessment_type": {
+                      "type": "keyword"
+                    },
+                    "product": {
+                      "type": "keyword",
+                      "fields": {
+                        "text": { "type": "text" }
+                      }
+                    },
+                    "vendor": {
+                      "type": "keyword",
+                      "fields": {
+                        "text": { "type": "text" }
+                      }
+                    }
+                  }
+                },
+                "score": {
+                  "properties": {
+                    "base": {
+                      "type": "float"
+                    },
+                    "environmental": {
+                      "type": "float"
+                    },
+                    "temporal": {
+                      "type": "float"
+                    },
+                    "version": {
+                      "type": "keyword"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+[Unit]
+Description=SaltMiner Job Manager Service
+
+[Service]
+WorkingDirectory=/usr/share/saltworks/saltminer-3.0.0/jobmanager
+ExecStart=/usr/bin/dotnet /usr/share/saltworks/saltminer-3.0.0/jobmanager/Saltworks.SaltMiner.JobManager.dll
+Restart=always
+# Restart service after 10 seconds if the dotnet service crashes:
+RestartSec=10
+# The default value is 90 seconds for most distributions.
+TimeoutStopSec=90
+KillSignal=SIGINT
+SyslogIdentifier=saltminer-jobmanager
+User=svc-saltminer
+Environment=DOTNET_PRINT_TELEMETRY_MESSAGE=false
+Environment=SALTMINER_JOBMANAGER_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/jobmanager/
+
+[Install]
+WantedBy=multi-user.target

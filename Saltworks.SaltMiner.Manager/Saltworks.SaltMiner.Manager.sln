@@ -1,0 +1,67 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31912.275
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Saltworks.SaltMiner.Manager", "Saltworks.SaltMiner.Manager\Saltworks.SaltMiner.Manager.csproj", "{902BCD65-6735-4A8A-BAD4-90EA4D93D168}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Saltworks.SaltMiner.Manager.IntegrationTests", "Saltworks.SaltMiner.Manager.IntegrationTests\Saltworks.SaltMiner.Manager.IntegrationTests.csproj", "{7681AA09-64DF-41B3-9E0F-1EA5E3E3AF0A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.DataClient", "..\Saltworks.SaltMiner.DataClient\Saltworks.SaltMiner.DataClient\Saltworks.SaltMiner.DataClient.csproj", "{8304A91B-DB6D-4A1C-8320-9C1CE322A896}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.Licensing.Core", "..\Saltworks.SaltMiner.Licensing\Saltworks.SaltMiner.Licensing.Core\Saltworks.SaltMiner.Licensing.Core.csproj", "{27FC1C1F-ABAC-46E7-AB8F-5D83E23501DB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.ConfigurationWizard", "..\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard.csproj", "{8379296F-30EB-48A7-B906-614694A92800}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.Core", "..\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core.csproj", "{34D34D7C-6662-4048-B019-C997B5E89973}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.Utility.ApiHelper", "..\Saltworks.ApiClient\Saltworks.Utility.ApiHelper\Saltworks.Utility.ApiHelper.csproj", "{75853145-9667-465E-999D-8499CFACE941}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.ConsoleApp.Core", "..\Saltworks.SaltMiner.ConsoleApp.Core\Saltworks.SaltMiner.ConsoleApp.Core\Saltworks.SaltMiner.ConsoleApp.Core.csproj", "{D2A1D2C6-1DAF-448B-96C2-60EDBDDD2E25}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{902BCD65-6735-4A8A-BAD4-90EA4D93D168}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{902BCD65-6735-4A8A-BAD4-90EA4D93D168}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{902BCD65-6735-4A8A-BAD4-90EA4D93D168}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{902BCD65-6735-4A8A-BAD4-90EA4D93D168}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7681AA09-64DF-41B3-9E0F-1EA5E3E3AF0A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7681AA09-64DF-41B3-9E0F-1EA5E3E3AF0A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7681AA09-64DF-41B3-9E0F-1EA5E3E3AF0A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7681AA09-64DF-41B3-9E0F-1EA5E3E3AF0A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8304A91B-DB6D-4A1C-8320-9C1CE322A896}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8304A91B-DB6D-4A1C-8320-9C1CE322A896}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8304A91B-DB6D-4A1C-8320-9C1CE322A896}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8304A91B-DB6D-4A1C-8320-9C1CE322A896}.Release|Any CPU.Build.0 = Release|Any CPU
+		{27FC1C1F-ABAC-46E7-AB8F-5D83E23501DB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{27FC1C1F-ABAC-46E7-AB8F-5D83E23501DB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{27FC1C1F-ABAC-46E7-AB8F-5D83E23501DB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{27FC1C1F-ABAC-46E7-AB8F-5D83E23501DB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8379296F-30EB-48A7-B906-614694A92800}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8379296F-30EB-48A7-B906-614694A92800}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8379296F-30EB-48A7-B906-614694A92800}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8379296F-30EB-48A7-B906-614694A92800}.Release|Any CPU.Build.0 = Release|Any CPU
+		{34D34D7C-6662-4048-B019-C997B5E89973}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{34D34D7C-6662-4048-B019-C997B5E89973}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{34D34D7C-6662-4048-B019-C997B5E89973}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{34D34D7C-6662-4048-B019-C997B5E89973}.Release|Any CPU.Build.0 = Release|Any CPU
+		{75853145-9667-465E-999D-8499CFACE941}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{75853145-9667-465E-999D-8499CFACE941}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{75853145-9667-465E-999D-8499CFACE941}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{75853145-9667-465E-999D-8499CFACE941}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D2A1D2C6-1DAF-448B-96C2-60EDBDDD2E25}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D2A1D2C6-1DAF-448B-96C2-60EDBDDD2E25}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D2A1D2C6-1DAF-448B-96C2-60EDBDDD2E25}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D2A1D2C6-1DAF-448B-96C2-60EDBDDD2E25}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {51ADFB43-13C5-4C1E-84D6-55300277F464}
+	EndGlobalSection
+EndGlobal

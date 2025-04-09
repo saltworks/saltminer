@@ -1,0 +1,11 @@
+{
+  "ElasticSearchHost": [ "localhost" ],
+  "HttpScheme": "http",
+  "Port": 9200,
+  "Username": "elastic",
+  "Password": "changeit",
+  "EnableDebugInfoInResponse": true,
+  "VerifySsl": false,
+  "RequestTimeout": 60,
+  "SingleNodeCluster": true
+}

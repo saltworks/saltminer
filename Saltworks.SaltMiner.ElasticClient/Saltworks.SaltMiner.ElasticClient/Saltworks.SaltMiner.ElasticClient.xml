@@ -1,0 +1,74 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>Saltworks.SaltMiner.ElasticClient</name>
+    </assembly>
+    <members>
+        <member name="P:Saltworks.SaltMiner.ElasticClient.ClientConfiguration.ElasticSearchHost">
+            <summary>
+            Host for ElasticSearch server (just the host, not a URL / URI)
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.ElasticClient.ClientConfiguration.HttpScheme">
+            <summary>
+            Http scheme for calling ElasticSearch, should be "http" or "https"
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.ElasticClient.ClientConfiguration.Port">
+            <summary>
+            ElasticSearch server http port number
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.ElasticClient.ClientConfiguration.Username">
+            <summary>
+            Username for basic authentication
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.ElasticClient.ClientConfiguration.Password">
+            <summary>
+            Password for basic authentication
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.ElasticClient.ClientConfiguration.VerifySsl">
+            <summary>
+            Set to true to verify SSL certificates, false to disable (not recommended)
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.ElasticClient.ClientConfiguration.RequestTimeout">
+            <summary>
+            Timeout in seconds before request fails
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.ElasticClient.ClientConfiguration.DefaultScrollSize">
+            <summary>
+            Default number of documents to return in a single scrollable query.  Defaults to 1000 if not between 10 and 5000
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.ElasticClient.ClientConfiguration.DefaultIndex">
+            <summary>
+            Default index used to initialize elasticsearch
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.ElasticClient.ClientConfiguration.DefaultScrollTimeout">
+            <summary>
+            Timeout in minutes the scroll stays alive
+            </summary>
+        </member>
+        <member name="M:Saltworks.SaltMiner.ElasticClient.ConfigureClientExtensions.UseNestClient(System.IServiceProvider)">
+            <summary>
+            Configures the Elasticsearch NestClient.
+            </summary>
+            <param name="services"></param>
+        </member>
+        <member name="T:Saltworks.SaltMiner.ElasticClient.NestClientFactory">
+            <summary>
+            NestClient factory class
+            </summary>
+        </member>
+        <member name="M:Saltworks.SaltMiner.ElasticClient.NestClientFactory.CreateClient">
+            <summary>
+            Creates a NestClient from DI configuration
+            </summary>
+        </member>
+    </members>
+</doc>

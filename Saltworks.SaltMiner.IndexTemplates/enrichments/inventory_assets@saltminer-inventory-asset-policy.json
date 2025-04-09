@@ -1,0 +1,14 @@
+{
+  "match": {
+    "indices": "inventory_assets",
+    "match_field": "key",
+    "enrich_fields": [
+            "is_production",
+            "key",
+            "name",
+            "description",
+            "version",
+            "attributes"
+          ]
+  }
+}

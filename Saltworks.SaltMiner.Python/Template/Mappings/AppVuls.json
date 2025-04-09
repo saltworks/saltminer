@@ -1,0 +1,153 @@
+{
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 0,
+    "analysis": {
+      "analyzer": {
+        "lc_keyword": {
+          "tokenizer": "keyword",
+          "filter": [ "uppercase" ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "@timestamp": { "type": "date" },
+      "vulnerability": {
+        "properties": {
+
+          "application": {
+            "properties": {
+              "name": {
+                "type": "keyword",
+                "ignore_above": 1024
+              },
+              "version": {
+                "properties": {
+                  "name": {
+                    "type": "keyword",
+                    "ignore_above": 1024
+                  },
+                  "id": {
+                    "type": "keyword",
+                    "ignore_above": 1024
+                  }
+                }
+              }
+            }
+          },
+          "description": {
+            "type": "text"
+          }
+        }
+      },
+      "saltminer": {
+        "properties": {
+          "is_vulnerability": {
+            "type": "boolean"
+          },
+          "attributes": {
+            "properties": {
+              "tagged_exploitable_date": { "type": "date" }
+            }
+          }
+        }
+      },
+      "active": { "type": "boolean" },
+      "labels": { "type": "text" },
+      "message": { "type": "text" },
+      "tags": { "type": "keyword" },
+      "category": { "type": "keyword" },
+      "classification": { "type": "keyword" },
+      "description": {
+        "type": "keyword",
+        "fields": {
+          "text": { "type": "text" }
+        }
+      },
+      "enumeration": { "type": "keyword" },
+      "id": { "type": "keyword" },
+      "reference": { "type": "keyword" },
+      "report_id": { "type": "keyword" },
+      "scanner_vendor": {
+        "type": "keyword",
+        "fields": { "text": { "type": "text" } }
+      },
+      "score_base": { "type": "float" },
+      "score_environmental": { "type": "float" },
+      "score_temporal": { "type": "float" },
+      "score_version": { "type": "keyword" },
+      "severity": { "type": "keyword" },
+      "sor_url": { "type": "text" },
+      "name": {
+        "type": "keyword",
+        "fields": { "text": { "type": "text" } }
+      },
+      "hidden": { "type": "boolean" },
+      "engine_type": {
+        "type": "keyword",
+        "fields": { "text": { "type": "text" } }
+      },
+      "engine_category": {
+        "type": "keyword",
+        "fields": { "text": { "type": "text" } }
+      },
+      "issue_status": { "type": "keyword" },
+      "location": { "type": "text" },
+      "analyzer": { "type": "keyword" },
+      "reviewed": { "type": "boolean" },
+      "scanner_id": { "type": "keyword" },
+      "suppressed": { "type": "boolean" },
+      "removed_date": { "type": "date" },
+      "found_date": { "type": "date" },
+      "confidence": { "type": "double" },
+      "impact": { "type": "double" },
+      "scan_status": { "type": "keyword" },
+      "audited": { "type": "boolean" },
+      "kingdom": { "type": "keyword" },
+      "likelihood": { "type": "double" },
+      "removed": { "type": "boolean" },
+      "location_full": { "type": "text" },
+      "ssc_project_version_id": { "type": "keyword" },
+      "ws_change_id": { "type": "text" },
+      "org_token": { "type": "text" },
+      "org_name": { "type": "text" },
+      "application_id": { "type": "keyword" },
+      "application_name": {
+        "type": "keyword",
+        "fields": { "text": { "type": "text" } }
+      },
+      "application_description": {
+        "type": "text",
+        "fields": { "text": { "type": "text" } }
+      },
+      "application_version_id": { "type": "keyword" },
+      "application_version_name": {
+        "type": "keyword",
+        "fields": {
+          "text": { "type": "text" }
+        }
+      },
+      "last_scan_date": { "type": "date" },
+      "primary_rule_guid": { "type": "keyword" },
+      "Critical": { "type": "integer" },
+      "High": { "type": "integer" },
+      "Medium": { "type": "integer" },
+      "Low": { "type": "integer" },
+      "assessment_type": { "type": "keyword" },
+      "customTagValues": {
+        "properties": {
+          "autoApplied": { "type": "boolean" },
+          "customTagGuid": { "type": "keyword" },
+          "dateValue": { "type": "date" },
+          "decimalValue": { "type": "float" },
+          "newCustomTagIndex": { "type": "integer" },
+          "textValue": { "type": "keyword" }
+        }
+      },
+      "customAttributes": { "type": "object" },
+      "url": { "type": "keyword" }
+    }
+  }
+}

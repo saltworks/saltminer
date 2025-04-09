@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Authors>Saltworks, LLC</Authors>
+    <Company>Saltworks, LLC</Company>
+    <Description>Source adapter Template</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters.Core\Saltworks.SaltMiner.SourceAdapters.Core\Saltworks.SaltMiner.SourceAdapters.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+	<InternalsVisibleTo Include="Saltworks.SaltMiner.SourceAdapters.IntegrationTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Condition=" '$(EnableDefaultCompileItems)' == 'true' " Update="OligoAdapter.cs">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Compile>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,45 @@
+{
+  "processors": [
+    {
+      "pipeline": {
+        "name": "saltminer-default-pipeline"
+      }
+    },
+    {
+      "pipeline": {
+        "name": "saltminer-issues-risk-roller-pipeline",
+        "if": "return true;"
+      }
+    },
+    {
+      "set": {
+        "field": "customer_custom.last_scan_date",
+        "value": "Unknown"
+      }
+    },
+    {
+      "script": {
+        "lang": "painless",
+        "source": "if (ctx.vulnerability.is_removed == false){\n    return;\n\n}\ntry{\n\n    LocalDateTime removed = LocalDateTime.parse(ctx.vulnerability.removed_date);\n    LocalDateTime found = LocalDateTime.parse(ctx.vulnerability.found_date);\n    ctx.customer_custom.days_to_close = ChronoUnit.DAYS.between(found, removed);\n    \n}\ncatch (Exception ex)\n{\n    ctx.customer_custom.days_to_close = -1;\n}\n\n"
+      }
+    },
+    {
+      "script": {
+        "lang": "painless",
+        "source": "try{\n\n    ctx.customer_custom.last_scan_date = ctx.saltminer.scan.scan_date.substring(0,10); \n}\ncatch (Exception ex)\n{\n    ctx.customer_custom.last_scan_date = \"Unknown\";\n}\n\n\n\n\n\n\n\n\n"
+      }
+    },
+    {
+      "script": {
+        "lang": "painless",
+        "source": "try{\n    //0 star is not scanned\n    //1 star is if it has any criticals,\n    //2 star no critical but 1 or more high, \n    // 3 star is no C/H but 1 or more Mediums, \n    //4 star contains a Low, \n    //5 star is clean\n    if (ctx.saltminer.critical == 1){\n        ctx.customer_custom.star_rating = 1;\n    }\n    else if(ctx.saltminer.high == 1){\n        ctx.customer_custom.star_rating = 2;\n    }\n    else if(ctx.saltminer.medium == 1){\n        ctx.customer_custom.star_rating = 3;\n    }\n    else if(ctx.saltminer.low == 1){\n        ctx.customer_custom.star_rating = 4;\n    }\n    else {\n        ctx.customer_custom.star_rating = 5;\n    }\n    \n    \n}\ncatch (Exception ex)\n{\n    ctx.customer_custom.star_rating = -1;\n}"
+      }
+    },
+    {
+      "pipeline": {
+        "name": "saltminer-issue-custom-pipeline",
+        "ignore_failure": true
+      }
+    }
+  ]
+}

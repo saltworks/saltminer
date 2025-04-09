@@ -1,0 +1,25 @@
+# Run `pip install -r requirements.txt` from within this folder
+# Expects Linux x86 and x64, and python 3.8 / 3.9 / 3.11 / 3.12
+# cffi and cryptography will have to be updated if the above can't be met
+
+./asn1crypto-1.4.0-py2.py3-none-any.whl
+./certifi-2021.10.8-py2.py3-none-any.whl
+./pycparser-2.21-py2.py3-none-any.whl
+./cffi-1.16.0-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl ; python_version == '3.8'
+./cffi-1.16.0-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl ; python_version == '3.9'
+./cffi-1.16.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl ; python_version == '3.11'
+./cffi-1.16.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl ; python_version == '3.12'
+./chardet-4.0.0-py2.py3-none-any.whl
+./cryptography-41.0.7-cp37-abi3-manylinux_2_28_x86_64.whl
+./idna-3.3-py3-none-any.whl
+./six-1.16.0-py2.py3-none-any.whl
+./python_dateutil-2.8.2-py2.py3-none-any.whl
+./urllib3-1.26.8-py2.py3-none-any.whl
+./charset_normalizer-2.0.12-py3-none-any.whl
+./requests-2.27.1-py2.py3-none-any.whl
+./elasticsearch-7.17.9-py2.py3-none-any.whl
+./ecs_logging-1.1.0-py2.py3-none-any.whl
+
+# Believed to be obsolete
+#./et_xmlfile-1.0.0-py3-none-any.whl
+#./openpyxl-3.0.9-py2.py3-none-any.whl

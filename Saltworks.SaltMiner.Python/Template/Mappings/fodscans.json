@@ -1,0 +1,59 @@
+{
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 0,
+    "analysis": {
+      "normalizer": {
+        "lc_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": [ "lowercase", "asciifolding" ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "applicationId": { "type": "keyword" },
+      "applicationName": { "type": "keyword" },
+      "releaseId": { "type": "keyword" },
+      "releaseName": { "type": "keyword" },
+      "scanId": { "type": "keyword" },
+      "scanTypeId": { "type": "keyword" },
+      "scanType": { "type": "keyword" },
+      "assessmentTypeId": { "type": "keyword" },
+      "assessmentTypeName": { "type": "keyword" },
+      "analysisStatusTypeId": { "type": "keyword" },
+      "analysisStatusType": { "type": "keyword" },
+      "startedDateTime": { "type": "date" },
+      "completedDateTime": { "type": "date" },
+      "totalIssues": { "type": "integer" },
+      "issueCountCritical": { "type": "integer" },
+      "issueCountHigh": { "type": "integer" },
+      "issueCountMedium": { "type": "integer" },
+      "issueCountLow": { "type": "integer" },
+      "starRating": { "type": "integer" },
+      "notes": { "type": "keyword" },
+      "isFalsePositiveChallenge": { "type": "boolean" },
+      "isRemediationScan": { "type": "boolean" },
+      "entitlementId": { "type": "keyword" },
+      "entitlementUnitsConsumed": { "type": "integer" },
+      "isSubscriptionEntitlement": { "type": "boolean" },
+      "pauseDetails": {
+        "type": "nested",
+        "properties": {
+          "pausedOn": { "type": "date" },
+          "details": { "type": "keyword" },
+          "notes": { "type": "keyword" }
+        }
+      },
+      "cancelReason": { "type": "keyword" },
+      "analysisStatusReasonNotes": { "type": "text" },
+      "scanMethodTypeId": { "type": "keyword" },
+      "scanMethodType": { "type": "keyword" },
+      "scanTool": { "type": "keyword" },
+      "scanToolVersion": { "type": "keyword" },
+      "sourceName": { "type": "keyword" }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters.Core\Saltworks.SaltMiner.SourceAdapters.Core\Saltworks.SaltMiner.SourceAdapters.Core.csproj" />
+	</ItemGroup>
+
+</Project>

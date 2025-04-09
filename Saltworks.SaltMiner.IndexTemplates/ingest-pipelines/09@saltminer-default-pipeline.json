@@ -1,0 +1,35 @@
+{
+  "description" : "Default pipeline used on all SaltMiner indices for enrichment of inventory_assets data",
+  "processors" : 
+  [
+    {
+      "set": {
+        "field": "error",
+        "value": "",
+  	    "ignore_empty_value": true
+      }
+    },
+    {
+      "enrich": {
+        "field": "saltminer.inventory_asset.key",
+        "policy_name": "saltminer-inventory-asset-policy",
+        "target_field": "saltminer.inventory_asset",
+        "ignore_missing": true,
+        "ignore_failure": true
+      }
+    },
+    {
+      "script": {
+        "lang": "painless",
+        "source": "try{\n    if (ctx.saltminer.inventory_asset.name == null){\n        ctx.saltminer.inventory_asset.source=\"asset\";\n        ctx.saltminer.inventory_asset.attributes = ctx.saltminer.asset.attributes;\n        ctx.saltminer.inventory_asset.name = ctx.saltminer.asset.name;\n        ctx.saltminer.inventory_asset.description = ctx.saltminer.asset.description;\n        ctx.saltminer.inventory_asset.version = ctx.saltminer.asset.version;\n    }\n    else {\n        ctx.saltminer.inventory_asset.source=\"inventory_asset\";\n    }\n}\ncatch (Exception ex)\n{\n    ctx.saltminer.inventory_asset.source=\"error\";\n}",
+        "ignore_failure": true
+      }
+    },
+    {
+      "pipeline": {
+        "name": "saltminer-default-custom-pipeline",
+        "ignore_failure": true
+      }
+    }
+]
+}

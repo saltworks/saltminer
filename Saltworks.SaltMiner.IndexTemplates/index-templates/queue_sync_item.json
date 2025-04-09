@@ -1,0 +1,68 @@
+{
+  "index_patterns": [
+    "queue_sync_item*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "lifecycle": {
+          "name": "saltminer-queue-sync-items-policy"
+        },
+        "analysis": {
+          "analyzer": {
+            "lc_keyword": {
+              "filter": [
+                "uppercase"
+              ],
+              "tokenizer": "keyword"
+            }
+          }
+        },
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "type": "date"
+        },
+        "last_updated": {
+          "type": "date"
+        },
+        "action": {
+          "type": "keyword"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "type": {
+          "type": "keyword"
+        },
+        "payload": {
+          "type": "text"
+        },
+        "state": {
+          "type": "keyword"
+        },
+        "saltminer": {
+          "properties": {
+            "source_type": {
+              "type": "keyword"
+            },
+            "instance": {
+              "type": "keyword"
+            },
+            "source_id": {
+              "type": "keyword"
+            }
+          }
+        }
+      }
+    }
+  }
+}

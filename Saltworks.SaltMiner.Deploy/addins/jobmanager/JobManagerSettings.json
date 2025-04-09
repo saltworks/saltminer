@@ -1,0 +1,113 @@
+{
+  "JobManagerConfig": {
+    "DataApiBaseUrl": "http://localhost:5000",
+    "DataApiVerifySsl": "true",
+    "DataApiKey": "ENC: 78YyVT1gkNKKy0W461hD11Y3OioEQ//hJeUTe04yycg=",
+    "DataApiKeyHeader": "Authorization",
+    "DataApiTimeoutSec": 10,
+    "ApiBaseUrl": "http://localhost:5001",
+    "ApiTimeoutSec": "10",
+    "ApiVerifySsl": "true",
+    "IssueImportCSVBatchSize": 50,
+    "EngagementReportNameTemplate": "{Name}_{Id}",
+    "ReportOutputZip": true,
+    "EncryptionKey": "Hw4ppDxa2G6tephjlRl6lRobdmsRpIDbNmolQHAaH6k=",
+    "EncryptionIv": "IVGALn0fDALuHkyVWE78dA==",
+	"ReportTemplateFolderPath": "/etc/saltworks/saltminer-3.0.0/jobmanager/report-templates",
+    "IssueImportRequiredCSVAssetHeaders": [
+      "saltminer.asset.name",
+      "saltminer.asset.source_id"
+    ],
+    "IssueImportRequiredCSVIssueHeaders": [
+      "vulnerability.found_date",
+      "vulnerability.location",
+      "vulnerability.location_full",
+      "vulnerability.report_id",
+      "vulnerability.name",
+      "vulnerability.severity",
+      "vulnerability.scanner.product",
+      "vulnerability.scanner.vendor"
+    ],
+    "EngagementImportCheckoutBatchSize": 100
+  },
+  "LogConfig": {
+    "Serilog": {
+      "Using": [ "Serilog.Sinks.Console", "Serilog.Sinks.File" ],
+      "MinimumLevel": {
+        "Default": "Information",
+        "Override": {
+          "Microsoft": "Warning",
+          "System.Net": "Warning",
+          "Saltworks.Utility.ApiHelper.ApiClient": "Warning",
+          "ApiHelper": "Warning"
+        }
+      },
+      "WriteTo": [
+        {
+          "Name": "Console",
+          "Args": {
+            "outputTemplate": "[{Timestamp:g} {Level:u3}] [{SourceContext}] {Message:lj}{NewLine}",
+            "restrictedToMinimumLevel": "Information"
+          }
+        },
+        {
+          "Name": "Logger",
+          "Args": {
+            "configureLogger": {
+              "Filter": [
+                {
+                  "Name": "ByExcluding",
+                  "Args": {
+                    "expression": "Contains(@m, '[Progress')"
+                  }
+                }
+              ],
+              "WriteTo": [
+                {
+                  "Name": "File",
+                  "Args": {
+                    "path": "/var/log/saltworks/saltminer-3.0.0/smjm-.log",
+                    "rollingInterval": "Day",
+                    "retainedFileCountLimit": "7",
+                    "formatter": "Elastic.CommonSchema.Serilog.EcsTextFormatter, Elastic.CommonSchema.Serilog",
+                    "restrictedToMinimumLevel": "Information"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "Name": "Logger",
+          "Args": {
+            "configureLogger": {
+              "Filter": [
+                {
+                  "Name": "ByIncludingOnly",
+                  "Args": {
+                    "expression": "Contains(@m, '[Progress')"
+                  }
+                }
+              ],
+              "WriteTo": [
+                {
+                  "Name": "File",
+                  "Args": {
+                    "path": "/var/log/saltworks/saltminer-3.0.0/smjm-metric-.log",
+                    "rollingInterval": "Day",
+                    "retainedFileCountLimit": "7",
+                    "formatter": "Elastic.CommonSchema.Serilog.EcsTextFormatter, Elastic.CommonSchema.Serilog"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "Enrich": [ "FromLogContext", "WithExceptionDetails", "WithThreadId" ],
+      "Properties": {
+        "Application": "JobManager"
+      }
+    }
+  }
+}

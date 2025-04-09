@@ -1,0 +1,36 @@
+{
+  "index_patterns": [
+    "sys_index_meta*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "type": "date"
+        },
+        "last_updated": {
+          "type": "date"
+        },
+        "index": {
+          "type": "keyword"
+        },
+        "version": {
+          "type": "keyword"
+        },
+        "template_name": {
+          "type": "keyword"
+        }
+      }
+    }
+  }
+}

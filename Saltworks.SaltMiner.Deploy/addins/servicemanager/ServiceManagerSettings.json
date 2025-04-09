@@ -1,0 +1,62 @@
+{
+  "ServiceManagerConfig": {
+    "EncryptionKey": "D0CGbdrD2y8yTSwuugHAt0ywCiC09GCwDWjCsIA/YWc=",
+    "EncryptionIv": "LXFtTxa/uCwrXGS5mAkzBg==",
+    "DataApiBaseUrl": "http://localhost:5000",
+    "DataApiVerifySsl": "false",
+    "DataApiKey": "ENC: CrnRGzVods4uNTkccXFW1CvXwXkAIoJ8z7oTo4CBEb6fQQTI7hUDzvTain1fJn/g",
+    "DataApiKeyHeader": "Authorization",
+    "DataApiTimeoutSec": 60000,
+    "AllowedExecutables": {
+      "Agent25Cron": "/usr/share/saltworks/saltminer-3.0.0/agentcron25.sh",
+      "AgentCron": "/usr/share/saltworks/saltminer-3.0.0/agentcron.sh",
+      "ManagerCron": "/usr/share/saltworks/saltminer-3.0.0/managercron.sh",
+	  "RiskRoller": "/usr/share/saltworks/saltminer-3.0.0/riskrollercron.sh"
+    }
+  },
+  "LogConfig": {
+    "Serilog": {
+      "Using": [ "Serilog.Sinks.Console", "Serilog.Sinks.File" ],
+      "MinimumLevel": {
+        "Default": "Information",
+        "Override": {
+          "Microsoft": "Warning",
+          "System.Net": "Warning",
+          "Quartz":  "Warning"
+        }
+      },
+      "WriteTo": [
+        {
+          "Name": "Console",
+          "Args": {
+            "outputTemplate": "[{Timestamp:g} {Level:u3}] [{SourceContext}] {Message:lj}{NewLine}",
+            "restricteDtoMinimumLevel": "Information"
+          }
+        },
+        {
+          "Name": "Logger",
+          "Args": {
+            "configureLogger": {
+              "WriteTo": [
+                {
+                  "Name": "File",
+                  "Args": {
+                    "path": "/var/log/saltworks/saltminer-3.0.0/smsm-.log",
+                    "rollingInterval": "Day",
+                    "retainedFileCountLimit": "7",
+                    "formatter": "Elastic.CommonSchema.Serilog.EcsTextFormatter, Elastic.CommonSchema.Serilog",
+                    "restricteDtoMinimumLevel": "Debug"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "Enrich": [ "FromLogContext", "WithExceptionDetails", "WithThreadId" ],
+      "Properties": {
+        "Application": "ServiceManager"
+      }
+    }
+  }
+}

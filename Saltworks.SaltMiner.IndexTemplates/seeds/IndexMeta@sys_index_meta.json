@@ -1,0 +1,146 @@
+[
+  {
+    "index": "queue_issues",
+    "version": "3.0.3",
+    "templateName": "queue_issue",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
+  {
+    "index": "queue_assets",
+    "version": "3.0.3",
+    "templateName": "queue_asset",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000002"
+  },
+  {
+    "index": "queue_scans",
+    "version": "3.0.3",
+    "templateName": "queue_scan",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000003"
+  },
+  {
+    "index": "engagements",
+    "version": "3.0.3",
+    "templateName": "engagement",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000004"
+  },
+  {
+    "index": "attachments",
+    "version": "3.0.3",
+    "templateName": "attachment",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000005"
+  },
+  {
+    "index": "job_queue",
+    "version": "3.0.3",
+    "templateName": "job_queue",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000006"
+  },
+  {
+    "index": "inventory_assets",
+    "version": "3.0.3",
+    "templateName": "inventory_asset",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000007"
+  },
+  {
+    "index": "comments",
+    "version": "3.0.3",
+    "templateName": "comment",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000008"
+  },
+  {
+    "index": "sys_service_jobs",
+    "version": "3.0.3",
+    "templateName": "sys_service_job",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000009"
+  },
+  {
+    "index": "sys_search_filters",
+    "version": "3.0.3",
+    "templateName": "sys_search_filter",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000010"
+  },
+  {
+    "index": "sys_lookups",
+    "version": "3.0.3",
+    "templateName": "sys_lookup",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000011"
+  },
+  {
+    "index": "sys_index_metas",
+    "version": "3.0.3",
+    "templateName": "sys_index_meta",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000012"
+  },
+  {
+    "index": "sys_custom_issues",
+    "version": "3.0.3",
+    "templateName": "sys_custom_issue",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000013"
+  },
+  {
+    "index": "sys_custom_importers",
+    "version": "3.0.3",
+    "templateName": "sys_custom_importer",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000014"
+  },
+  {
+    "index": "sys_configs",
+    "version": "3.0.3",
+    "templateName": "sys_config",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000015"
+  },
+  {
+    "index": "sys_attribute_definitions",
+    "version": "3.0.3",
+    "templateName": "sys_attribute_definition",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000016"
+  },
+  {
+    "index": "licenses",
+    "version": "3.0.3",
+    "templateName": "license",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000017"
+  },
+  {
+    "index": "sys_custom_importers",
+    "version": "3.0.3",
+    "templateName": "sys_custom_importer",
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000018"
+  }
+]

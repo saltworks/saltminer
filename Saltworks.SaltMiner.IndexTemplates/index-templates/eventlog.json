@@ -1,0 +1,81 @@
+{
+  "index_patterns": [
+    "eventlog*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "lifecycle": {
+          "name": "saltminer-eventlog-policy"
+        },
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "type": "date"
+        },
+        "last_updated": {
+          "type": "date"
+        },
+        "event": {
+          "properties": {
+            "action": {
+              "type": "keyword"
+            },
+            "severity": {
+              "type": "integer"
+            },
+            "outcome": {
+              "type": "keyword"
+            },
+            "reason": {
+              "type": "keyword"
+            },
+            "data_set": {
+              "type": "keyword"
+            },
+            "id": {
+              "type": "keyword"
+            },
+            "provider": {
+              "type": "keyword"
+            },
+            "kind": {
+              "type": "keyword"
+            },
+            "created": {
+              "type": "date"
+            }
+          }
+        },
+        "saltminer": {
+          "properties": {
+            "application": {
+              "type": "keyword"
+            },
+            "service_job_id": {
+              "type": "keyword"
+            },
+            "service_job_name": {
+              "type": "keyword"
+            }
+          }
+        },
+        "log": {
+          "properties": {
+            "level": {
+              "type": "keyword"
+            }
+          }
+        }
+      }
+    }
+  }
+}

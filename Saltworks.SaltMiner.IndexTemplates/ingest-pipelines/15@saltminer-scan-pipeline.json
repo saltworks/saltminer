@@ -1,0 +1,16 @@
+{
+  "description": "Pipeline used to enrich scan documents as they are processed",
+  "processors": [
+    {
+      "pipeline": {
+        "name": "saltminer-default-pipeline"
+      }
+    },
+    {
+      "pipeline": {
+        "name": "saltminer-scan-custom-pipeline",
+        "ignore_failure": true
+      }
+    }
+  ]
+}

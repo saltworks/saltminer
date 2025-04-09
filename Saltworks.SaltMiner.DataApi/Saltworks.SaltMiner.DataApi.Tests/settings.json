@@ -1,0 +1,26 @@
+{
+  "EncryptionKey": "93sPAanEkU03AuNtMdtswdJwamN4GP35nOM9rAOHDKk=",
+  "EncryptionIv": "MciNsF5y+rgtmxdS2KSUIg==",
+  "EncryptionTag": "API",
+  "ElasticHttpScheme": "http",
+  "ElasticHost": "10.7.0.115",
+  "ElasticPort": 9200,
+  "ElasticUsername": "elastic",
+  "ElasticPassword": "ENC: bZZNVibszy/EpNF9gZJ6r+ZSZfX8k6m0E69ifETPtohymyFJTprPaSkS/YubRBLp",
+  "Timeout": 20,
+  "VerifySsl": true,
+  "ElasticSingleNodeCluster": true,
+  "AdminApiKeyIs": "secret",
+  "ApiKeys": {
+    "adminsecret": "admin",
+    "managersecret": "manager",
+    "pentestsecret": "pentest",
+    "breakersecret": "breaker",
+    "agentsecret1": "agent 0001",
+    "agentsecret2": "agent 0002"
+  },
+  "AppBaseAddress": "http://localhost:52455/",
+  "AppName": "SaltMiner Core Service",
+  "ImportBatchSize": 300,
+  "AuthTokenSessionTimeout": 15
+}

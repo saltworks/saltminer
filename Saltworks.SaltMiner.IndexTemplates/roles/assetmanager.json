@@ -1,0 +1,20 @@
+{
+  "cluster": [],
+  "indices": [],
+  "applications": [
+    {
+      "application": "kibana-.kibana",
+      "privileges": [
+        "feature_discover.read"
+      ],
+      "resources": [
+        "space:default"
+      ]
+    }
+  ],
+  "run_as": [],
+  "metadata": {},
+  "transient_metadata": {
+    "enabled": true
+  }
+}

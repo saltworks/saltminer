@@ -1,0 +1,101 @@
+# This workflow will build a .NET project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
+#
+name: Saltworks.SaltMiner.SyncAgent (Legacy)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+    - '3.0.*'
+    paths:
+    - 'Saltworks.SaltMiner.SyncAgent/*'
+    - '.github/workflows/sync-agent-artifact.yml'
+    - 'Saltworks.SaltMiner.ConfigurationWizard/*'
+    - 'Saltworks.SaltMiner.ConsoleApp.Core/*'
+    - 'Saltworks.SaltMiner.Core/*'
+    - 'Saltworks.Common.Data/*'
+    - 'Saltworks.SaltMiner.DataClient/*'
+    - 'Saltworks.Utility.ApiHelper/*'
+    - 'Saltworks.SaltMiner.Licensing.Core/*'
+    - 'Saltworks.SaltMiner.SourceAdapters.Core/*'
+    - 'Saltworks.SaltMiner.SourceAdapters.CheckmarxOne/*'
+    - 'Saltworks.SaltMiner.SourceAdapters.Dynatrace/*'
+    - 'Saltworks.SaltMiner.SourceAdapters.GitLab/*'
+    - 'Saltworks.SaltMiner.SourceAdapters.MendSca/*'
+    - 'Saltworks.SaltMiner.SourceAdapters.Oligo/*'
+    - 'Saltworks.SaltMiner.SourceAdapters.Polaris/*'
+    - 'Saltworks.SaltMiner.SourceAdapters.Qualys/*'
+    - 'Saltworks.SaltMiner.SourceAdapters.Sonatype/*'
+    - 'Saltworks.SaltMiner.SourceAdapters.Traceable/*'
+    - 'Saltworks.SaltMiner.SourceAdapters.Wiz/*'
+    
+env:
+  BRANCH: ${{ github.head_ref || github.ref_name }}
+
+jobs:
+  build_sync_agent:
+    name: Build Sync Agent
+    runs-on:
+    - self-hosted
+    - dotnet
+    env:
+      work-dir: ./Saltworks.SaltMiner.SyncAgent
+      art-dir: ./artifacts/dist/$BRANCH
+      build-dir: ./Saltworks.SaltMiner.SyncAgent/Saltworks.SaltMiner.SyncAgent/bin/Debug/net8.0
+      sln-name: Saltworks.SaltMiner.SyncAgent
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    steps:
+    - name: Generate Build Number
+      run: |
+        RUN_NUMBER=$(printf "%04d" ${{ github.run_number }})
+        RUN_ATTEMPT=$(printf "%02d" ${{ github.run_attempt }})
+        BUILD_NUMBER="${RUN_NUMBER}-${RUN_ATTEMPT}"
+        echo "BUILD_NUMBER=${BUILD_NUMBER}" >> $GITHUB_ENV
+
+    - name: Print Build Number
+      run: echo "Build Number is $BRANCH.$BUILD_NUMBER"
+        
+    - name: Before checkout
+      run: ls -la $GITHUB_WORKSPACE
+
+    - uses: actions/checkout@v4
+
+    - name: After checkout
+      run: ls -la $GITHUB_WORKSPACE
+
+    - name: Restore dependencies
+      run: dotnet restore ./${{env.sln-name}}.sln --disable-build-servers
+      working-directory: ${{env.work-dir}}
+
+    - name: Build solution
+      run: dotnet build ./${{env.sln-name}}.sln --no-restore
+      working-directory: ${{env.work-dir}}
+
+    - name: Run Unit Tests
+      run: |
+        for project in $(find . -type f -name '*UnitTest*.csproj'); do
+          echo "Running tests for $project"
+          dotnet test "$project"
+        done
+          
+    - name: Add version.txt
+      run: echo "$BRANCH.$BUILD_NUMBER" > version.txt
+      working-directory: ${{env.build-dir}}
+
+    - name: What was built?
+      run: ls -la ${{env.build-dir}} --group-directories-first
+      working-directory: ./
+
+    - name: Upload Unique Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{env.sln-name}}.${{env.BRANCH}}.${{env.BUILD_NUMBER}}
+        path: ${{env.build-dir}}/*
+        retention-days: 5

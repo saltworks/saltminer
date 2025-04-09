@@ -1,0 +1,91 @@
+{
+  "AgentConfig": {
+    "EncryptionKey": "D0CGbdrD2y8yTSwuugHAt0ywCiC09GCwDWjCsIA/YWc=",
+    "EncryptionIv": "LXFtTxa/uCwrXGS5mAkzBg==",
+    "DataApiBaseUrl": "http://localhost/smapi",
+    "DataApiVerifySsl": "false",
+    "DataApiKey": "agentsecret",
+    "DataApiKeyHeader": "Authorization",
+    "DataApiTimeoutSec": 10
+  },
+  "LogConfig": {
+    "Serilog": {
+      "Using": [ "Serilog.Sinks.Console", "Serilog.Sinks.File", "Serilog.Expressions" ],
+      "MinimumLevel": {
+        "Default": "Verbose",
+        "Override": {
+          "Microsoft": "Warning",
+          "System.Net": "Warning",
+          "Saltworks.Utility.ApiHelper.ApiClient": "Warning",
+          "Saltworks.SaltMiner.SyncAgent.Adapters": "Verbose"
+        }
+      },
+      "WriteTo": [
+        {
+          "Name": "Console",
+          "Args": {
+            "outputTemplate": "[{Timestamp:g} {Level:u3}] [{SourceContext}] {Message:lj}{NewLine}",
+            "restrictedToMinimumLevel": "Information"
+          }
+        },
+        {
+          "Name": "Logger",
+          "Args": {
+            "configureLogger": {
+              "Filter": [
+                {
+                  "Name": "ByExcluding",
+                  "Args": {
+                    "expression": "Contains(@m, '[Progress')"
+                  }
+                }
+              ],
+              "WriteTo": [
+                {
+                  "Name": "File",
+                  "Args": {
+                    "path": "/var/log/saltworks/saltminer-3.0.0/smagt-.log",
+                    "rollingInterval": "Day",
+                    "retainedFileCountLimit": "7",
+                    "formatter": "Elastic.CommonSchema.Serilog.EcsTextFormatter, Elastic.CommonSchema.Serilog",
+                    "restrictedToMinimumLevel": "Information"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "Name": "Logger",
+          "Args": {
+            "configureLogger": {
+              "Filter": [
+                {
+                  "Name": "ByIncludingOnly",
+                  "Args": {
+                    "expression": "Contains(@m, '[Progress')"
+                  }
+                }
+              ],
+              "WriteTo": [
+                {
+                  "Name": "File",
+                  "Args": {
+                    "path": "/var/log/saltworks/saltminer-3.0.0/smagt-metric-.log",
+                    "rollingInterval": "Day",
+                    "retainedFileCountLimit": "7",
+                    "formatter": "Elastic.CommonSchema.Serilog.EcsTextFormatter, Elastic.CommonSchema.Serilog"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "Enrich": [ "FromLogContext", "WithExceptionDetails", "WithThreadId" ],
+      "Properties": {
+        "Application": "SyncAgent"
+      }
+    }
+  }
+}

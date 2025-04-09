@@ -1,0 +1,59 @@
+{
+  "index_patterns": [
+    "sys_app_roles*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "type": "date"
+        },
+        "last_updated": {
+          "type": "date"
+        },
+        "name": {
+          "type": "keyword",
+          "fields": {
+            "text": { "type": "text" }
+          }
+        },
+        "permissions": {
+          "properties": {
+            "scope": {
+              "type": "keyword"
+            },
+            "field_name": {
+              "type": "keyword"
+            },
+            "permission": {
+              "type": "keyword"
+            }
+          }
+        },
+        "actions": {
+          "properties": {
+            "name": {
+              "type": "keyword"
+            },
+            "label": {
+              "type": "keyword"
+            },
+            "disable": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

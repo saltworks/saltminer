@@ -1,0 +1,52 @@
+{
+  "index_patterns": [
+    "sys_search_filter*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+           "type": "date"
+         },
+         "last_updated": {
+           "type": "date"
+         },
+        "type": {
+          "type": "keyword"
+        },
+        "filters": {
+          "properties": {
+            "display": {
+              "type": "keyword"
+            },
+            "field": {
+              "type": "keyword"
+            },
+            "is_text_search": {
+              "type": "boolean"
+            },
+            "index_field_names": {
+              "type": "keyword"
+            },
+            "queue_index_field_names": {
+              "type": "keyword"
+            },
+            "order": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    }
+  }
+}

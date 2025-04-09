@@ -1,0 +1,20 @@
+[Unit]
+Description=SaltMiner UI API running on Kestrel
+
+[Service]
+WorkingDirectory=/usr/share/saltworks/saltminer-3.0.0/ui-api
+ExecStart=/usr/bin/dotnet /usr/share/saltworks/saltminer-3.0.0/ui-api/Saltworks.SaltMiner.Ui.Api.dll
+Restart=always
+# Restart service after 10 seconds if the dotnet service crashes:
+RestartSec=10
+# The default value is 90 seconds for most distributions.
+TimeoutStopSec=90
+KillSignal=SIGINT
+SyslogIdentifier=saltminer-ui-api
+User=svc-saltminer
+Environment=DOTNET_PRINT_TELEMETRY_MESSAGE=false
+Environment=SALTMINER_UI_API_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/ui-api
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

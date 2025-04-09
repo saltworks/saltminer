@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.ConsoleApp.Core\Saltworks.SaltMiner.ConsoleApp.Core\Saltworks.SaltMiner.ConsoleApp.Core.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core.csproj" />
+  </ItemGroup>
+
+</Project>

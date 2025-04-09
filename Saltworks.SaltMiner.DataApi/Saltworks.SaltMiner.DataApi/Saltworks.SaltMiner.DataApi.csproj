@@ -1,0 +1,71 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <UserSecretsId>0e30a7f2-3d1f-4455-a849-e542ddfc5f5a</UserSecretsId>
+    <Configurations>Debug;Release;Dev</Configurations>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DocumentationFile>Saltworks.SaltMiner.DataApi.xml</DocumentationFile>
+    <WarningsAsErrors>;NU1605</WarningsAsErrors>
+    <NoWarn>1701;1702;1591</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <AssemblyVersion>3.0.1</AssemblyVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="pub\**" />
+    <Content Remove="pub\**" />
+    <EmbeddedResource Remove="pub\**" />
+    <None Remove="pub\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Remove="ConfigPath.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="License.processed" />
+    <None Remove="license.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="license.lnf">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Saltworks.SaltMiner.DataApi.xml">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Properties\PublishProfiles\" />
+    <Folder Include="RunData\seeds\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Saltworks.ApiClient\Saltworks.Utility.ApiHelper\Saltworks.Utility.ApiHelper.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.ElasticClient\Saltworks.SaltMiner.ElasticClient\Saltworks.SaltMiner.ElasticClient.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.Licensing\Saltworks.SaltMiner.Licensing.Core\Saltworks.SaltMiner.Licensing.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="appsettings.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Update="RunData\seeds\IndexMeta%40sys_index_meta.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

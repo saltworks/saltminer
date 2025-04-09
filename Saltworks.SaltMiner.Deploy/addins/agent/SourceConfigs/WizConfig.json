@@ -1,0 +1,25 @@
+{
+  "ConfigFileName_Comment": "Name to identify the config file - should match the config file name without the 'Config'",
+  "ConfigFileName": "Wiz",
+  "Instance_Comment": "Name of the source instance - drives the generated index name.  Can be the same as the ConfigFileName, but simple is best.  Include a number for multi-instance.  ex. 'wiz1'",
+  "Instance": "wiz1",
+  "SourceType_Comment": "Used to select the source adapter to apply, only set this if you know what you are doing.  Recommend using a sample config to start from that already has this set.",
+  "SourceType": "Saltworks.Wiz",
+  "BaseAddress_Comment": "Wiz GraphQL API URI",
+  "BaseAddress": "https://api.us00.app.wiz.io/graphql",
+  "AuthEndpointAddress_Comment": "Wiz authentication endpoint",
+  "AuthEndpointAddress": "https://auth.app.wiz.io/oauth/token",
+  "ClientId_Comment": "Wiz authentication user client ID",
+  "ClientId": "",
+  "ClientSecret_Comment": "Wiz authentication user client secret",
+  "ClientSecret": "",
+  "WorkPath": "Work",
+  "IssueSeverityMap_Comment": "Maps the source severity name to one of the Saltminer severity names",
+  "IssueSeverityMap": {
+    "Critical": "Critical",
+    "High": "High",
+    "Medium": "Medium",
+    "Low": "Low"
+  },
+  "SourceAbortErrorCount": 3
+}

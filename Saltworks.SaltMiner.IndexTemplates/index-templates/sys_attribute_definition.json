@@ -1,0 +1,68 @@
+{
+  "index_patterns": [
+    "sys_attribute_definition*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "analysis": {
+          "analyzer": {
+            "lc_keyword": {
+              "filter": [
+                "uppercase"
+              ],
+              "tokenizer": "keyword"
+            }
+          }
+        },
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "type": "date"
+        },
+        "last_updated": {
+          "type": "date"
+        },
+        "type": {
+          "type": "keyword"
+        },
+        "values": {
+          "properties": {
+            "name": {
+              "type": "keyword"
+            },
+            "display": {
+              "type": "keyword"
+            },
+            "read_only": {
+              "type": "boolean"
+            },
+            "default": {
+              "type": "keyword"
+            },
+            "order": {
+              "type": "integer"
+            },
+            "options": {
+              "type": "keyword"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "hidden": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

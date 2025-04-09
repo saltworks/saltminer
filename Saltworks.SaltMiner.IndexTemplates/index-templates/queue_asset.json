@@ -1,0 +1,172 @@
+{
+  "index_patterns": [
+    "queue_asset*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "analysis": {
+          "analyzer": {
+            "lc_keyword": {
+              "filter": [
+                "uppercase"
+              ],
+              "tokenizer": "keyword"
+            }
+          }
+        },
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "type": "date"
+        },
+        "last_updated": {
+          "type": "date"
+        },
+        "saltminer": {
+          "properties": {
+            "asset": {
+              "properties": {
+                "id": {
+                  "type": "keyword"
+                },
+                "name": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "scan_count": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "text"
+                },
+                "version_id": {
+                  "type": "keyword"
+                },
+                "version": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "source_id": {
+                  "type": "keyword"
+                },
+                "instance": {
+                  "type": "keyword"
+                },
+                "source_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "asset_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "sub_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "is_saltminer_source": {
+                  "type": "boolean"
+                },
+                "is_retired": {
+                  "type": "boolean"
+                },
+                "is_production": {
+                  "type": "boolean"
+                },
+                "last_scan_days_policy": {
+                  "type": "integer"
+                },
+                "host": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "ip": {
+                  "type": "ip"
+                },
+                "scheme": {
+                  "type": "keyword"
+                },
+                "port": {
+                  "type": "integer"
+                },
+                "attributes": {
+                  "type": "object"
+                },
+                "inventory_key": {
+                  "type": "keyword"
+                }
+              }
+            },
+            "engagement": {
+              "properties": {
+                "id": {
+                  "type": "keyword"
+                },
+                "name": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "customer": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "publish_date": {
+                  "type": "date"
+                },
+                "subtype": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "attributes": {
+                  "type": "object"
+                }
+              }
+            },
+            "inventory_asset": {
+              "properties": {
+                "key": {
+                  "type": "keyword"
+                }
+              }
+            },
+            "internal": {
+              "properties": {
+                "queue_scan_id": {
+                  "type": "keyword"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "composed_of": []
+}

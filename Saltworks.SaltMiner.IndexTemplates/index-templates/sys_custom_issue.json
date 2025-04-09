@@ -1,0 +1,46 @@
+{
+  "index_patterns": [
+    "sys_custom_issue*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "type": "date"
+        },
+        "last_updated": {
+          "type": "date"
+        },
+        "fields": {
+          "properties": {
+            "field": {
+              "type": "keyword"
+            },
+            "display": {
+              "type": "keyword"
+            },
+            "hidden": {
+              "type": "boolean"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "default": {
+              "type": "keyword"
+            }
+          }
+        }
+      }
+    }
+  }
+}

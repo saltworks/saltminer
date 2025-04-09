@@ -6,7 +6,7 @@
 **/*/[Pp]roperties/
 **/*/TestResults/
 **/*/ConfigPath.json
-/Saltworks.SaltMiner.ElasticClient/Saltworks.SaltMiner.ElasticClient.IntegrationTests/settings.json
+**/*IntegrationTests/settings.json
 /Saltworks.SaltMiner.SyncAgent/Saltworks.SaltMiner.SyncAgent/SourceConfigs/
 
 # Python
@@ -26,4 +26,3 @@ Saltworks.SaltMiner.Python/sm-run-config-location.json
 Saltworks.SaltMiner.Python/DebugStart.py
 Saltworks.SaltMiner.Python/Config/
 
-/Saltworks.SaltMiner.SourceAdapters/Saltworks.Saltminer.SourceAdapters.IntegrationTests/settings.json

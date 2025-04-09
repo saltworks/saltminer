@@ -1,0 +1,80 @@
+{"processors":
+  [
+  {
+    "set": {
+      "field": "saltminer.score.pass_fail",
+      "value": "True",
+      "ignore_failure":true
+    }
+  },
+  {
+    "convert": {
+      "field": "saltminer.score.pass_fail",
+      "type": "boolean",
+      "ignore_failure":true
+    }
+  },
+  {
+    "set": {
+      "field": "saltminer.score.pass_fail_reviewed",
+      "value": "{{_ingest.timestamp}}",
+      "ignore_failure":true
+    }
+  },
+  {
+    "set": {
+      "field": "saltminer.score.last_scan.sast",
+      "value": "-1",
+      "ignore_failure":true
+    }
+  },
+  {
+    "convert": {
+      "field": "saltminer.score.last_scan.sast",
+      "type": "long",
+      "ignore_failure":true
+    }
+  },
+  {
+    "set": {
+      "field": "saltminer.score.last_scan.dast",
+      "value": "-1",
+      "ignore_failure":true
+    }
+  },
+  {
+    "convert": {
+      "field": "saltminer.score.last_scan.dast",
+      "type": "long",
+      "ignore_failure":true
+    }
+  },
+  {
+    "set": {
+      "field": "saltminer.score.last_scan.mobile",
+      "value": "-1",
+      "ignore_failure":true
+    }
+  },
+  {
+    "convert": {
+      "field": "saltminer.score.last_scan.mobile",
+      "type": "long",
+      "ignore_failure":true
+    }
+  },
+  {
+    "set": {
+      "field": "saltminer.score.last_scan.open",
+      "value": "-1",
+      "ignore_failure":true
+    }
+  },
+  {
+    "convert": {
+      "field": "saltminer.score.last_scan.open",
+      "type": "long",
+      "ignore_failure":true
+    }
+  }
+]}

@@ -1,0 +1,116 @@
+{"processors":
+[
+  {
+    "pipeline": {
+      "name": "saltminer-pass-fail-issues",
+      "description": "saltminer-pass-fail-issues"
+    }
+  },
+  {
+    "set": {
+      "field": "parameters.addparams",
+      "value": "true",
+      "description": "[PARAMS]Sets conditional value to add parameters"
+    }
+  },
+  {
+    "convert": {
+      "field": "parameters.addparams",
+      "type": "boolean",
+      "description": "[PARAMS]Converts conditional value to boolean"
+    }
+  },
+  {
+    "pipeline": {
+      "name": "params_wrapper_pipeline",
+      "description": "[PARAMS]Runs params pipeline to add params"
+    }
+  },
+  {
+    "script": {
+      "source": "if (ctx.saltminer.score.compliance == null) {\n        ctx.saltminer.score.compliance = [:] \n    }\nif (ctx.saltminer.score.risk == null) {\n        ctx.saltminer.score.risk = [:] \n    }",
+      "description": "Sets the saltminer.score.compliance and risk to an empty list if null"
+    }
+  },
+  {
+    "script": {
+      "source": "try {\n    ctx.saltminer.score.compliance.prod = 0;\n    if (ctx.saltminer.critical == 1){\n        ctx.saltminer.score.compliance.prod = ctx.parameters.compliance.critical_score;\n    }\n    else if(ctx.saltminer.high == 1){\n        ctx.saltminer.score.compliance.prod = ctx.parameters.compliance.high_score;\n    }\n    else if(ctx.saltminer.medium == 1){\n        ctx.saltminer.score.compliance.prod = ctx.parameters.compliance.medium_score;\n    }\n    else if(ctx.saltminer.low == 1){\n        ctx.saltminer.score.compliance.prod = ctx.parameters.compliance.low_score;\n        \n    }\n}\ncatch (Exception ex)\n{\n    ctx.error = ex.toString();\n}",
+      "if": "return true; ",
+      "ignore_failure": true,
+      "description": "[COMPLIANCE][PROD]Assign compliance scores to issues for prod "
+    }
+  },
+  {
+    "script": {
+      "source": "try {\n    ctx.saltminer.score.compliance.dev = 0;\n    if (ctx.saltminer.critical == 1){\n        ctx.saltminer.score.compliance.dev = ctx.parameters.compliance.critical_score;\n    }\n    else if(ctx.saltminer.high == 1){\n        ctx.saltminer.score.compliance.dev = ctx.parameters.compliance.high_score;\n    }\n    else if(ctx.saltminer.medium == 1){\n        ctx.saltminer.score.compliance.dev = ctx.parameters.compliance.medium_score;\n    }\n     else if(ctx.saltminer.low == 1){\n        ctx.saltminer.score.compliance.dev = ctx.parameters.compliance.low_score;\n    }\n}\ncatch (Exception ex)\n{\n    ctx.error = ex.toString();\n}",
+      "if": "return false;",
+      "description": "[COMPLIANCE][DEV]Assign compliance scores to issues for dev"
+    }
+  },
+  {
+    "script": {
+      "source": "try {\n    ctx.saltminer.score.compliance.test = 0;\n    if (ctx.saltminer.critical == 1){\n        ctx.saltminer.score.compliance.test = ctx.parameters.compliance.critical_score;\n    }\n    else if(ctx.saltminer.high == 1){\n        ctx.saltminer.score.compliance.test = ctx.parameters.compliance.high_score;\n    }\n    else if(ctx.saltminer.medium == 1){\n        ctx.saltminer.score.compliance.test = ctx.parameters.compliance.medium_score;\n    }\n     else if(ctx.saltminer.low == 1){\n        ctx.saltminer.score.compliance.test = ctx.parameters.compliance.low_score;\n    }\n}\ncatch (Exception ex)\n{\n    ctx.error = ex.toString();\n}",
+      "if": "return false;",
+      "description": "[COMPLIANCE][TEST]Assign compliance scores to issues for test"
+    }
+  },
+  {
+    "script": {
+      "source": "try {\n    ctx.saltminer.score.compliance.test = 0;\n    if (ctx.saltminer.critical == 1){\n        ctx.saltminer.score.compliance.test = ctx.parameters.compliance.critical_score;\n    }\n    else if(ctx.saltminer.high == 1){\n        ctx.saltminer.score.compliance.test = ctx.parameters.compliance.high_score;\n    }\n    else if(ctx.saltminer.medium == 1){\n        ctx.saltminer.score.compliance.test = ctx.parameters.compliance.medium_score;\n    }\n     else if(ctx.saltminer.low == 1){\n        ctx.saltminer.score.compliance.test = ctx.parameters.compliance.low_score;\n    }\n}\ncatch (Exception ex)\n{\n    ctx.error = ex.toString();\n}",
+      "if": "return true;",
+      "description": "[COMPLIANCE][OVERALL]Assign compliance scores to issues for overall"
+    }
+  },
+  {
+    "script": {
+      "source": "try {\n    ctx.saltminer.score.risk.prod = 0;\n    if (ctx.saltminer.critical == 1){\n        ctx.saltminer.score.risk.prod = ctx.parameters.risk.critical_score;\n    }\n    else if(ctx.saltminer.high == 1){\n        ctx.saltminer.score.risk.prod = ctx.parameters.risk.high_score;\n    }\n    else if(ctx.saltminer.medium == 1){\n        ctx.saltminer.score.risk.prod = ctx.parameters.risk.medium_score;\n    }\n    else if(ctx.saltminer.low == 1){\n        ctx.saltminer.score.risk.prod = ctx.parameters.risk.low_score;\n        \n    }\n}\ncatch (Exception ex)\n{\n    ctx.error = ex.toString();\n}",
+      "if": "return true;",
+      "ignore_failure": true,
+      "description": "[RISK][PROD]Assign risk scores to issues for prod"
+    }
+  },
+  {
+    "script": {
+      "source": "try {\n    ctx.saltminer.score.risk.dev = 0;\n    if (ctx.saltminer.critical == 1){\n        ctx.saltminer.score.risk.dev = ctx.parameters.risk.critical_score;\n    }\n    else if(ctx.saltminer.high == 1){\n        ctx.saltminer.score.risk.dev = ctx.parameters.risk.high_score;\n    }\n    else if(ctx.saltminer.medium == 1){\n        ctx.saltminer.score.risk.dev = ctx.parameters.risk.medium_score;\n    }\n    else if(ctx.saltminer.low == 1){\n        ctx.saltminer.score.risk.dev = ctx.parameters.risk.low_score;\n        \n    }\n}\ncatch (Exception ex)\n{\n    ctx.error = ex.toString();\n}",
+      "if": "return false;",
+      "ignore_failure": true,
+      "description": "[RISK][DEV]Assign risk scores to issues for dev"
+    }
+  },
+  {
+    "script": {
+      "source": "try {\n    ctx.saltminer.score.risk.test = 0;\n    if (ctx.saltminer.critical == 1){\n        ctx.saltminer.score.risk.test = ctx.parameters.risk.critical_score;\n    }\n    else if(ctx.saltminer.high == 1){\n        ctx.saltminer.score.risk.test = ctx.parameters.risk.high_score;\n    }\n    else if(ctx.saltminer.medium == 1){\n        ctx.saltminer.score.risk.test = ctx.parameters.risk.medium_score;\n    }\n    else if(ctx.saltminer.low == 1){\n        ctx.saltminer.score.risk.test = ctx.parameters.risk.low_score;\n        \n    }\n}\ncatch (Exception ex)\n{\n    ctx.error = ex.toString();\n}",
+      "if": "return false;",
+      "ignore_failure": true,
+      "description": "[RISK][TEST]Assign risk scores to issues for dev"
+    }
+  },
+  {
+    "script": {
+      "source": "try {\n    ctx.saltminer.score.risk.overall = 0;\n    if (ctx.saltminer.critical == 1){\n        ctx.saltminer.score.risk.overall = ctx.parameters.risk.critical_score;\n    }\n    else if(ctx.saltminer.high == 1){\n        ctx.saltminer.score.risk.overall = ctx.parameters.risk.high_score;\n    }\n    else if(ctx.saltminer.medium == 1){\n        ctx.saltminer.score.risk.overall = ctx.parameters.risk.medium_score;\n    }\n    else if(ctx.saltminer.low == 1){\n        ctx.saltminer.score.risk.overall = ctx.parameters.risk.low_score;\n        \n    }\n}\ncatch (Exception ex)\n{\n    ctx.error = ex.toString();\n}",
+      "if": "return true;",
+      "ignore_failure": true,
+      "description": "[RISK][OVERALL]Assign risk scores to issues for dev"
+    }
+  },
+  {
+    "set": {
+      "field": "parameters.addparams",
+      "value": "false",
+      "description": "[PARAMS]Sets condtional value to remove parameters"
+    }
+  },
+  {
+    "convert": {
+      "field": "parameters.addparams",
+      "type": "boolean",
+      "description": "[PARAMS]Converts conditional value to boolean"
+    }
+  },
+  {
+    "pipeline": {
+      "name": "params_wrapper_pipeline",
+      "description": "[PARAMS]Runs params_wrapper pipeline to remove params"
+    }
+  }
+] }

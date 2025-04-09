@@ -1,0 +1,36 @@
+{
+  "index_patterns": [
+    "sys_config*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "type": "date"
+        },
+        "last_updated": {
+          "type": "date"
+        },
+        "type": {
+          "type": "keyword"
+        },
+        "name": {
+          "type": "keyword"
+        },
+        "data": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

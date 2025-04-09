@@ -1,0 +1,45 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "normalizer": {
+        "lc_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": [ "lowercase", "asciifolding" ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "projectVersionId": { "type": "keyword" },
+      "attributerec": {
+        "type": "nested",
+        "properties": {
+          "_href": { "type": "text" },
+          "attributeDefinitionId": { "type": "keyword" },
+          "values": {
+            "type": "nested",
+            "properties": {
+              "id": { "type": "keyword" },
+              "guid": { "type": "keyword" },
+              "name": { "type": "keyword" },
+              "description": { "type": "keyword" },
+              "hidden": { "type": "boolean" },
+              "inUse": { "type": "boolean" },
+              "index": { "type": "keyword" },
+              "projectMetaDataDefId": { "type": "keyword" },
+              "publishVersion": { "type": "double" },
+              "objectVersion": { "type": "double" }
+            }
+          },
+          "guid": { "type": "keyword" },
+          "id": { "type": "keyword" },
+          "value": { "type": "keyword" }
+        }
+      }
+    }
+  }
+}

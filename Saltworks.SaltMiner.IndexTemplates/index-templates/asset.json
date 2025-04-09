@@ -1,0 +1,321 @@
+{
+  "index_patterns": [
+    "asset*"
+  ],
+  "priority": 0,
+  "template": {
+    "settings": {
+      "index": {
+        "analysis": {
+          "analyzer": {
+            "lc_keyword": {
+              "filter": [
+                "uppercase"
+              ],
+              "tokenizer": "keyword"
+            }
+          }
+        },
+        "number_of_shards": "1",
+        "number_of_replicas": "0",
+        "default_pipeline": "saltminer-asset-pipeline"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "type": "date"
+        },
+        "last_updated": {
+          "type": "date"
+        },
+        "saltminer": {
+          "properties": {
+            "composite_key": {
+              "type": "keyword"
+            },
+            "score": {
+              "properties": {
+                "pass_fail": {
+                  "type": "boolean"
+                },
+                "pass_fail_reasons": {
+                  "type": "text"
+                },
+                "last_scan": {
+                  "properties": {
+                    "dast": {
+                      "type": "long"
+                    },
+                    "sast": {
+                      "type": "long"
+                    },
+                    "open": {
+                      "type": "long"
+                    },
+                    "mobile": {
+                      "type": "long"
+                    }
+                  }
+                },
+                "star_rating": {
+                  "type": "integer"
+                },
+                "compliance": {
+                  "properties": {
+                    "last_updated": {
+                      "type": "date"
+                    },
+                    "prod": {
+                      "type": "integer"
+                    },
+                    "dev": {
+                      "type": "integer"
+                    },
+                    "test": {
+                      "type": "integer"
+                    },
+                    "overall": {
+                      "type": "integer"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "calculated": {
+                      "properties": {
+                        "dev": {
+                          "type": "integer"
+                        },
+                        "overall": {
+                          "type": "integer"
+                        },
+                        "prod": {
+                          "type": "integer"
+                        },
+                        "test": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                },
+                "risk": {
+                  "properties": {
+                    "last_updated": {
+                      "type": "date"
+                    },
+                    "prod": {
+                      "type": "integer"
+                    },
+                    "dev": {
+                      "type": "integer"
+                    },
+                    "test": {
+                      "type": "integer"
+                    },
+                    "overall": {
+                      "type": "integer"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "calculated": {
+                      "properties": {
+                        "dev": {
+                          "type": "integer"
+                        },
+                        "overall": {
+                          "type": "integer"
+                        },
+                        "prod": {
+                          "type": "integer"
+                        },
+                        "test": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "inventory_asset": {
+              "properties": {
+                "key": {
+                  "type": "keyword"
+                },
+                "version": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": {
+                      "type": "text"
+                    }
+                  }
+                },
+                "is_production": {
+                  "type": "boolean"
+                },
+                "description": {
+                  "type": "text"
+                },
+                "name": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": {
+                      "type": "text"
+                    }
+                  }
+                },
+                "attributes": {
+                  "type": "object"
+                }
+              }
+            },
+            "asset": {
+              "properties": {
+                "id": {
+                  "type": "keyword"
+                },
+                "name": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": {
+                      "type": "text"
+                    }
+                  }
+                },
+                "description": {
+                  "type": "text"
+                },
+                "scan_count": {
+                  "type": "integer"
+                },
+                "version_id": {
+                  "type": "keyword"
+                },
+                "version": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": {
+                      "type": "text"
+                    }
+                  }
+                },
+                "source_id": {
+                  "type": "keyword"
+                },
+                "instance": {
+                  "type": "keyword"
+                },
+                "source_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": {
+                      "type": "text"
+                    }
+                  }
+                },
+                "asset_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": {
+                      "type": "text"
+                    }
+                  }
+                },
+                "sub_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": {
+                      "type": "text"
+                    }
+                  }
+                },
+                "is_saltminer_source": {
+                  "type": "boolean"
+                },
+                "is_retired": {
+                  "type": "boolean"
+                },
+                "is_production": {
+                  "type": "boolean"
+                },
+                "last_scan_days_policy": {
+                  "type": "integer"
+                },
+                "host": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": {
+                      "type": "text"
+                    }
+                  }
+                },
+                "ip": {
+                  "type": "ip"
+                },
+                "scheme": {
+                  "type": "keyword"
+                },
+                "port": {
+                  "type": "integer"
+                },
+                "attributes": {
+                  "type": "object"
+                }
+              }
+            },
+            "engagement": {
+              "properties": {
+                "customer": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": {
+                      "type": "text"
+                    }
+                  }
+                },
+                "id": {
+                  "type": "keyword"
+                },
+                "name": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": {
+                      "type": "text"
+                    }
+                  }
+                },
+                "publish_date": {
+                  "type": "date"
+                },
+                "subtype": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": {
+                      "type": "text"
+                    }
+                  }
+                },
+                "attributes": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "version": 2
+}

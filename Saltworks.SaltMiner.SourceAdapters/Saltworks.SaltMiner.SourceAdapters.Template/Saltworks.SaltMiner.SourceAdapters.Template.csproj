@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Authors>Saltworks, LLC</Authors>
+    <Company>Saltworks, LLC</Company>
+    <Description>Source adapter Template</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Saltworks.SaltMiner.SourceAdapters.Core" Version="1.0.16" />
+  </ItemGroup>
+
+</Project>

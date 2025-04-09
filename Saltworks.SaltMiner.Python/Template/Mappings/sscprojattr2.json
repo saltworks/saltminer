@@ -1,0 +1,23 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "normalizer": {
+        "lc_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": [ "lowercase", "asciifolding" ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "projectVersionId": { "type": "keyword" },
+      "attributeId": { "type": "keyword" },
+      "attributeName": { "type": "keyword" },
+      "attributeValue": { "type": "keyword" }
+    }
+  }
+}

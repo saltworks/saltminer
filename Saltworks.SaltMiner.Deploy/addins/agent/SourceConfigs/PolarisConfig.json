@@ -1,0 +1,23 @@
+{
+  "ConfigFileName_Comment": "Name to identify the config file - should match the config file name without the 'Config'",
+  "ConfigFileName": "Polaris",
+  "Instance_Comment": "Name of the source instance - drives the generated index name.  Can be the same as the ConfigFileName, but simple is best.  Include a number for multi-instance.  ex. 'mendsca1'",
+  "Instance": "plr1",
+  "SourceType_Comment": "Used to select the source adapter to apply, only set this if you know what you are doing.  Recommend using a sample config to start from that already has this set.",
+  "SourceType": "Saltworks.Polaris",
+  "BaseAddress_Comment": "The base URL address of the source API",
+  "BaseAddress": "https://polaris.synopsys.com/api/",
+  "Timeout_Comment": "Interval of seconds between API requests",
+  "Timeout": 30,
+  "ApiKey_Comment": "The key used to authenticate to the API",
+  "ApiKey": "",
+  "BatchLimit_Comment": "The number of records to pull from the API at one time. Polaris has a 100 maximum or a 400 exception occurs.",
+  "BatchLimit":  100,
+  "IssueSeverityMap_Comment": "Maps the source severity name to one of the Saltminer severity names",
+  "IssueSeverityMap": {
+    "critical": "Critical",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
+  }
+} 

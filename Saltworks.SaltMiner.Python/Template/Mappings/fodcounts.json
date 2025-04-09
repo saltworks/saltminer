@@ -1,0 +1,23 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "normalizer": {
+        "lc_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": [ "lowercase", "asciifolding" ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "releaseId": { "type": "keyword" },
+      "sourceName": { "type": "keyword" },
+      "FixedIssue": { "type": "integer" },
+      "SuppressedIssues": { "type": "integer" }
+    }
+  }
+}

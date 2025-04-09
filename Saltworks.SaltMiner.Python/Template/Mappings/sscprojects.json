@@ -1,0 +1,55 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "normalizer": {
+        "lc_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": [ "lowercase", "asciifolding" ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "_href": { "type": "text" },
+      "name": { "type": "keyword" },
+      "project": {
+        "type": "nested",
+        "properties": {
+          "id": { "type": "keyword" },
+          "name": { "type": "keyword" },
+          "description": { "type": "keyword" },
+          "creationDate": { "type": "date" },
+          "createdBy": { "type": "keyword" },
+          "issueTemplateId": { "type": "keyword" }
+        }
+      },
+      "id": { "type": "keyword" },
+      "issueTemplateId": { "type": "keyword" },
+      "currentState": {
+        "type": "nested",
+        "properties": {
+          "id": { "type": "keyword" },
+          "committed": { "type": "boolean" },
+          "attentionRequired": { "type": "boolean" },
+          "analysisResultsExist": { "type": "boolean" },
+          "auditEnabled": { "type": "boolean" },
+          "lastFprUploadDate": { "type": "date" },
+          "extraMessage": { "type": "boolean" },
+          "analysisUploadEnabled": { "type": "boolean" },
+          "batchBugSubmissionExists": { "type": "boolean" },
+          "hasCustomIssues": { "type": "boolean" },
+          "metricEvaluationDate": { "type": "date" },
+          "deltaPeriod": { "type": "integer" },
+          "issueCountDelta": { "type": "integer" },
+          "percentAuditedDelta": { "type": "double" },
+          "criticalPriorityIssueCountDelta": { "type": "integer" },
+          "percentCriticalPriorityIssuesAuditedDelta": { "type": "double" }
+        }
+      }
+    }
+  }
+}

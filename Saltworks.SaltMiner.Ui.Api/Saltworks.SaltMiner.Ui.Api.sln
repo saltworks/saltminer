@@ -1,0 +1,79 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Saltworks.SaltMiner.Ui.Api", "Saltworks.SaltMiner.Ui.Api\Saltworks.SaltMiner.Ui.Api.csproj", "{F5B3BA70-6038-4178-8F15-93DB47BA1DA5}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Saltworks.SaltMiner.Ui.IntegrationTests", "Saltworks.SaltMiner.Ui.IntegrationTests\Saltworks.SaltMiner.Ui.IntegrationTests.csproj", "{79D7A4E6-E2C3-4A18-9434-62821ED3F932}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Saltworks.SaltMiner.Ui.UnitTests", "Saltworks.SaltMiner.Ui.UnitTests\Saltworks.SaltMiner.Ui.UnitTests.csproj", "{E6EEA23C-D1B9-4A25-9DA2-C833086CB41F}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Saltworks.SaltMiner.ConfigurationWizard", "..\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard.csproj", "{86708D60-5456-473E-AF55-7B30EB0E0571}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Saltworks.SaltMiner.UiApiClient", "..\Saltworks.SaltMiner.UiApiClient\Saltworks.SaltMiner.UiApiClient\Saltworks.SaltMiner.UiApiClient.csproj", "{4E318C08-63BC-4BA3-AA87-51F0E0131EA9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.Core", "..\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core.csproj", "{82DBC20C-4012-DFEB-1AF6-0378851BFC35}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.Common.Data", "..\Saltworks.Common.Data\Saltworks.Common.Data\Saltworks.Common.Data.csproj", "{68A4EFDC-9CB8-1DAA-F9D4-06CD60C1B028}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.DataClient", "..\Saltworks.SaltMiner.DataClient\Saltworks.SaltMiner.DataClient\Saltworks.SaltMiner.DataClient.csproj", "{A8012CDD-6A51-127F-CF85-01F515B07A52}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.ConsoleApp.Core", "..\Saltworks.SaltMiner.ConsoleApp.Core\Saltworks.SaltMiner.ConsoleApp.Core\Saltworks.SaltMiner.ConsoleApp.Core.csproj", "{EB7475DE-1F27-8B4B-52DF-116DC3041AB1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.Utility.ApiHelper", "..\Saltworks.ApiClient\Saltworks.Utility.ApiHelper\Saltworks.Utility.ApiHelper.csproj", "{F8935952-CCAF-CC40-8B85-FA602D85EB8A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F5B3BA70-6038-4178-8F15-93DB47BA1DA5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F5B3BA70-6038-4178-8F15-93DB47BA1DA5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F5B3BA70-6038-4178-8F15-93DB47BA1DA5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F5B3BA70-6038-4178-8F15-93DB47BA1DA5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{79D7A4E6-E2C3-4A18-9434-62821ED3F932}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{79D7A4E6-E2C3-4A18-9434-62821ED3F932}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{79D7A4E6-E2C3-4A18-9434-62821ED3F932}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{79D7A4E6-E2C3-4A18-9434-62821ED3F932}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E6EEA23C-D1B9-4A25-9DA2-C833086CB41F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E6EEA23C-D1B9-4A25-9DA2-C833086CB41F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E6EEA23C-D1B9-4A25-9DA2-C833086CB41F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E6EEA23C-D1B9-4A25-9DA2-C833086CB41F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{86708D60-5456-473E-AF55-7B30EB0E0571}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{86708D60-5456-473E-AF55-7B30EB0E0571}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{86708D60-5456-473E-AF55-7B30EB0E0571}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{86708D60-5456-473E-AF55-7B30EB0E0571}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4E318C08-63BC-4BA3-AA87-51F0E0131EA9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4E318C08-63BC-4BA3-AA87-51F0E0131EA9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4E318C08-63BC-4BA3-AA87-51F0E0131EA9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4E318C08-63BC-4BA3-AA87-51F0E0131EA9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{82DBC20C-4012-DFEB-1AF6-0378851BFC35}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{82DBC20C-4012-DFEB-1AF6-0378851BFC35}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{82DBC20C-4012-DFEB-1AF6-0378851BFC35}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{82DBC20C-4012-DFEB-1AF6-0378851BFC35}.Release|Any CPU.Build.0 = Release|Any CPU
+		{68A4EFDC-9CB8-1DAA-F9D4-06CD60C1B028}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{68A4EFDC-9CB8-1DAA-F9D4-06CD60C1B028}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{68A4EFDC-9CB8-1DAA-F9D4-06CD60C1B028}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{68A4EFDC-9CB8-1DAA-F9D4-06CD60C1B028}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A8012CDD-6A51-127F-CF85-01F515B07A52}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A8012CDD-6A51-127F-CF85-01F515B07A52}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A8012CDD-6A51-127F-CF85-01F515B07A52}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A8012CDD-6A51-127F-CF85-01F515B07A52}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EB7475DE-1F27-8B4B-52DF-116DC3041AB1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EB7475DE-1F27-8B4B-52DF-116DC3041AB1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EB7475DE-1F27-8B4B-52DF-116DC3041AB1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EB7475DE-1F27-8B4B-52DF-116DC3041AB1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F8935952-CCAF-CC40-8B85-FA602D85EB8A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F8935952-CCAF-CC40-8B85-FA602D85EB8A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F8935952-CCAF-CC40-8B85-FA602D85EB8A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F8935952-CCAF-CC40-8B85-FA602D85EB8A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {39959755-0417-4EC0-9AA2-C59D6F80329A}
+	EndGlobalSection
+EndGlobal

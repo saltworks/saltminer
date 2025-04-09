@@ -1,0 +1,20 @@
+# SaltMiner Manager cron jobs
+# Run queue processor every 5 min, processing 100 max queue scans
+*/5 * * * * /usr/share/saltworks/saltminer-3.0.0/managercron.sh queue -n 100
+#
+# Run snapshots every day at midnight
+0 0 * * * /usr/share/saltworks/saltminer-3.0.0/managercron.sh snapshot
+#
+# Run queue cleanup nightly at 3am (see config for retention settings)
+0 3 * * 0 /usr/share/saltworks/saltminer-3.0.0/managercron.sh cleanup
+#
+# SaltMiner Agent cron jobs
+# Run sync for source with "Sonatype" config name at 6a, 10a, 2p, 6p daily (uncomment to enable)
+#0 6,10,2,6 * * * /usr/share/saltworks/saltminer-3.0.0/agentcron.sh sync -c Sonatype
+#
+# SaltMiner 2.5 - Foritfy SSC and FOD jobs, uncomment to enable syncing SSC and FOD
+#0 6-18/4 * * * /usr/share/saltworks/saltminer-3.0.0/agentcron25.sh
+
+# SaltMiner Job Manager cron jobs
+# No longer needed, see Job Manager service for details. 
+

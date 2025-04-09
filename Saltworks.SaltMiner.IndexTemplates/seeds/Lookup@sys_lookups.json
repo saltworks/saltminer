@@ -1,0 +1,228 @@
+[
+  {
+    "type": "SeverityDropdown",
+    "values": [
+      {
+        "display": "Critical",
+        "value": "Critical",
+        "order": 1
+      },
+      {
+        "display": "High",
+        "value": "High",
+        "order": 2
+      },
+      {
+        "display": "Medium",
+        "value": "Medium",
+        "order": 3
+      },
+      {
+        "display": "Low",
+        "value": "Low",
+        "order": 4
+      },
+      {
+        "display": "Info",
+        "value": "Info",
+        "order": 5
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
+  {
+    "type": "TestedDropdown",
+    "values": [
+      {
+        "display": "Tested",
+        "value": "Tested",
+        "order": 1
+      },
+      {
+        "display": "Not Tested",
+        "value": "Not Tested",
+        "order": 2
+      },
+      {
+        "display": "Not Found",
+        "value": "Not Found",
+        "order": 3
+      },
+      {
+        "display": "Found",
+        "value": "Found",
+        "order": 4
+      },
+      {
+        "display": "Out of Scope",
+        "value": "Out of Scope",
+        "order": 5
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000002"
+  },
+  {
+    "type": "EngagementSubTypeDropdown",
+    "values": [
+      {
+        "display": "PenTest",
+        "value": "PenTest",
+        "order": 1
+      },
+      {
+        "display": "API",
+        "value": "API",
+        "order": 2
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000003"
+  },
+  {
+    "type": "AssetTypeDropdown",
+    "values": [
+      {
+        "display": "App",
+        "value": "App",
+        "order": 1
+      },
+      {
+        "display": "Ctr",
+        "value": "Ctr",
+        "order": 2
+      },
+      {
+        "display": "Net",
+        "value": "Net",
+        "order": 2
+      },
+      {
+        "display": "Pen",
+        "value": "Pen",
+        "order": 2
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000004"
+  },
+  {
+    "type": "PenTestTypeDropdown",
+    "values": [
+      {
+        "display": "PenTest",
+        "value": "PenTest",
+        "order": 1
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000005"
+  },
+  {
+    "type": "AddItemDropdown",
+    "values": [
+      {
+        "display": "Import Issues",
+        "value": "import",
+        "order": 1
+      },
+      {
+        "display": "Add a single issue",
+        "value": "issue",
+        "order": 2
+      },
+      {
+        "display": "Add a single asset",
+        "value": "asset",
+        "order": 3
+      },
+      {
+        "display": "Add a template issue",
+        "value": "template",
+        "order": 4
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000006"
+  },
+  {
+    "type": "EngagementIssueOptionalFields",
+    "values": [
+      {
+        "display": "Is Suppressed",
+        "value": "IsSuppressed",
+        "order": 1
+      },
+      {
+        "display": "Location",
+        "value": "Location",
+        "order": 2
+      },
+      {
+        "display": "Location Full",
+        "value": "LocationFull",
+        "order": 3
+      },
+      {
+        "display": "Implication",
+        "value": "Implication",
+        "order": 4
+      },
+      {
+        "display": "Recommendation",
+        "value": "Recommendation",
+        "order": 5
+      },
+      {
+        "display": "References",
+        "value": "References",
+        "order": 6
+      },
+      {
+        "display": "Details",
+        "value": "Details",
+        "order": 7
+      },
+      {
+        "display": "Proof",
+        "value": "Proof",
+        "order": 8
+      },
+      {
+        "display": "Vendor",
+        "value": "Vendor",
+        "order": 9
+      },
+      {
+        "display": "Product",
+        "value": "Product",
+        "order": 10
+      },
+      {
+        "display": "Assessment Type",
+        "value": "AssessmentType",
+        "order": 11
+      },
+      {
+        "display": "Reference",
+        "value": "Reference",
+        "order": 12
+      },
+      {
+        "display": "Description",
+        "value": "Description",
+        "order": 13
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000007"
+  }
+]

@@ -1,0 +1,98 @@
+name: Package Deploy Artifact (Legacy)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */12 * * *"
+  push:
+    branches:
+    - '3.0.*'
+    paths:
+    - '.github/workflows/package-artifact.yml'
+
+env:
+  BRANCH: ${{ github.head_ref || github.ref_name }}
+
+jobs:
+  main:
+    runs-on: self-hosted
+    env:
+      work-dir: ./Saltworks.SaltMiner.Deploy
+      token-secret: API_CICD_TOKEN
+      sln-name: SaltMiner
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      actions: read
+  
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Generate Build Number
+        run: |
+          RUN_NUMBER=$(printf "%04d" ${{ github.run_number }})
+          RUN_ATTEMPT=$(printf "%02d" ${{ github.run_attempt }})
+          BUILD_NUMBER="${RUN_NUMBER}-${RUN_ATTEMPT}"
+          echo "BUILD_NUMBER=${BUILD_NUMBER}" >> $GITHUB_ENV
+  
+      - name: Print Build Number
+        run: echo "Build Number is $BRANCH.$BUILD_NUMBER"
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.x'
+
+      - name: Run Python Script
+        id: python
+        working-directory: ${{env.work-dir}}
+        run: |
+          python -m pip install -r package-reqs.txt
+          python package.py "$BRANCH" ${{secrets.GITHUB_TOKEN}} 12 || true
+          PYEXIT=$(cat pyexit.txt)
+          rm pyexit.txt
+          echo "PY_EXIT=${PYEXIT}" >> $GITHUB_OUTPUT
+
+      - name: Report python result
+        run: echo "Python exit code is ${{ steps.python.outputs.PY_EXIT }}"
+
+      - name: Add version.txt
+        if: ${{ steps.python.outputs.PY_EXIT == '0' }}
+        run: echo "$BRANCH.$BUILD_NUMBER" > version.txt
+        working-directory: ${{env.work-dir}}
+
+      - name: What was built?
+        if: ${{ steps.python.outputs.PY_EXIT == '0' }}
+        run: ls -la ${{env.work-dir}} --group-directories-first
+        working-directory: ./
+
+      - name: Upload Unique Artifact
+        if: ${{ steps.python.outputs.PY_EXIT == '0' }}
+        uses: actions/upload-artifact@v4
+        with:
+            name: ${{env.sln-name}}.${{env.BRANCH}}.${{env.BUILD_NUMBER}}
+            path: ${{env.work-dir}}/*
+            retention-days: 5
+      
+      - name: Slack notification
+        if: ${{ steps.python.outputs.PY_EXIT == '0' }}
+        run: |
+          echo "Sending slack success notification..."
+          curl -X POST ${{ secrets.SLACK_URL }} \
+            -H "Content-Type: application/json" \
+            -d '{"type": "success", "data": "New build available: ${{env.sln-name}}.${{env.BRANCH}}.${{env.BUILD_NUMBER}}"}'
+
+  on-fail:
+    runs-on: self-hosted
+    needs: main  # wait for main to complete
+    if: failure()  # only run if main fails
+    steps:
+      - name: Slack notification
+        run: |
+          echo "Sending slack failure notification..."
+          curl -X POST ${{ secrets.SLACK_URL }} \
+            -H "Content-Type: application/json" \
+            -d '{"type": "failure", "data": "Workflow ${{ github.workflow }} failed"}'

@@ -1,0 +1,52 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.3" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageReference Include="MSTest.TestAdapter" Version="3.8.3" />
+    <PackageReference Include="MSTest.TestFramework" Version="3.8.3" />
+    <PackageReference Include="coverlet.collector" Version="6.0.4">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Saltworks.Saltminer.SourceAdapters.CheckmarxOne\Saltworks.SaltMiner.SourceAdapters.CheckmarxOne.csproj" />
+    <ProjectReference Include="..\Saltworks.SaltMiner.SourceAdapters.GitLab\Saltworks.SaltMiner.SourceAdapters.GitLab.csproj" />
+    <ProjectReference Include="..\Saltworks.SaltMiner.SourceAdapters.MendSca\Saltworks.SaltMiner.SourceAdapters.MendSca.csproj" />
+    <ProjectReference Include="..\Saltworks.SaltMiner.SourceAdapters.Qualys\Saltworks.SaltMiner.SourceAdapters.Qualys.csproj" />
+    <ProjectReference Include="..\Saltworks.SaltMiner.SourceAdapters.Sonatype\Saltworks.SaltMiner.SourceAdapters.Sonatype.csproj" />
+    <ProjectReference Include="..\Saltworks.SaltMiner.SourceAdapters.Wiz\Saltworks.SaltMiner.SourceAdapters.Wiz.csproj" />
+    <ProjectReference Include="..\Saltworks.Saltminer.SourceAdapters.Oligo\Saltworks.SaltMiner.SourceAdapters.Oligo.csproj" />
+    <ProjectReference Include="..\Saltworks.SaltMiner.SourceAdapters.SonarQube\Saltworks.SaltMiner.SourceAdapters.SonarQube.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="data\Scan_Host_Report.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="data\Scan_List.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="settings.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="TempData\issuereport.csv">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="TempData\Scan_Host_Report.xml">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="TempData\Scan_List.xml">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

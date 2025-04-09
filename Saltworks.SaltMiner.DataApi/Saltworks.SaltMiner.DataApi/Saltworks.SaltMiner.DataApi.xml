@@ -1,0 +1,1411 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>Saltworks.SaltMiner.DataApi</name>
+    </assembly>
+    <members>
+        <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.DeleteIndex(System.String)">
+            <summary>
+            Deletes Index by name
+            </summary>
+            <param name="indexName">The indexName of the entity to return</param>
+            <returns>NoDataResponse with boolean indicating success</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.ActiveIssueAlias(System.String)">
+            <summary>
+            Checks and Adds active_issue_soourcetpye alias
+            </summary>
+            <param name="indexName">The index name for which to update alias (i.e. issues_app_saltworks.ssc_ssc1)</param>
+            <returns>NoDataResponse with boolean indicating success</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.RefreshIndex(System.String)">
+            <summary>
+            Refresh Index by name
+            </summary>
+            <param name="indexName">The indexName to refresh</param>
+            <returns>NoDataResponse with boolean indicating success</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.CheckForIndex(System.String)">
+            <summary>
+            Check for Index by name
+            </summary>
+            <param name="indexName">The indexName to refresh</param>
+            <returns>NoDataResponse with boolean indicating success</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Contexts.JobContext.IsOkToEditStatus(System.String,System.String)">
+            <summary>
+            Whether it's ok to move from curStatus to newStatus
+            </summary>
+            <param name="curStatus">Current status</param>
+            <param name="newStatus">New status</param>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Contexts.QueueScanContext.IsOkToEditStatus(System.String)">
+            <summary>
+            Whether it's ok to edit this queue scan while in this status (i.e. update / delete, not a status move)
+            </summary>
+            <param name="status">Current status</param>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Contexts.QueueScanContext.IsOkToEditStatus(System.String,System.String)">
+            <summary>
+            Whether it's ok to move from curStatus to newStatus
+            </summary>
+            <param name="curStatus">Current status</param>
+            <param name="newStatus">New status</param>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ActionDefinitionController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of action definitions
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AssetController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.Asset})">
+            <summary>
+            Updates one or more Asset(s) using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AssetController.Get(System.String,System.String,System.String,System.String)">
+            <summary>
+            Returns a single Asset
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AssetController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of Assets
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AssetController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Asset})">
+            <summary>
+            Adds or Updates an Asset
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AssetController.Delete(System.String,System.String,System.String,System.String)">
+            <summary>
+            Deletes an Asset entity by ID, source type, and asset type.
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AssetController.CountByInventoryAssetKey(System.String)">
+            <summary>
+            Get counts of assets by asset inventory key
+            </summary>
+            <returns>Count of assets found</returns>
+            <param name="InventoryAssetKey">Asset Inventory Key for which to perform counts</param>
+            <response code="200">Returns a response object indicating success and count of found docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AssetController.DeleteAllBySourceId(System.String,System.String,System.String)">
+            <summary>
+            Deletes an asset entity by source id, source type, and instance and all scans and issues associated with it.
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttachmentController.AddUpdate(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Attachment})">
+            <summary>
+            Adds or Updates a Attachment - only include one in Documents
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttachmentController.AddUpdateBulk(Saltworks.SaltMiner.Core.Data.DataRequest{Saltworks.SaltMiner.Core.Entities.Attachment})">
+            <summary>
+            Adds/Updates one or more Attachment(s)
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttachmentController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.Attachment})">
+            <summary>
+            Updates one or more Attachment(s) using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttachmentController.Get(System.String)">
+            <summary>
+            Returns a single Attachment
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttachmentController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of Attachments
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttachmentController.Delete(System.String)">
+            <summary>
+            Deletes an Attachment
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttachmentController.DeleteAllEngagement(System.String)">
+            <summary>
+            Deletes an Attachments by Engagement
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttachmentController.DeleteEngagementOnly(System.String)">
+            <summary>
+            Deletes an Attachments on Engagement Level Only
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttachmentController.DeleteAllEngagementMarkdown(System.String)">
+            <summary>
+            Deletes an Markdown Attachments by Engagement
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttachmentController.DeleteEngagementMarkdownOnly(System.String)">
+            <summary>
+            Deletes an Markdwon Attachments on Engagement Level Only
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttachmentController.DeleteAllIssue(System.String)">
+            <summary>
+            Deletes an Attachments by Issue
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttachmentController.DeleteAllIssueMarkdown(System.String)">
+            <summary>
+            Deletes all Martkdwon Attachments by Issue
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttachmentController.DeleteAllIssueNonMarkdown(System.String)">
+            <summary>
+            Deletes all NonMartkdwon Attachments by Issue
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttributeDefinitionController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.AttributeDefinition})">
+            <summary>
+            Updates one or more AttributeDefinition(s) using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttributeDefinitionController.Get(System.String)">
+            <summary>
+            Returns a single Attribute Definition
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttributeDefinitionController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of Attribute Definitions
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttributeDefinitionController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.AttributeDefinition})">
+            <summary>
+            Adds or Updates an Attribute Definition
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.AttributeDefinitionController.Delete(System.String)">
+            <summary>
+            Deletes an Attribute Definition entity
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.CommentController.Get(System.String)">
+            <summary>
+            Returns a single Comment
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.CommentController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of Comments
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.CommentController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Comment})">
+            <summary>
+            Adds or Updates an Comment
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.CommentController.AddUpdateBulk(Saltworks.SaltMiner.Core.Data.DataRequest{Saltworks.SaltMiner.Core.Entities.Comment})">
+            <summary>
+            Adds/Updates one or more Comment
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.CommentController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.Comment})">
+            <summary>
+            Updates one or more Comment using update by query
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.CommentController.Delete(System.String)">
+            <summary>
+            Deletes an Comment entity
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.CommentController.DeleteAllEngagement(System.String)">
+            <summary>
+            Deletes an Comment entity
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.Get(System.String)">
+            <summary>
+            Returns a single Config
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.GetAll">
+            <summary>
+            Returns a all Configs
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested objects</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Config})">
+            <summary>
+            Adds or Updates an Config
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+            <remarks>Any child type of config can be sent in</remarks>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.Delete(System.String)">
+            <summary>
+            Deletes an Config entity
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.DeleteByType(System.String)">
+            <summary>
+            Deletes an Config entity by type
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.CustomImporterController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of CustomImporters
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.CustomImporterController.Get(System.String)">
+            <summary>
+            Returns a CustomImporter by ID
+            </summary>
+            <returns>The CustomImporter inside a response object</returns>
+            <response code="200">Returns the CustomImporter inside a response object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.CustomImporterController.Delete(System.String)">
+            <summary>
+            Deletes an CustomImporter entity by Id
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.CustomImporterController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.CustomImporter})">
+            <summary>
+            Adds or Updates a CustomImporter - only include one in Documents
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.Get(System.String)">
+            <summary>
+            Returns an Engagement by ID
+            </summary>
+            <returns>The engagement inside a response object</returns>
+            <response code="200">Returns the engagement inside a response object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.SetHistoricalIssues(System.String,System.String)">
+            <summary>
+            Set Issues as Historical for all grouped engagements
+            </summary>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.UnSetHistoricalIssues(System.String)">
+            <summary>
+            Unset Issues as Historical for engagement
+            </summary>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of Engagements
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.AddUpdateBulk(Saltworks.SaltMiner.Core.Data.DataRequest{Saltworks.SaltMiner.Core.Entities.Engagement})">
+            <summary>
+            Adds/Updates one or more Engagement
+            </summary> 
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.Engagement})">
+            <summary>
+            Updates one or more Engagement using update by query
+            </summary> 
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Engagement})">
+            <summary>
+            Adds or Updates one Engagement
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.Delete(System.String)">
+            <summary>
+            Deletes an Engagement entity by id
+            </summary>
+            <param name="id">Target entity ID</param>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.DeleteGroup(System.String)">
+            <summary>
+            Deletes an Engagement entity by group id
+            </summary>
+            <param name="id">Target group ID</param>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.Counts(System.String,System.String,System.String,System.String)">
+            <summary>
+            Returns issue counts grouped by severity for engagement
+            </summary>
+            <param name="request">Request supports PagingInfo.Size, PagingInfo.ScrollKeys, and FilterMatches</param>
+            <returns>A dictionary response of type string, double that represents the key values (joined with |) and counts</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.Status(System.String,System.String)">
+            <summary>
+            Sets status for given id and new status value
+            </summary>
+            <param name="id">engagement ID</param>
+            <param name="status">new status</param>
+            <returns>Container indicating success or failure</returns>
+            <remarks>
+            This update uses locking to ensure consistency.  Status should be one of these values:  Draft, Queued, Processing, Published.
+            </remarks>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EventlogController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Eventlog})">
+            <summary>
+            Adds or Updates an Event
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.FieldDefinitionController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of field definitions
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.FieldDefinitionController.Get(System.String)">
+            <summary>
+            Returns a single Field Definition
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.FieldDefinitionController.GetFieldDefinitionsByEntity(System.String)">
+            <summary>
+            Returns a multiple Field Definitions by entity
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.FieldDefinitionController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.FieldDefinition})">
+            <summary>
+            Adds or Updates a Field Definition
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.FieldDefinitionController.Delete(System.String)">
+            <summary>
+            Deletes a Field Definition
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.InventoryAssetController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.InventoryAsset})">
+            <summary>
+            Updates one or more InventoryAsset(s) using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.InventoryAssetController.Get(System.String)">
+            <summary>
+            Returns a single InventoryAsset
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.InventoryAssetController.GetByKey(System.String)">
+            <summary>
+            Returns a single InventoryAsset
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.InventoryAssetController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            InventoryAsset search
+            </summary>
+            <returns>Matching docs and scroll info</returns>
+            <response code="202">Returns a response object containing results and scroll info</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.InventoryAssetController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.InventoryAsset})">
+            <summary>
+            Adds or Updates an InventoryAsset entity
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="202">Returns a response object containing the newly added or updated item</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.InventoryAssetController.Delete(System.String)">
+            <summary>
+            Deletes an InventoryAsset entity
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.InventoryAssetController.Dirty(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.InventoryAsset})">
+            <summary>
+            Add Dirty InventoryAsset entity
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns a response object containing the newly added or updated item</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.InventoryAssetController.Refresh(System.String)">
+            <summary>
+            Refresh InventoryAsset entities by SourceType
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.IssueController.Get(System.String,System.String,System.String,System.String)">
+            <summary>
+            Returns an Issue by ID
+            </summary>
+            <returns>The issue inside a response object</returns>
+            <response code="200">Returns the issue inside a response object</response>
+            <remarks>Use search to get by ScanId</remarks>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.IssueController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of Issues
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.IssueController.AddUpdateBulk(Saltworks.SaltMiner.Core.Data.DataRequest{Saltworks.SaltMiner.Core.Entities.Issue})">
+            <summary>
+            Adds/Updates one or more Issue
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.IssueController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.Issue})">
+            <summary>
+            Updates one or more Issue using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.IssueController.Delete(System.String,System.String,System.String,System.String)">
+            <summary>
+            Deletes an Issue entity by id
+            </summary>
+            <param name="id">Target entity ID</param>
+            <param name="assetType">Target entity AssetType</param>
+            <param name="sourceType">Target entity Source Type</param>
+            <param name="instance">Target entity Instanceco</param>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.IssueController.DeleteByScan(System.String,System.String,System.String,System.String)">
+            <summary>
+            Deletes an Issue entity by scan id
+            </summary>
+            <param name="id">Target scan ID</param>
+            <param name="assetType">Target entity AssetType</param>
+            <param name="sourceType">Target entity Source Type</param>
+            <param name="instance">Target entity Instance</param>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.IssueController.DeleteAllBySourceId(System.String,System.String,System.String,System.String,System.String)">
+            <summary>
+            Deletes issues by source id, source type, instance, and assessment type
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.IssueController.DeleteAllByEngagementId(System.String,System.String,System.String,System.String)">
+            <summary>
+            Deletes issues by engagement id, source type, instance, and asset type and ALL associated scans and assets
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.JobController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of Jobs
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.JobController.Get(System.String)">
+            <summary>
+            Returns a Job by ID
+            </summary>
+            <returns>The job inside a response object</returns>
+            <response code="200">Returns the job inside a response object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.JobController.AddUpdateBulk(Saltworks.SaltMiner.Core.Data.DataRequest{Saltworks.SaltMiner.Core.Entities.Job})">
+            <summary>
+            Adds/Updates one or more Job(s)
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.JobController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.Job})">
+            <summary>
+            Updates one or more Job(s) using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.JobController.Delete(System.String)">
+            <summary>
+            Deletes an Job entity by Id
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.JobController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Job})">
+            <summary>
+            Adds or Updates a Job - only include one in Documents
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.JobController.Status(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Job})">
+            <summary>
+            Updates status and status message for a given job
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <remarks>
+            This update uses locking to ensure consistency.  Status should be one of these values:  Pending, Processing, Complete, Error.
+            </remarks>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.LookupController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.Lookup})">
+            <summary>
+            Updates one or more Lookup(s) using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.LookupController.Get(System.String)">
+            <summary>
+            Returns a single Lookup
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.LookupController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of Lookups
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.LookupController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Lookup})">
+            <summary>
+            Adds or Updates an Lookup
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.LookupController.DeleteByType(System.String)">
+            <summary>
+            Delete Lookups by Type
+            </summary>
+            <returns>Non data response</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.LookupController.Delete(System.String)">
+            <summary>
+            Deletes an Lookup entity
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="T:Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController">
+            <summary>
+            Supports operations with QueueAssets
+            </summary>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController.Get(System.String)">
+            <summary>
+            Returns a QueueAsset given id
+            </summary>
+            <returns>The response object</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController.Get(System.String,System.String)">
+            <summary>
+            Returns a QueueAsset given a Source Type and SourceId
+            </summary>
+            <returns>The response object</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.QueueAsset})">
+            <summary>
+            Adds or Updates a QueueAsset
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController.AddUpdateBulk(Saltworks.SaltMiner.Core.Data.DataRequest{Saltworks.SaltMiner.Core.Entities.QueueAsset})">
+            <summary>
+            Adds/Updates one or more QueueAsset(s)
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.QueueAsset})">
+            <summary>
+            Updates one or more QueueAsset(s) using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController.Delete(System.String)">
+            <summary>
+            Deletes an QueueSAsset entity by Id
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of Assets
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="T:Saltworks.SaltMiner.DataApi.Controllers.QueueIssueController">
+            <summary>
+            Supports operations with QueueIssues
+            </summary>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueIssueController.AddUpdateBulk(Saltworks.SaltMiner.Core.Data.DataRequest{Saltworks.SaltMiner.Core.Entities.QueueIssue})">
+            <summary>
+            Adds/Updates one or more QueueIssue(s)
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueIssueController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.QueueIssue})">
+            <summary>
+            Updates one or more QueueIssue using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueIssueController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.QueueIssue})">
+            <summary>
+            Adds or Updates one
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueIssueController.Delete(System.String)">
+            <summary>
+            Deletes QueueIssue by Id
+            </summary>
+            <param name="id">Identifier of the target entity</param>
+            <returns>Response object indicating success</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueIssueController.IssueCountByQueueScanId(System.String)">
+            <summary>
+            Count of Issues by ScanId
+            </summary>
+            <returns>Count</returns>
+            <response code="200">Returns a response object indicating success and count</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueIssueController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of QueueIssues
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueIssueController.Get(System.String)">
+            <summary>
+            Returns a QueueIssue given id
+            </summary>
+            <returns>The response object</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueIssueController.GetAndLock(System.String,System.String)">
+            <summary>
+            Returns an Queue Issue by ID and Locks
+            </summary>
+            <returns>The issue inside a response object</returns>
+            <response code="200">Returns the issue inside a response object</response>
+            <remarks>Use search to get by ScanId</remarks>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueIssueController.RefreshLock(System.String,System.String)">
+            <summary>
+            Refresh an Issue Lock
+            </summary>
+            <returns>The issue inside a response object</returns>
+            <response code="200">Returns the issue inside a response object</response>
+            <remarks>Use search to get by ScanId</remarks>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueLogController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.QueueLog})">
+            <summary>
+            Updates one or more QueueLog(s) using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueLogController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of log messages by query
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a list of log messages</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueLogController.Get(System.String)">
+            <summary>
+            Returns a log message by id
+            </summary>
+            <returns>The response object</returns>
+            <response code="200">Returns a log message by id</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueLogController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.QueueLog})">
+            <summary>
+            Adds or Updates a QueueLog message
+            </summary>
+            <returns>The updated item</returns>
+            <response code="202">Returns a response object containing the added or updated item</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueLogController.Delete(System.String)">
+            <summary>
+            Deletes an QueueLog entity by Id
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueLogController.Read(System.Boolean)">
+            <summary>
+            Get and Mark Read all UN-Read messages
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="T:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController">
+            <summary>
+            Supports operations with QueueScans
+            </summary>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.#ctor(Microsoft.Extensions.Logging.ILogger{Saltworks.SaltMiner.DataApi.Controllers.QueueScanController},Saltworks.SaltMiner.DataApi.Contexts.QueueScanContext)">
+            <summary>
+            Supports operations with QueueScans
+            </summary>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.QueueScan})">
+            <summary>
+            Adds or Updates a QueueScan - only include one in Documents
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.AddUpdateBulk(Saltworks.SaltMiner.Core.Data.DataRequest{Saltworks.SaltMiner.Core.Entities.QueueScan})">
+            <summary>
+            Adds/Updates one or more QueueScan(s)
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.BulkQueue(Saltworks.SaltMiner.Core.Data.QueueDataRequest)">
+            <summary>
+            Adds/Updates one or more QueueScan/QueueAsset/QueueIssue
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.QueueScan})">
+            <summary>
+            Updates one or more QueueScan(s) using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of QueueScans
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Get(System.String)">
+            <summary>
+            Returns a single QueueScan
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.GetByEngagement(System.String)">
+            <summary>
+            Returns a single QueueScan
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Status(System.String,System.String,System.String)">
+            <summary>
+            Sets status for given id and new status value
+            </summary>
+            <param name="id">queue scan ID</param>
+            <param name="status">new status</param>
+            <param name="lockId">if included, lock this queue scan to the provided lock ID</param>
+            <returns>Container indicating success or failure</returns>
+            <remarks>
+            This update uses locking to ensure consistency.  Status should be one of these values:  Loading, Pending, Processing, Complete, Cancel, Error.
+            State transition rules will be enforced, for example Agent should only use Loading/Pending/Cancel.
+            </remarks>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Delete(System.String)">
+            <summary>
+            Deletes an QueueScan entity by Id
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.DeleteAll(System.String)">
+            <summary>
+            Deletes a QueueScan entity by Id and all assets and issues associated with it.
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.DeleteByQuery(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Deletes multiple QueueScan entities by Id and all assets and issues associated with them.
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RegisterController.Role">
+            <summary>
+            Returns role of caller
+            </summary>
+            <returns>The response object will indicate success and message will contain the role</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RoleController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.AppRole})">
+            <summary>
+            Updates one or more Role(s) using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RoleController.Get(System.String)">
+            <summary>
+            Returns a single Application Role
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RoleController.List">
+            <summary>
+            Returns Application Role list
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RoleController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of Application Roles
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RoleController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.AppRole})">
+            <summary>
+            Adds or Updates an Application Role, including creating the security role in Elasticsearch.
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RoleController.Delete(System.String)">
+            <summary>
+            Deletes an Application Role entity, including removing the security role in Elasticsearch.
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ScanController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.Scan})">
+            <summary>
+            Updates one or more Scan(s) using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ScanController.GetByEngagement(System.String)">
+            <summary>
+            Returns a single Scan
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ScanController.Get(System.String,System.String,System.String,System.String)">
+            <summary>
+            Returns a single Scan
+            </summary>
+            <param name="id">Target entity ID</param>
+            <param name="assetType">Target entity AssetType</param>
+            <param name="sourceType">Target entity Source Type</param>
+            <param name="instance">Target entity Instance</param>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ScanController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of Scans by search
+            </summary>
+            <param name="search">Search request payload</param>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ScanController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Scan})">
+            <summary>
+            Adds or Updates one or more Scan
+            </summary>
+            <param name="request">Request containing the payload entity</param>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ScanController.Delete(System.String,System.String,System.String,System.String)">
+            <summary>
+            Deletes an Scan entity by id
+            </summary>
+            <param name="id">Target entity ID</param>
+            <param name="assetType">Target entity AssetType</param>
+            <param name="sourceType">Target entity Source Type</param>
+            <param name="instance">Target entity Instance</param>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ScanController.CountByAssetId(System.String)">
+            <summary>
+            Get counts of scans by asset id
+            </summary>
+            <returns>Count of scans found</returns>
+            <param name="assetId">Asset Id for which to perform counts</param>
+            <response code="200">Returns a response object indicating success and count of found docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ScanController.CountByInventoryAssetKey(System.String)">
+            <summary>
+            Get counts of scans by asset inventory key
+            </summary>
+            <returns>Count of scans found</returns>
+            <param name="InventoryAssetKey">Asset Inventory Key for which to perform counts</param>
+            <response code="200">Returns a response object indicating success and count of found docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.SearchFilterController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.SearchFilter})">
+            <summary>
+            Updates one or more SearchFilter(s) using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.SearchFilterController.Get(System.String)">
+            <summary>
+            Returns a single SearchFilter
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.SearchFilterController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of SearchFilters
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.SearchFilterController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.SearchFilter})">
+            <summary>
+            Adds or Updates an SearchFilter
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.SearchFilterController.Delete(System.String)">
+            <summary>
+            Deletes an SearchFilter entity
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ServiceJobController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of service jobs
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ServiceJobController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.ServiceJob})">
+            <summary>
+            Adds or Updates a Service Job
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ServiceJobController.Delete(System.String)">
+            <summary>
+            Deletes a Service Job entity
+            </summary>
+            <returns>Non data response</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ServiceJobController.Get(System.String)">
+            <summary>
+            Returns a single Service Job
+            </summary>
+            <returns>The item inside a response object</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.SnapshotController.Search(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of Snapshots by search request
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.SnapshotController.Monthly(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Snapshot})">
+            <summary>
+            Adds or Updates a Snapshot Monthly
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.SnapshotController.Daily(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Snapshot})">
+            <summary>
+            Adds or Updates a Snapshot Daily
+            </summary>
+            <returns>The updated entity</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.SnapshotController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.Snapshot})">
+            <summary>
+            Updates one or more Snapshot(s) using update by query
+            </summary>
+            <returns>Count of docs affected and success flag</returns>
+            <response code="202">Returns a response object indicating success and count of affected docs</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.SnapshotController.AddUpdateBulkDaily(Saltworks.SaltMiner.Core.Data.DataRequest{Saltworks.SaltMiner.Core.Entities.Snapshot})">
+            <summary>
+            Adds./Updates a Snapshot Daily Batch
+            </summary>
+            <returns>The updated entities</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.SnapshotController.AddUpdateBulkMonthly(Saltworks.SaltMiner.Core.Data.DataRequest{Saltworks.SaltMiner.Core.Entities.Snapshot})">
+            <summary>
+            Adds/Updates a Snapshot Monthly batch
+            </summary>
+            <returns>The updated entities</returns>
+            <response code="202">Returns a response object containing the updated entity</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.SnapshotController.Delete(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Deletes AppVersionSnapshots by query
+            </summary>
+            <param name="request">Search criteria for the target docs</param>
+            <returns>A response object indicating success and affected records</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.SnapshotController.Counts(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns issue counts grouped by asset type, source type, source_id, and vulnerability name
+            </summary>
+            <param name="request">Request supports PagingInfo.Size, PagingInfo.ScrollKeys, and FilterMatches</param>
+            <returns>A dictionary response of type string, double that represents the key values (joined with |) and counts</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.Version">
+            <summary>
+            Returns API version
+            </summary>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.CreateBackup">
+            <summary>
+            Create complete backup of Elastic and zip to file
+            </summary>
+            <returns>Zip file path of the backup data</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.RestoreBackup(Microsoft.AspNetCore.Http.IFormFile)">
+            <summary>
+            Restores complete backup of Elastic
+            </summary>
+            <returns>NoDataResponse with boolean indicating success</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.AddSyncQueueItem(System.String,System.Text.Json.Nodes.JsonObject)">
+            <summary>
+            Receives new queue sync items (webhook events), storing them in a "queue" for later processing
+            </summary>
+            <param name="source">Webhook source key (must be configured)</param>
+            <param name="payload">Webhook payload (ignore the swagger generated model)</param>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.GetSyncQueueItems(System.String)">
+            <summary>
+            Retrieves webhook events, "deleting" (marking them as status deleted) them from the "queue" (webhook queue index)
+            </summary>
+            <param name="source">Webhook source to retrieve</param>
+            <returns>Up to configured limit of unretrieved queue sync items (webhook events)</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.GetLicenseType">
+            <summary>
+            Returns elasticsearch license type (basic, trial, enterprise).
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.UpdateWithLocking``1(``0,System.String,Saltworks.SaltMiner.DataApi.Data.ILockingInfo)">
+            <summary>
+            Updates the passed entity in the datasource, using passed locking info to assure no other updates came before
+            </summary>
+            <seealso cref="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.GetWithLocking``1(System.String,System.String)"/>
+            <typeparam name="T">Type of entity in the datasource</typeparam>
+            <param name="entity">Entity to add/update</param>
+            <param name="index">The index for the entity to be retrieved</param>
+            <param name="lockInfo">Locking information used to insure a consistent update</param>
+            <returns>The updated/inserted entity, including any updates made during the operation and updated locking info</returns>
+            <remarks>If the lock fails due to the locking info being out of date, an exception will be thrown</remarks>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.GetMetadata(System.Collections.Generic.List{System.String})">
+            <summary>
+            Returns index metadata for the passed template names
+            </summary>
+            <returns>The list of index metadata</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.GetIndexMapping(System.String)">
+            <summary>
+            Returns SaltMiner Index Mapping
+            </summary>
+            <returns>The Index Mapping Json</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.GetIndexTemplate(System.String)">
+            <summary>
+            Returns SaltMiner Index Template
+            </summary>
+            <returns>The Index Template Json</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.ReIndex(System.String,System.String)">
+            <summary>
+            Re-index SaltMiner Index into another index
+            </summary>
+            <returns>Success</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.DeleteIndex(System.String)">
+            <summary>
+            Delete SaltMiner Index
+            </summary>
+            <returns>Success</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.SearchForJson(Saltworks.SaltMiner.Core.Data.SearchRequest,System.String)">
+            <summary>
+            Search SaltMiner Index and return json response
+            </summary>
+            <returns>Success</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.UpdateIndexTemplate(System.String,System.String)">
+            <summary>
+            Updates SaltMiner Index Template
+            </summary>
+            <returns>The Index Template Json</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.SnapshotAggregates(Saltworks.SaltMiner.Core.Data.PitPagingInfo,System.Collections.Generic.IEnumerable{System.String},System.Collections.Generic.IEnumerable{Saltworks.SaltMiner.ElasticClient.IElasticClientRequestAggregate},System.String)">
+            <summary>
+            Returns snapshot aggregates for the given grouping fields and asset type
+            </summary>
+            <param name="pager">Returns next batch of data if the ScrollKeys are included</param>
+            <param name="sourceFields">Composite Source fields to use for aggregation</param>
+            <param name="aggList">List to use for aggregations</param>
+            <param name="assetType">Type of asset to query (* should work)</param>
+            <returns>Result set including the keys and counts for the keys, as well as scroll information for getting the next batch</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.EngagementIssueCountAggregates(System.String,Saltworks.SaltMiner.Core.Data.PitPagingInfo,System.Collections.Generic.IEnumerable{System.String},System.Collections.Generic.IEnumerable{Saltworks.SaltMiner.ElasticClient.IElasticClientRequestAggregate},System.String)">
+            <summary>
+            Returns snapshot aggregates for the given grouping fields and asset type
+            </summary>
+            <param name="pager">Returns next batch of data if the ScrollKeys are included</param>
+            <param name="sourceFields">Composite Source fields to use for aggregation</param>
+            <param name="aggList">List to use for aggregations</param>
+            <param name="assetType">Type of asset to query (* should work)</param>
+            <returns>Result set including the keys and counts for the keys, as well as scroll information for getting the next batch</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.GetWithLocking``1(System.String,System.String)">
+            <summary>
+            Returns an entity of type T from the datasource by its id, including locking info needed to call UpdateWithLockingInfo
+            </summary>
+            <seealso cref="!:UpdateWithLocking&lt;T&gt;(T, string, ILockingInfo&lt;T&gt;)"/>
+            <typeparam name="T">Type of entity in the datasource</typeparam>
+            <param name="id">The identifier for the entity to be retrieved</param>
+            <param name="indexName">The index for the entity to be retrieved</param>
+            <returns>Tuple containing the requested entity (or null if not found) and locking information</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.Search``1(Saltworks.SaltMiner.Core.Data.SearchRequest,System.String)">
+            <summary>
+            Returns a list of entities of type T that match the passed filter criteria on specified data index
+            </summary>
+            <typeparam name="T">Type of entity in the datasource</typeparam>
+            <param name="request">The criteria for the search</param>
+            <param name="indexName">The index for the entity to be retrieved</param>
+            <returns>The list of results</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.SingleGroupAggregation(System.String,System.String,System.Collections.Generic.Dictionary{System.String,System.String},Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns aggregates for a specified group field
+            </summary>
+            <param name="groupField">The "bucket" or grouping field (returned with the results)</param>
+            <param name="dataIndex">The index or pattern on which to run the search</param>
+            <param name="fieldAggregates">One or more aggregate definitions (sum, avg, count) that each operate on a single field</param>
+            <param name="request">[optional] filter criteria for the search</param>
+            <returns></returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.AddUpdateBulk``1(System.Collections.Generic.IEnumerable{``0},System.String)">
+            <summary>
+            Updates a list of T documents in specified index
+            </summary>
+            <typeparam name="T">Type of entity in the datasource</typeparam>
+            <param name="docs">The documents to add/update</param>
+            <param name="indexName">The index for the entity to be retrieved</param>
+            <returns>Success</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.ActiveIssueAlias(System.String,System.String)">
+            <summary>
+            Adds alias to index
+            </summary>
+            <param name="indexName">The index for the entity to be retrieved</param>
+            <param name="alias">Alias to add</param>
+            <returns>Success</returns>
+        </member>
+        <member name="P:Saltworks.SaltMiner.DataApi.Upgrade.IUpgradeStep.AppliesToVersion">
+            <summary>
+            The version of Data API this step upgrades from.
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.DataApi.Upgrade.IUpgradeStep.CompletedVersion">
+            <summary>
+            The version of Data API this step upgrades to.
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.DataApi.Upgrade.IUpgradeStep.RequiresSchemaUpdate">
+            <summary>
+            Whether this step requires a schema update - if so, then the index template should be passed to UpdateSchema().
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.DataApi.Upgrade.IUpgradeStep.RequiresETL">
+            <summary>
+            Whether this step requires a reindex of its data (removing fields, renaming fields, etc.).
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.DataApi.Upgrade.IUpgradeStep.UpdatedTemplateNames">
+            <summary>
+            List of index template names that will be affected
+            </summary>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Upgrade.IUpgradeStep.UpdateSchema(System.String,System.Text.Json.Nodes.JsonNode)">
+            <summary>
+            Updates the index template to add/remove/rename fields and their types.
+            </summary>
+            <param name="indexName">The index name for the update.</param>
+            <param name="indexTemplate">The index template to update.</param>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Upgrade.Steps.Step030003.Saltworks#SaltMiner#DataApi#Upgrade#IUpgradeStep#StepEtl``1(Saltworks.SaltMiner.DataApi.Models.SaltMinerIndexData,System.String,System.Collections.Generic.IEnumerable{``0},Saltworks.SaltMiner.Core.Data.SearchRequest,Saltworks.SaltMiner.DataApi.Data.IDataRepo)">
+            <param name="index">Name/version/template of the affected index</param>
+            <param name="tempIndexName">Old index data will be in this index</param>
+            <param name="batch">New index objects to update</param>
+            <param name="request">Search request used to retrieve the batch</param>
+            <param name="data">Data repo object for making data calls</param>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Upgrade.Steps.Step030004.Saltworks#SaltMiner#DataApi#Upgrade#IUpgradeStep#StepEtl``1(Saltworks.SaltMiner.DataApi.Models.SaltMinerIndexData,System.String,System.Collections.Generic.IEnumerable{``0},Saltworks.SaltMiner.Core.Data.SearchRequest,Saltworks.SaltMiner.DataApi.Data.IDataRepo)">
+            <param name="index">Name/version/template of the affected index</param>
+            <param name="tempIndexName">Old index data will be in this index</param>
+            <param name="batch">New index objects to update</param>
+            <param name="request">Search request used to retrieve the batch</param>
+            <param name="data">Data repo object for making data calls</param>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Upgrade.Steps.Step030005.Saltworks#SaltMiner#DataApi#Upgrade#IUpgradeStep#StepEtl``1(Saltworks.SaltMiner.DataApi.Models.SaltMinerIndexData,System.String,System.Collections.Generic.IEnumerable{``0},Saltworks.SaltMiner.Core.Data.SearchRequest,Saltworks.SaltMiner.DataApi.Data.IDataRepo)">
+            <param name="index">Name/version/template of the affected index</param>
+            <param name="tempIndexName">Old index data will be in this index</param>
+            <param name="batch">New index objects to update</param>
+            <param name="request">Search request used to retrieve the batch</param>
+            <param name="data">Data repo object for making data calls</param>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Upgrade.Steps.Step030006.Saltworks#SaltMiner#DataApi#Upgrade#IUpgradeStep#StepEtl``1(Saltworks.SaltMiner.DataApi.Models.SaltMinerIndexData,System.String,System.Collections.Generic.IEnumerable{``0},Saltworks.SaltMiner.Core.Data.SearchRequest,Saltworks.SaltMiner.DataApi.Data.IDataRepo)">
+            <param name="index">Name/version/template of the affected index</param>
+            <param name="tempIndexName">Old index data will be in this index</param>
+            <param name="batch">New index objects to update</param>
+            <param name="request">Search request used to retrieve the batch</param>
+            <param name="data">Data repo object for making data calls</param>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Upgrade.Steps.Step030007.Saltworks#SaltMiner#DataApi#Upgrade#IUpgradeStep#StepEtl``1(Saltworks.SaltMiner.DataApi.Models.SaltMinerIndexData,System.String,System.Collections.Generic.IEnumerable{``0},Saltworks.SaltMiner.Core.Data.SearchRequest,Saltworks.SaltMiner.DataApi.Data.IDataRepo)">
+            <param name="index">Name/version/template of the affected index</param>
+            <param name="tempIndexName">Old index data will be in this index</param>
+            <param name="batch">New index objects to update</param>
+            <param name="request">Search request used to retrieve the batch</param>
+            <param name="data">Data repo object for making data calls</param>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Upgrade.Steps.Step030008.Saltworks#SaltMiner#DataApi#Upgrade#IUpgradeStep#StepEtl``1(Saltworks.SaltMiner.DataApi.Models.SaltMinerIndexData,System.String,System.Collections.Generic.IEnumerable{``0},Saltworks.SaltMiner.Core.Data.SearchRequest,Saltworks.SaltMiner.DataApi.Data.IDataRepo)">
+            <param name="index">Name/version/template of the affected index</param>
+            <param name="tempIndexName">Old index data will be in this index</param>
+            <param name="batch">New index objects to update</param>
+            <param name="request">Search request used to retrieve the batch</param>
+            <param name="data">Data repo object for making data calls</param>
+        </member>
+    </members>
+</doc>

@@ -1,0 +1,64 @@
+
+name: Saltworks.SaltMiner.IndexTemplates (Legacy)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+    - '3.0.*'
+    paths:
+    - 'Saltworks.SaltMiner.IndexTemplates/*'
+    - '.github/workflows/index-templates-artifact.yml'
+
+env:
+  BRANCH: ${{ github.head_ref || github.ref_name }}
+
+jobs:
+  pkg_content:
+    name: Package Index Templates
+    runs-on: self-hosted
+    env:
+      work-dir: ./Saltworks.SaltMiner.IndexTemplates
+      sln-name: Saltworks.SaltMiner.IndexTemplates
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    steps:
+    - name: Generate Build Number
+      run: |
+        RUN_NUMBER=$(printf "%04d" ${{ github.run_number }})
+        RUN_ATTEMPT=$(printf "%02d" ${{ github.run_attempt }})
+        BUILD_NUMBER="${RUN_NUMBER}-${RUN_ATTEMPT}"
+        echo "BUILD_NUMBER=${BUILD_NUMBER}" >> $GITHUB_ENV
+
+    - name: Print Build Number
+      run: echo "Build Number is $BRANCH.$BUILD_NUMBER"
+        
+    - name: Before checkout
+      run: ls -la $GITHUB_WORKSPACE
+
+    - uses: actions/checkout@v4
+
+    - name: After checkout
+      run: ls -la $GITHUB_WORKSPACE
+
+    - name: Add version.txt, rm README
+      run: |
+        echo "$BRANCH.$BUILD_NUMBER" > version.txt
+        rm README.md
+      working-directory: ${{env.work-dir}}
+
+    - name: What was built?
+      run: ls -la ${{env.work-dir}} --group-directories-first
+      working-directory: ./
+
+    - name: Upload Unique Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{env.sln-name}}.${{env.BRANCH}}.${{env.BUILD_NUMBER}}
+        path: ${{env.work-dir}}/*
+        retention-days: 5

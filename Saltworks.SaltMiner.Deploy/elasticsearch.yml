@@ -1,0 +1,144 @@
+# ======================== Elasticsearch Configuration =========================
+#
+# NOTE: Elasticsearch comes with reasonable defaults for most settings.
+#       Before you set out to tweak and tune the configuration, make sure you
+#       understand what are you trying to accomplish and the consequences.
+#
+# The primary way of configuring a node is via this file. This template lists
+# the most important settings you may want to configure for a production cluster.
+#
+# Please consult the documentation for further information on configuration options:
+# https://www.elastic.co/guide/en/elasticsearch/reference/index.html
+#
+# ---------------------------------- Cluster -----------------------------------
+#
+# Use a descriptive name for your cluster:
+#
+cluster.name: sm-local
+#
+# ------------------------------------ Node ------------------------------------
+#
+# Use a descriptive name for the node:
+#
+node.name: node-1
+#
+# Add custom attributes to the node:
+#
+#node.attr.rack: r1
+#
+# ----------------------------------- Paths ------------------------------------
+#
+# Path to directory where to store the data (separate multiple locations by comma):
+#
+path.data: /var/lib/elasticsearch
+#
+# Path to log files:
+#
+path.logs: /var/log/elasticsearch
+#
+# ----------------------------------- Memory -----------------------------------
+#
+# Lock the memory on startup:
+#
+#bootstrap.memory_lock: true
+#
+# Make sure that the heap size is set to about half the memory available
+# on the system and that the owner of the process is allowed to use this
+# limit.
+#
+# Elasticsearch performs poorly when the system is swapping the memory.
+#
+# ---------------------------------- Network -----------------------------------
+#
+# By default Elasticsearch is only accessible on localhost. Set a different
+# address here to expose this node on the network:
+#
+network.host:
+  - _local_
+#  - _site_
+#
+# This setting should be used in a cluster for when SaltMiner apps need to connect by name (instead of by localhost).
+# In that case, set the publish host to the network hostname of the cluster (i.e. smelastic.company.local, or the hostname of the machine).
+# Note: when this property is set during installation the name must be one that can be resolved locally for automatic password generation to succeed.
+#network.publish_host: smelastic.domain.local
+#
+# By default Elasticsearch listens for HTTP traffic on the first free port it
+# finds starting at 9200. Set a specific HTTP port here:
+#
+http.port: 9200
+#
+# Allow HTTP API connections from anywhere
+# Connections are encrypted and require user authentication
+# Defaults to the address given by network.host. Consider who will connect when setting this value.
+# Example: for an AIO single-node cluster there is no reason to not bind http.host to _local_ unless 
+# external data must be loaded.
+# https://www.elastic.co/guide/en/elasticsearch/reference/current/modules-network.html#http-settings
+#http.host: 0.0.0.0
+#
+# Allow other nodes to join the cluster from anywhere
+# Connections are encrypted and mutually authenticated
+# Defaults to the address given by network.host.
+# https://www.elastic.co/guide/en/elasticsearch/reference/current/modules-network.html#transport-settings
+#transport.host: 0.0.0.0
+# Note that the following 'special values' can be used rather than an IP address. For an AIO single-node solution
+# there is no reason to not bind transport.host to _local_.
+# https://www.elastic.co/guide/en/elasticsearch/reference/current/modules-network.html#network-interface-values
+#   - _local_
+#   - _site_
+#
+# For more information, consult the network module documentation.
+#
+# --------------------------------- Discovery ----------------------------------
+#
+# Pass an initial list of hosts to perform discovery when this node is started:
+# The default list of hosts is ["127.0.0.1", "[::1]"]
+#
+#discovery.seed_hosts: ["host1", "host2"]
+#
+# Bootstrap the cluster using an initial set of master-eligible nodes:
+#
+cluster.initial_master_nodes: ["node-1"]
+#
+# If a cluster isn't formed, comment out above line and uncomment below line.
+# This is the behavior when a single server hosts all of SaltMiner.
+# https://www.elastic.co/guide/en/elasticsearch/reference/current/security-minimal-setup.html#_enable_elasticsearch_security_features
+#discovery.type: single-node
+#
+# For more information, consult the discovery and cluster formation module documentation.
+#
+# ---------------------------------- Various -----------------------------------
+#
+# Allow wildcard deletion of indices:
+#
+#action.destructive_requires_name: false
+#
+# Disable geoip stuff
+ingest.geoip.downloader.enabled: false
+
+#----------------------- BEGIN SECURITY AUTO CONFIGURATION -----------------------
+#
+# The following settings, TLS certificates, and keys have been automatically
+# generated to configure Elasticsearch security features on 18-02-2022 17:37:35
+#
+# --------------------------------------------------------------------------------
+
+# Enable security features
+xpack.security.enabled: true
+xpack.security.enrollment.enabled: true
+
+# Enable encryption and mutual authentication between cluster nodes
+xpack.security.transport.ssl:
+  enabled: true
+  verification_mode: certificate
+  keystore.path: certs/transport.p12
+  truststore.path: certs/transport.p12
+
+
+#----------------------- END SECURITY AUTO CONFIGURATION -------------------------
+xpack.notification.email.account:
+    relay_account:
+        smtp:
+            auth: false
+            starttls.enable: false
+            host: relay.domain.com
+            port: 25

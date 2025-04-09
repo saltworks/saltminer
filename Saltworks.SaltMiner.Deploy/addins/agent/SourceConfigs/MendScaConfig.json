@@ -1,0 +1,28 @@
+{
+  "ConfigFileName_Comment": "Name to identify the config file - should match the config file name without the 'Config'",
+  "ConfigFileName": "MendSca",
+  "Instance_Comment": "Name of the source instance - drives the generated index name.  Can be the same as the ConfigFileName, but simple is best.  Include a number for multi-instance.  ex. 'ms1'",
+  "Instance": "ms1",
+  "SourceType_Comment": "Used to select the source adapter to apply, only set this if you know what you are doing.  Recommend using a sample config to start from that already has this set.",
+  "SourceType": "Saltworks.MendSca",
+  "BaseAddress_Comment": "The base URL address of the source API",
+  "BaseAddress": "https://company.mend.io/api/v1.4",
+  "UserKey_Comment": "The user key used for API authentication",
+  "UserKey": "",
+  "OrgTokens_Comment": "A list of organization tokens that will be processed",
+  "OrgTokens": [
+    ""
+  ],
+  "IssueSeverityMap_Comment": "Maps the source severity name to one of the Saltminer severity names",
+  "IssueSeverityMap": {
+	"Critical": "Critical",
+    "High": "High",
+    "Medium": "Medium",
+    "Low": "Low"
+  },
+  "VulnerabilityImportTypes_Comment": "A list of specific vulnerability types to process",
+  "VulnerabilityImportTypes": [
+    "WS",
+    "SECURITY_VULNERABILITY"
+  ]
+}

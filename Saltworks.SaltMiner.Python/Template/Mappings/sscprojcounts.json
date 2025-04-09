@@ -1,0 +1,28 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "normalizer": {
+        "lc_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": [ "lowercase", "asciifolding" ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "projectVersionId": { "type": "keyword" },
+      "critical": { "type": "integer" },
+      "high": { "type": "integer" },
+      "medium": { "type": "integer" },
+      "low": { "type": "integer" },
+      "count": { "type": "integer" },
+      "hiddenCount": { "type": "integer" },
+      "suppressedCount": { "type": "integer" },
+      "removedCount": { "type": "integer" }
+    }
+  }
+}

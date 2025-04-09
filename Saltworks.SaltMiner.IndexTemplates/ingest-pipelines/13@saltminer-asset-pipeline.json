@@ -1,0 +1,20 @@
+{"processors":
+[
+  {
+    "pipeline": {
+      "name": "saltminer-default-pipeline"
+    }
+  },
+  {
+    "pipeline": {
+      "name": "saltminer-asset-risk-roller-pipeline",
+      "if": "return true;"
+    }
+  },
+  {
+    "pipeline": {
+      "name": "saltminer-asset-custom-pipeline",
+      "ignore_failure": true
+    }
+  }
+]}

@@ -1,0 +1,62 @@
+{"processors":
+  [
+  {
+    "pipeline": {
+      "name": "saltminer-pass-fail-assets",
+      "if": "return false;"
+    }
+  },
+  {
+    "set": {
+      "field": "saltminer.score.compliance.dev",
+      "value": "0",
+      "ignore_failure":true,
+      "description": "compliance.dev to 0"
+    }
+  },
+  {
+    "set": {
+      "field": "saltminer.score.compliance.calculated.dev",
+      "value": "0",
+      "ignore_failure":true,
+      "description": "compliance.calculated.dev to 0 "
+    }
+  },
+  {
+    "set": {
+      "field": "saltminer.score.risk.dev",
+      "value": "0",
+      "ignore_failure":true,
+      "description": "risk.dev to 0 "
+    }
+  },
+  {
+    "set": {
+      "field": "saltminer.score.risk.calculated.dev",
+      "value": "0",
+      "ignore_failure":true,
+      "description": "risk.calculated.dev to 0 "
+    }
+  },
+  {
+    "script": {
+      "source": "try{\n\n      if (ctx.saltminer.asset.scan_count == 0){\n            ctx.saltminer.score.star_rating = 0;\n            }\n    \n}\ncatch (Exception ex)\n{\n    ctx.saltminer.score.star_rating = -1;\n    }",
+      "ignore_failure":true,
+      "description": "if scan count = 0 then star rating = 0 "
+    }
+  },
+  {
+    "script": {
+      "source": "try {\n    ctx.saltminer.score.compliance.calculated.dev = ctx.saltminer.score.compliance.dev;\n    ctx.saltminer.score.compliance.calculated.test = ctx.saltminer.score.compliance.test;\n    ctx.saltminer.score.compliance.calculated.prod = ctx.saltminer.score.compliance.prod;\n    ctx.saltminer.score.compliance.calculated.overall = ctx.saltminer.score.compliance.overall;\n    \n}\ncatch (Exception ex)\n{\n    ctx.error = ex.toString();\n}",
+      "ignore_failure":true,
+      "description": "Compliance = Compliance.calculated"
+    }
+  },
+  {
+    "script": {
+      "source": "try {\n    ctx.saltminer.score.risk.calculated.dev = ctx.saltminer.score.risk.dev;\n    ctx.saltminer.score.risk.calculated.test = ctx.saltminer.score.risk.test;\n    ctx.saltminer.score.risk.calculated.prod = ctx.saltminer.score.risk.prod;\n    ctx.saltminer.score.risk.calculated.overall = ctx.saltminer.score.risk.overall;\n    \n}\ncatch (Exception ex)\n{\n    ctx.error = ex.toString();\n}",
+      "ignore_failure": true,
+      "description": "Risk = Risk.calculated"
+    }
+  }
+]}

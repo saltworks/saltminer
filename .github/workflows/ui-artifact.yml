@@ -1,0 +1,85 @@
+# This workflow will build a .NET project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
+#
+name: Saltworks.SaltMiner.Ui (Legacy)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+    - '3.0.*'
+    paths:
+    - 'Saltworks.SaltMiner.Ui/*'
+    - '.github/workflows/ui-artifact.yml'
+
+env:
+  BRANCH: ${{ github.head_ref || github.ref_name }}
+
+jobs:
+  build_ui:
+    name: Build UI
+    runs-on:
+    - self-hosted
+    - node
+    strategy:
+      matrix:
+        node-version: [18.x]
+    env:
+      work-dir: ./Saltworks.SaltMiner.Ui
+      build-dir: ./Saltworks.SaltMiner.Ui/dist
+      sln-name: Saltworks.SaltMiner.Ui
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    steps:
+    - name: Generate Build Number
+      run: |
+        RUN_NUMBER=$(printf "%04d" ${{ github.run_number }})
+        RUN_ATTEMPT=$(printf "%02d" ${{ github.run_attempt }})
+        BUILD_NUMBER="${RUN_NUMBER}-${RUN_ATTEMPT}"
+        echo "BUILD_NUMBER=${BUILD_NUMBER}" >> $GITHUB_ENV
+
+    - name: Print Build Number
+      run: echo "Build Number is $BRANCH.$BUILD_NUMBER"
+        
+    - name: Before checkout
+      run: ls -la $GITHUB_WORKSPACE
+
+    - uses: actions/checkout@v4
+    - name: Setup Python
+      uses: actions/setup-python@v5.4.0
+      with:
+        python-version: '3.9.21'
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: ${{ env.work-dir }}
+
+    - run: cd Saltworks.SaltMiner.Ui && npm ci
+      name: npm install
+    - run: npm run generate --prefix ${{ env.work-dir }}
+      name: Build app
+    
+    - run: ls -la ${{ env.build-dir }}/smpgui
+      name: Show npm output
+
+    - name: Add version.txt
+      run: echo "$BRANCH.$BUILD_NUMBER" > smpgui/version.txt
+      working-directory: ${{env.build-dir}}
+
+    - name: What was built?
+      run: ls -la ${{env.build-dir}} --group-directories-first
+      working-directory: ./
+
+    - name: Upload Unique Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{env.sln-name}}.${{env.BRANCH}}.${{env.BUILD_NUMBER}}
+        path: ${{env.build-dir}}/*
+        retention-days: 5

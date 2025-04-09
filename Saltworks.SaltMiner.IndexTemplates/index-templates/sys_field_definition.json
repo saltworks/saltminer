@@ -1,0 +1,61 @@
+{
+  "index_patterns": [
+    "sys_field_definition*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "analysis": {
+          "analyzer": {
+            "lc_keyword": {
+              "filter": [
+                "uppercase"
+              ],
+              "tokenizer": "keyword"
+            }
+          }
+        },
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "type": "date"
+        },
+        "last_updated": {
+          "type": "date"
+        },
+        "entity": {
+          "type": "keyword"
+        },
+        "label": {
+          "type": "keyword"
+        },
+        "name": {
+          "type": "keyword"
+        },
+        "default": {
+          "type": "keyword"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "hidden": {
+          "type": "boolean"
+        },
+        "read_only": {
+          "type": "boolean"
+        },
+        "system": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

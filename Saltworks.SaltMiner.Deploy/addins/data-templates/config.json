@@ -1,0 +1,7 @@
+{
+	"TemplatePath": "./index-templates",
+	"ElasticUrl": "http://localhost:9200",
+	"ElasticUser": "elastic",
+	"ElasticPassword": "pass",
+	"ElasticVerifySsl": false
+}

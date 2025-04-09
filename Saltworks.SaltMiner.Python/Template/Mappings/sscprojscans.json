@@ -1,0 +1,182 @@
+{
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 0,
+    "analysis": {
+      "normalizer": {
+        "lc_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": [
+            "lowercase",
+            "asciifolding"
+          ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "projectVersionId": {
+        "type": "keyword"
+      },
+      "projectName": {
+        "type": "keyword"
+      },
+      "versionName": {
+        "type": "keyword"
+      },
+      "lastUpdated": {
+        "type": "date"
+      },
+      "artifactType": {
+        "type": "keyword"
+      },
+      "fileName": {
+        "type": "keyword"
+      },
+      "approvalDate": {
+        "type": "date"
+      },
+      "messageCount": {
+        "type": "integer"
+      },
+      "id": {
+        "type": "keyword"
+      },
+      "guid": {
+        "type": "keyword"
+      },
+      "uploadDate": {
+        "type": "date"
+      },
+      "type": {
+        "type": "keyword"
+      },
+      "certification": {
+        "type": "keyword"
+      },
+      "hostname": {
+        "type": "keyword"
+      },
+      "engineVersion": {
+        "type": "keyword"
+      },
+      "artifactId": {
+        "type": "keyword"
+      },
+      "buildId": {
+        "type": "keyword"
+      },
+      "buildLabel": {
+        "type": "keyword"
+      },
+      "noOfFiles": {
+        "type": "integer"
+      },
+      "totalLOC": {
+        "type": "integer"
+      },
+      "execLOC": {
+        "type": "integer"
+      },
+      "elapsedTime": {
+        "type": "text"
+      },
+      "fortifyAnnotationsLOC": {
+        "type": "keyword"
+      },
+      "scanErrorsCount": {
+        "type": "integer"
+      },
+      "uploadIP": {
+        "type": "keyword"
+      },
+      "allowApprove": {
+        "type": "boolean"
+      },
+      "allowPurge": {
+        "type": "boolean"
+      },
+      "lastScanDate": {
+        "type": "date"
+      },
+      "fileURL": {
+        "type": "keyword"
+      },
+      "purged": {
+        "type": "boolean"
+      },
+      "webInspectStatus": {
+        "type": "keyword"
+      },
+      "inModifyingStatus": {
+        "type": "boolean"
+      },
+      "originalFileName": {
+        "type": "keyword"
+      },
+      "allowDelete": {
+        "type": "boolean"
+      },
+      "_href": {
+        "type": "text"
+      },
+      "scaStatus": {
+        "type": "keyword"
+      },
+      "indexed": {
+        "type": "boolean"
+      },
+      "runtimeStatus": {
+        "type": "keyword"
+      },
+      "userName": {
+        "type": "keyword"
+      },
+      "versionNumber": {
+        "type": "keyword"
+      },
+      "otherStatus": {
+        "type": "keyword"
+      },
+      "artifactUploadDate": {
+        "type": "date"
+      },
+      "approvalComment": {
+        "type": "keyword"
+      },
+      "approvalUsername": {
+        "type": "keyword"
+      },
+      "fileSize": {
+        "type": "integer"
+      },
+      "messages": {
+        "type": "text"
+      },
+      "auditUpdated": {
+        "type": "boolean"
+      },
+      "status": {
+        "type": "keyword"
+      },
+      "rulepacks": {
+        "properties": {
+          "guid": {
+            "type": "keyword"
+          },
+          "name": {
+            "type": "keyword"
+          },
+          "version": {
+            "type": "keyword"
+          },
+          "language": {
+            "type": "keyword"
+          }
+        }
+      }
+    }
+  }
+}

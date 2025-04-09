@@ -1,0 +1,140 @@
+{
+  "index_patterns": [
+    "queue_scan*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "analysis": {
+          "analyzer": {
+            "lc_keyword": {
+              "filter": [
+                "uppercase"
+              ],
+              "tokenizer": "keyword"
+            }
+          }
+        },
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "type": "date"
+        },
+        "last_updated": {
+          "type": "date"
+        },
+        "saltminer": {
+          "properties": {
+            "scan": {
+              "properties": {
+                "report_id": {
+                  "type": "keyword"
+                },
+                "assessment_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "product_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "product": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "vendor": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "lines_of_code": {
+                  "type": "integer"
+                },
+                "scan_date": {
+                  "type": "date"
+                },
+                "source_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "is_saltminer_source": {
+                  "type": "boolean"
+                },
+                "instance": {
+                  "type": "keyword"
+                },
+                "asset_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                }
+              }
+            },
+            "engagement": {
+              "properties": {
+                "id": {
+                  "type": "keyword"
+                },
+                "name": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "customer": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "publish_date": {
+                  "type": "date"
+                },
+                "subtype": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "attributes": {
+                  "type": "object"
+                }
+              }
+            },
+            "internal": {
+              "properties": {
+                "current_queue_scan_id": {
+                  "type": "keyword"
+                },
+                "issue_count": {
+                  "type": "integer"
+                },
+                "queue_status": {
+                  "type": "keyword"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

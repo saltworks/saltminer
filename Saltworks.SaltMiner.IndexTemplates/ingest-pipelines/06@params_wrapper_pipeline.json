@@ -1,0 +1,62 @@
+{
+    "processors":[
+        {
+          "script": {
+            "source": "\nif (ctx.parameters == null){\n  ctx.parameters = [:]\n}\nfor (entry in params.entrySet()){\n  String key = entry.getKey();\n  def value = entry.getValue();\n\n  ctx.parameters[key] = value; \n}\n",
+            "params": {
+              "compliance": {
+                "critical_score": 64,
+                "critical_days_to_close": 7,
+                "high_score": 16,
+                "high_days_to_close": 14,
+                "medium_score": 4,
+                "medium_days_to_close": 21,
+                "low_score": 1,
+                "low_days_to_close": 30
+              },
+              "risk": {
+                "critical_score": 64,
+                "critical_days_to_close": 7,
+                "high_score": 16,
+                "high_days_to_close": 14,
+                "medium_score": 4,
+                "medium_days_to_close": 21,
+                "low_score": 1,
+                "low_days_to_close": 30
+              }
+            },
+            "if": "ctx.parameters.addparams == true;",
+            "description": "\"Adds params as values\""
+          }
+        },
+        {
+          "script": {
+            "source": "for (entry in params.entrySet()){\n  String key = entry.getKey();\n  if (ctx.parameters != null && ctx.parameters.containsKey(key)){\n    ctx.parameters.remove(key);\n  }\n}",
+            "params": {
+              "compliance": {
+                "critical_score": 64,
+                "critical_days_to_close": 7,
+                "high_score": 16,
+                "high_days_to_close": 14,
+                "medium_score": 4,
+                "medium_days_to_close": 21,
+                "low_score": 1,
+                "low_days_to_close": 30
+              },
+              "risk": {
+                "critical_score": 64,
+                "critical_days_to_close": 7,
+                "high_score": 16,
+                "high_days_to_close": 14,
+                "medium_score": 4,
+                "medium_days_to_close": 21,
+                "low_score": 1,
+                "low_days_to_close": 30
+              }
+            },
+            "if": "ctx.parameters.addparams == false;",
+            "description": "Removes params values"
+          }
+        }
+      ]
+}

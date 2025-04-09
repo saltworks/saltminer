@@ -1,0 +1,76 @@
+$button-primary-color: $brand-primary-color;
+$button-primary-border: $brand-primary-color;
+$button-primary-background: $brand-primary-color;
+$button-primary-label: $brand-white;
+$button-primary-focus: $brand-focus-color;
+
+$button-primary-hover-color: $brand-white;
+$button-primary-hover-border: $brand-primary-lighter-color;
+$button-primary-hover-background: $brand-primary-lighter-color;
+$button-primary-hover-label: $brand-white;
+
+$button-primary-active-color: $brand-white;
+$button-primary-active-border: $brand-primary-lighter-color;
+$button-primary-active-background: $brand-primary-lighter-color;
+$button-primary-active-label: $brand-white;
+
+$button-primary-outline-border: $brand-primary-color;
+$button-primary-outline-background: none;
+$button-primary-outline-label:  $brand-primary-color;
+
+$button-primary-outline-hover-color: $brand-primary-lighter-color;
+$button-primary-outline-hover-border: $brand-primary-lighter-color;
+$button-primary-outline-hover-background: none;
+$button-primary-outline-hover-label: $brand-primary-lighter-color;
+
+$button-primary-outline-active-color: $brand-primary-light-color;
+$button-primary-outline-active-border: $brand-primary-light-color;
+$button-primary-outline-active-background: none;
+$button-primary-outline-active-label: $brand-primary-light-color;
+
+$button-secondary-border: $brand-secondary-color;
+$button-secondary-background: $brand-white;
+$button-secondary-label: $brand-black;
+
+$button-secondary-hover-color: $brand-color-scale-6;
+$button-secondary-hover-border: $brand-hover-color;
+$button-secondary-hover-background: $brand-hover-color;
+$button-secondary-hover-label: $brand-color-scale-6;
+
+$button-secondary-active-color: $brand-color-scale-6;
+$button-secondary-active-border: $brand-active-color;
+$button-secondary-active-background: $brand-active-color;
+$button-secondary-active-label: $brand-color-scale-6;
+
+$button-default-border: $brand-white;
+$button-default-background: $brand-white;
+$button-default-label:  $brand-black;
+
+$button-default-hover-color: $brand-color-scale-6;
+$button-default-hover-border: $brand-hover-color;
+$button-default-hover-background: $brand-hover-color;
+$button-default-hover-label: $brand-color-scale-6;
+
+$button-default-active-color: $brand-color-scale-6;
+$button-default-active-border: $brand-active-color;
+$button-default-active-background: $brand-active-color;
+$button-default-active-label: $brand-color-scale-6;
+
+$button-danger-border: $brand-danger;
+$button-danger-background: $brand-danger;
+$button-danger-label: $brand-white;
+
+$button-danger-hover-color: $brand-danger;
+$button-danger-hover-border:  $brand-danger;
+$button-danger-hover-background: $brand-white;
+$button-danger-hover-button-label: $brand-danger;
+$button-danger-hover-label: $brand-white;
+
+$button-danger-active-color: $brand-white;
+$button-danger-active-border: $brand-danger;
+$button-danger-active-background: $brand-danger;
+$button-danger-active-button-label: $brand-danger;
+$button-danger-active-label: $brand-white;
+
+$button-disabled-color: $brand-color-scale-5;
+$button-hover-color: $brand-color-scale-5;

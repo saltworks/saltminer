@@ -1,0 +1,70 @@
+{
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 0,
+    "analysis": {
+      "normalizer": {
+        "lc_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": [ "lowercase", "asciifolding" ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "bugURL": { "type": "keyword" },
+      "hidden": { "type": "boolean" },
+      "issueName": { "type": "keyword" },
+      "folderGuid": { "type": "keyword" },
+      "lastScanId": { "type": "keyword" },
+      "engineType": { "type": "keyword" },
+      "issueStatus": { "type": "keyword" },
+      "friority": { "type": "keyword" },
+      "analyzer": { "type": "keyword" },
+      "primaryLocation": { "type": "keyword" },
+      "reviewed": { "type": "keyword" },
+      "id": { "type": "keyword" },
+      "suppressed": { "type": "boolean" },
+      "hasAttachments": { "type": "boolean" },
+      "engineCategory": { "type": "keyword" },
+      "projectVersionName": { "type": "keyword" },
+      "removedDate": { "type": "date" },
+      "severity": { "type": "double" },
+      "_href": { "type": "text" },
+      "displayEngineType": { "type": "keyword" },
+      "foundDate": { "type": "date" },
+      "confidence": { "type": "double" },
+      "impact": { "type": "double" },
+      "primaryRuleGuid": { "type": "keyword" },
+      "projectVersionId": { "type": "keyword" },
+      "scanStatus": { "type": "keyword" },
+      "audited": { "type": "boolean" },
+      "kingdom": { "type": "keyword" },
+      "folderId": { "type": "keyword" },
+      "revision": { "type": "integer" },
+      "likelihood": { "type": "double" },
+      "removed": { "type": "boolean" },
+      "issueInstanceId": { "type": "keyword" },
+      "hasCorrelatedIssues": { "type": "boolean" },
+      "primaryTag": { "type": "keyword" },
+      "lineNumber": { "type": "integer" },
+      "projectName": { "type": "keyword" },
+      "fullFileName": { "type": "keyword" },
+      "primaryTagValueAutoApplied": { "type": "boolean" },
+      "customTagValues": {
+        "properties": {
+          "autoApplied": { "type": "boolean" },
+          "customTagGuid": { "type": "keyword" },
+          "dateValue": { "type": "date" },
+          "decimalValue": { "type": "float" },
+          "newCustomTagIndex": { "type": "integer" },
+          "textValue": { "type": "keyword" }
+        }
+      },
+      "customAttributes": { "type": "object" },
+      "lastUpdated": { "type": "date" }
+    }
+  }
+}

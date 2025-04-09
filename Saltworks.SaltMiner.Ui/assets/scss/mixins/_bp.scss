@@ -1,0 +1,42 @@
+@use 'sass:list';
+@use 'sass:map';
+@use 'sass:meta';
+@mixin bp($min: 0, $max: 0) {
+  $type: meta.type-of($min);
+
+  @if $type == string {
+    $query: '';
+    @if map.has-key($breakpoints, $min) {
+      $query: list.append(
+        $query,
+        '(min-width: #{map.get($breakpoints, $min)})'
+      );
+    }
+    @if map.has-key($breakpoints, $min) and map.has-key($breakpoints, $max) {
+      $query: list.append($query, 'and');
+    }
+    @if map.has-key($breakpoints, $max) {
+      $query: list.append(
+        $query,
+        '(max-width: #{map.get($breakpoints, $max)})'
+      );
+    }
+    @media screen and #{$query} {
+      @content;
+    }
+  } @else if $type == number {
+    $query: '';
+    @if $min != 0 {
+      $query: list.append($query, '(min-width: #{$min})');
+    }
+    @if $min != 0 and $max != 0 {
+      $query: list.append($query, 'and');
+    }
+    @if $max != 0 {
+      $query: list.append($query, '(max-width: #{$max})');
+    }
+    @media screen and #{$query} {
+      @content;
+    }
+  }
+}

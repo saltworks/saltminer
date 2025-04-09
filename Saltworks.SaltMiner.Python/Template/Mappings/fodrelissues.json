@@ -1,0 +1,73 @@
+{
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 0,
+    "analysis": {
+      "normalizer": {
+        "lc_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": [ "lowercase", "asciifolding" ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "id": { "type": "keyword" },
+      "releaseId": { "type": "keyword" },
+      "fisma": { "type": "keyword" },
+      "severityString": { "type": "keyword" },
+      "severity": { "type": "integer" },
+      "category": { "type": "keyword" },
+      "kingdom": { "type": "keyword" },
+      "owasp2004": { "type": "keyword" },
+      "owasp2007": { "type": "keyword" },
+      "owasp2010": { "type": "keyword" },
+      "owasp2013": { "type": "keyword" },
+      "owasp2017": { "type": "keyword" },
+      "cwe": { "type": "keyword" },
+      "package": { "type": "keyword" },
+      "primaryLocation": { "type": "keyword" },
+      "vulnId": { "type": "keyword" },
+      "analysisType": { "type": "keyword" },
+      "lineNumber": { "type": "integer" },
+      "hasComments": { "type": "boolean" },
+      "assignedUser": { "type": "keyword" },
+      "scantype": { "type": "keyword" },
+      "subtype": { "type": "keyword" },
+      "primaryLocationFull": { "type": "keyword" },
+      "hasAttachments": { "type": "boolean" },
+      "pci1_1": { "type": "keyword" },
+      "pci1_2": { "type": "keyword" },
+      "pci2": { "type": "keyword" },
+      "sans2009": { "type": "keyword" },
+      "sans2010": { "type": "keyword" },
+      "sans2011": { "type": "keyword" },
+      "wasc24_2": { "type": "keyword" },
+      "isSuppressed": { "type": "boolean" },
+      "scanId": { "type": "keyword" },
+      "pci3": { "type": "keyword" },
+      "instanceId": { "type": "keyword" },
+      "auditPendingAuditorStatus": { "type": "keyword" },
+      "auditorStatus": { "type": "keyword" },
+      "checkId": { "type": "keyword" },
+      "closedDate": { "type": "date" },
+      "closedStatus": { "type": "boolean" },
+      "developerStatus": { "type": "keyword" },
+      "falsePositiveChallenge": { "type": "keyword" },
+      "introducedDate": { "type": "date" },
+      "scanStartedDate": { "type": "date" },
+      "scanCompletedDate": { "type": "date" },
+      "status": { "type": "keyword" },
+      "bugSubmitted": { "type": "boolean" },
+      "bugLink": { "type": "keyword" },
+      "auditPendingSuppression": { "type": "keyword" },
+      "source": { "type": "keyword" },
+      "sink": { "type": "keyword" },
+      "timeToFixDays": { "type": "integer" },
+      "lastUpdated": { "type": "date" },
+      "sourceName": { "type": "keyword" }
+    }
+  }
+}

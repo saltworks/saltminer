@@ -1,0 +1,30 @@
+[
+  {
+    "name": "Checkout",
+	"description": "Disable checkout for published engagment on the engagement detail view",
+    "timestamp": "2025-03-20T00:00:00.000000Z",
+    "last_updated": "2025-03-20T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
+  {
+    "name": "MarkRemoved",
+	"description": "Disable mark removed on issue detail",
+    "timestamp": "2025-03-20T00:00:00.000000Z",
+    "last_updated": "2025-03-20T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000002"
+  },
+  {
+    "name": "MarkRemovedMulti",
+	"description": "Disable mark removed on engagement view",
+    "timestamp": "2025-03-20T00:00:00.000000Z",
+    "last_updated": "2025-03-20T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000003"
+  },
+  {
+    "name": "Clone",
+	"description": "Disable clone on issue detail",
+    "timestamp": "2025-03-20T00:00:00.000000Z",
+    "last_updated": "2025-03-20T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000004"
+  }
+]

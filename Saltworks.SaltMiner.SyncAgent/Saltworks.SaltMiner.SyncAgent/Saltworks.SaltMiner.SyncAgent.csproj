@@ -1,0 +1,55 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RuntimeIdentifiers>linux-x64</RuntimeIdentifiers>
+    <Description>SaltMiner Sync Agent</Description>
+    <UserSecretsId>fff7c4eb-33a9-4463-b582-fd7e1a2c39fa</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="QualysReports\**" />
+    <EmbeddedResource Remove="QualysReports\**" />
+    <None Remove="QualysReports\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Saltworks.Saltminer.ConsoleTemplate.vstemplate" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="license.lnf">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+	<None Update="Work\readme.txt">
+	  <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+	</None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Work\" />
+    <Folder Include="Properties\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.DataClient\Saltworks.SaltMiner.DataClient\Saltworks.SaltMiner.DataClient.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.Licensing\Saltworks.SaltMiner.Licensing.Core\Saltworks.SaltMiner.Licensing.Core.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.CheckmarxOne\Saltworks.SaltMiner.SourceAdapters.CheckmarxOne.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.Dynatrace\Saltworks.SaltMiner.SourceAdapters.Dynatrace.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.GitLab\Saltworks.SaltMiner.SourceAdapters.GitLab.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.MendSca\Saltworks.SaltMiner.SourceAdapters.MendSca.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.Saltminer.SourceAdapters.Oligo\Saltworks.SaltMiner.SourceAdapters.Oligo.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.Polaris\Saltworks.SaltMiner.SourceAdapters.Polaris.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.Qualys\Saltworks.SaltMiner.SourceAdapters.Qualys.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.Sonatype\Saltworks.SaltMiner.SourceAdapters.Sonatype.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.Traceable\Saltworks.SaltMiner.SourceAdapters.Traceable.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.Wiz\Saltworks.SaltMiner.SourceAdapters.Wiz.csproj" />
+  </ItemGroup>
+
+</Project>

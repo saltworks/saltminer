@@ -1,0 +1,19 @@
+[Unit]
+Description=SaltMiner Service Manager Service
+
+[Service]
+WorkingDirectory=/usr/share/saltworks/saltminer-3.0.0/servicemanager
+ExecStart=/usr/bin/dotnet /usr/share/saltworks/saltminer-3.0.0/servicemanager/Saltworks.SaltMiner.ServiceManager.dll
+Restart=always
+# Restart service after 10 seconds if the dotnet service crashes:
+RestartSec=10
+# The default value is 90 seconds for most distributions.
+TimeoutStopSec=90
+KillSignal=SIGINT
+SyslogIdentifier=saltminer-servicemanager
+User=svc-saltminer
+Environment=DOTNET_PRINT_TELEMETRY_MESSAGE=false
+Environment=SALTMINER_SERVICEMANAGER_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/servicemanager/
+
+[Install]
+WantedBy=multi-user.target

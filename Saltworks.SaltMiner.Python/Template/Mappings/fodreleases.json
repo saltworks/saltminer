@@ -1,0 +1,54 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "normalizer": {
+        "lc_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": [ "lowercase", "asciifolding" ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "releaseId": { "type": "keyword" },
+      "releaseName": { "type": "keyword" },
+      "releaseDescription": { "type": "keyword" },
+      "releaseCreatedDate": { "type": "date" },
+      "microserviceName": { "type": "keyword" },
+      "microserviceId": { "type": "keyword" },
+      "applicationId": { "type": "keyword" },
+      "applicationName": { "type": "keyword" },
+      "currentAnalysisStatusTypeId": { "type": "keyword" },
+      "currentAnalysisStatusType": { "type": "keyword" },
+      "rating": { "type": "integer" },
+      "critical": { "type": "integer" },
+      "high": { "type": "integer" },
+      "medium": { "type": "integer" },
+      "low": { "type": "integer" },
+      "currentStaticScanId": { "type": "keyword" },
+      "currentDynamicScanId": { "type": "keyword" },
+      "currentMobileScanId": { "type": "keyword" },
+      "staticAnalysisStatusType": { "type": "keyword" },
+      "dynamicAnalysisStatusType": { "type": "keyword" },
+      "mobileAnalysisStatusType": { "type": "keyword" },
+      "staticAnalysisStatusTypeId": { "type": "keyword" },
+      "dynamicAnalysisStatusTypeId": { "type": "keyword" },
+      "mobileAnalysisStatusTypeId": { "type": "keyword" },
+      "staticScanDate": { "type": "date" },
+      "dynamicScanDate": { "type": "date" },
+      "mobileScanDate": { "type": "date" },
+      "issueCount": { "type": "integer" },
+      "isPassed": { "type": "boolean" },
+      "passFailReasonTypeId": { "type": "integer" },
+      "passFailReasonType": { "type": "keyword" },
+      "sdlcStatusTypeId": { "type": "keyword" },
+      "sdlcStatusType": { "type": "keyword" },
+      "ownerId": { "type": "keyword" },
+      "sourceName": { "type": "keyword" }
+    }
+  }
+}

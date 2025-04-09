@@ -1,0 +1,802 @@
+[
+  {
+    "type": "EngagementSortFilters",
+    "filters": [
+      {
+        "display": "Created Date",
+        "field": "Created Date",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Timestamp"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Engagement Id",
+        "field": "Engagement Id",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Id"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Engagement Name",
+        "field": "Name",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Engagement.Name"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Date",
+        "field": "Date",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Timestamp",
+          "Saltminer.Engagement.PublishDate"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Summary",
+        "field": "Summary",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Engagement.Summary"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Customer",
+        "field": "Customer",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Engagement.Customer"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Scan Id",
+        "field": "ScanId",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Engagement.ScanId"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Status",
+        "field": "Status",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Engagement.Status"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Last Updated",
+        "field": "LastUpdated",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Last_Updated"
+        ],
+        "queueIndexFieldNames": []
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000007"
+  },
+  {
+    "type": "CommentSortFilters",
+    "filters": [
+      {
+        "display": "Created Date",
+        "field": "Created Date",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Timestamp"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Id",
+        "field": "Id",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Id"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "User",
+        "field": "User",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Comment.UserFullName"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Type",
+        "field": "Type",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Comment.Type"
+        ],
+        "queueIndexFieldNames": []
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000008"
+  },
+  {
+    "type": "ReportingQueueSortFilters",
+    "filters": [
+      {
+        "display": "Created Date",
+        "field": "Created Date",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Timestamp"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Id",
+        "field": "Id",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Id"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Status",
+        "field": "Status",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Status"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Data Source",
+        "field": "Data Source",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "DataSource"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Data Source Id",
+        "field": "Data Source Id",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "DataSourceId"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Report Type",
+        "field": "Report Type",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "ReportType"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Requested By",
+        "field": "Requested By",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "RequestedBy"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "System Requested",
+        "field": "System Requested",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "SystemRequested"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Saltminer Report",
+        "field": "Saltminer Report",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "IsSaltminerReport"
+        ],
+        "queueIndexFieldNames": []
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000009"
+  },
+  {
+    "type": "EngagementSearchFilters",
+    "filters": [
+      {
+        "display": "Any Field",
+        "field": "All",
+        "isTextSearch": false,
+        "order": 1,
+        "indexFieldNames": [
+          ""
+        ],
+        "queueIndexFieldNames":[
+          ""
+        ]
+      },
+      {
+        "display": "Engagement Name",
+        "field": "Name",
+        "isTextSearch": true,
+        "order": 2,
+        "indexFieldNames": [
+          "Saltminer.Engagement.Name"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Date",
+        "field": "Date",
+        "isTextSearch": false,
+        "order": 3,
+        "indexFieldNames": [
+          "Timestamp",
+          "Saltminer.Engagement.PublishDate"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Summary",
+        "field": "Summary",
+        "isTextSearch": false,
+        "order": 4,
+        "indexFieldNames": [
+          "Saltminer.Engagement.Summary"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Attachments",
+        "field": "Attachments",
+        "isTextSearch": true,
+        "order": 5,
+        "indexFieldNames": [
+          "Saltminer.Engagement.Attachments.FileName"
+        ],
+        "queueIndexFieldNames": []
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000010"
+  },
+  {
+    "type": "IssueSearchFilters",
+    "filters": [
+      {
+        "display": "Any Field",
+        "field": "All",
+        "isTextSearch": false,
+        "order": 1,
+        "indexFieldNames": [
+          ""
+        ],
+        "queueIndexFieldNames":[
+          ""
+        ]
+      },
+      {
+        "display": "Issue Name",
+        "field": "Name",
+        "isTextSearch": true,
+        "order": 2,
+        "indexFieldNames": [
+          "Vulnerability.Name"
+        ],
+        "queueIndexFieldNames": [
+          "Vulnerability.Name"
+        ]
+      },
+      {
+        "display": "Date",
+        "field": "Date",
+        "isTextSearch": false,
+        "order": 3,
+        "indexFieldNames": [
+          "Vulnerability.FoundDate"
+        ],
+        "queueIndexFieldNames": [
+          "Vulnerability.FoundDate"
+        ]
+      },
+      {
+        "display": "Location",
+        "field": "Location",
+        "isTextSearch": true,
+        "order": 4,
+        "indexFieldNames": [
+          "Vulnerability.Location",
+          "Vulnerability.LocationFull"
+        ],
+        "queueIndexFieldNames": [
+          "Vulnerability.Location",
+          "Vulnerability.LocationFull"
+        ]
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000011"
+  },
+  {
+    "type": "IssueSortFilters",
+    "filters": [
+      {
+        "display": "Id",
+        "field": "Id",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Id"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Created Date",
+        "field": "Created Date",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Timestamp"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Asset Id",
+        "field": "Asset Id",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Asset.Id"
+        ],
+        "queueIndexFieldNames": [
+          "Saltminer.QueueAssetId"
+        ]
+      },
+      {
+        "display": "Issue Name",
+        "field": "Name",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Vulnerability.Name"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Severity",
+        "field": "Severity",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Vulnerability.SeverityLevel"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Report Id",
+        "field": "Report Id",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Vulnerability.ReportId"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Location",
+        "field": "Location",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Vulnerability.Location"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Location Full",
+        "field": "Location Full",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Vulnerability.LocationFull"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Suppressed",
+        "field": "Suppressed",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Vulnerability.IsSuppressed"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Filtered",
+        "field": "Filtered",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Vulnerability.IsFiltered"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Active",
+        "field": "Active",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Vulnerability.IsActive"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Date",
+        "field": "Date",
+        "isTextSearch": false,
+        "order": 3,
+        "indexFieldNames": [
+          "Vulnerability.FoundDate"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Tested",
+        "field": "Tested",
+        "isTextSearch": false,
+        "order": 4,
+        "indexFieldNames": [
+          "Vulnerability.TestStatus"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Description",
+        "field": "Description",
+        "isTextSearch": false,
+        "order": 5,
+        "indexFieldNames": [
+          "Vulnerability.Description"
+        ],
+        "queueIndexFieldNames": []
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000012"
+  },
+  {
+    "type": "AssetSortFilters",
+    "filters": [
+      {
+        "display": "Created Date",
+        "field": "Created Date",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Timestamp"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Id",
+        "field": "Id",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Id"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Source Id",
+        "field": "Source Id",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Asset.SourceId"
+        ],
+        "queueIndexFieldNames": [
+          "Saltminer.Asset.SourceId"
+        ]
+      },
+      {
+        "display": "Name",
+        "field": "Name",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Asset.Name"
+        ],
+        "queueIndexFieldNames": [
+          "Saltminer.Asset.Name"
+        ]
+      },
+      {
+        "display": "Version Id",
+        "field": "Version Id",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Asset.VersionId"
+        ],
+        "queueIndexFieldNames": [
+          "Saltminer.Asset.VersionId"
+        ]
+      },
+      {
+        "display": "Version",
+        "field": "Version",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Asset.Version"
+        ],
+        "queueIndexFieldNames": [
+          "Saltminer.Asset.Version"
+        ]
+      },
+      {
+        "display": "Description",
+        "field": "Description",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Asset.Description"
+        ],
+        "queueIndexFieldNames": [
+          "Saltminer.Asset.Description"
+        ]
+      },
+      {
+        "display": "Ip",
+        "field": "Ip",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Asset.Ip"
+        ],
+        "queueIndexFieldNames": [
+          "Saltminer.Asset.Ip"
+        ]
+      },
+      {
+        "display": "Host",
+        "field": "Host",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Asset.Host"
+        ],
+        "queueIndexFieldNames": [
+          "Saltminer.Asset.Host"
+        ]
+      },
+      {
+        "display": "Scheme",
+        "field": "Scheme",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Asset.Scheme"
+        ],
+        "queueIndexFieldNames": [
+          "Saltminer.Asset.Scheme"
+        ]
+      },
+      {
+        "display": "Retired",
+        "field": "Retired",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Asset.IsRetired"
+        ],
+        "queueIndexFieldNames": [
+          "Saltminer.Asset.IsRetired"
+        ]
+      },
+      {
+        "display": "Production",
+        "field": "Production",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Saltminer.Asset.IsProduction"
+        ],
+        "queueIndexFieldNames": [
+          "Saltminer.Asset.IsProduction"
+        ]
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000013"
+  },
+  {
+    "type": "InventoryAssetSearchFilters",
+    "filters": [
+      {
+        "display": "Any Field",
+        "field": "All",
+        "isTextSearch": false,
+        "order": 1,
+        "indexFieldNames": [
+          ""
+        ],
+        "queueIndexFieldNames": [
+          ""
+        ]
+      },
+      {
+        "display": "Key",
+        "field": "Key",
+        "isTextSearch": true,
+        "order": 2,
+        "indexFieldNames": [
+          "Key"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Name",
+        "field": "Name",
+        "isTextSearch": true,
+        "order": 3,
+        "indexFieldNames": [
+          "Name"
+        ],
+        "queueIndexFieldNames": []
+      }
+    ],
+    "timestamp": "2022-12-16T00:00:00Z",
+    "last_updated": "2022-12-16T00:00:00Z",
+    "id": "00000000-0000-0000-0000-000000000014"
+  },
+  {
+    "type": "InventoryAssetSortFilters",
+    "filters": [
+      {
+        "display": "Key",
+        "field": "Key",
+        "isTextSearch": false,
+        "order": 0,
+        "indexFieldNames": [
+          "Key"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Name",
+        "field": "Name",
+        "isTextSearch": false,
+        "order": 1,
+        "indexFieldNames": [
+          "Name"
+        ],
+        "queueIndexFieldNames": []
+      }
+    ],
+    "timestamp": "2022-12-16T00:00:00Z",
+    "last_updated": "2022-12-16T00:00:00Z",
+    "id": "00000000-0000-0000-0000-000000000015"
+  },
+  {
+    "type": "ServiceJobSearchFilters",
+    "filters": [
+      {
+        "display": "Any Field",
+        "field": "All",
+        "isTextSearch": false,
+        "order": 1,
+        "indexFieldNames": [
+          ""
+        ],
+        "queueIndexFieldNames": [
+          ""
+        ]
+      },
+      {
+        "display": "Name",
+        "field": "Name",
+        "isTextSearch": true,
+        "order": 2,
+        "indexFieldNames": [
+          "Name"
+        ],
+        "queueIndexFieldNames": []
+      },
+      {
+        "display": "Option",
+        "field": "Option",
+        "isTextSearch": false,
+        "order": 3,
+        "indexFieldNames": [
+          "Option"
+        ],
+        "queueIndexFieldNames": []
+      }
+    ],
+    "timestamp": "2024-10-24T00:00:00Z",
+    "last_updated": "2024-10-24T00:00:00Z",
+    "id": "00000000-0000-0000-0000-000000000016"
+  },
+  {
+    "type": "RoleSearchFilters",
+    "filters": [
+      {
+        "display": "Any Field",
+        "field": "All",
+        "isTextSearch": false,
+        "order": 1,
+        "indexFieldNames": [
+          ""
+        ],
+        "queueIndexFieldNames": [
+          ""
+        ]
+      },
+      {
+        "display": "Name",
+        "field": "Name",
+        "isTextSearch": true,
+        "order": 2,
+        "indexFieldNames": [
+          "Name"
+        ],
+        "queueIndexFieldNames": []
+      }
+    ],
+    "timestamp": "2024-10-24T00:00:00Z",
+    "last_updated": "2024-10-24T00:00:00Z",
+    "id": "00000000-0000-0000-0000-000000000017"
+  }
+]

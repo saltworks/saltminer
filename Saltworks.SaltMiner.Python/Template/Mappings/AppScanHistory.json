@@ -1,0 +1,35 @@
+{
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 0,
+    "analysis": {
+      "normalizer": {
+        "lc_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": [ "lowercase", "asciifolding" ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "@timestamp": { "type": "date" },
+      "application_id": { "type": "keyword" },
+      "application_name": { "type": "keyword" },
+      "application_description": { "type": "text" },
+      "application_version_id": { "type": "keyword" },
+      "application_version_name": { "type": "keyword" },
+      "scan_date": { "type": "date" },
+      "scan_id": { "type": "keyword" },
+      "assessment_type": { "type": "keyword" },
+      "rulepacks": {
+        "properties": {
+          "guid": { "type": "keyword" },
+          "name": { "type": "keyword" },
+          "version": { "type": "keyword" }
+        }
+      }
+    }
+  }
+}

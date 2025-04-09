@@ -1,0 +1,179 @@
+{
+    "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 1
+    },
+    "mappings": {
+        "properties": {
+            "_assessment": {
+                "type": "keyword"
+            },
+            "accuracy": {
+                "properties": {
+                    "fixed": {
+                        "type": "integer"
+                    },
+                    "identified": {
+                        "type": "integer"
+                    },
+                    "located": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "attempt_id": {
+                "type": "keyword"
+            },
+            "challenges": {
+                "properties": {
+                    "category": {
+                        "type": "keyword"
+                    },
+                    "codebase": {
+                        "type": "keyword"
+                    },
+                    "difficulty": {
+                        "type": "keyword"
+                    },
+                    "fix": {
+                        "properties": {
+                            "max_score": {
+                                "type": "float"
+                            },
+                            "score": {
+                                "type": "float"
+                            },
+                            "status": {
+                                "type": "keyword"
+                            }
+                        }
+                    },
+                    "identify": {
+                        "properties": {
+                            "max_score": {
+                                "type": "float"
+                            },
+                            "score": {
+                                "type": "float"
+                            },
+                            "status": {
+                                "type": "keyword"
+                            }
+                        }
+                    },
+                    "locate": {
+                        "properties": {
+                            "max_score": {
+                                "type": "float"
+                            },
+                            "score": {
+                                "type": "float"
+                            },
+                            "status": {
+                                "type": "keyword"
+                            }
+                        }
+                    },
+                    "max_score": {
+                        "type": "float"
+                    },
+                    "number": {
+                        "type": "integer"
+                    },
+                    "score": {
+                        "type": "float"
+                    },
+                    "status": {
+                        "type": "keyword"
+                    },
+                    "subcategory": {
+                        "type": "keyword"
+                    }
+                }
+            },
+            "completed": {
+                "type": "date"
+            },
+            "completed_in": {
+                "type": "keyword"
+            },
+            "deadline": {
+                "type": "date"
+            },
+            "developer": {
+                "properties": {
+                    "company": {
+                        "type": "keyword"
+                    },
+                    "email": {
+                        "type": "keyword"
+                    },
+                    "last_logged_in": {
+                        "type": "date"
+                    },
+                    "member_since": {
+                        "type": "date"
+                    },
+                    "name": {
+                        "type": "keyword"
+                    },
+                    "roles": {
+                        "type": "keyword"
+                    },
+                    "status": {
+                        "type": "keyword"
+                    },
+                    "tags": {
+                        "type": "keyword"
+                    },
+                    "team": {
+                        "type": "keyword"
+                    },
+                    "user_id": {
+                        "type": "keyword"
+                    }
+                }
+            },
+            "language": {
+                "type": "keyword"
+            },
+            "name": {
+                "type": "keyword"
+            },
+            "pass_status": {
+                "type": "keyword"
+            },
+            "passing_grade": {
+                "type": "integer"
+            },
+            "progress": {
+                "properties": {
+                    "completed": {
+                        "type": "integer"
+                    },
+                    "correct": {
+                        "type": "integer"
+                    },
+                    "incorrect": {
+                        "type": "integer"
+                    },
+                    "number_of_challenges": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "score": {
+                "type": "float"
+            },
+            "started": {
+                "type": "date"
+            },
+            "status": {
+                "type": "keyword"
+            },
+            "time_spent_ms": {
+                "type": "long"
+            }
+        }
+    }
+}

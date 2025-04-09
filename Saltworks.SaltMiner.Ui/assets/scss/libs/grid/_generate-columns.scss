@@ -1,0 +1,16 @@
+@use 'sass:math';
+@mixin generateColumns($breakpoint, $maxDivisor) {
+  @for $a from 1 through $maxDivisor {
+    @for $b from 1 through $a {
+      .row {
+        > .col-#{$breakpoint}-#{$b}-#{$a} {
+          width: math.div($b, $a) * 100%;
+        }
+
+        > .col-#{$breakpoint}-offset-#{$b}-#{$a} {
+          margin-left: math.div($b, $a) * 100%;
+        }
+      }
+    }
+  }
+}
