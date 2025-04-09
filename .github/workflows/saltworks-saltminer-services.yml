@@ -19,15 +19,14 @@ env:
   MGR_CONFIG_FILE: ManagerSettings.json
   AGENT_CONFIG_FILE: AgentSettings.json
   DATA_API_BASE_URL: http://api:5000
-  EXEC_TRANSFORM: true
-  WARNING_LEVEL: 0
   PY_ARTIFACT_PATH: Saltworks.SaltMiner.Python
   PY_CONFIG_FILE: SMv3.json
-  DEPLOY_ARTIFACT_PATH: Saltworks.SaltMiner.Deploy
+  EXEC_TRANSFORM: true
+  WARNING_LEVEL: 0
 
 jobs:
   build_services:
-    name: Build Saltworks.SaltMiner.Services
+    name: Build Services
 
     runs-on:
     - self-hosted
@@ -42,8 +41,6 @@ jobs:
 #      uses: actions/setup-dotnet@v4
 #      with:
 #        dotnet-version: 8.0.x
-    - name: Get ServiceManager deployment configuration
-      run: cp ${{ github.workspace }}/Saltworks.SaltMiner.Deploy/addins/servicemanager/ServiceManagerSettings.json .
     - name: ServiceManager Configuration File Transformation
       if: env.EXEC_TRANSFORM == 'true'
       run: |
@@ -76,6 +73,7 @@ jobs:
       run: echo "MGR_DIR=Saltworks.SaltMiner.Manager/Saltworks.SaltMiner.Manager" >> $GITHUB_ENV
     - name: Set Manager artifact directory relative to GitHub workspace.
       run: echo "MGR_ARTIFACT_PATH=${{ env.MGR_DIR }}/artifacts/bin/Saltworks.SaltMiner.Manager/${{ env.CONFIGURATION }}" >> $GITHUB_ENV
+    
     - name: Set artifacts directory for Manager
       run: dotnet new buildprops --use-artifacts
       working-directory: ${{ github.workspace }}/${{ env.MGR_DIR }}
@@ -85,9 +83,7 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
       working-directory: ${{ github.workspace }}/${{ env.MGR_DIR }}
-    - name: Get Manager deployment configuration
-      run: cp ${{ env.DEPLOY_ARTIFACT_PATH }}/addins/manager/${{ env.MGR_CONFIG_FILE }} ${{ env.MGR_ARTIFACT_PATH }}
-      working-directory: ${{ github.workspace }}
+
     - name: Manager Configuration File Transformation
       if: env.EXEC_TRANSFORM == 'true'
       run: |
@@ -111,6 +107,7 @@ jobs:
       run: echo "AGENT_DIR=Saltworks.SaltMiner.SyncAgent/Saltworks.SaltMiner.SyncAgent" >> $GITHUB_ENV
     - name: Set Agent artifact directory relative to GitHub workspace.
       run: echo "AGENT_ARTIFACT_PATH=${{ env.AGENT_DIR }}/artifacts/bin/Saltworks.SaltMiner.SyncAgent/${{ env.CONFIGURATION }}" >> $GITHUB_ENV 
+
     - name: Set artifacts directory for Agent
       run: dotnet new buildprops --use-artifacts
       working-directory: ${{ github.workspace }}/${{ env.AGENT_DIR }}
@@ -120,12 +117,7 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
       working-directory: ${{ github.workspace }}/${{ env.AGENT_DIR }}
-    - name: Get Agent source configuration deployment files
-      run: cp -r ${{ github.workspace }}/Saltworks.SaltMiner.Deploy/addins/agent/SourceConfigs ${{ env.AGENT_ARTIFACT_PATH }}
-      working-directory: ${{ github.workspace }}
-    - name: Get Agent deployment configuration
-      run: cp ${{ env.DEPLOY_ARTIFACT_PATH }}/addins/agent/${{ env.AGENT_CONFIG_FILE }} ${{ env.AGENT_ARTIFACT_PATH }}
-      working-directory: ${{ github.workspace }}
+
     - name: Agent Configuration File Transformation
       if: env.EXEC_TRANSFORM == 'true'
       run: |
@@ -145,9 +137,6 @@ jobs:
       working-directory: ${{ github.workspace }}
 
     # Python
-    - name: Set up Python config
-      run: cp -r Saltworks.SaltMiner.Deploy/addins/sm25/Config ${{ env.PY_ARTIFACT_PATH }} 
-      working-directory: ${{ github.workspace }}
     - name: Transform Python config file
       working-directory: ${{ github.workspace }}/${{ env.PY_ARTIFACT_PATH }}/Config
       if: env.EXEC_TRANSFORM == 'true'
