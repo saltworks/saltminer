@@ -3,8 +3,8 @@ name: Saltworks.SaltMiner.JobManager
 on:
   push:
     branches:
-      - 'main'
-      - '3.0.9'
+    - main
+    - '3.0.10'
     paths:
     - 'Saltworks.SaltMiner.JobManager/**'
     - '.github/workflows/saltworks-saltminer-jobmanager.yml'
@@ -30,10 +30,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 8.0.x
+#    - name: Setup .NET
+#      uses: actions/setup-dotnet@v4
+#      with:
+#        dotnet-version: 8.0.x
     - name: Configuration File Transformation
       if: env.EXEC_TRANSFORM == 'true'
       run: |

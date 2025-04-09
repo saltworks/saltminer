@@ -2,7 +2,9 @@ name: Saltworks.SaltMiner.DataApi
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+    - main
+    - '3.0.10'
     paths:
     - 'Saltworks.SaltMiner.DataApi/*'
     - '.github/workflows/saltworks-saltminer-dataapi.yml'
@@ -29,10 +31,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 8.0.x
+#    - name: Setup .NET
+#      uses: actions/setup-dotnet@v4
+#      with:
+#        dotnet-version: 8.0.x
 
     - name: Configuration File Transformation
       if: env.EXEC_TRANSFORM == 'true'

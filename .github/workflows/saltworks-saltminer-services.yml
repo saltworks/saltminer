@@ -1,0 +1,198 @@
+name: Saltworks.SaltMiner.Services
+
+on:
+  push:
+    branches:
+    - main
+    - '3.0.10'
+    paths:
+    - 'Saltworks.SaltMiner.Manager/**'
+    - 'Saltworks.SaltMiner.Python/**'
+    - 'Saltworks.SaltMiner.ServiceManager/**'
+    - 'Saltworks.SaltMiner.SyncAgent/**'
+    - '.github/workflows/saltworks-saltminer-services.yml'
+    - '.dockerfiles/Dockerfile-services'
+
+env:
+  CONFIGURATION: release
+  CONFIG_FILE: ServiceManagerSettings.json
+  MGR_CONFIG_FILE: ManagerSettings.json
+  AGENT_CONFIG_FILE: AgentSettings.json
+  DATA_API_BASE_URL: http://api:5000
+  EXEC_TRANSFORM: true
+  WARNING_LEVEL: 0
+  PY_ARTIFACT_PATH: Saltworks.SaltMiner.Python
+  PY_CONFIG_FILE: SMv3.json
+  DEPLOY_ARTIFACT_PATH: Saltworks.SaltMiner.Deploy
+
+jobs:
+  build_services:
+    name: Build Saltworks.SaltMiner.Services
+
+    runs-on:
+    - self-hosted
+    - dotnet
+    defaults:
+      run:
+        working-directory: ./Saltworks.SaltMiner.ServiceManager/Saltworks.SaltMiner.ServiceManager
+
+    steps:
+    - uses: actions/checkout@v4
+#    - name: Setup .NET
+#      uses: actions/setup-dotnet@v4
+#      with:
+#        dotnet-version: 8.0.x
+    - name: Get ServiceManager deployment configuration
+      run: cp ${{ github.workspace }}/Saltworks.SaltMiner.Deploy/addins/servicemanager/ServiceManagerSettings.json .
+    - name: ServiceManager Configuration File Transformation
+      if: env.EXEC_TRANSFORM == 'true'
+      run: |
+        echo 'Transforming configuration file'
+        jq '.ServiceManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}
+        jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
+          '.ServiceManagerConfig.DataApiBaseUrl = $dapi' \
+          ${{ env.CONFIG_FILE }} \
+          > ${{ env.CONFIG_FILE }}.new
+        jq '.ServiceManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}.new
+        mv ${{ env.CONFIG_FILE }} ${{ env.CONFIG_FILE }}.old
+        mv ${{ env.CONFIG_FILE }}.new ${{ env.CONFIG_FILE }}
+    - name: Store artifact path
+      run: echo "ARTIFACT_PATH=Saltworks.SaltMiner.ServiceManager/Saltworks.SaltMiner.ServiceManager/artifacts/bin/Saltworks.SaltMiner.ServiceManager/${{ env.CONFIGURATION}}" >> $GITHUB_ENV 
+
+    - name: Use artifacts directory
+      run: dotnet new buildprops --use-artifacts
+    - name: Restore dependencies
+      run: dotnet restore --disable-build-servers
+    - name: Build
+      run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
+
+    - name: Show ServiceManager output
+      run: |
+        ls -lah ${{ env.ARTIFACT_PATH }} --group-directories-first
+      working-directory: ${{ github.workspace }}
+
+    # Build Manager
+    - name: Set Manager working directory relative to GitHub workspace.
+      run: echo "MGR_DIR=Saltworks.SaltMiner.Manager/Saltworks.SaltMiner.Manager" >> $GITHUB_ENV
+    - name: Set Manager artifact directory relative to GitHub workspace.
+      run: echo "MGR_ARTIFACT_PATH=${{ env.MGR_DIR }}/artifacts/bin/Saltworks.SaltMiner.Manager/${{ env.CONFIGURATION }}" >> $GITHUB_ENV
+    - name: Set artifacts directory for Manager
+      run: dotnet new buildprops --use-artifacts
+      working-directory: ${{ github.workspace }}/${{ env.MGR_DIR }}
+    - name: Restore dependencies
+      run: dotnet restore --disable-build-servers
+      working-directory: ${{ github.workspace }}/${{ env.MGR_DIR }}
+    - name: Build
+      run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
+      working-directory: ${{ github.workspace }}/${{ env.MGR_DIR }}
+    - name: Get Manager deployment configuration
+      run: cp ${{ env.DEPLOY_ARTIFACT_PATH }}/addins/manager/${{ env.MGR_CONFIG_FILE }} ${{ env.MGR_ARTIFACT_PATH }}
+      working-directory: ${{ github.workspace }}
+    - name: Manager Configuration File Transformation
+      if: env.EXEC_TRANSFORM == 'true'
+      run: |
+        echo 'Transforming configuration file'
+        jq '.ManagerConfig.DataApiBaseUrl' ${{ env.MGR_CONFIG_FILE }}
+        jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
+          '.ManagerConfig.DataApiBaseUrl = $dapi' \
+          ${{ env.MGR_CONFIG_FILE }} \
+          > ${{ env.MGR_CONFIG_FILE }}.new
+        jq '.ManagerConfig.DataApiBaseUrl' ${{ env.MGR_CONFIG_FILE }}.new
+        mv ${{ env.MGR_CONFIG_FILE }} ${{ env.MGR_CONFIG_FILE }}.old
+        mv ${{ env.MGR_CONFIG_FILE }}.new ${{ env.MGR_CONFIG_FILE }}
+      working-directory: ${{ github.workspace }}/${{ env.MGR_ARTIFACT_PATH }}
+    - name: Show Manager output
+      run: |
+        ls -lah ${{ env.MGR_ARTIFACT_PATH }} --group-directories-first
+      working-directory: ${{ github.workspace }}
+
+    # Build Agent
+    - name: Set Agent working directory relative to GitHub workspace.
+      run: echo "AGENT_DIR=Saltworks.SaltMiner.SyncAgent/Saltworks.SaltMiner.SyncAgent" >> $GITHUB_ENV
+    - name: Set Agent artifact directory relative to GitHub workspace.
+      run: echo "AGENT_ARTIFACT_PATH=${{ env.AGENT_DIR }}/artifacts/bin/Saltworks.SaltMiner.SyncAgent/${{ env.CONFIGURATION }}" >> $GITHUB_ENV 
+    - name: Set artifacts directory for Agent
+      run: dotnet new buildprops --use-artifacts
+      working-directory: ${{ github.workspace }}/${{ env.AGENT_DIR }}
+    - name: Restore dependencies
+      run: dotnet restore --disable-build-servers
+      working-directory: ${{ github.workspace }}/${{ env.AGENT_DIR }}
+    - name: Build
+      run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
+      working-directory: ${{ github.workspace }}/${{ env.AGENT_DIR }}
+    - name: Get Agent source configuration deployment files
+      run: cp -r ${{ github.workspace }}/Saltworks.SaltMiner.Deploy/addins/agent/SourceConfigs ${{ env.AGENT_ARTIFACT_PATH }}
+      working-directory: ${{ github.workspace }}
+    - name: Get Agent deployment configuration
+      run: cp ${{ env.DEPLOY_ARTIFACT_PATH }}/addins/agent/${{ env.AGENT_CONFIG_FILE }} ${{ env.AGENT_ARTIFACT_PATH }}
+      working-directory: ${{ github.workspace }}
+    - name: Agent Configuration File Transformation
+      if: env.EXEC_TRANSFORM == 'true'
+      run: |
+        echo 'Transforming configuration file'
+        jq '.AgentConfig.DataApiBaseUrl' ${{ env.AGENT_CONFIG_FILE }}
+        jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
+          '.AgentConfig.DataApiBaseUrl = $dapi' \
+          ${{ env.AGENT_CONFIG_FILE }} \
+          > ${{ env.AGENT_CONFIG_FILE }}.new
+        jq '.AgentConfig.DataApiBaseUrl' ${{ env.AGENT_CONFIG_FILE }}.new
+        mv ${{ env.AGENT_CONFIG_FILE }} ${{ env.AGENT_CONFIG_FILE }}.old
+        mv ${{ env.AGENT_CONFIG_FILE }}.new ${{ env.AGENT_CONFIG_FILE }}
+      working-directory: ${{ github.workspace }}/${{ env.AGENT_ARTIFACT_PATH }}
+    - name: Show Agent output
+      run: |
+        ls -lah ${{ env.AGENT_ARTIFACT_PATH }} --group-directories-first
+      working-directory: ${{ github.workspace }}
+
+    # Python
+    - name: Set up Python config
+      run: cp -r Saltworks.SaltMiner.Deploy/addins/sm25/Config ${{ env.PY_ARTIFACT_PATH }} 
+      working-directory: ${{ github.workspace }}
+    - name: Transform Python config file
+      working-directory: ${{ github.workspace }}/${{ env.PY_ARTIFACT_PATH }}/Config
+      if: env.EXEC_TRANSFORM == 'true'
+      run: |
+        echo 'Transforming configuration file'
+        jq '.ApiUrl' ${{ env.PY_CONFIG_FILE }}
+        jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
+          '.ApiUrl = $dapi' \
+          ${{ env.PY_CONFIG_FILE }} \
+          > ${{ env.PY_CONFIG_FILE }}.new
+        jq '.ApiUrl' ${{ env.PY_CONFIG_FILE }}.new
+        mv ${{ env.PY_CONFIG_FILE }} ${{ env.PY_CONFIG_FILE }}.old
+        mv ${{ env.PY_CONFIG_FILE }}.new ${{ env.PY_CONFIG_FILE }}
+
+    - name: Login to the container registry
+      uses: docker/login-action@v3.4.0
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract metadata (tags, labels) for Docker
+      id: meta
+      uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+      with:
+        images: saltworks/saltminer
+        tags: |
+          type=raw,value=services-${{ github.ref_name }}.{{date 'YYYYMMDD-HHmmss'}}
+        labels: |
+          org.opencontainers.image.title=saltminer-services
+          org.opencontainers.image.description=SaltMiner Services
+          org.opencontainers.image.vendor=Saltworks Security, LLC
+
+    - name: Build and push Docker images
+      uses: docker/build-push-action@v6.15.0
+      with:
+        file: .dockerfiles/Dockerfile-services
+        context: ${{ github.workspace }}
+        push: true
+        provenance: mode=max
+        sbom: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          ARTIFACT_PATH=${{ env.ARTIFACT_PATH }}
+          MGR_ARTIFACT_PATH=${{ env.MGR_ARTIFACT_PATH }}
+          AGENT_ARTIFACT_PATH=${{ env.AGENT_ARTIFACT_PATH }}
+          PY_ARTIFACT_PATH=${{ env.PY_ARTIFACT_PATH }}
+          JOB_ARTIFACT_PATH=${{ env.DEPLOY_ARTIFACT_PATH }}
