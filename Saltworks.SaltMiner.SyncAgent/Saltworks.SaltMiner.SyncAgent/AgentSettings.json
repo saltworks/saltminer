@@ -2,9 +2,8 @@
   "AgentConfig": {
     "EncryptionKey": "D0CGbdrD2y8yTSwuugHAt0ywCiC09GCwDWjCsIA/YWc=",
     "EncryptionIv": "LXFtTxa/uCwrXGS5mAkzBg==",
-    "DataApiBaseUrl": "http://localhost:5000/",
+    "DataApiBaseUrl": "http://localhost/smapi",
     "DataApiVerifySsl": "false",
-    "DataApiKeyIs": "agentsecret",
     "DataApiKey": "agentsecret",
     "DataApiKeyHeader": "Authorization",
     "DataApiTimeoutSec": 10
@@ -45,11 +44,11 @@
                 {
                   "Name": "File",
                   "Args": {
-                    "path": "sm-.log",
+                    "path": "/var/log/saltworks/saltminer-3.0.0/smagt-.log",
                     "rollingInterval": "Day",
                     "retainedFileCountLimit": "7",
                     "formatter": "Elastic.CommonSchema.Serilog.EcsTextFormatter, Elastic.CommonSchema.Serilog",
-                    "restrictedToMinimumLevel": "Debug"
+                    "restrictedToMinimumLevel": "Information"
                   }
                 }
               ]
@@ -72,7 +71,7 @@
                 {
                   "Name": "File",
                   "Args": {
-                    "path": "sm-metric-.log",
+                    "path": "/var/log/saltworks/saltminer-3.0.0/smagt-metric-.log",
                     "rollingInterval": "Day",
                     "retainedFileCountLimit": "7",
                     "formatter": "Elastic.CommonSchema.Serilog.EcsTextFormatter, Elastic.CommonSchema.Serilog"

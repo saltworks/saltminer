@@ -5,18 +5,7 @@
     "DataApiBaseUrl": "http://localhost:5000",
     "DataApiVerifySsl": "true",
     "DataApiKey": "ENC: nnbBoPpO+q0rG/iD6Q3MSPcqC+yz4my6FpjMJMrV0kI=",
-    "DataApiKeyHeader": "Authorization",
-    "DataApiTimeoutSec": 10,
-    "QueueProcessorInstances": 1,
-    "QueueProcessorQueueBatchSize": 300,
-    "QueueProcessorIssueBatchSize": 500,
-    "SnapshotProcessorBatchSize": 500,
-    "SnapshotProcessorApiBatchSize": 100,
-    "SnapshotProcessorMaxErrors": 3,
-    "SnapshotProcessorErrorRetryDelaySec": 60,
-    "CleanUpQueueAfterDays": 7,
-    "CleanUpProcessorBatchSize": 500,
-    "ProcessNoScan": true
+    "DataApiKeyHeader": "Authorization"
   },
   "LogConfig": {
     "Serilog": {
@@ -54,11 +43,11 @@
                 {
                   "Name": "File",
                   "Args": {
-                    "path": "sm-.log",
+                    "path": "/var/log/saltworks/saltminer-3.0.0/smmgr-.log",
                     "rollingInterval": "Day",
                     "retainedFileCountLimit": "7",
                     "formatter": "Elastic.CommonSchema.Serilog.EcsTextFormatter, Elastic.CommonSchema.Serilog",
-                    "restrictedToMinimumLevel": "Debug"
+                    "restrictedToMinimumLevel": "Information"
                   }
                 }
               ]
@@ -81,7 +70,7 @@
                 {
                   "Name": "File",
                   "Args": {
-                    "path": "sm-metric-.log",
+                    "path": "/var/log/saltworks/saltminer-3.0.0/smmgr-metric-.log",
                     "rollingInterval": "Day",
                     "retainedFileCountLimit": "7",
                     "formatter": "Elastic.CommonSchema.Serilog.EcsTextFormatter, Elastic.CommonSchema.Serilog"
