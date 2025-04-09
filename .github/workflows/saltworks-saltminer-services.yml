@@ -97,6 +97,7 @@ jobs:
         mv ${{ env.MGR_CONFIG_FILE }} ${{ env.MGR_CONFIG_FILE }}.old
         mv ${{ env.MGR_CONFIG_FILE }}.new ${{ env.MGR_CONFIG_FILE }}
       working-directory: ${{ github.workspace }}/${{ env.MGR_ARTIFACT_PATH }}
+ 
     - name: Show Manager output
       run: |
         ls -lah ${{ env.MGR_ARTIFACT_PATH }} --group-directories-first
@@ -121,7 +122,7 @@ jobs:
     - name: Agent Configuration File Transformation
       if: env.EXEC_TRANSFORM == 'true'
       run: |
-        echo 'Transforming configuration file'
+        echo 'Transfor Agent configuration file'
         jq '.AgentConfig.DataApiBaseUrl' ${{ env.AGENT_CONFIG_FILE }}
         jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
           '.AgentConfig.DataApiBaseUrl = $dapi' \
@@ -131,6 +132,7 @@ jobs:
         mv ${{ env.AGENT_CONFIG_FILE }} ${{ env.AGENT_CONFIG_FILE }}.old
         mv ${{ env.AGENT_CONFIG_FILE }}.new ${{ env.AGENT_CONFIG_FILE }}
       working-directory: ${{ github.workspace }}/${{ env.AGENT_ARTIFACT_PATH }}
+      
     - name: Show Agent output
       run: |
         ls -lah ${{ env.AGENT_ARTIFACT_PATH }} --group-directories-first
