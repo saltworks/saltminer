@@ -5,6 +5,7 @@
 **/*/.vs/
 **/*/[Pp]roperties/
 **/*/TestResults/
+**/*/ConfigPath.json
 /Saltworks.SaltMiner.ElasticClient/Saltworks.SaltMiner.ElasticClient.IntegrationTests/settings.json
 /Saltworks.SaltMiner.SyncAgent/Saltworks.SaltMiner.SyncAgent/SourceConfigs/
 
