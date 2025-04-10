@@ -37,7 +37,7 @@ WORKFLOWS = {
     "agent": {"name": "Saltworks.SaltMiner.SyncAgent (Legacy)", "id": None, "artifact": None}
 }
 OUTPUT_DIR = "./dist"  # Directory to save artifacts
-REMOVE_ITEMS = ["appsettings*.json", "ConfigPath.json", "config*.json", "BurpFiles", "CxFlowFiles", "QualysReports", "SourceConfigs", "WebInspectFiles", "AgentSettings*.json", "Manager*.json", "README.md", "JobManagerSettings*.json", "TestHarness", "ServiceManagerSettings*.json", "Template/Fiserv/", "Template/Saltworks/"]
+REMOVE_ITEMS = ["ConfigPath.json", "config*.json", "BurpFiles", "CxFlowFiles", "QualysReports", "WebInspectFiles", "AgentSettings.*.json", "ManagerSettings.*.json", "README.md", "JobManagerSettings.*.json", "TestHarness", "ServiceManagerSettings.*.json"]
 REMOVE_ROOT_ITEMS = ["package.py", "package-reqs.txt", "addins"]
 ADDINS_PATH = "./addins"
 
