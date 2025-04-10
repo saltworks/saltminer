@@ -44,6 +44,12 @@ ADDINS_PATH = "./addins"
 class PackageException(Exception):
     """PackageException"""
 
+def parse_iso_date(date_str):
+    # Replace 'Z' with '+00:00' for compatibility with Python < 3.11
+    if date_str.endswith('Z'):
+        date_str = date_str[:-1] + '+00:00'
+    return datetime.fromisoformat(date_str)
+
 def remove_root_stuff():
     """Remove root stuff"""
     for item in REMOVE_ROOT_ITEMS:
@@ -210,7 +216,7 @@ def main():
             print(f"No artifact available for '{item['name']}'.  Build fails.")
             py_exit(1)
         item['artifact'] = artifact["archive_download_url"]
-        ca = datetime.fromisoformat(artifact['created_at'])
+        ca = parse_iso_date(artifact['created_at'])
         last_created = max(last_created, ca)
 
     if last_hrs > 0 and last_created <= now_minus:
