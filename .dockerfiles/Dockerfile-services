@@ -55,7 +55,7 @@ RUN rm ${smapp3}/sm-upgrade.sh
 RUN rm ${smapp3}/sm-auto-install.sh
 RUN chmod u+x ${smapp3}/*.sh
 
-RUN apk add --no-cache py3-pip
+RUN apk add --no-cache py3-pip bash
 
 RUN pip install -r ${smapp2}/requirements.txt --break-system-packages
 
