@@ -22,6 +22,9 @@
     <None Update="license.lnf">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="SourceConfigs\**">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
 	  <None Update="Work\readme.txt">
 	    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
 	  </None>
