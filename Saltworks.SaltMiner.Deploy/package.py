@@ -209,7 +209,7 @@ def main():
     # Get last artifact info and make sure we should be running
     now_minus = datetime.now(timezone.utc) - timedelta(hours=last_hrs)
     last_created = now_minus
-    print('Retrieving artifact information...')
+    print('Package util v2. Retrieving artifact information...')
     populate_workflow_ids(headers)
     for key, item in WORKFLOWS.items():
         artifact = get_latest_artifact(item['id'], branch, headers)
