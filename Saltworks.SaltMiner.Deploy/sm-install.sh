@@ -538,7 +538,7 @@ if [ "$pstep" == 5 ]; then
       echo "8"
       sudo cp -r "$dist"/jobmanager "$smapp3"/
       sudo mv "$smapp3"/jobmanager/JobManagerSettings.json "$smcfg3"/jobmanager/
-      sudo mv "$smapp3"/jobmanager/report-templates/* "$smcfg3"/jobmanager/report-templates/
+      sudo mv "$smapp3"/jobmanager/Template/* "$smcfg3"/jobmanager/report-templates/
       echo "9"
       sudo cp -r "$dist"/api "$smapp3"/
       echo "10"
