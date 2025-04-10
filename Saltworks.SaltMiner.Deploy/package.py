@@ -24,7 +24,7 @@ import requests
 
 # Replace with your GitHub repository and token
 REPO_OWNER = "saltworks"  # GitHub repository owner (e.g., "user" or "organization")
-REPO_NAME = "saltminer-rd"  # Repository name (e.g., "repository-name")
+REPO_NAME = "saltminer"  # Repository name (e.g., "repository-name")
 WORKFLOWS = {
     "api": {"name": "Saltworks.SaltMiner.DataApi (Legacy)", "id": None, "artifact": None},
     "data-templates": {"name": "Saltworks.SaltMiner.IndexTemplates (Legacy)", "id": None, "artifact": None},
