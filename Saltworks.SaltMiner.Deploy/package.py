@@ -143,6 +143,7 @@ def remove_stuff(path):
     for item in REMOVE_ITEMS:
         lst = glob.glob(os.path.join(path, item))
         for f in lst:
+            print(f"Removing '{f}'")
             if os.path.isdir(f):
                 shutil.rmtree(f)
             else:
