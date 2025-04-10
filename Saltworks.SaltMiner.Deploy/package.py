@@ -36,16 +36,16 @@ WORKFLOWS = {
     "ui-web": {"name": "Saltworks.SaltMiner.Ui (Legacy)", "id": None, "artifact": None},
     "agent": {"name": "Saltworks.SaltMiner.SyncAgent (Legacy)", "id": None, "artifact": None}
 }
-OUTPUT_DIR = "./dist"  # Directory to save artifacts
-REMOVE_ITEMS = ["appsettings*.json", "ConfigPath.json", "config*.json", "BurpFiles", "CxFlowFiles", "QualysReports", "SourceConfigs", "WebInspectFiles", "AgentSettings*.json", "Manager*.json", "README.md", "JobManagerSettings*.json", "TestHarness", "ServiceManagerSettings*.json", "Template/Fiserv/", "Template/Saltworks/"]
+OUTPUT_DIR = os.path.join(".", "dist")  # Directory to save artifacts
+REMOVE_ITEMS = ["ConfigPath.json", "config*.json", "BurpFiles", "CxFlowFiles", "QualysReports", "WebInspectFiles", "AgentSettings.*.json", "ManagerSettings.*.json", "README.md", "JobManagerSettings.*.json", "TestHarness", "ServiceManagerSettings.*.json"]
 REMOVE_ROOT_ITEMS = ["package.py", "package-reqs.txt", "addins"]
-ADDINS_PATH = "./addins"
+ADDINS_PATH = os.path.join(".", "addins")
 
 class PackageException(Exception):
     """PackageException"""
 
 def parse_iso_date(date_str):
-    # Replace 'Z' with '+00:00' for compatibility with Python < 3.11
+    '''Replace 'Z' with '+00:00' for compatibility with Python < 3.11'''
     if date_str.endswith('Z'):
         date_str = date_str[:-1] + '+00:00'
     return datetime.fromisoformat(date_str)
@@ -105,9 +105,9 @@ def get_latest_artifact(workflowId, branch, headers):
     response.raise_for_status()
 
     runs = response.json().get("workflow_runs", [])
-    run = None
+    run = runs[0] if runs else None
     for r in runs:
-        if r['status'] == "completed" and r['conclusion'] == "success":
+        if r['status'] == "completed" and r['conclusion'] == "success" and parse_iso_date(r['created_at']) > parse_iso_date(run['created_at']):
             run = r
             break
     if not run:
@@ -143,6 +143,7 @@ def remove_stuff(path):
     for item in REMOVE_ITEMS:
         lst = glob.glob(os.path.join(path, item))
         for f in lst:
+            print(f"Removing '{f}'")
             if os.path.isdir(f):
                 shutil.rmtree(f)
             else:
@@ -173,8 +174,9 @@ def process_one(key, workflow, branch, headers):
         raise PackageException(failMsg) from e
 
 def py_exit(code:int):
+    '''write exit code out to file while exiting'''
     os.environ["PYEXIT"] = str(code)
-    with open('pyexit.txt', 'w') as f:
+    with open('pyexit.txt', 'w', encoding='utf8') as f:
         f.write(str(code))
     exit(code)
 
@@ -208,13 +210,14 @@ def main():
     # Get last artifact info and make sure we should be running
     now_minus = datetime.now(timezone.utc) - timedelta(hours=last_hrs)
     last_created = now_minus
-    print('Retrieving artifact information...')
+    print('Package util v2. Retrieving artifact information...')
     populate_workflow_ids(headers)
     for key, item in WORKFLOWS.items():
         artifact = get_latest_artifact(item['id'], branch, headers)
         if not artifact:
             print(f"No artifact available for '{item['name']}'.  Build fails.")
             py_exit(1)
+        print(f"Found artifact for '{item['name']}': '{artifact['name']}'")
         item['artifact'] = artifact["archive_download_url"]
         ca = parse_iso_date(artifact['created_at'])
         last_created = max(last_created, ca)
@@ -226,7 +229,7 @@ def main():
     print("Artifact information retrieved, beginning build.")
     for key, item in WORKFLOWS.items():
         process_one(key, item, branch, headers)
-    remove_root_stuff()
+    #remove_root_stuff()
     print("Processing complete.")
     py_exit(0)
 
