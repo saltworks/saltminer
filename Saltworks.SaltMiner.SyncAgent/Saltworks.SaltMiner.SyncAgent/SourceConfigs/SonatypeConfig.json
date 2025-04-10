@@ -1,0 +1,25 @@
+{
+  "ConfigFileName_Comment": "Name to identify the config file - should match the config file name without the 'Config'",
+  "ConfigFileName": "Sonatype",
+  "Instance_Comment": "Name of the source instance - drives the generated index name.  Can be the same as the ConfigFileName, but simple is best.  Include a number for multi-instance.  ex. 'sona1'",
+  "Instance": "sona1",
+  "SourceType_Comment": "Used to select the source adapter to apply, only set this if you know what you are doing.  Recommend using a sample config to start from that already has this set.",
+  "SourceType": "Saltworks.Sonatype",
+  "BaseAddress_Comment": "The base URL address of the source API",
+  "BaseAddress": "http://sonatypehost:8070/api/v2/",
+  "AppReportBaseUrl_Comment": "The base URL address of Sonatype reports",
+  "AppReportBaseUrl": "http://sonatypehost:8070/assets/index.html#/applicationReport/",
+  "Timeout_Comment": "Interval of seconds between API requests",
+  "Timeout": 30,
+  "UserName_Comment": "Username to authenticate to the API",
+  "UserName": "username",
+  "Password_Comment": "Password to authenticate to the API",
+  "Password": "password",
+  "IssueSeverityMap_Comment": "Maps the source severity name to one of the Saltminer severity names",
+  "IssueSeverityMap": {
+    "Security-Critical": "Critical",
+    "Security-High": "High",
+    "Security-Medium": "Medium",
+    "Security-Low": "Low"
+  }
+} 

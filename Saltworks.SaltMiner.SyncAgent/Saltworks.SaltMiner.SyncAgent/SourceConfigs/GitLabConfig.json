@@ -1,0 +1,25 @@
+{
+  "ConfigFileName_Comment": "Name to identify the config file - should match the config file name without the 'Config'",
+  "ConfigFileName": "GitLab",
+  "Instance_Comment": "Name of the source instance - drives the generated index name.  Can be the same as the ConfigFileName, but simple is best.  Include a number for multi-instance.  ex. 'glb1'",
+  "Instance": "glb1",
+  "SourceType_Comment": "Used to select the source adapter to apply, only set this if you know what you are doing.  Recommend using a sample config to start from that already has this set.",
+  "SourceType": "Saltworks.GitLab",
+  "BaseAddress_Comment": "The base URL address of the source API",
+  "BaseAddress": "https://gitlab.com/api/graphql",
+  "Timeout_Comment": "Interval of seconds between API requests",
+  "Timeout": 30,
+  "ApiKey_Comment": "The key used to authenticate to the API. This is created manually from the GitLab GUI settings page.",
+  "ApiKey": "",
+  "BatchLimit_Comment": "The number of records to pull from the API at one time. GitLab has a 100 maximum per page/batch.",
+  "BatchLimit": 100,
+  "GroupNamespace_Comment": "This is the first folder in the hierarchy of folders/sub-folders to get to projects",
+  "GroupNamespace": "",
+  "IssueSeverityMap_Comment": "Maps the source severity name to one of the Saltminer severity names",
+  "IssueSeverityMap": {
+    "critical": "Critical",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
+  }
+} 

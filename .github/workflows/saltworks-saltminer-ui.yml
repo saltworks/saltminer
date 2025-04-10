@@ -1,11 +1,10 @@
-# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
-
 name: Saltworks.SaltMiner.Ui
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+    - main
+    - '3.0.*'
     paths:
       - 'Saltworks.SaltMiner.Ui/**'
       - '.github/workflows/saltworks-saltminer-ui.yml'      
@@ -63,12 +62,11 @@ jobs:
       with:
         images: saltworks/saltminer
         tags: |
-          type=raw,value=ui-{{date 'YYYYMMDD-HHmmss' tz='America/Chicago'}}
+          type=raw,value=ui-${{ github.ref_name }}.{{date 'YYYYMMDD-HHmmss' tz='America/Chicago'}}
         labels: |
           org.opencontainers.image.title=saltminer-ui
           org.opencontainers.image.description=SaltMiner UI
           org.opencontainers.image.vendor=Saltworks Security, LLC
-          org.opencontainers.image.created={{date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
 
     - name: Build and push Docker images
       uses: docker/build-push-action@v6.15.0
@@ -80,6 +78,3 @@ jobs:
         sbom: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-
-    #- run: npm run build --if-present
-    #- run: npm test

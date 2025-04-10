@@ -1,0 +1,30 @@
+{
+  "ConfigFileName_Comment": "Name to identify the config file - should match the config file name without the 'Config'.",
+  "ConfigFileName": "Qualys",
+  "Instance_Comment": "Name of the source instance - drives the generated index name.  Can be the same as the ConfigFileName, but simple is best.  Include a number for multi-instance.  ex. 'qls1'.",
+  "Instance": "qls1",
+  "SourceType_Comment": "Used to select the source adapter to apply, only set this if you know what you are doing.  Recommend using a sample config to start from that already has this set.",
+  "SourceType": "Saltworks.Qualys",
+  "VerifySsl_Comment": "When set to true, API requests will verify SSL certificates are setup",
+  "VerifySsl": true,
+  "BaseAddress_Comment": "The base URL address of the source API - this can vary by tenant and usually changes the 'qg1' to 'qgX' where X is another number",
+  "BaseAddress": "https://qualysapi.qg1.apps.qualys.com/api/2.0/fo",
+  "Timeout_Comment": "How long in seconds to wait before giving up on an API request.  Defaults to 10 for all adapters, but we recommend 120 for Qualys.",
+  "Timeout": 120,
+  "UserName_Comment": "Username to authenticate to the API",
+  "Username": "",
+  "Password_Comment": "Password to authenticate to the API",
+  "Password": "",
+  "IncludeInfoIssues_Comment": "Set to true to include Qualys info detections. Note: Qualys info detections can be 3x the volume of other detections. Defaults to false.",
+  "IncludeInfoIssues": false,
+  "GuiUrlTemplate_Comment": "Sets the template for generating Qualys issue links.  Should only need to update the domain to match the BaseAddress property.",
+  "GuiUrlTemplate": "https://qualysguard.qg1.apps.qualys.com/vm/#/vulndetails/{id}?detail=Vul&assetDetail=%2Fvulnerabilities%2Fasset%2F",
+  "IssueSeverityMap_Comment": "Maps the source severity name to one of the Saltminer severity names",
+  "IssueSeverityMap": {
+    "5": "Critical",
+    "4": "High",
+    "3": "Medium",
+    "2": "Low",
+    "1": "Info"
+  }
+}

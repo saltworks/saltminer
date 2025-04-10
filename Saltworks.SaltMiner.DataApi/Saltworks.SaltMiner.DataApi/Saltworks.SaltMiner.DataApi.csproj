@@ -20,9 +20,13 @@
 
   <ItemGroup>
     <Compile Remove="pub\**" />
+    <Compile Remove="RunData\**" />
     <Content Remove="pub\**" />
+    <Content Remove="RunData\**" />
     <EmbeddedResource Remove="pub\**" />
+    <EmbeddedResource Remove="RunData\**" />
     <None Remove="pub\**" />
+    <None Remove="RunData\**" />
   </ItemGroup>
 
   <ItemGroup>
@@ -49,7 +53,6 @@
 
   <ItemGroup>
     <Folder Include="Properties\PublishProfiles\" />
-    <Folder Include="RunData\seeds\" />
   </ItemGroup>
 
   <ItemGroup>
@@ -61,9 +64,6 @@
 
   <ItemGroup>
     <Content Update="appsettings.json">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <Content Update="RunData\seeds\IndexMeta%40sys_index_meta.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

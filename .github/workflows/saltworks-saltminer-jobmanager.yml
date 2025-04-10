@@ -3,8 +3,8 @@ name: Saltworks.SaltMiner.JobManager
 on:
   push:
     branches:
-      - 'main'
-      - '3.0.9'
+    - main
+    - '3.0.10'
     paths:
     - 'Saltworks.SaltMiner.JobManager/**'
     - '.github/workflows/saltworks-saltminer-jobmanager.yml'
@@ -16,10 +16,11 @@ env:
   DATA_API_BASE_URL: http://api:5000
   API_BASE_URL: http://ui-api:5001
   EXEC_TRANSFORM: true
+  WARNING_LEVEL: 0
 
 jobs:
   build_jobmanager:
-    name: Build Saltworks.SaltMiner.JobManager
+    name: Build JobManager
 
     runs-on:
     - self-hosted
@@ -30,34 +31,38 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 8.0.x
+#    - name: Setup .NET
+#      uses: actions/setup-dotnet@v4
+#      with:
+#        dotnet-version: 8.0.x
+    - name: Use artifacts directory
+      run: dotnet new buildprops --use-artifacts
+    - name: Restore dependencies
+      run: dotnet restore --disable-build-servers
+    - name: Build
+      run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
+
+    - name: Store working directory path
+      run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
+    - name: Store artifact path
+      run: echo "ARTIFACT_PATH=artifacts/bin/Saltworks.SaltMiner.JobManager/${{ env.CONFIGURATION}}" >> $GITHUB_ENV
+           
     - name: Configuration File Transformation
       if: env.EXEC_TRANSFORM == 'true'
       run: |
         echo 'Transforming configuration file'
         jq '.JobManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}
+        jq '.JobManagerConfig.ApiBaseUrl' ${{ env.CONFIG_FILE }}
         jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
           --arg api "${{ env.API_BASE_URL  }}" \
           '.JobManagerConfig.DataApiBaseUrl = $dapi | .JobManagerConfig.ApiBaseUrl = $api' \
           ${{ env.CONFIG_FILE }} \
           > ${{ env.CONFIG_FILE }}.new
         jq '.JobManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}.new
+        jq '.JobManagerConfig.ApiBaseUrl' ${{ env.CONFIG_FILE }}.new
         mv ${{ env.CONFIG_FILE }} ${{ env.CONFIG_FILE }}.old
         mv ${{ env.CONFIG_FILE }}.new ${{ env.CONFIG_FILE }}
-    - name: Store working directory path
-      run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
-    - name: Store artifact path
-      run: echo "ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.JobManager/${{ env.CONFIGURATION}}" >> $GITHUB_ENV 
-
-    - name: Use artifacts directory
-      run: dotnet new buildprops --use-artifacts
-    - name: Restore dependencies
-      run: dotnet restore --disable-build-servers
-    - name: Build
-      run: dotnet build --no-restore --configuration $CONFIGURATION
+      working-directory: ${{ env.WORKING_DIR }}/${{ env.ARTIFACT_PATH }}
 
     - name: Show output
       run: |
