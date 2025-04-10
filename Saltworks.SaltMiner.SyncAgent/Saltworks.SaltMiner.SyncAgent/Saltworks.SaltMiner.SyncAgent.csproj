@@ -18,6 +18,14 @@
     <None Remove="Saltworks.Saltminer.ConsoleTemplate.vstemplate" />
   </ItemGroup>
 
+  <Target Name="CopyConfigFiles" AfterTargets="Build">
+	<ItemGroup>
+		<ConfigFiles Include="SourceConfigs\*.*" />
+	</ItemGroup>
+	<MakeDir Directories="$(TargetDir)SourceConfigs" />
+	<Copy SourceFiles="@(ConfigFiles)" DestinationFolder="$(TargetDir)SourceConfigs" SkipUnchangedFiles="true" />
+  </Target>
+	
   <ItemGroup>
     <None Update="license.lnf">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
