@@ -47,7 +47,11 @@ jobs:
       name: Create legacy artifacts dir
     - run: cp -r ./Saltworks.SaltMiner.Ui/dist/smpgui/* ./artifacts/dist/ui-web/smpgui
       name: Copy output to legacy dir
-    - run: ls -la ./artifacts/dist/ui-web/smpgui
+
+    - name: Get configuration file
+      run: cp ./Saltworks.SaltMiner.Deploy/addins/ui-web/config.json ./artifacts/dist/ui-web/smpgui 
+
+    - run: ls -lah ./artifacts/dist/ui-web/smpgui --group-directories-first
       name: Show copied files
     
     - name: Login to the container registry

@@ -1,5 +1,8 @@
 FROM alpine:3.21
 
+LABEL base-image="alpine:3.21"
+LABEL vendor="Saltworks Security, LLC"
+
 WORKDIR /usr/share/saltworks/saltminer-3.0.0/ui-web/smpgui
 
 COPY ./artifacts/dist/ui-web/smpgui .
