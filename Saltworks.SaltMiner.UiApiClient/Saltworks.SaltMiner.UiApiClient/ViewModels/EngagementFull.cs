@@ -423,7 +423,7 @@ namespace Saltworks.SaltMiner.UiApiClient.ViewModels
                         PublishDate = null,
                         Attributes = Attributes.ToDictionary(),
                         GroupId = Guid.NewGuid().ToString(),
-                        Status = Status
+                        Status = EngagementStatus.Draft.ToString("g")
                     }
                 }
             };

@@ -109,7 +109,7 @@ namespace Saltworks.SaltMiner.UiApiClient.Import
                 try
                 {
                     // cannot import engagements that are published
-                    if (fullEngagement.Status == EngagementStatus.Published.ToString("g"))
+                    if (fullEngagement.Status == EngagementStatus.Published.ToString("g") && !importRequest.CreateNew)
                     {
                         var msg = "Cannot import a published engagement. It must be a draft to import.";
                         Logger.LogError("{Msg}", msg);
@@ -392,6 +392,7 @@ namespace Saltworks.SaltMiner.UiApiClient.Import
 
             fullEngagement.Id = engagement.Id;
             fullEngagement.Name = engagement.Saltminer.Engagement.Name;
+            fullEngagement.Status = engagement.Saltminer.Engagement.Status;
             fullEngagement.Scan = new ScanFull(queueScan, fullEngagement.AppVersion);
             fullEngagement.PublishDate = engagement.Saltminer.Engagement.PublishDate;
             fullEngagement.GroupId = engagement.Saltminer.Engagement.GroupId;
