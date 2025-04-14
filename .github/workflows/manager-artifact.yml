@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-    - '3.0.*'
+    - '3.*'
     paths:
     - 'Saltworks.SaltMiner.Manager/*'
     - '.github/workflows/manager-artifact.yml'
