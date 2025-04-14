@@ -54,7 +54,6 @@ import { mapState } from 'vuex'
 import isValidUser from '../../../middleware/is-valid-user'
 import HeadingText from '../../../components/HeadingText.vue'
 import ConfirmDialog from '../../../components/ConfirmDialog.vue';
-import testData from '~/test/test.json';
 
 export default {
   name: 'InventoryAssetsIndex',
@@ -69,7 +68,7 @@ export default {
       issue: {},
       raw: {},
       showRaw: false,
-      fieldDefCustomizations: {},
+      
     }
   },
   async fetch({ store: { dispatch } }) {
@@ -100,20 +99,6 @@ export default {
         .$get(`${this.$store.state.config.api_url}/Issue/${this.$route.params.id}/fullview`)
         .then((r) => {
 
-          // this.fieldDefCustomizations = testData.issueFull || {}
-          this.fieldDefCustomizations = r?.data?.issueFull || {}
-
-          this.issue = Object.fromEntries(
-            Object.entries(this.fieldDefCustomizations).map(([key, value]) => {
-              if (typeof value === "object" && value !== null && key !== "engagement") {
-                return [key, value.value || value.defaultValue];
-              }
-              return [key, value];
-            })
-          );
-
-          alert(JSON.stringify(this.issue))
-
           const fieldMap = {
                 Name: 'vulnerability.name',
                 Location: 'vulnerability.location',
@@ -121,10 +106,7 @@ export default {
                 Attributes: 'saltminer.attributes'
             }
             this.raw = r.data
-
-            
-            // this.issue = this.flattenFields(r.data, fieldMap);
-            this.issue = this.flattenFields(testData, fieldMap);
+            this.issue = this.flattenFields(r.data, fieldMap);
         })
     },
     getValueByPath(obj, path) {
