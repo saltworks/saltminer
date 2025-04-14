@@ -69,6 +69,7 @@ namespace Saltworks.SaltMiner.DataApi.Models
         public int Timeout { get; set; } = 10;
         public bool KestrelAllowRemote { get; set; } = false; // referenced from file directly, so no property references
         public int KestrelPort { get; set; } = 5000; // referenced from file directly, so no property references
+        public int KestrelMaxRequestBodySizeMb { get; set; } = 50;
         public string KeyPath { get; set; } = "license.lnf";
         public string VersionFileName { get; set; } = "version.txt";
         public string ElasticBackupLocation { get; set; }

@@ -45,6 +45,7 @@ using Saltworks.SaltMiner.DataApi.Authentication;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Elasticsearch.Net;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 namespace Saltworks.SaltMiner.DataApi
 {
@@ -152,6 +153,8 @@ namespace Saltworks.SaltMiner.DataApi
             {
                 options.Filters.Add<ValidateModelAttribute>();
             });
+
+            services.Configure<KestrelServerOptions>(opt => opt.Limits.MaxRequestBodySize = config.KestrelMaxRequestBodySizeMb * 1024 * 1024);
 
             var types = Assembly.GetExecutingAssembly()
                 .GetTypes()
