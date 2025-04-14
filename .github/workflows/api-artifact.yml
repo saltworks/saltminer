@@ -11,11 +11,11 @@ on:
     paths:
     - 'Saltworks.SaltMiner.DataApi/*'
     - '.github/workflows/api-artifact.yml'
-    - 'Saltworks.SaltMiner.ElasticClient/*'
-    - 'Saltworks.SaltMiner.ConfigurationWizard/*'
-    - 'Saltworks.SaltMiner.ConsoleApp.Core/*'
-    - 'Saltworks.SaltMiner.Core/*'
-    - 'Saltworks.Utility.ApiHelper/*'
+    - 'Saltworks.SaltMiner.ElasticClient/**'
+    - 'Saltworks.SaltMiner.ConfigurationWizard/**'
+    - 'Saltworks.SaltMiner.ConsoleApp.Core/**'
+    - 'Saltworks.SaltMiner.Core/**'
+    - 'Saltworks.Utility.ApiHelper/**'
 
 env:
   BRANCH: ${{ github.head_ref || github.ref_name }}

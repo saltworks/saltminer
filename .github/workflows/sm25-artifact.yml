@@ -6,7 +6,7 @@ on:
     branches:
     - '3.*'
     paths:
-    - 'Saltworks.SaltMiner.Python/*'
+    - 'Saltworks.SaltMiner.Python/**'
     - '.github/workflows/sm25-artifact.yml'
 
 env:
