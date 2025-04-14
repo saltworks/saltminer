@@ -500,7 +500,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             return new UiDataItemResponse<IssueFull>(result);
         }
 
-        public UiDataItemResponse<IssueFullView> FullView(string issueId)
+        public UiDataItemResponse<Issue> FullView(string issueId)
         {
             Logger.LogInformation("Fullview issue initiated for id '{Id}'", issueId);
 
@@ -511,17 +511,12 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 throw new UiApiClientValidationException("Id not present in request.");
             }
 
-            IssueFullView fullView = new();
+            DataItemResponse<Issue> response = new();
             try
             {
                 Logger.LogInformation("Get Issue '{Id}'", issueId);
-                var issue = DataClient.IssueGet(issueId, UiApiConfig.AssetType, UiApiConfig.SourceType, UiApiConfig.Instance);
-                Logger.LogInformation("Get Issue full for id '{Id}'", issueId);
-                var full = new IssueFull(issue.Data, UiApiConfig.AppVersion, FieldInfo(FieldInfoEntityType.Issue));
-
-                fullView.Issue = issue.Data;
-                fullView.IssueFull = full;
-                return new UiDataItemResponse<IssueFullView>(fullView);
+                response = DataClient.IssueGet(issueId, UiApiConfig.AssetType, UiApiConfig.SourceType, UiApiConfig.Instance);
+                return new UiDataItemResponse<Issue>(response.Data);
             }
             catch (DataClientResponseException ex)
             {
@@ -535,7 +530,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 }
             }
 
-            return new UiDataItemResponse<IssueFullView>(fullView);
+            return new UiDataItemResponse<Issue>(response.Data);
         }
 
         public UiDataItemResponse<IssueEditPrimer> EditPrimer(string issueId)
