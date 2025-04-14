@@ -34,7 +34,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
         public int ApiRetryCount { get; set; } = 2;
         public int BatchLimit { get; set; } = 100;
         public new static bool IsSaltminerSource { get => true; }
-        public override string CurrentCompatibleApiVersion => "3.0.8";
+        public override string CurrentCompatibleApiVersion => "3.1.0";
         public override string MinimumCompatibleApiVersion => "3.0.8";
 
         public override string Serialize()

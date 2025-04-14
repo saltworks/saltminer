@@ -36,7 +36,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
         public string GroupNamespace { get; set; }
         public bool DebugEnabled { get; set; } = false;
         public new static bool IsSaltminerSource { get => true; }
-        public override string CurrentCompatibleApiVersion => "3.0.8";
+        public override string CurrentCompatibleApiVersion => "3.1.0";
         public override string MinimumCompatibleApiVersion => "3.0.8";
 
         public override string Serialize()

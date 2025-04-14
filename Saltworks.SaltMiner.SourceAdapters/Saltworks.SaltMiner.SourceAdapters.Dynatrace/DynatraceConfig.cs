@@ -38,7 +38,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
         public string EntityQueryOverride { get; set; }
         public string VulnQueryOverride { get; set; }
         public new static bool IsSaltminerSource { get => true; }
-        public override string CurrentCompatibleApiVersion => "3.0.8";
+        public override string CurrentCompatibleApiVersion => "3.1.0";
         public override string MinimumCompatibleApiVersion => "3.0.8";
         private readonly JsonSerializerOptions SerializationOptions = new() { WriteIndented = true };
 

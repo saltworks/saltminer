@@ -36,7 +36,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Oligo
         public string ClientId { get; set; }
         public new static bool IsSaltminerSource { get => true; }
         // Set these two based on current adapter compatibility.  Example versions used here.
-        public override string CurrentCompatibleApiVersion => "3.0.8";
+        public override string CurrentCompatibleApiVersion => "3.1.0";
         public override string MinimumCompatibleApiVersion => "3.0.8";
         public int ClientMaxRetries = 3;
         public int ClientRetryDelay = 10000;

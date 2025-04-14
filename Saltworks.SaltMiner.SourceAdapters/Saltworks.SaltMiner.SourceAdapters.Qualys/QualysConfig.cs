@@ -42,7 +42,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
         public string GuiUrlTemplate { get; set; } = "https://qualysguard.qg4.apps.qualys.com/vm/#/vulndetails/{id}?detail=Vul&assetDetail=%2Fvulnerabilities%2Fasset%2F";
         public new static bool IsSaltminerSource { get => true; }
         public DateTime? OverrideStartDate { get; set; } = null;
-        public override string CurrentCompatibleApiVersion => "3.0.8";
+        public override string CurrentCompatibleApiVersion => "3.1.0";
         public override string MinimumCompatibleApiVersion => "3.0.8";
 
         public override string Serialize()

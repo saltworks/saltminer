@@ -57,7 +57,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         public int MaxApiDaysToPull { get; set; } = 14;
         public DateTime? OverrideFromDate { get; set; } = null;
         public string OverrideWizType { get; set; } = null;
-        public override string CurrentCompatibleApiVersion => "3.0.8";
+        public override string CurrentCompatibleApiVersion => "3.1.0";
         public override string MinimumCompatibleApiVersion => "3.0.8";
 
         public override string Serialize()
