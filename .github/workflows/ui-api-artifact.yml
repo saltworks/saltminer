@@ -9,15 +9,15 @@ on:
     branches:
     - '3.*'
     paths:
-    - 'Saltworks.SaltMiner.Ui.Api/*'
+    - 'Saltworks.SaltMiner.Ui.Api/**'
     - '.github/workflows/ui-api-artifact.yml'
-    - 'Saltworks.SaltMiner.ConfigurationWizard/*'
-    - 'Saltworks.SaltMiner.ConsoleApp.Core/*'
-    - 'Saltworks.SaltMiner.Core/*'
-    - 'Saltworks.Common.Data/*'
-    - 'Saltworks.SaltMiner.UiApiClient/*'
-    - 'Saltworks.SaltMiner.DataClient/*'
-    - 'Saltworks.Utility.ApiHelper/*'
+    - 'Saltworks.SaltMiner.ConfigurationWizard/**'
+    - 'Saltworks.SaltMiner.ConsoleApp.Core/**'
+    - 'Saltworks.SaltMiner.Core/**'
+    - 'Saltworks.Common.Data/**'
+    - 'Saltworks.SaltMiner.UiApiClient/**'
+    - 'Saltworks.SaltMiner.DataClient/**'
+    - 'Saltworks.Utility.ApiHelper/**'
 
 env:
   BRANCH: ${{ github.head_ref || github.ref_name }}

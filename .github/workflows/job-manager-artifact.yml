@@ -9,16 +9,15 @@ on:
     branches:
     - '3.*'
     paths:
-    - 'Saltworks.SaltMiner.JobManager/*'
+    - 'Saltworks.SaltMiner.JobManager/**'
     - '.github/workflows/job-manager-artifact.yml'
-    - 'Saltworks.SaltMiner.ElasticClient/*'
-    - 'Saltworks.SaltMiner.UiApiClient/*'
-    - 'Saltworks.SaltMiner.DataClient/*'
-    - 'Saltworks.SaltMiner.ConfigurationWizard/*'
-    - 'Saltworks.SaltMiner.ConsoleApp.Core/*'
-    - 'Saltworks.SaltMiner.Core/*'
-    - 'Saltworks.Common.Data/*'
-    - 'Saltworks.Utility.ApiHelper/*'
+    - 'Saltworks.SaltMiner.UiApiClient/**'
+    - 'Saltworks.SaltMiner.DataClient/**'
+    - 'Saltworks.SaltMiner.ConfigurationWizard/**'
+    - 'Saltworks.SaltMiner.ConsoleApp.Core/**'
+    - 'Saltworks.SaltMiner.Core/**'
+    - 'Saltworks.Common.Data/**'
+    - 'Saltworks.Utility.ApiHelper/**'
 
 env:
   BRANCH: ${{ github.head_ref || github.ref_name }}

@@ -504,6 +504,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
         {
             Logger.LogInformation("Fullview issue initiated for id '{Id}'", issueId);
 
+            General.ValidateIdAndInput(issueId, Config.ApiFieldRegex, "Id");
+
             if (string.IsNullOrEmpty(issueId))
             {
                 throw new UiApiClientValidationException("Id not present in request.");
