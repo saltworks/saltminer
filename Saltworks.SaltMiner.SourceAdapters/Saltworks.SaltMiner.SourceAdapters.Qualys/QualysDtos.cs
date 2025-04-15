@@ -14,7 +14,6 @@
  * ----
  */
 
-﻿using Org.BouncyCastle.Asn1.Mozilla;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -48,7 +47,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
         {
             var pat = "&id_min=(\\d*)";
             if (Regex.IsMatch(Url, pat))
-                return Regex.Match(Url, pat).Groups[0].Value;
+                return Regex.Match(Url, pat).Groups[1].Value;
             return "";
         }
     }
@@ -62,9 +61,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
     {
         [XmlElement("RESPONSE")]
         public HostListResponseDto Response { get; set; }
-        [XmlElement("WARNING")]
-        public ApiCallWarningDto Warning { get; set; }
-        public string NextCallMinId => Warning?.NextCallMinId();
     }
 
     public class HostListResponseDto
@@ -73,6 +69,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
         public DateTime Timestamp { get; set; }
         [XmlArray("HOST_LIST"), XmlArrayItem("HOST", typeof(HostDto))]
         public List<HostDto> Hosts { get; set; }
+        [XmlElement("WARNING")]
+        public ApiCallWarningDto Warning { get; set; }
+        public string NextCallMinId => Warning?.NextCallMinId();
     }
 
     public class HostBaseDto
@@ -212,9 +211,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
     {
         [XmlElement("RESPONSE")]
         public HostListVmDetectionResponseDto Response { get; set; }
-        [XmlElement("WARNING")]
-        public ApiCallWarningDto Warning { get; set; }
-        public string NextCallMinId => Warning?.NextCallMinId();
     }
 
     public class HostListVmDetectionResponseDto
@@ -223,6 +219,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
         public DateTime? Timestamp { get; set; }
         [XmlArray("HOST_LIST"), XmlArrayItem("HOST")]
         public List<HostDetectDto> Hosts { get; set; }
+        [XmlElement("WARNING")]
+        public ApiCallWarningDto Warning { get; set; }
+        public string NextCallMinId => Warning?.NextCallMinId();
     }
 
     public class HostDetectDto : HostBaseDto

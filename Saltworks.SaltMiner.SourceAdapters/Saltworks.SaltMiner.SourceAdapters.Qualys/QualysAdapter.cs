@@ -272,6 +272,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
             {
                 await foreach (var host in Client.HostListAsync([], startDate))
                 {
+                    Logger.LogDebug("[Sync] [Hosts] {Host}", host.Id);
                     count++;
                     if (count % 100 == 0)
                         Logger.LogDebug("[SyncHosts] {Count} Hosts loaded", count);
@@ -675,6 +676,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
                 queueAsset.Entity.Saltminer.Asset.Attributes.Add("ec2_" + attr.Name, attr.Value);
 
             var result = LocalData.AddUpdate(queueAsset);
+            Logger.LogDebug("[Sync] [MapAsset] Host ID {Host}", host.Id);
             return result;
         }
 

@@ -28,7 +28,6 @@ using System.Text;
 using System.Web;
 using System.Net;
 using System.Collections.Concurrent;
-using Org.BouncyCastle.Asn1.Cmp;
 
 namespace Saltworks.SaltMiner.SourceAdapters.Qualys
 {
@@ -170,7 +169,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
             var wcount = 0;
             
             // avoid concurrency limit
-            while (!ApiCallers.TryDequeue(out var call))
+            while (!ApiCallers.TryDequeue(out var _))
             {
                 Logger.LogDebug("[Client] API concurrency limit reached, waiting for available connection...");
                 await Task.Delay(2000);
@@ -261,6 +260,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
                 { "show_asset_id", "1" },
                 { "details", "All" },
                 { "host_metadata", "all" },
+                { "truncation_limit", "1000" },
                 { "id_min", "0" }
             };
             if (scanDateAfter != null)
@@ -279,10 +279,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
                 var rsp = await ApiGetDeserializedAsync<HostListOutputDto>("asset/host/", paramList);
                 foreach (var host in rsp.Response?.Hosts ?? [])
                     yield return host;
-                var idmin = rsp.NextCallMinId;
+                var idmin = rsp.Response.NextCallMinId;
                 if (string.IsNullOrEmpty(idmin))
                 {
-                    if (rsp.Warning != null)
+                    if (rsp.Response.Warning != null)
                         Logger.LogWarning("[Client] Host list API included pagination section, but couldn't find pagination data.  No more calls will be made.");
                     break;  // No more data due to missing pagination parameter, break
                 }
@@ -336,10 +336,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
                 var rsp = await ApiGetDeserializedAsync<HostListVmDetectionDto>("asset/host/vm/detection", paramList);
                 foreach (var host in rsp.Response?.Hosts ?? [])
                     yield return host;
-                var idmin = rsp.NextCallMinId;
+                var idmin = rsp.Response.NextCallMinId;
                 if (string.IsNullOrEmpty(idmin))
                 {
-                    if (rsp.Warning != null)
+                    if (rsp.Response.Warning != null)
                         Logger.LogWarning("[Client] Host detection list API included pagination section, but couldn't find pagination data.  No more calls will be made.");
                     break;  // No more data due to missing pagination parameter, break
                 }
