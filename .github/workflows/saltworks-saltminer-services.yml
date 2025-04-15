@@ -126,7 +126,7 @@ jobs:
     - name: Agent Configuration File Transformation
       if: env.EXEC_TRANSFORM == 'true'
       run: |
-        echo 'Transfor Agent configuration file'
+        echo 'Transform Agent configuration file'
         jq '.AgentConfig.DataApiBaseUrl' ${{ env.AGENT_CONFIG_FILE }}
         jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
           '.AgentConfig.DataApiBaseUrl = $dapi' \
@@ -193,9 +193,9 @@ jobs:
           PY_ARTIFACT_PATH=${{ env.PY_ARTIFACT_PATH }}
           JOB_ARTIFACT_PATH=${{ env.DEPLOY_ARTIFACT_PATH }}
       
-          - name: Show complete docker tag
-          run: echo ${{ steps.meta.outputs.tags }}
-          if: env.DIAGNOSTIC_MODE == 'true'
+    - name: Show complete docker tag
+      run: echo ${{ steps.meta.outputs.tags }}
+      if: env.DIAGNOSTIC_MODE == 'true'
     
     - name: Extract tag component
       run: echo "TAG=`cut -d ':' -f2 <<< ${{ steps.meta.outputs.tags }}`" >> $GITHUB_ENV
