@@ -14,27 +14,28 @@ on:
     - '.dockerfiles/Dockerfile-services'
 
 env:
-  CONFIGURATION: release
-  CONFIG_FILE: ServiceManagerSettings.json
-  MGR_CONFIG_FILE: ManagerSettings.json
-  AGENT_CONFIG_FILE: AgentSettings.json
-  DATA_API_BASE_URL: http://api:5000
-  PY_ARTIFACT_PATH: Saltworks.SaltMiner.Python
-  PY_CONFIG_FILE: SMv3.json
-  DEPLOY_ARTIFACT_PATH: Saltworks.SaltMiner.Deploy
-  EXEC_TRANSFORM: true
-  WARNING_LEVEL: 0
+  DIAGNOSTIC_MODE: false
 
 jobs:
   build_services:
     name: Build Services
-
     runs-on:
     - self-hosted
     - dotnet
     defaults:
       run:
         working-directory: ./Saltworks.SaltMiner.ServiceManager/Saltworks.SaltMiner.ServiceManager
+    env:
+      CONFIGURATION: release
+      CONFIG_FILE: ServiceManagerSettings.json
+      MGR_CONFIG_FILE: ManagerSettings.json
+      AGENT_CONFIG_FILE: AgentSettings.json
+      DATA_API_BASE_URL: http://api:5000
+      PY_ARTIFACT_PATH: Saltworks.SaltMiner.Python
+      PY_CONFIG_FILE: SMv3.json
+      DEPLOY_ARTIFACT_PATH: Saltworks.SaltMiner.Deploy
+      EXEC_TRANSFORM: true
+      WARNING_LEVEL: 0
 
     steps:
     - uses: actions/checkout@v4
@@ -68,6 +69,7 @@ jobs:
       run: |
         ls -lah ${{ env.ARTIFACT_PATH }} --group-directories-first
       working-directory: ${{ github.workspace }}
+      if: env.DIAGNOSTIC_MODE == 'true'
 
     # Build Manager
     - name: Set Manager working directory relative to GitHub workspace.
@@ -103,6 +105,7 @@ jobs:
       run: |
         ls -lah ${{ env.MGR_ARTIFACT_PATH }} --group-directories-first
       working-directory: ${{ github.workspace }}
+      if: env.DIAGNOSTIC_MODE == 'true'
 
     # Build Agent
     - name: Set Agent working directory relative to GitHub workspace.
@@ -138,6 +141,7 @@ jobs:
       run: |
         ls -lah ${{ env.AGENT_ARTIFACT_PATH }} --group-directories-first
       working-directory: ${{ github.workspace }}
+      if: env.DIAGNOSTIC_MODE == 'true'
 
     # Python
     - name: Transform Python config file
@@ -188,3 +192,58 @@ jobs:
           AGENT_ARTIFACT_PATH=${{ env.AGENT_ARTIFACT_PATH }}
           PY_ARTIFACT_PATH=${{ env.PY_ARTIFACT_PATH }}
           JOB_ARTIFACT_PATH=${{ env.DEPLOY_ARTIFACT_PATH }}
+      
+          - name: Show complete docker tag
+          run: echo ${{ steps.meta.outputs.tags }}
+          if: env.DIAGNOSTIC_MODE == 'true'
+    
+    - name: Extract tag component
+      run: echo "TAG=`cut -d ':' -f2 <<< ${{ steps.meta.outputs.tags }}`" >> $GITHUB_ENV
+
+    - name: Show new tag
+      run: echo "Tag ${{ env.TAG }}"
+      if: env.DIAGNOSTIC_MODE == 'true'
+    
+    - id: extract_tag
+      run: echo "tag=${{ env.TAG }}" >> $GITHUB_OUTPUT
+      name: Set tag output
+
+    outputs:
+      tag: ${{ steps.extract_tag.outputs.tag }}
+
+  update_compose:
+    name: Update Compose
+    runs-on:
+    - self-hosted
+    - dotnet
+    needs: build_services
+    env:
+      TARGET_KEY: SM_SERVICES_IMAGE_VERSION
+
+    steps:
+    - name: Checkout saltminer-setup repo
+      uses: actions/checkout@v4
+      with:
+        repository: saltworks/saltminer-setup
+        token: ${{ secrets.SALTMINER_SETUP }}
+        ref: 'main'
+
+    - name: Show current .env file.
+      run: cat .env
+      if: env.DIAGNOSTIC_MODE == 'true'
+
+    - run: sed -i -e "/${{ env.TARGET_KEY }}/ s/=.*$/=${{ needs.build_services.outputs.tag }}/" .env
+      name: Update Compose file  
+
+    - run: cat .env
+      name: Show transformed file.
+      if: env.DIAGNOSTIC_MODE == 'true'
+
+    - name: Push changes
+      run: |
+        git config user.name ${{ github.actor }}
+        git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+        git add .env
+        git commit -m "Updated .env ${{ env.TARGET_KEY }} value"
+        git push
+    
