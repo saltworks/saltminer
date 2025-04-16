@@ -4,12 +4,15 @@ on:
   push:
     branches:
     - main
-    - '3.0.*'
+    - '3.*'
     paths:
       - 'Saltworks.SaltMiner.Ui/**'
       - '.github/workflows/saltworks-saltminer-ui.yml'      
   pull_request:
     branches: [ "main" ]
+
+env:
+  DIAGNOSTIC_MODE: false
 
 jobs:
   build_ui:
@@ -42,13 +45,19 @@ jobs:
     
     - run: ls -la ./Saltworks.SaltMiner.Ui/dist/smpgui
       name: Show npm output
+      if: env.DIAGNOSTIC_MODE == 'true'
     # This is just a temporary hack to use existing Dockerfile
     - run: mkdir -p ./artifacts/dist/ui-web/smpgui
       name: Create legacy artifacts dir
     - run: cp -r ./Saltworks.SaltMiner.Ui/dist/smpgui/* ./artifacts/dist/ui-web/smpgui
       name: Copy output to legacy dir
-    - run: ls -la ./artifacts/dist/ui-web/smpgui
+
+    - name: Get configuration file
+      run: cp ./Saltworks.SaltMiner.Deploy/addins/ui-web/config.json ./artifacts/dist/ui-web/smpgui 
+
+    - run: ls -lah ./artifacts/dist/ui-web/smpgui --group-directories-first
       name: Show copied files
+      if: env.DIAGNOSTIC_MODE == 'true'
     
     - name: Login to the container registry
       uses: docker/login-action@v3.4.0
@@ -78,3 +87,56 @@ jobs:
         sbom: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+
+    - name: Show complete docker tag
+      run: echo ${{ steps.meta.outputs.tags }}
+      if: env.DIAGNOSTIC_MODE == 'true'
+  
+    - name: Extract tag component
+      run: echo "TAG=`cut -d ':' -f2 <<< ${{ steps.meta.outputs.tags }}`" >> $GITHUB_ENV
+  
+    - name: Show new tag
+      run: echo "Tag ${{ env.TAG }}"
+      if: env.DIAGNOSTIC_MODE == 'true'
+      
+    - id: extract_tag
+      run: echo "tag=${{ env.TAG }}" >> $GITHUB_OUTPUT
+      name: Set tag output
+  
+    outputs:
+      tag: ${{ steps.extract_tag.outputs.tag }}
+
+  update_compose:
+    name: Update Compose
+    runs-on:
+    - self-hosted
+    needs: build_ui
+    env:
+      TARGET_KEY: SM_PENTEST_IMAGE_VERSION
+
+    steps:
+    - name: Checkout saltminer-setup repo
+      uses: actions/checkout@v4
+      with:
+        repository: saltworks/saltminer-setup
+        token: ${{ secrets.SALTMINER_SETUP }}
+        ref: ${{ github.ref_name }}
+
+    - name: Show current .env file.
+      run: cat .env
+      if: env.DIAGNOSTIC_MODE == 'true'
+
+    - run: sed -i -e "/${{ env.TARGET_KEY }}/ s/=.*$/=${{ needs.build_ui.outputs.tag }}/" .env
+      name: Update Compose file  
+
+    - run: cat .env
+      name: Show transformed file.
+      if: env.DIAGNOSTIC_MODE == 'true'
+
+    - name: Push changes
+      run: |
+        git config user.name ${{ github.actor }}
+        git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+        git add .env
+        git commit -m "Updated .env ${{ env.TARGET_KEY }} value"
+        git push
