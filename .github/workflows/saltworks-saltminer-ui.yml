@@ -120,7 +120,7 @@ jobs:
       with:
         repository: saltworks/saltminer-setup
         token: ${{ secrets.SALTMINER_SETUP }}
-        ref: 'main'
+        ref: ${{ github.ref_name }}
 
     - name: Show current .env file.
       run: cat .env
