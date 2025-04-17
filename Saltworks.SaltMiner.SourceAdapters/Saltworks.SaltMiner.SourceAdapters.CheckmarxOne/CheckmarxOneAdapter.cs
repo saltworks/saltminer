@@ -292,7 +292,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                                 assessmentType = currentIssue.Type;
                                 scanAssetMapped = true;
                             }
-                            var mappedIssue = MapIssue(queueProject, currentIssue, queueScan, queueAsset, queueIssues, false);
+                            var mappedIssue = MapIssue(queueProject, currentIssue, queueScan, queueAsset, queueIssues, lastScan.ID, false);
                             localIssues++;
 
                         }
@@ -465,7 +465,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
             return result;
         }
 
-        private QueueIssue MapIssue(ProjectDto project, ScanResultsResultDTO issue, QueueScan queueScan, QueueAsset queueAsset, List<QueueIssue> queueIssues, bool zeroRecord = false)
+        private QueueIssue MapIssue(ProjectDto project, ScanResultsResultDTO issue, QueueScan queueScan, QueueAsset queueAsset, List<QueueIssue> queueIssues,string scanId, bool zeroRecord = false)
         {
             var sourceId = queueAsset.SourceId;
 
@@ -477,10 +477,17 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
             }
             else
             {
-                var fileNameFull = issue.Data.FileName ?? "N/A";
-                var fileName = fileNameFull.LastIndexOf("/") > 0 ? fileNameFull.Substring(fileNameFull.LastIndexOf("/")) : fileNameFull;
-                var issueScannerId = issue.Id;
 
+                var issueScannerId = issue.Id;
+                string package = null;
+                string locationFull = BuildLocationFullByType(issue);
+                List<string> splitLocationFull= locationFull.Split(',').ToList();
+                string singleLocation = splitLocationFull[0];
+
+                if (issue.Type.Contains("sca"))
+                {
+                    package = issue.Data.PackageIdentifier;
+                }
 
                 if (issue.Type.Contains("kics") || issue.Type.Contains("sca"))
                 {
@@ -498,10 +505,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                             {
                                 Audited = true
                             },
-                            Category = [ issue.Type ?? "Unknown" ],
+                            Category = [issue.Type ?? "Unknown" ],
                             FoundDate = issue.FirstFoundAt,
-                            LocationFull = fileNameFull,
-                            Location = fileName,
+                            LocationFull = locationFull,
+                            Location = singleLocation,
                             Name = issue.Data.QueryName ?? "N/A",
                             Description = issue.Description ?? "",
                             ReportId = queueScan.ReportId,
@@ -511,7 +518,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                                 AssessmentType = FindAssessmentType(issue.Type),
                                 Product = "Checkmarx",
                                 Vendor = "CheckmarxOne",
-                                GuiUrl = "" 
+                                GuiUrl = BuildGuiUrl(Config, issue.Type, queueAsset.SourceId, scanId, issue.Id, package) 
                             },
                             Severity = SeverityHelper.ValidSeverity(Config.IssueSeverityMap, issue.Severity),
                             IsSuppressed = false
@@ -520,7 +527,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                         {
                             Attributes = new()
                             {
-                                {"org_assessment_type", issue.Type}
+                                {"org_assessment_type", issue.Type},
+                                {"cmx1_issue_status", issue.Status?? " " },
+                                {"cmx1_issue_state", issue.State?? " " }
                             },
                             QueueScanId = queueScan.Entity.Id,
                             QueueAssetId = queueAsset.Entity.Id,
@@ -552,6 +561,18 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
             };
         }
 
+        private static string BuildGuiUrl(CheckmarxOneConfig Config, string assessmentType, string projectId, string scanId, string resultId, string package= null)
+        {
+            return assessmentType switch
+            {
+                "sast" => Config.GuiAddress + "sast-results/" + projectId + "/" + scanId + "?resultId=" + resultId,
+                "sca" => Config.GuiAddress + "results/" + projectId + "/" + scanId + "sca?internalPath=%2Fvulnerabilities%2F" + resultId + "%253A" + package + "%2FvulnerabilityDetailsGql",
+                "kics" => Config.GuiAddress + "results/" + projectId + "/" + scanId + "kics?result-id=" + resultId,
+                "iac" => Config.GuiAddress + "results/" + projectId + "/" + scanId + "kics?result-id=" + resultId,
+                _ => "N/A"
+            };
+        }
+
         private static string FindAssessmentType(string assessmentType)
             
         {
@@ -568,6 +589,28 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                 "containers" => AssessmentType.Container.ToString("g"),
                 _ => AssessmentType.Open.ToString("g"),
             };
+        }
+
+        public static string BuildLocationFullByType(ScanResultsResultDTO issue)
+        {
+            string assessmentType = issue.Type;
+            if (assessmentType.Contains("sca"))
+            {
+                assessmentType = "sca";
+            }
+            return assessmentType switch
+            {
+                "sca" => issue.Data.PackageIdentifier,
+                "sast" => BuildSCALocation(issue),
+                "kics" => issue.Data.FileName + ":" + "line: " + issue.Data.Line,
+                _ => "N/A"
+            };
+        }
+
+        public static string BuildSCALocation(ScanResultsResultDTO issue)
+        {
+            var nodeData = issue.Data.Nodes?.Select(n => n.FileName + ":line: "+ n.Line + " :Column: " + n.Column);
+            return nodeData.Any() ? string.Join(", ", nodeData) : "N/A";
         }
 
         public static string GetIdObjectAsString(object idObject)

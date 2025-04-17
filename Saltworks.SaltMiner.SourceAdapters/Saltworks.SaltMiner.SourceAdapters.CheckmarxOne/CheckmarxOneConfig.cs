@@ -39,6 +39,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
         public bool IsOAuth2 { get; set; }
         public override string CurrentCompatibleApiVersion => "3.1.0";
         public override string MinimumCompatibleApiVersion => "3.0.8";
+        public string GuiAddress { get; set; }
 
         public new static bool IsSaltminerSource { get => true; }
 

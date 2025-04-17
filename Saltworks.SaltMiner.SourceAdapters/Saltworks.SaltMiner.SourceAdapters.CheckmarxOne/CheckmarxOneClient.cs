@@ -89,7 +89,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
         public async Task<ScansDTO> GetScansAsync(string projectId)
         {
       
-            string scansString = $"/scans?project-ids={projectId}";
+            string scansString = $"/scans?project-ids={projectId}&statuses=Completed, Partial";
            
             try
             {
@@ -125,6 +125,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
         {
         
             var result = await ApiClient.GetAsync<ScanResultsDTO>($"/results?scan-id={ScanId}&limit={Limit}&offset={Offset}&sort=-type");
+
+            Logger.LogDebug($"/results?scan-id={ScanId}&limit={Limit}&offset={Offset}&sort=-type");
             return CheckContent(result);
         }
 
