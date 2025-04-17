@@ -4,7 +4,7 @@ on:
   push:
     branches:
     - main
-    - '3.0.10'
+    - '3.*'
     paths:
     - 'Saltworks.SaltMiner.JobManager/**'
     - '.github/workflows/saltworks-saltminer-jobmanager.yml'
