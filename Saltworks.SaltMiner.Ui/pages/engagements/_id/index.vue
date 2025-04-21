@@ -1742,10 +1742,7 @@ export default {
       }
 
       if(JSON.stringify(this.sortFilters) === "{}") {
-        this.sortFilters = {};
-        this.sortFilters.severity = true
         this.sortFilters.name = true
-        this.sortFilters.id = true
       }
 
       const body = {
