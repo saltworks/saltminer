@@ -51,7 +51,7 @@ jobs:
         working-directory: ${{env.work-dir}}
         run: |
           python -m pip install -r package-reqs.txt
-          python package.py "$BRANCH" ${{secrets.GITHUB_TOKEN}} 48 || true
+          python package.py "$BRANCH" ${{secrets.GITHUB_TOKEN}} 12 || true
           PYEXIT=$(cat pyexit.txt)
           rm pyexit.txt
           echo "PY_EXIT=${PYEXIT}" >> $GITHUB_OUTPUT
