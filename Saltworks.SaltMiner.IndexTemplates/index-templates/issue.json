@@ -255,33 +255,36 @@
             "noscan": {
               "type": "integer"
             },
-			"sm_url": {
-			  "type": "keyword"
-			},
+            "issue_type": {
+              "type": "keyword"
+            },
+            "sm_url": {
+              "type": "keyword"
+            },
             "custom_data": {
               "type": "object"
             },
             "score": {
               "properties": {
-                "pass_fail":{
-                  "type":"boolean"
+                "pass_fail": {
+                  "type": "boolean"
                 },
-                "pass_fail_reviewed":{
-                  "type":"date"
+                "pass_fail_reviewed": {
+                  "type": "date"
                 },
-                "last_scan":{
-                  "properties":{
-                    "sast":{
-                      "type":"long"
+                "last_scan": {
+                  "properties": {
+                    "sast": {
+                      "type": "long"
                     },
-                    "dast":{
-                      "type":"long"
+                    "dast": {
+                      "type": "long"
                     },
-                    "open":{
-                      "type":"long"
+                    "open": {
+                      "type": "long"
                     },
-                    "mobile":{
-                      "type":"long"
+                    "mobile": {
+                      "type": "long"
                     }
                   }
                 },
@@ -468,7 +471,8 @@
                   "type": "object"
                 },
                 "source": {
-                  "type": "keyword"}
+                  "type": "keyword"
+                }
               }
             },
             "asset": {

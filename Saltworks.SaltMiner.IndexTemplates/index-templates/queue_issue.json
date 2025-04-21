@@ -215,11 +215,11 @@
               "type": "keyword"
             },
             "custom_data": {
-			        "type": "object"
-			      },
-			      "attributes": {
-			        "type": "object"
-			      },
+              "type": "object"
+            },
+            "attributes": {
+              "type": "object"
+            },
             "source": {
               "properties": {
                 "analyzer": {
@@ -244,6 +244,9 @@
                   "type": "float"
                 }
               }
+            },
+            "issue_type": {
+              "type": "keyword"
             },
             "engagement": {
               "properties": {
