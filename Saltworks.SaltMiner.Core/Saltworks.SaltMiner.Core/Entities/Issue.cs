@@ -153,6 +153,11 @@ namespace Saltworks.SaltMiner.Core.Entities
         public SourceInfo Source { get; set; } = new();
 
         /// <summary>
+        /// Gets or sets Issue type.
+        /// </summary>
+        public IssueType IssueType { get; set; }
+
+        /// <summary>
         /// Gets or sets Engagement for this issue.  See the object for more details.
         /// </summary>
         /// <seealso cref="EngagementInfo"/>
