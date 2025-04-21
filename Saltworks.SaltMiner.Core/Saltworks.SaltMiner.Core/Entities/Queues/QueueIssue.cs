@@ -19,6 +19,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using Saltworks.SaltMiner.Core.Extensions;
+using Saltworks.SaltMiner.Core.Util;
 
 namespace Saltworks.SaltMiner.Core.Entities
 {
@@ -156,6 +157,11 @@ namespace Saltworks.SaltMiner.Core.Entities
         /// </summary>
         /// <seealso cref="SourceInfo"/>
         public SourceInfo Source { get; set; } = new();
+
+        /// <summary>
+        /// Gets or sets Issue type.
+        /// </summary>
+        public IssueType IssueType { get; set; }
 
         /// <summary>
         /// Gets or sets Engagement.
