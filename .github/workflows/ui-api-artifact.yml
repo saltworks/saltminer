@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-    - '3.0.*'
+    - '3.*'
     paths:
     - 'Saltworks.SaltMiner.Ui.Api/*'
     - '.github/workflows/ui-api-artifact.yml'

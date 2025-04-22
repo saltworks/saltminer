@@ -1,0 +1,68 @@
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine3.21-amd64
+
+LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0-alpine3.21-amd64"
+LABEL vendor="Saltworks Security, LLC"
+
+ARG ARTIFACT_PATH=.
+ARG MGR_ARTIFACT_PATH=.
+ARG AGENT_ARTIFACT_PATH=.
+ARG PY_ARTIFACT_PATH=.
+ARG JOB_ARTIFACT_PATH=.
+
+ARG smapp=/usr/share/saltworks
+ARG smapp2=${smapp}/saltminer-2.5.0
+ARG smapp3=${smapp}/saltminer-3.0.0
+
+ARG smcfg=/etc/saltworks
+ARG smcfg2=${smcfg}/saltminer-2.5.0
+ARG smcfg3=${smcfg}/saltminer-3.0.0
+
+ARG smlog=/var/log/saltworks
+ARG smlog2=${smlog}/saltminer-2.5.0
+ARG smlog3=${smlog}/saltminer-3.0.0
+
+ENV ARTIFACT_PATH=$ARTIFACT_PATH
+ENV MGR_ARTIFACT_PATH=$MGR_ARTIFACT_PATH
+ENV AGENT_ARTIFACT_PATH=$AGENT_ARTIFACT_PATH
+ENV PY_ARTIFACT_PATH=$PY_ARTIFACT_PATH
+ENV JOB_ARTIFACT_PATH=$JOB_ARTIFACT_PATH
+
+RUN mkdir -p ${smcfg2}
+RUN mkdir -p ${smcfg3}
+RUN mkdir ${smcfg3}/agent
+RUN mkdir ${smcfg3}/manager
+RUN mkdir ${smcfg3}/servicemanager
+# Create log directories.
+RUN mkdir -p ${smlog2}
+RUN mkdir -p ${smlog3}
+
+COPY $AGENT_ARTIFACT_PATH ${smapp3}/agent/
+RUN mv ${smapp3}/agent/AgentSettings.json ${smcfg3}/agent/
+
+COPY $MGR_ARTIFACT_PATH ${smapp3}/manager/
+RUN mv ${smapp3}/manager/ManagerSettings.json ${smcfg3}/manager/
+
+COPY $ARTIFACT_PATH ${smapp3}/servicemanager/
+RUN mv ${smapp3}/servicemanager/ServiceManagerSettings.json ${smcfg3}/servicemanager/
+
+COPY $PY_ARTIFACT_PATH ${smapp2}/
+RUN cp -r ${smapp2}/Config/* ${smcfg2}
+RUN rm -rf ${smapp2}/Config
+
+COPY $JOB_ARTIFACT_PATH/*.sh ${smapp3}/
+RUN rm ${smapp3}/sm-install.sh
+RUN rm ${smapp3}/sm-upgrade.sh
+RUN rm ${smapp3}/sm-auto-install.sh
+RUN chmod u+x ${smapp3}/*.sh
+
+RUN apk add --no-cache py3-pip bash
+
+RUN pip install -r ${smapp2}/requirements.txt --break-system-packages
+
+ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
+ENV SALTMINER_AGENT_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/agent
+ENV SALTMINER_2_CONFIG_PATH=/etc/saltworks/saltminer-2.5.0
+ENV SALTMINER_MANAGER_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/manager
+ENV SALTMINER_SERVICEMANAGER_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/servicemanager
+
+ENTRYPOINT ["/usr/bin/dotnet", "/usr/share/saltworks/saltminer-3.0.0/servicemanager/Saltworks.SaltMiner.ServiceManager.dll"]

@@ -1,4 +1,7 @@
-FROM mcr.microsoft.com/dotnet/runtime:8.0.14-alpine3.21-amd64
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine3.21-amd64
+
+LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0-alpine3.21-amd64"
+LABEL vendor="Saltworks Security, LLC"
 
 WORKDIR /usr/share/saltworks/saltminer-3.0.0/jobmanager
 
@@ -15,6 +18,8 @@ RUN mkdir -p ${smcfg3}/jobmanager/report-templates
 RUN mkdir -p ${smlog3}
 
 COPY  $ARTIFACT_PATH .
+
+RUN mv ${smapp3}/jobmanager/JobManagerSettings.json ${smcfg3}/jobmanager/
 RUN mv ${smapp3}/jobmanager/Template/Saltworks ${smcfg3}/jobmanager/report-templates/
 
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false

@@ -1,4 +1,5 @@
 **/*/.DS_Store
+**/*/.vscode
 **/*/[Oo]bj/
 **/*/[Dd]ebug/
 **/*/[Bb]in/
@@ -6,10 +7,11 @@
 **/*/[Pp]roperties/
 **/*/TestResults/
 **/*/ConfigPath.json
+**/*.log
 **/*IntegrationTests/settings.json
-/Saltworks.SaltMiner.SyncAgent/Saltworks.SaltMiner.SyncAgent/SourceConfigs/
 /Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager/Template/*
 !/Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager/Template/Saltworks
+/Saltworks.SaltMiner.Ui/static/config*.json
 
 # Python
 **/*/__pycache__/
@@ -23,9 +25,7 @@ Saltworks.SaltMiner.Python/AuthHelperCustom/*
 !Saltworks.SaltMiner.Python/AuthHelperCustom/*SW.py
 Saltworks.SaltMiner.Python/Custom/*
 !Saltworks.SaltMiner.Python/Custom/*.py
-Saltworks.SaltMiner.Python/saltworks.key
+Saltworks.SaltMiner.Python/**/*/saltworks.key
 Saltworks.SaltMiner.Python/sm-run-config-location.json
 Saltworks.SaltMiner.Python/DebugStart.py
-Saltworks.SaltMiner.Python/Config/
-
 .DS_Store

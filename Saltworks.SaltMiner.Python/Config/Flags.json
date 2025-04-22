@@ -1,0 +1,8 @@
+{
+  "_FlagsComments": [
+    "Current supported flags:",
+    "RWSSC_Utils-Disable-SscClient - disables SscClient in RWSSC_Utils",
+    "Debug-Shorten-Lists - artificially shortens data pulls for debug reasons in select locations"
+  ],
+  "Flags": []
+}

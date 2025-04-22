@@ -818,7 +818,7 @@ namespace Saltworks.SaltMiner.DataApi
             var env = Environment.GetEnvironmentVariable("SALTMINER_ENVIRONMENT");
             if (string.IsNullOrEmpty(env))
             {
-                env = "blahblahneverfoundsorrydude";
+                env = Guid.NewGuid().ToString();  // prevent env settings overwrite
             }
 
             // Determine config location and log it

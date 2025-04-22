@@ -1,0 +1,32 @@
+{
+  "ConfigFileName_Comment": "Name to identify the config file - should match the config file name without the 'Config'",
+  "ConfigFileName": "CheckmarxOne",
+  "Instance_Comment": "Name of the source instance - drives the generated index name.  Can be the same as the ConfigFileName, but simple is best.  Include a number for multi-instance.  ex. 'mendsca1'",
+  "Instance": "cxo1",
+  "SourceType_Comment": "Used to select the source adapter to apply, only set this if you know what you are doing.  Recommend using a sample config to start from that already has this set.",
+  "SourceType": "Saltworks.CheckmarxOne",
+  "BaseAddress_Comment": "The base URL address for the API",
+  "BaseAddress": "https://deu.ast.checkmarx.net/api",
+  "AuthBaseAddress_Comment": "The authentication URL address for the API",
+  "AuthBaseAddress": "https://deu.iam.checkmarx.net/auth",
+  "Timeout_Comment": "Interval of seconds between API requests",
+  "Timeout": 30,
+  "IsOAuth2_Comment": "Boolean to verify if authentication is OAuth2",
+  "IsOAuth2": false,
+  "ClientId_Comment": "Client ID for authenticating to the API",
+  "ClientId": " ",
+  "ClientSecret_Comment": "Client secret for authenticating to the API",
+  "ClientSecret": " ",
+  "TenantName_Comment": "The name of the tenant",
+  "TenantName": "",
+  "ApiKey_Comment": "Key to authenticate to the API",
+  "ApiKey": "",
+  "IssueSeverityMap_Comment": "Maps the source severity name to one of the Saltminer severity names",
+  "IssueSeverityMap": {
+    "CRITICAL": "Critical",
+    "HIGH": "High",
+    "MEDIUM": "Medium",
+    "LOW": "Low"
+  }
+} 
+
