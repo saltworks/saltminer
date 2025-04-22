@@ -122,7 +122,8 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                 {
                     FilterMatches = new Dictionary<string, string>
                     {
-                        { "Saltminer.Engagement.GroupId", groupId }
+                        { "Saltminer.Engagement.GroupId", groupId },
+                        { "Saltminer.Engagement.Status", EngagementStatus.Historical.ToString("g") }
                     }
                 }
             }, EngagementIndex);

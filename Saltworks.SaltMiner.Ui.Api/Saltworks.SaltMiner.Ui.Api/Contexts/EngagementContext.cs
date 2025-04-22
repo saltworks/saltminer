@@ -425,10 +425,31 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
             DataClient.QueueScanUpdateStatus(queueScan.Id, QueueScanStatus.Pending);
 
-            DataClient.SetHistoricalIssues(id, engagementResponse.Data.Saltminer.Engagement.GroupId);
+            // DataClient.SetHistoricalIssues(id, engagementResponse.Data.Saltminer.Engagement.GroupId);
+
             engagementResponse.Data.Saltminer.Engagement.Status = EnumExtensions.GetDescription(EngagementStatus.Queued);
             DataClient.EngagementAddUpdate(engagementResponse.Data);
 
+            // Update parent (published) engagement status to 'Historical'
+            var parentEngagementResp = DataClient.EngagementSearch(new SearchRequest
+            {
+                Filter = new Filter
+                {
+                    FilterMatches = new Dictionary<string, string>
+                    {
+                        { "Saltminer.Engagement.GroupId", engagementResponse.Data.Saltminer.Engagement.GroupId },
+                        { "Saltminer.Engagement.Status", EngagementStatus.Published.ToString("g") }
+                    }
+                }
+            });
+            var parentEngagement = parentEngagementResp.Data.FirstOrDefault();
+            if (parentEngagement != null)
+            {
+                parentEngagement.Saltminer.Engagement.Status = EngagementStatus.Historical.ToString("g");
+                DataClient.EngagementAddUpdate(parentEngagement);
+                DataClient.SetHistoricalIssues(parentEngagement.Id, engagementResponse.Data.Saltminer.Engagement.GroupId);
+            }
+            
             DataClient.RefreshIndex(Engagement.GenerateIndex());
 
 
@@ -581,7 +602,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             DataClient.EngagementAddUpdate(engagement);
             DataClient.QueueScanAddUpdate(queueScan);
 
-            fullEngagement.Status = EnumExtensions.GetDescription(EngagementStatus.Historical);
+            // fullEngagement.Status = EnumExtensions.GetDescription(EngagementStatus.Historical);
 
             DataClient.EngagementAddUpdate(fullEngagement.ToEngagement());
 
