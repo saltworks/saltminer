@@ -425,8 +425,6 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
             DataClient.QueueScanUpdateStatus(queueScan.Id, QueueScanStatus.Pending);
 
-            // DataClient.SetHistoricalIssues(id, engagementResponse.Data.Saltminer.Engagement.GroupId);
-
             engagementResponse.Data.Saltminer.Engagement.Status = EnumExtensions.GetDescription(EngagementStatus.Queued);
             DataClient.EngagementAddUpdate(engagementResponse.Data);
 
@@ -601,8 +599,6 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
             DataClient.EngagementAddUpdate(engagement);
             DataClient.QueueScanAddUpdate(queueScan);
-
-            // fullEngagement.Status = EnumExtensions.GetDescription(EngagementStatus.Historical);
 
             DataClient.EngagementAddUpdate(fullEngagement.ToEngagement());
 
