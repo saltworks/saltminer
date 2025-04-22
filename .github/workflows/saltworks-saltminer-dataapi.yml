@@ -4,7 +4,7 @@ on:
   push:
     branches:
     - main
-    - '3.0.*'
+    - '3.*'
     paths:
     - 'Saltworks.SaltMiner.DataApi/*'
     - '.github/workflows/saltworks-saltminer-dataapi.yml'

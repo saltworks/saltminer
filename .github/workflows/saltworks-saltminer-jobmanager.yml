@@ -123,7 +123,6 @@ jobs:
     name: Update Compose
     runs-on:
     - self-hosted
-    - dotnet
     needs: build_jobmanager
     env:
       TARGET_KEY: SM_JOBMANAGER_IMAGE_VERSION

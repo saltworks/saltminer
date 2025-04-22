@@ -215,6 +215,7 @@ jobs:
     name: Update Compose
     runs-on:
     - self-hosted
+    - dotnet
     needs: build_services
     env:
       TARGET_KEY: SM_SERVICES_IMAGE_VERSION
