@@ -1005,6 +1005,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
         public virtual bool IsSourceAdapterCompatible(SourceAdapterConfig config)
         {
             var apiVersion = DataClient.GetApiVersion().Message;
+            if (apiVersion.Contains('-'))
+                apiVersion = apiVersion[..apiVersion.IndexOf("-")];
 
             if (IsApiVersionLessThanSourceMinimum(config.MinimumCompatibleApiVersion, apiVersion))
             {

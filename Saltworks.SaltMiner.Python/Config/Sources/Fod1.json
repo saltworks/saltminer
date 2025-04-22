@@ -1,0 +1,22 @@
+{
+  "_Comments": "The following setting are used to configure the connection to FOD.",
+  "Source": "FOD",
+  "SourceName": "FOD1",
+  "Enabled": true,
+  "BaseUrl": "https://api.ams.fortify.com",
+  "GuiUrlTemplate": "https://ams.fortify.com/Releases/{avid}/Issues/{issueId}",
+  "ClientId": "",
+  "ClientSecret": "",
+  "Proxy": "",
+  "BatchSize": 50,
+  "DisableSM2Indices": false,
+  "InventoryAssetKeyAttribute": "",
+  "AssessmentTypeMap": {
+    "STATIC": "Static",
+    "OPENSOURCE": "OpenSource",
+    "OPEN SOURCE": "OpenSource",
+    "DYNAMIC": "Dynamic",
+    "MOBILE": "Mobile",
+    "PENTEST": "PenTest"
+  }
+}

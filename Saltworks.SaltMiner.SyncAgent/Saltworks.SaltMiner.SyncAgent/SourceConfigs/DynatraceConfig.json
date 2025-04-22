@@ -1,0 +1,27 @@
+{
+  "ConfigFileName_Comment": "Name to identify the config file - should match the config file name without the 'Config'",
+  "ConfigFileName": "Dynatrace",
+  "Instance_Comment": "Name of the source instance - drives the generated index name.  Can be the same as the ConfigFileName, but simple is best.  Include a number for multi-instance.  ex. 'dt1'",
+  "Instance": "dt1",
+  "SourceType_Comment": "Used to select the source adapter to apply, only set this if you know what you are doing.  Recommend using a sample config to start from that already has this set.",
+  "SourceType": "Saltworks.Dynatrace",
+  "BaseAddress_Comment": "The base URL address of the source API",
+  "BaseAddress": "https://qvk99999.apps.dynatrace.com/platform/storage/query/v1/",
+  "AuthEndpointAddress_Comment": "Dynatrace authentication URI for obtaining a session token",
+  "AuthEndpointAddress": "https://sso.dynatrace.com/sso/oauth2/token",
+  "ClientId_Comment": "Dynatrace authentication user client ID",
+  "ClientId": "",
+  "ClientSecret": "Dynatrace authentication user client secret",
+  "ClientSecret": "",
+  "Timeout_Comment": "Interval of seconds between API requests",
+  "Timeout": 30,
+  "BatchLimit_Comment": "The number of records to pull from the API at one time.",
+  "BatchLimit": 100,
+  "IssueSeverityMap_Comment": "Maps the source severity name to one of the Saltminer severity names",
+  "IssueSeverityMap": {
+    "critical": "Critical",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
+  }
+} 

@@ -3,65 +3,72 @@ name: Saltworks.SaltMiner.JobManager
 on:
   push:
     branches:
-      - 'main'
-      - '3.0.9'
+    - main
+    - '3.*'
     paths:
     - 'Saltworks.SaltMiner.JobManager/**'
     - '.github/workflows/saltworks-saltminer-jobmanager.yml'
     - '.dockerfiles/Dockerfile-jobmanager'
 
 env:
-  CONFIGURATION: release
-  CONFIG_FILE: JobManagerSettings.json
-  DATA_API_BASE_URL: http://api:5000
-  API_BASE_URL: http://ui-api:5001
-  EXEC_TRANSFORM: true
+  DIAGNOSTIC_MODE: false
 
 jobs:
   build_jobmanager:
-    name: Build Saltworks.SaltMiner.JobManager
-
+    name: Build JobManager
     runs-on:
     - self-hosted
     - dotnet
     defaults:
       run:
         working-directory: ./Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager
+    env:
+      CONFIGURATION: release
+      CONFIG_FILE: JobManagerSettings.json
+      DATA_API_BASE_URL: http://api:5000
+      API_BASE_URL: http://ui-api:5001
+      EXEC_TRANSFORM: true
+      WARNING_LEVEL: 0
 
     steps:
     - uses: actions/checkout@v4
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 8.0.x
+#    - name: Setup .NET
+#      uses: actions/setup-dotnet@v4
+#      with:
+#        dotnet-version: 8.0.x
+    - name: Use artifacts directory
+      run: dotnet new buildprops --use-artifacts
+    - name: Restore dependencies
+      run: dotnet restore --disable-build-servers
+    - name: Build
+      run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
+
+    - name: Store working directory path
+      run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
+    - name: Store artifact path
+      run: echo "ARTIFACT_PATH=artifacts/bin/Saltworks.SaltMiner.JobManager/${{ env.CONFIGURATION}}" >> $GITHUB_ENV
+           
     - name: Configuration File Transformation
       if: env.EXEC_TRANSFORM == 'true'
       run: |
         echo 'Transforming configuration file'
         jq '.JobManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}
+        jq '.JobManagerConfig.ApiBaseUrl' ${{ env.CONFIG_FILE }}
         jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
           --arg api "${{ env.API_BASE_URL  }}" \
           '.JobManagerConfig.DataApiBaseUrl = $dapi | .JobManagerConfig.ApiBaseUrl = $api' \
           ${{ env.CONFIG_FILE }} \
           > ${{ env.CONFIG_FILE }}.new
         jq '.JobManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}.new
+        jq '.JobManagerConfig.ApiBaseUrl' ${{ env.CONFIG_FILE }}.new
         mv ${{ env.CONFIG_FILE }} ${{ env.CONFIG_FILE }}.old
         mv ${{ env.CONFIG_FILE }}.new ${{ env.CONFIG_FILE }}
-    - name: Store working directory path
-      run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
-    - name: Store artifact path
-      run: echo "ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.JobManager/${{ env.CONFIGURATION}}" >> $GITHUB_ENV 
-
-    - name: Use artifacts directory
-      run: dotnet new buildprops --use-artifacts
-    - name: Restore dependencies
-      run: dotnet restore --disable-build-servers
-    - name: Build
-      run: dotnet build --no-restore --configuration $CONFIGURATION
+      working-directory: ${{ env.WORKING_DIR }}/${{ env.ARTIFACT_PATH }}
 
     - name: Show output
       run: |
         ls -lah ${{ env.ARTIFACT_PATH }} --group-directories-first
+      if: env.DIAGNOSTIC_MODE == 'true'
 
     - name: Login to the container registry
       uses: docker/login-action@v3.4.0
@@ -93,3 +100,57 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
           ARTIFACT_PATH=${{ env.ARTIFACT_PATH }}
+
+    - name: Show complete docker tag
+      run: echo ${{ steps.meta.outputs.tags }}
+      if: env.DIAGNOSTIC_MODE == 'true'
+
+    - name: Extract tag component
+      run: echo "TAG=`cut -d ':' -f2 <<< ${{ steps.meta.outputs.tags }}`" >> $GITHUB_ENV
+
+    - name: Show new tag
+      run: echo "Tag ${{ env.TAG }}"
+      if: env.DIAGNOSTIC_MODE == 'true'
+    
+    - id: extract_tag
+      run: echo "tag=${{ env.TAG }}" >> $GITHUB_OUTPUT
+      name: Set tag output
+
+    outputs:
+      tag: ${{ steps.extract_tag.outputs.tag }}
+
+  update_compose:
+    name: Update Compose
+    runs-on:
+    - self-hosted
+    needs: build_jobmanager
+    env:
+      TARGET_KEY: SM_JOBMANAGER_IMAGE_VERSION
+
+    steps:
+    - name: Checkout saltminer-setup repo
+      uses: actions/checkout@v4
+      with:
+        repository: saltworks/saltminer-setup
+        token: ${{ secrets.SALTMINER_SETUP }}
+        ref: ${{ github.ref_name }}
+
+    - name: Show current .env file.
+      run: cat .env
+      if: env.DIAGNOSTIC_MODE == 'true'
+
+    - run: sed -i -e "/${{ env.TARGET_KEY }}/ s/=.*$/=${{ needs.build_jobmanager.outputs.tag }}/" .env
+      name: Update Compose file  
+
+    - run: cat .env
+      name: Show transformed file.
+      if: env.DIAGNOSTIC_MODE == 'true'
+
+    - name: Push changes
+      run: |
+        git config user.name ${{ github.actor }}
+        git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+        git add .env
+        git commit -m "Updated .env ${{ env.TARGET_KEY }} value"
+        git push
+    
