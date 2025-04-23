@@ -75,12 +75,12 @@ namespace Saltworks.SaltMiner.Core.Entities
         /// <summary>
         /// Gets or sets the job's next run date/time
         /// </summary>
-        public DateTime NextRunTime { get; set; }
+        public DateTime? NextRunTime { get; set; }
 
         /// <summary>
         /// Gets or sets the job's last run date/time
         /// </summary>
-        public DateTime LastRunTime { get; set; }
+        public DateTime? LastRunTime { get; set; }
 
         /// <summary>
         /// Gets or sets the job's status
