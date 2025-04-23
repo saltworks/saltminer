@@ -14,7 +14,8 @@
  * ----
  */
 
-﻿using System;
+using Saltworks.SaltMiner.Core.Util;
+using System;
 using System.ComponentModel.DataAnnotations;
 
 namespace Saltworks.SaltMiner.Core.Entities
@@ -75,5 +76,15 @@ namespace Saltworks.SaltMiner.Core.Entities
         /// Gets or sets the job's next run date/time
         /// </summary>
         public DateTime NextRunTime { get; set; }
+
+        /// <summary>
+        /// Gets or sets the job's last run date/time
+        /// </summary>
+        public DateTime LastRunTime { get; set; }
+
+        /// <summary>
+        /// Gets or sets the job's status
+        /// </summary>
+        public ServiceJobStatus Status { get; set; }
     }
 }

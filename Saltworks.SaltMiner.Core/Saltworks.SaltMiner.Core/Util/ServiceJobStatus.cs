@@ -1,4 +1,4 @@
-/* --[auto-generated, do not modify this block]--
+﻿/* --[auto-generated, do not modify this block]--
  *
  * Copyright (c) 2025 Saltworks Security, LLC
  *
@@ -14,16 +14,21 @@
  * ----
  */
 
-﻿using System;
+using System;
 using System.ComponentModel;
-
 
 namespace Saltworks.SaltMiner.Core.Util
 {
     [Serializable]
-    public enum ServiceJobType
+    public enum ServiceJobStatus
     {
-        [Description("Command")]
-        Command = 0
+        [Description("Running")]
+        Running = 0,
+        [Description("Completed")]
+        Completed,
+        [Description("Failed")]
+        Failed,
+        [Description("Unknown")]
+        Unknown
     }
 }
