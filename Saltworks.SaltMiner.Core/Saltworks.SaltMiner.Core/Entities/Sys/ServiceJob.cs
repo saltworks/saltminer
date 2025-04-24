@@ -86,5 +86,10 @@ namespace Saltworks.SaltMiner.Core.Entities
         /// Gets or sets the job's status
         /// </summary>
         public string Status { get; set; }
+
+        /// <summary>
+        /// Gets or sets the job's message
+        /// </summary>
+        public string Message { get; set; }
     }
 }
