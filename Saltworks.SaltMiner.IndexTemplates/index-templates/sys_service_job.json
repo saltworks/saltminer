@@ -35,9 +35,9 @@
         },
         "name": {
           "type": "keyword",
-		      "fields": {
-			    "text": { "type": "text" }
-		      }
+          "fields": {
+            "text": { "type": "text" }
+          }
         },
         "description": {
           "type": "keyword"
@@ -55,6 +55,9 @@
           "type": "date"
         },
         "status": {
+          "type": "keyword"
+        },
+        "message": {
           "type": "keyword"
         }
       }
