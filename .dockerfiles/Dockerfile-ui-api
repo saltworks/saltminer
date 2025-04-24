@@ -19,6 +19,7 @@ ENV GID=10001
 RUN apk add --no-cache curl
 
 RUN mkdir -p ${smcfg3}
+RUN mkdir -p ${smlog3}
 
 WORKDIR /usr/share/saltworks/saltminer-3.0.0/ui-api
 
