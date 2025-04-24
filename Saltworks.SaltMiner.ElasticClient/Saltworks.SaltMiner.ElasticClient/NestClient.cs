@@ -27,6 +27,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.ElasticClient;
 
@@ -42,9 +43,23 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return NestClientResponse.BuildResponse(true, r.License.Type.GetStringValue(), 0);
     }
 
-    public IElasticClientResponse RefreshIndex(string indexName)
+    public async Task<IElasticClientResponse> GetClusterTaskCountAsync()
     {
-        Thread.Sleep(1000);
+        var r = await ElasticClient.Tasks.ListAsync();
+        if (r.IsValid)
+        {
+            var count = 0;
+            foreach (var n in (r.Nodes.Values ?? []))
+                count += n.Tasks.Count;
+            return NestClientResponse.BuildResponse(true, "", count);
+        }
+        Logger.LogWarning("Task count call failure - {Msg}", r.DebugInformation);
+        return NestClientResponse.BuildResponse(false, "Task count call failure, see log.", 0);
+    }
+
+    public IElasticClientResponse RefreshIndex(string indexName, int pauseMs = 1000)
+    {
+        Thread.Sleep(pauseMs);
         ElasticClient.Indices.Refresh(indexName);
         return NestClientResponse.BuildResponse(true, "Index refreshed", 0);
     }

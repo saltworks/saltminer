@@ -20,6 +20,7 @@ using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using Saltworks.SaltMiner.DataApi.Contexts;
+using System.Collections.Generic;
 
 namespace Saltworks.SaltMiner.DataApi.Controllers
 {
@@ -180,6 +181,22 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <summary>
         /// Deletes multiple QueueScan entities by Id and all assets and issues associated with them.
         /// </summary>
+        /// <param name="ids">List of queue scan IDs to remove</param>
+        /// <returns>Non data response</returns>
+        /// <response code="200">Returns response indicating success</response>
+        [ProducesResponseType(200, Type = typeof(NoDataResponse))]
+        [HttpPost("all/deletelist")]
+        public ActionResult<NoDataResponse> DeleteAllByList([FromBody]List<string> ids)
+        {
+            Logger.LogInformation("DeleteAll action called for {Count} ids", ids.Count);
+
+            return Ok(Context.DeleteAllQueueByQueueScan(ids));
+        }
+
+        /// <summary>
+        /// Deletes multiple QueueScan entities by Id and all assets and issues associated with them.
+        /// </summary>
+        /// <param name="request">Search request that will work for all 3 queue entities</param>
         /// <returns>Non data response</returns>
         /// <response code="200">Returns response indicating success</response>
         [ProducesResponseType(200, Type = typeof(NoDataResponse))]

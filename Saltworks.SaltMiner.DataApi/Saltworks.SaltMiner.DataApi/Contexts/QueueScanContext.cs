@@ -172,6 +172,26 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             return new DataItemResponse<QueueScan>(response.Data.FirstOrDefault());
         }
 
+        public NoDataResponse GetElasticTaskCount()
+        {
+            var rsp = ElasticClient.GetClusterTaskCountAsync().Result;
+            if (!rsp.IsSuccessful)
+                throw new ApiException("Task count failed", 500);
+            return new(rsp.CountAffected);
+        }
+
+        private static Filter GetListFilter(string field, IEnumerable<string> ids) => new() { FilterMatches = new() { { field, string.Join("||+", ids) } } };
+
+        public NoDataResponse DeleteAllQueueByQueueScan(IEnumerable<string> idList)
+        {
+            if (!IsInRole(Role.Manager) && !IsInRole(Role.Admin))
+                throw new ApiForbiddenException();
+            ElasticClient.DeleteByQuery<QueueIssue>(new() { Filter = GetListFilter("Saltminer.QueueScanId", idList) }, QueueIssueIndex, true, false);
+            ElasticClient.DeleteByQuery<QueueAsset>(new() { Filter = GetListFilter("Saltminer.Internal.QueueScanId", idList) }, QueueAssetIndex, true, false);
+            ElasticClient.DeleteByQuery<QueueScan>(new() { Filter = GetListFilter("Id", idList) }, QueueScanIndex, true, false);
+            return new(idList.Count());
+        }
+
         public NoDataResponse DeleteAllQueueByQueueScan(string id)
         {
             CheckForEntity<QueueScan>(id, QueueScanIndex);

@@ -19,11 +19,17 @@ using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.ElasticClient
 {
     public interface IElasticClient
     {
+        /// <summary>
+        /// Get count of running tasks on cluster.  Useful for when you are about to add a bunch of "nowait" tasks.
+        /// </summary>
+        /// <returns>Response object with number of running tasks</returns>
+        Task<IElasticClientResponse> GetClusterTaskCountAsync();
         /// <summary>
         /// Copy one index to another, creating the destination index if necessary
         /// </summary>
@@ -35,8 +41,9 @@ namespace Saltworks.SaltMiner.ElasticClient
         /// Refresh an existing index
         /// </summary>
         /// <param name="indexName">Specify index name</param>
+        /// <param name="pauseMs">Wait this many ms before refresh</param>
         /// <returns>A response object with IsSuccessful set based on success</returns>
-        IElasticClientResponse RefreshIndex(string indexName);
+        IElasticClientResponse RefreshIndex(string indexName, int pauseMs = 1000);
         /// <summary>
         /// Flush an existing index
         /// </summary>
