@@ -28,6 +28,7 @@ jobs:
       work-dir: ./Saltworks.SaltMiner.Ui
       build-dir: ./Saltworks.SaltMiner.Ui/dist
       sln-name: Saltworks.SaltMiner.Ui
+      config-pth: ./Saltworks.SaltMiner.Deploy/addins/ui-web/config.json
 
     permissions:
       contents: read
@@ -71,7 +72,10 @@ jobs:
 
     - name: Add version.txt
       run: echo "$BRANCH.$BUILD_NUMBER" > smpgui/version.txt
-      working-directory: ${{env.build-dir}}
+      working-directory: ${{ env.build-dir }}
+
+    - name: Add config.json
+      run: cp ${{ env.config-pth }} ${{ env.build-dir }}/smpgui/
 
     - name: What was built?
       run: ls -la ${{env.build-dir}} --group-directories-first
