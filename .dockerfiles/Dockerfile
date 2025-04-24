@@ -7,7 +7,12 @@ ARG smcfg=/etc/saltworks
 ARG smcfg3=${smcfg}/saltminer-3.0.0
 ARG smlog=/var/log/saltworks
 ARG smlog3=${smlog}/saltminer-3.0.0
+
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
+ENV USER=saltminer
+ENV GROUPNAME=$USER
+ENV UID=10000
+ENV GID=10001
 
 # curl is used for healthcheck.
 RUN apk add --no-cache curl
@@ -17,10 +22,26 @@ RUN mkdir -p ${smlog3}
 
 WORKDIR /usr/share/saltworks/saltminer-3.0.0/api
 
+RUN addgroup \
+    --gid "$GID" \
+    "$GROUPNAME" \
+  &&  adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "$(pwd)" \
+    --ingroup "$GROUPNAME" \
+    --no-create-home \
+    --uid "$UID" \
+    $USER
+
 COPY $ARTIFACT_PATH .
 RUN mv ${smapp3}/api/appsettings.json ${smcfg3}/api/
 
 COPY $ARTIFACT_PATH/data-templates/ ./data
+
+RUN chown -R $USER:$GROUPNAME . \
+  && chown -R $USER:$GROUPNAME ${smcfg3} \
+  && chown -R $USER:$GROUPNAME ${smlog3}
 
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_API_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/api
