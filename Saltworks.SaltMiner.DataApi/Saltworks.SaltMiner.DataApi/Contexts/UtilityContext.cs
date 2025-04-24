@@ -26,10 +26,7 @@ using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.ElasticClient;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Authentication;
-using Saltworks.SaltMiner.DataApi.Extensions;
 using System.Linq;
-using System.Net.Http.Json;
-using System.Security.Cryptography;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts;
 
@@ -40,6 +37,14 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
     {
         using var cyprto = new Crypto(Config.EncryptionKey, Config.EncryptionIv);
         return new NoDataResponse(0, cyprto.Encrypt(value));
+    }
+
+    public NoDataResponse GetElasticTaskCount()
+    {
+        var rsp = ElasticClient.GetClusterTaskCountAsync().Result;
+        if (!rsp.IsSuccessful)
+            throw new ApiException("Task count failed", 500);
+        return new(rsp.CountAffected);
     }
 
     public NoDataResponse Version()

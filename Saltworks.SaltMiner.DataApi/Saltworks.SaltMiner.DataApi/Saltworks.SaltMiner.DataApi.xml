@@ -1190,6 +1190,11 @@
             Returns API version
             </summary>
         </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.Tasks">
+            <summary>
+            Returns cluster task count
+            </summary>
+        </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.CreateBackup">
             <summary>
             Create complete backup of Elastic and zip to file

@@ -172,14 +172,6 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             return new DataItemResponse<QueueScan>(response.Data.FirstOrDefault());
         }
 
-        public NoDataResponse GetElasticTaskCount()
-        {
-            var rsp = ElasticClient.GetClusterTaskCountAsync().Result;
-            if (!rsp.IsSuccessful)
-                throw new ApiException("Task count failed", 500);
-            return new(rsp.CountAffected);
-        }
-
         private static Filter GetListFilter(string field, IEnumerable<string> ids) => new() { FilterMatches = new() { { field, string.Join("||+", ids) } } };
 
         public NoDataResponse DeleteAllQueueByQueueScan(IEnumerable<string> idList)

@@ -21,8 +21,6 @@ using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using Microsoft.AspNetCore.Http;
 using System.Text.Json.Nodes;
-using Swashbuckle.AspNetCore.Annotations;
-using System.Net.Http.Json;
 using Saltworks.SaltMiner.Core.Entities;
 
 namespace Saltworks.SaltMiner.DataApi.Controllers;
@@ -52,6 +50,17 @@ public class UtilityController(UtilityContext context, ILogger<UtilityController
     public ActionResult<NoDataResponse> Version()
     {
         Logger.LogInformation("Version action called");
+        return Ok(Context.Version());
+    }
+
+    /// <summary>
+    /// Returns cluster task count
+    /// </summary>
+    [HttpGet("[action]")]
+    [ProducesResponseType(200, Type = typeof(NoDataResponse))]
+    public ActionResult<NoDataResponse> Tasks()
+    {
+        Logger.LogInformation("Tasks action called");
         return Ok(Context.Version());
     }
 

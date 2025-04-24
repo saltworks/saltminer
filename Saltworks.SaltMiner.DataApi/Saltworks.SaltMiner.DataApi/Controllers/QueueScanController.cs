@@ -184,6 +184,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <param name="ids">List of queue scan IDs to remove</param>
         /// <returns>Non data response</returns>
         /// <response code="200">Returns response indicating success</response>
+        [Auth(Role.Admin, Role.Manager)]
         [ProducesResponseType(200, Type = typeof(NoDataResponse))]
         [HttpPost("all/deletelist")]
         public ActionResult<NoDataResponse> DeleteAllByList([FromBody]List<string> ids)
