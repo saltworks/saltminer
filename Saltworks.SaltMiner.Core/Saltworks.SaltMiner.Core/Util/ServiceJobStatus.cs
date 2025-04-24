@@ -28,7 +28,7 @@ namespace Saltworks.SaltMiner.Core.Util
         Completed,
         [Description("Failed")]
         Failed,
-        [Description("Unknown")]
-        Unknown
+        [Description("Ready")]
+        Ready
     }
 }
