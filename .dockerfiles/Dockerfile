@@ -1,4 +1,7 @@
-FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine3.21-amd64
+FROM mcr.microsoft.com/dotnet/aspnet:8.0.15-alpine3.21-amd64
+
+LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.15-alpine3.21-amd64"
+LABEL vendor="Saltworks Security, LLC"
 
 ARG ARTIFACT_PATH=.
 ARG smapp=/usr/share/saltworks
