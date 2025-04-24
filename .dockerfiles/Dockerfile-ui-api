@@ -3,11 +3,17 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0.15-alpine3.21-amd64
 LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.15-alpine3.21-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
-ARG ARTIFACT_PATH=.
 ARG smcfg3=/etc/saltworks/saltminer-3.0.0/ui-api
+ARG smlog3=/var/log/saltworks/saltminer-3.0.0
+ARG ARTIFACT_PATH=.
+
 ENV SALTMINER_UI_API_CONFIG_PATH=${smcfg3}
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
+ENV USER=saltminer
+ENV GROUPNAME=$USER
+ENV UID=10000
+ENV GID=10001
 
 # curl is used for healthcheck.
 RUN apk add --no-cache curl
@@ -16,10 +22,28 @@ RUN mkdir -p ${smcfg3}
 
 WORKDIR /usr/share/saltworks/saltminer-3.0.0/ui-api
 
+RUN addgroup \
+    --gid "$GID" \
+    "$GROUPNAME" \
+  &&  adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "$(pwd)" \
+    --ingroup "$GROUPNAME" \
+    --no-create-home \
+    --uid "$UID" \
+    $USER
+
 COPY $ARTIFACT_PATH .
 
 RUN mv appsettings.json ${smcfg3} 
 
+RUN chown -R $USER:$GROUPNAME . \
+  && chown -R $USER:$GROUPNAME ${smcfg3} \
+  && chown -R $USER:$GROUPNAME ${smlog3}
+
 EXPOSE 5001
+
+USER $USER
 
 ENTRYPOINT ["/usr/bin/dotnet", "/usr/share/saltworks/saltminer-3.0.0/ui-api/Saltworks.SaltMiner.Ui.Api.dll"]

@@ -12,6 +12,8 @@ ARG smlog=/var/log/saltworks
 ARG smlog3=${smlog}/saltminer-3.0.0
 
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
+ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
+ENV SALTMINER_API_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/api
 ENV USER=saltminer
 ENV GROUPNAME=$USER
 ENV UID=10000
@@ -46,9 +48,8 @@ RUN chown -R $USER:$GROUPNAME . \
   && chown -R $USER:$GROUPNAME ${smcfg3} \
   && chown -R $USER:$GROUPNAME ${smlog3}
 
-ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
-ENV SALTMINER_API_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/api
-
 EXPOSE 5000
+
+USER $USER
 
 ENTRYPOINT ["/usr/bin/dotnet", "/usr/share/saltworks/saltminer-3.0.0/api/Saltworks.SaltMiner.DataApi.dll"]
