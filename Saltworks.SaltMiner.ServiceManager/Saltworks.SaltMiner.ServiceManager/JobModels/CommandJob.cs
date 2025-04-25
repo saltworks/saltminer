@@ -36,17 +36,20 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
         private readonly ILogger Logger;
         private readonly EventLogger EventLogger;
         private readonly DataClient.DataClient DataClient;
+        private readonly IJobStatusService JobStatusService;
 
         public CommandJob(
             ServiceManagerConfig config,
             ILogger<CommandJob> logger,
             EventLogger eventLogger,
-            DataClientFactory<DataClient.DataClient> dataClientFactory)
+            DataClientFactory<DataClient.DataClient> dataClientFactory,
+            IJobStatusService jobStatusService)
         {
             Config = config;
             Logger = logger;
             EventLogger = eventLogger;
             DataClient = dataClientFactory.GetClient();
+            JobStatusService = jobStatusService;
         }
 
         // these properties get their value from an 'auto inject' of the mapped job detail data during job setup
@@ -69,6 +72,8 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
                 {
                     throw new ServiceManagerException($"Invalid job definition, missing id field.");
                 }
+
+                var jobStatusService = JobStatusService.GetStatus(context.JobDetail.Key.Name);
 
                 var cmdParams = CommandParams;
 
@@ -124,8 +129,8 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
 
                 var wrkDir = ServiceManagerConfig.GetWorkingDir(appExePath);
 
-                Logger.LogDebug("exePath: {exePath}", appExePath);
-                Logger.LogDebug("wrkDir: {wrkDir}", wrkDir);
+                Logger.LogDebug("exePath: {ExePath}", appExePath);
+                Logger.LogDebug("wrkDir: {WrkDir}", wrkDir);
 
                 if (!Directory.Exists(wrkDir))
                 {
@@ -213,24 +218,26 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
                     if (isErr)
                     {
                         EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.Error, LogSeverity.Error, combinedMsg.TrimEnd(), "failure");
-                        Logger.LogError("[CommandJob] Job {jobName} error: {err}", context.JobDetail.Key.Name, combinedMsg.TrimEnd());
+                        Logger.LogError("[CommandJob] Job {JobName} error: {Err}", context.JobDetail.Key.Name, combinedMsg.TrimEnd());
+                        UpdateJobStatus(context.JobDetail.Key.Name, ServiceJobStatus.Failed, combinedMsg.TrimEnd());
                     }
                     else
                     {
                         EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.Complete, LogSeverity.Information, combinedMsg.TrimEnd(), "success");
-                        Logger.LogInformation("[CommandJob] Job {jobName} output: {output}", context.JobDetail.Key.Name, combinedMsg.TrimEnd());
+                        Logger.LogInformation("[CommandJob] Job {JobName} output: {Output}", context.JobDetail.Key.Name, combinedMsg.TrimEnd());
                     }
                 }
             }
             catch (JobExecutionException ex)
             {
                 EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.Error, LogSeverity.Error, ex.Message, "failure");
-                Logger.LogError(ex, "[CommandJob] JobExecutionException in Execute for job key '{id}': {msg}", jobKey, ex.Message);
+                Logger.LogError(ex, "[CommandJob] JobExecutionException in Execute for job key '{Id}': {Msg}", jobKey, ex.Message);
             }
             catch (ServiceManagerException ex)
             {
                 EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.Error, LogSeverity.Error, ex.Message, "failure");
-                Logger.LogError(ex, "[CommandJob] ServiceManagerException in Execute for job key '{id}': {msg}", jobKey, ex.Message);
+                Logger.LogError(ex, "[CommandJob] ServiceManagerException in Execute for job key '{Id}': {Msg}", jobKey, ex.Message);
+                UpdateJobStatus(context.JobDetail.Key.Name, ServiceJobStatus.Failed, ex.Message);
             }
         }
 
@@ -263,7 +270,7 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Unable to add service type '{type}' and job ID '{id} to schedule: [{exType}] {exMsg}", jobOption, jobId, ex.GetType().Name, ex.Message);
+                logger.LogError(ex, "Unable to add service type '{Type}' and job ID '{Id} to schedule: [{ExType}] {ExMsg}", jobOption, jobId, ex.GetType().Name, ex.Message);
                 return null;
             }
         }
@@ -299,18 +306,18 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
             {
                 if (string.IsNullOrEmpty(cronExpression))
                 {
-                    logger.LogDebug(fe, "Empty cron expression won't be added to schedule for '{type}' and job ID '{id}: [{exType}] {exMsg}", jobOption, jobId, fe.GetType().Name, fe.Message);
+                    logger.LogDebug(fe, "Empty cron expression won't be added to schedule for '{Type}' and job ID '{Id}: [{ExType}] {ExMsg}", jobOption, jobId, fe.GetType().Name, fe.Message);
                 }
                 else
                 {
-                    logger.LogError(fe, "Unable to add service type '{type}' and job ID '{id} to schedule with cron value {cron}: [{exType}] {exMsg}", jobOption, jobId, cronExpression, fe.GetType().Name, fe.Message);
+                    logger.LogError(fe, "Unable to add service type '{Type}' and job ID '{Id} to schedule with cron value {Cron}: [{ExType}] {ExMsg}", jobOption, jobId, cronExpression, fe.GetType().Name, fe.Message);
                 }
 
                 return null;
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Unable to add service type '{type}' and job ID '{id} to schedule: [{exType}] {exMsg}", jobOption, jobId, ex.GetType().Name, ex.Message);
+                logger.LogError(ex, "Unable to add service type '{Type}' and job ID '{Id} to schedule: [{ExType}] {ExMsg}", jobOption, jobId, ex.GetType().Name, ex.Message);
                 return null;
             }
         }
@@ -336,7 +343,7 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
 
                 if ((schedJobChanged ?? false) || (schedTriggerChanged ?? false))
                 {
-                    logger?.LogInformation("Command job {jobkey} has changes and will be reloaded", jobKey.Name);
+                    logger?.LogInformation("Command job {JobKey} has changes and will be reloaded", jobKey.Name);
                     var success = await scheduler.DeleteJob(jobKey);
                     if (success)
                     {
@@ -347,8 +354,19 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
 
             if (addToSchedule)
             {
-                logger?.LogInformation("Loading command job {key}", jobKey.Name);
+                logger?.LogInformation("Loading command job {Key}", jobKey.Name);
                 await scheduler.ScheduleJob(job, trigger);
+            }
+        }
+
+        private void UpdateJobStatus(string jobKey, ServiceJobStatus status, string errorMsg = "")
+        {
+            var jobStatus = JobStatusService.GetStatus(jobKey);
+            if (jobStatus != null)
+            {
+                jobStatus.Status = status.ToString("g");
+                jobStatus.ErrorMessage = errorMsg;
+
             }
         }
     }

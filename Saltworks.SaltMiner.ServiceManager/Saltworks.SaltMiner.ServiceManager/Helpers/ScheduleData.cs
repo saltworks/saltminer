@@ -29,15 +29,18 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
         private readonly ILogger Logger;
         private readonly DataClient.DataClient DataClient;
         private const string RunOneTimeKey = "RunOneTime-";
+        private readonly IJobStatusService JobStatusService;
 
         public ScheduleData
         (
             ILogger<ScheduleData> logger,
-            DataClientFactory<DataClient.DataClient> dataClientFactory
+            DataClientFactory<DataClient.DataClient> dataClientFactory,
+            IJobStatusService jobStatusService
         )
         {
             Logger = logger;
             DataClient = dataClientFactory.GetClient();
+            JobStatusService = jobStatusService;
         }
 
         /// <summary>
@@ -65,22 +68,24 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
                 {
                     if (!config.IsValidJobType(job.Option))
                     {
-                        Logger.LogError("Invalid option '{svctype}' in service manager job data, skipping...", job.Option);
+                        Logger.LogError("Invalid option '{SvcType}' in service manager job data, skipping...", job.Option);
                         continue;
                     }
 
                     var key = $"{job.Option}|{job.Id}";
                     var jobKey = new JobKey(key);
+                    var jobStatus = JobStatusService.GetStatus(jobKey.Name);
 
                     if (job.Disabled)
                     {
                         if (await scheduler.CheckExists(jobKey, cancelToken))
                         {
                             await scheduler.DeleteJob(jobKey, cancelToken);
+                            JobStatusService.RemoveStatus(jobKey.Name);
                             job.NextRunTime = new DateTime();
                             DataClient.ServiceJobAddUpdate(job);
                         }
-                        Logger.LogInformation("The {jobName} job is disabled and currently removed from the schedule.", job.Name);
+                        Logger.LogInformation("The {JobName} job is disabled and currently removed from the schedule.", job.Name);
                         continue;
                     }
 
@@ -89,7 +94,7 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
                         job.RunNow = false;
                         DataClient.ServiceJobAddUpdate(job);
                         await CommandJob.AddOneTimeCommand(scheduler, job.Name, job.Option, $"{RunOneTimeKey}{job.Id}", job.Parameters);
-                        Logger.LogInformation("The {jobName} job is scheduled to run immediately.", job.Name);
+                        Logger.LogInformation("The {JobName} job is scheduled to run immediately.", job.Name);
                     }
 
                     var queueJobKey = await CommandJob.AddCronCommand(scheduler, job.Name, job.Option, job.Id, job.Schedule, job.Parameters, Logger);
@@ -98,18 +103,47 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
                         queueJobKeys.Add(queueJobKey);
                     }
 
+                    bool updateJob = false;
+
                     // Need to get and update next run time from trigger
                     var associatedTriggers = scheduler.GetTriggersOfJob(jobKey).Result;
                     if (associatedTriggers.Count > 0)
                     {
                         var nextScheduledRunTime = associatedTriggers.FirstOrDefault().GetNextFireTimeUtc().GetValueOrDefault().UtcDateTime;
+                        job.NextRunTime = job.NextRunTime?.ToUniversalTime();
                         if (!nextScheduledRunTime.Equals(job.NextRunTime))
                         {
                             job.NextRunTime = nextScheduledRunTime;
-                            DataClient.ServiceJobAddUpdate(job);
+                            updateJob = true;
                         }
                     }
-                    
+
+                    if (jobStatus.LastRunTime != null)
+                    {
+                        job.LastRunTime = job.LastRunTime?.ToUniversalTime();
+                        if (!jobStatus.LastRunTime.Equals(job.LastRunTime))
+                        {
+                            
+                            job.LastRunTime = jobStatus?.LastRunTime;
+                            updateJob = true;
+                        }
+                    }
+
+                    if (!jobStatus.Status.Equals(job.Status ?? string.Empty))
+                    {
+                        job.Status = jobStatus.Status;
+                        updateJob = true;
+                    }
+
+                    if (!jobStatus.ErrorMessage.Equals(job.Message ?? string.Empty))
+                    {
+                        job.Message = jobStatus.ErrorMessage ?? string.Empty;
+                        updateJob = true;
+                    }
+                        
+
+                    if (updateJob) DataClient.ServiceJobAddUpdate(job);
+
                     if (cancelToken.IsCancellationRequested)
                     {
                         break;
@@ -118,7 +152,7 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
                 catch (Exception ex)
                 {
                     // don't stop just because this one failed, but log it
-                    Logger.LogError(ex, "Error reading service job with ID '{id}' and type '{type}': [{exType}] {exMsg}", job?.Id ?? "unknown", job?.Option ?? "unknown", ex.GetType().Name, ex.Message);
+                    Logger.LogError(ex, "Error reading service job with ID '{Id}' and type '{Type}': [{ExType}] {ExMsg}", job?.Id ?? "unknown", job?.Option ?? "unknown", ex.GetType().Name, ex.Message);
                 }
             }
 
@@ -142,26 +176,27 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
                         // do not log when a temporary "runnow" - it is understood that it is temp and being removed
                         if (!excludedJob.Name.Contains(RunOneTimeKey))
                         {
-                            Logger.LogInformation("Job {excludedJobName} as been deleted from service jobs. Removing from scheduler", excludedJob.Name);
+                            Logger.LogInformation("Job {ExcludedJobName} as been deleted from service jobs. Removing from scheduler", excludedJob.Name);
                         }
                         
                         jobCount--;
                         try
                         {
                             await scheduler.DeleteJob(excludedJob, cancelToken);
+                            JobStatusService.RemoveStatus(excludedJob.Name);
                         }
                         catch(Exception ex)
                         {
                             // log error but keep rolling
-                            Logger.LogError(ex, "Failed to deleted old service job with key '{key}'.", excludedJob?.Name ?? "unknown");
+                            Logger.LogError(ex, "Failed to deleted old service job with key '{Key}'.", excludedJob?.Name ?? "unknown");
                         }
                     }
                 }
-                Logger.LogInformation("Job refresh - {count} job(s) scheduled", jobCount);
+                Logger.LogInformation("Job refresh - {Count} job(s) scheduled", jobCount);
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error removing obsolete service job(s): [{exName}] {exMsg}", ex.GetType().Name, ex.Message);
+                Logger.LogError(ex, "Error removing obsolete service job(s): [{ExName}] {ExMsg}", ex.GetType().Name, ex.Message);
             }
         }
     }

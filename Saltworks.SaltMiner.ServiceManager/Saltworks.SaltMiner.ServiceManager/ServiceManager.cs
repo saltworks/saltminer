@@ -40,17 +40,18 @@ namespace Saltworks.SaltMiner.ServiceManager
             ServiceManagerConfig config, 
             ISchedulerFactory schedFactory, 
             ScheduleData scheduleData,
-            EventLogger eventLogger
+            EventLogger eventLogger,
+            IJobStatusService jobStatusService
         )
         {
             Logger = logger;
             Config = config;
             config.Validate();
-            Logger.LogDebug("ApplicationBasePath: {path}", config.ApplicationPath);
+            Logger.LogDebug("ApplicationBasePath: {Path}", config.ApplicationPath);
             EventLogger = eventLogger;
             Sched = schedFactory.GetScheduler().Result;
             Sched.ListenerManager.AddSchedulerListener(new SchedulerListener(logger, eventLogger));
-            Sched.ListenerManager.AddJobListener(new JobListener(logger, eventLogger));
+            Sched.ListenerManager.AddJobListener(new JobListener(logger, eventLogger, jobStatusService));
             Sched.ListenerManager.AddTriggerListener(new TriggerListener(logger, eventLogger));
             ScheduleData = scheduleData;
             Logger.LogInformation("Initialized...");
@@ -64,7 +65,7 @@ namespace Saltworks.SaltMiner.ServiceManager
             {
                 if (args.Args[0] == OperationType.Service.ToString("g"))
                 {
-                    Logger.LogInformation("Service starting.  Data API client is using base url '{dataApiBaseUrl}'", Config.DataApiBaseUrl);
+                    Logger.LogInformation("Service starting.  Data API client is using base url '{DataApiBaseUrl}'", Config.DataApiBaseUrl);
                     var runconfig = ServiceRuntimeConfig.FromArgs(args);
                     ExecuteAsync(runconfig.CancelToken).Wait();
                 }
@@ -74,7 +75,7 @@ namespace Saltworks.SaltMiner.ServiceManager
                     Logger.LogInformation("As requested, doing nothing...");
                 }
 
-                Logger.LogInformation("{name} processor complete.", args.Args[0]);
+                Logger.LogInformation("{Name} processor complete.", args.Args[0]);
             }
             catch (TaskCanceledException ex)
             {
@@ -82,7 +83,7 @@ namespace Saltworks.SaltMiner.ServiceManager
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Unhandled exception caught in Service Manager: [{exName}] {exMessage}", ex.GetType().Name, ex.Message);
+                Logger.LogError(ex, "Unhandled exception caught in Service Manager: [{ExName}] {ExMessage}", ex.GetType().Name, ex.Message);
             }
         }
 

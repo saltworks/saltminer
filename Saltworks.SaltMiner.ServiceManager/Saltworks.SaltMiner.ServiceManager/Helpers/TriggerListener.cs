@@ -39,14 +39,14 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
             var elapsedTime = string.Format("{0:D2}:{1:D2}:{2:D2}", context.JobRunTime.Hours, context.JobRunTime.Minutes, context.JobRunTime.Seconds);
             EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.Complete, LogSeverity.Information, $"Job Complete - elapsed time: {elapsedTime}", "success");
             var nextFireDate = context.NextFireTimeUtc.GetValueOrDefault().UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " GMT";
-            return Task.Run(() => { Logger.LogInformation("[TriggerListener] '{jobName}' Completed. Elapsed time: {elapsed}. Next run-time is: {nextRun}", context.JobDetail.Key.Name, elapsedTime, nextFireDate); });
+            return Task.Run(() => { Logger.LogInformation("[TriggerListener] '{JobName}' Completed. Elapsed time: {Elapsed}. Next run-time is: {NextRun}", context.JobDetail.Key.Name, elapsedTime, nextFireDate); });
         }
 
         public override Task TriggerFired(ITrigger trigger, IJobExecutionContext context, CancellationToken cancellationToken = default)
         {
             EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.InProgress, LogSeverity.Information, "Job Started", "unknown");
             var nextFireDate = context.NextFireTimeUtc.GetValueOrDefault().UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " GMT";
-            return Task.Run(() => { Logger.LogInformation("[TriggerListener] '{jobName}' has started. Next run-time is: {nextRun}", context.JobDetail.Key.Name, nextFireDate); });
+            return Task.Run(() => { Logger.LogInformation("[TriggerListener] '{JobName}' has started. Next run-time is: {NextRun}", context.JobDetail.Key.Name, nextFireDate); });
         }
 
     }

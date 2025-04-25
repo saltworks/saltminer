@@ -124,6 +124,7 @@ namespace Saltworks.SaltMiner.ServiceManager
                             services.AddSingleton(serviceManagerConfig);
                             services.AddTransient<ScheduleData>();
                             services.AddTransient<EventLogger>();
+                            services.AddSingleton<IJobStatusService, JobStatusService>();
                             services.AddQuartz(x =>
                             {
                                 x.Properties.Set("quartz.threadPool.threadCount", serviceManagerConfig.JobThreadCount.ToString());
