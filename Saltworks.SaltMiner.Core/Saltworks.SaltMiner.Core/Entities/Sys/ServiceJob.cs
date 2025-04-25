@@ -90,7 +90,7 @@ namespace Saltworks.SaltMiner.Core.Entities
         /// <summary>
         /// Gets or sets the job's stop request
         /// </summary>
-        public bool Cancel { get; set; }
+        public bool Cancel { get; set; } = false;
 
         /// <summary>
         /// Gets or sets the job's message
