@@ -5,51 +5,28 @@ LABEL vendor="Saltworks Security, LLC"
 
 ARG ARTIFACT_PATH=.
 ARG smapp=/usr/share/saltworks
-ARG smapp3=${smapp}/saltminer-3.0.0
+ARG smapp3=${smapp}/saltminer-3.0.0/api
 ARG smcfg=/etc/saltworks
-ARG smcfg3=${smcfg}/saltminer-3.0.0
+ARG smcfg3=${smcfg}/saltminer-3.0.0/api
 ARG smlog=/var/log/saltworks
 ARG smlog3=${smlog}/saltminer-3.0.0
 
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_API_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/api
-ENV USER=saltminer
-ENV GROUPNAME=$USER
-ENV UID=10000
-ENV GID=10001
 
 # curl is used for healthcheck.
 RUN apk add --no-cache curl
 
-RUN mkdir -p ${smcfg3}/api
+RUN mkdir -p ${smcfg3}
 RUN mkdir -p ${smlog3}
 
-WORKDIR /usr/share/saltworks/saltminer-3.0.0/api
-
-RUN addgroup \
-    --gid "$GID" \
-    "$GROUPNAME" \
-  &&  adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "$(pwd)" \
-    --ingroup "$GROUPNAME" \
-    --no-create-home \
-    --uid "$UID" \
-    $USER
+WORKDIR ${smapp3}
 
 COPY $ARTIFACT_PATH .
-RUN mv ${smapp3}/api/appsettings.json ${smcfg3}/api/
-
+RUN mv ${smapp3}/appsettings.json ${smcfg3}/
 COPY $ARTIFACT_PATH/data-templates/ ./data
 
-RUN chown -R $USER:$GROUPNAME . \
-  && chown -R $USER:$GROUPNAME ${smcfg3} \
-  && chown -R $USER:$GROUPNAME ${smlog3}
-
 EXPOSE 5000
-
-USER $USER
 
 ENTRYPOINT ["/usr/bin/dotnet", "/usr/share/saltworks/saltminer-3.0.0/api/Saltworks.SaltMiner.DataApi.dll"]
