@@ -1,57 +1,27 @@
 <template>
-    <div class="page-layout">
-      <div class="row">
-        <HeadingText label="Admin Panel" size="2" />
-      </div>
-        <div class="page-content">
-            <LoadingComponent :is-visible="isLoading" />
-            <div class="page-row-left">
-                <sidebar-menu 
-                    :menu="menu"
-                    @item-click="onItemClick" 
-                />
-                <div v-if="systemType === 'Application Roles'">
-                    <AppRoles></AppRoles>     
-                </div>
-                <div v-if="systemType === 'Custom Field Definitions'">
-                    <CustomFieldDefinition></CustomFieldDefinition>     
-                </div>
-                <div v-if="systemType === 'Custom Attribute Definitions'">
-                    <CustomAttribute></CustomAttribute>                     
-                </div>
-                <div v-if="systemType === 'Look Ups'">
-                    <LookUp></LookUp>     
-                </div>
-                <div v-if="systemType === 'Search Filter Definitions'"> 
-                    <SearchFilter></SearchFilter>                                  
-                </div>
-                <div v-if="systemType === 'Report Templates'"> 
-                    <ReportTemplates></ReportTemplates>                                  
-                </div>
-                <div v-if="systemType === 'Service Job Scheduler'">
-                    <ServiceJobScheduler></ServiceJobScheduler>
-                </div>
-                <div v-if="systemType === 'Configuration Services'">
-                    <h2>Configuration Services</h2>
-                    text editor and load the document in???
-                </div>
-            </div>
-        </div>
-        <AlertComponent
-        v-if="alert.messages.length > 0"
-        class="alert-margin"
-        :alert="alert"
-        @close="handleAlertClose"
-        />
-    </div>
+  <div class="layout">
+    <aside class="sidebar" @mouseenter="hover = true" @mouseleave="hover = false">
+     <div class="sidebar-item arrow">▶</div>
+      <button
+        v-for="tab in tabs"
+        :key="tab.name"
+        @click="currentTab = tab.name"
+        :class="['sidebar-item', { active: currentTab === tab.name }]"
+      >
+        {{ tab.label }}
+      </button>
+    </aside>
+
+    <main class="main" :class="{ 'with-sidebar': hover }">
+      <component :is="currentTabComponent" />
+    </main>
+  </div>
 </template>
+
 
 <script>
 import { mapState } from 'vuex'
-import { SidebarMenu } from 'vue-sidebar-menu'
 import isValidUser from '../../middleware/is-valid-user'
-import IconSettings from '../../assets/svg/fi_settings.svg?inline'
-import HeadingText from '../../components/HeadingText.vue'
 import AlertComponent from '../../components/AlertComponent'
 import LoadingComponent from '../../components/LoadingComponent'
 import CustomFieldDefinition from '../../components/admin/CustomFieldDefinition.vue'
@@ -65,11 +35,9 @@ import SearchFilter from '../../components/admin/SearchFilter.vue'
 export default {
   name: 'EngagementsIndex',
   components: {
-    HeadingText,
     LoadingComponent,
     AlertComponent,
     CustomFieldDefinition,
-    SidebarMenu,
     LookUp,
     CustomAttribute,
     ReportTemplates,
@@ -80,39 +48,24 @@ export default {
   middleware: isValidUser,
   data() {
     return {
-      menu: [
-        {
-          header: true,
-          title: 'Main Navigation',
-          hiddenOnCollapse: true
-        },
-        {
-          title: 'Application Roles'
-        },
-        {
-          title: 'Custom Field Definitions'
-        },
-        {
-          title: 'Custom Attribute Definitions'
-        },
-        { title: 'Look Ups'
-        },
-        {
-          title: 'Search Filter Definitions'
-        },
-        {
-          title: 'Report Templates'
-        },
-        {
-          title: 'Service Job Scheduler'
-        },
-        {
-          // implement later?
-          // title: 'Configuration Services'
-        }
+      currentTab: 'AppRoles',
+      tabs: [
+        { name: 'AppRoles', label: 'Application Roles' },
+        { name: 'CustomFieldDefinition', label: 'Custom Field Definitions' },
+        { name: 'CustomAttribute', label: 'Custom Attribute Definitions' },
+        { name: 'LookUp', label: 'Look Ups' },
+        { name: 'SearchFilter', label: 'Search Filter Definitions' },
+        { name: 'ReportTemplates', label: 'Report Templates' },
+        { name: 'ServiceJobScheduler', label: 'Service Job Scheduler' }
       ],
-      icons: {
-        settings: IconSettings,
+      componentsMap: {
+        AppRoles,
+        CustomFieldDefinition,
+        CustomAttribute,
+        LookUp,
+        SearchFilter,
+        ReportTemplates,
+        ServiceJobScheduler
       },
       defaultDateFormat: 'en-US',
       alert: {
@@ -120,7 +73,6 @@ export default {
           type: "",
           title: ""
       },
-      systemDropdownOptions: [],
       systemType: 'Application Roles'
     }
   },
@@ -139,13 +91,13 @@ export default {
       isLoading: (state) => state.loading.loading,
       pageTitle: (state) => state.config.pageTitle
     }),
+    currentTabComponent() {
+      return this.componentsMap[this.currentTab]
+    },
   },
   mounted() {
   },
   methods: {
-    onItemClick(event, item, node) {
-        this.systemType = node.item.title
-    },
     handleAlertClose() {
       this.alert = {
         messages: [],
@@ -169,68 +121,86 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-@import "vue-sidebar-menu/src/scss/vue-sidebar-menu.scss";
-.page-layout {
-  padding: 24px;
+
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  width: 24px;
+  background-color: #343a40;
+  transition: width 0.3s ease;
+  overflow: hidden;
+  z-index: 1000;
   display: flex;
-  flex-flow: column;
-  gap: 24px;
-  max-width: 1872px;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 1rem;
+}
+
+.sidebar:hover {
+  width: 200px;
+  align-items: flex-start;
+  padding-left: 1rem;
+}
+
+.sidebar-item {
+  padding: 0.75rem 0.25rem;
+  color: white;
+  background: none;
+  border: none;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
   width: 100%;
-
-  .row {
-    width: 100%;
-    justify-content: space-between;
-    margin: unset;
-  }
-}
-.page-content {
-    padding: 24px;
-    display: flex;
-    flex-flow: column;
-    gap: 0px;
-
-    .page-row {
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      width: 100%;
-    }
-
-    .page-row-left {
-      flex: 0 0 auto;
-      display: flex;
-      flex-flow: row;
-      align-items: center;
-      justify-content: flex-start;
-      gap: 24px;
-    }
-
-    .page-row-right {
-      flex: 0 0 auto;
-      display: flex;
-      flex-flow: row;
-      align-items: flex-end;
-      justify-content: flex-end;
-      gap: 24px;
-    }
-  }
-
-.v-sidebar-menu{
-    position: relative;
-    // width: 15rem;
-    height: auto;
-    width: 450px;
-    line-height: 20px;
-    margin-right: 10px;
-    text-align: right;
-}
-.v-sidebar-menu.vsm_expanded{
-  background-color: rgba(36, 36, 36, 0.397);
 }
 
-.v-sidebar-menu .vsm--toggle-btn {
-  height: 25px;
-  width: 25px;
+.sidebar-item:hover {
+  background-color: #495057;
 }
+
+.sidebar-item.active {
+  background-color: #187308;
+  font-weight: bold;
+}
+
+.arrow {
+  color: white;
+  font-size: 1.2rem;
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  transform: translateY(-50%);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.sidebar:not(:hover) .sidebar-item:not(.arrow) {
+  display: none;
+}
+
+.sidebar:hover .sidebar-item {
+  padding-right: 1rem;
+}
+
+.sidebar:hover .arrow {
+  display: none;
+}
+
+.main {
+  margin-left: 0;
+  width: 100vw;
+  padding: 2rem;
+  background-color: #fFFFF;
+  min-height: 100vh;
+  overflow: auto;
+  transition: all 0.3s ease;
+}
+
+
 </style>

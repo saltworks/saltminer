@@ -345,8 +345,22 @@ export default {
           nowrap: true
         },
         {
+          display: 'Last run-time',
+          field: 'lastRunTime',
+          sortable: false,
+          hide: false,
+          nowrap: true
+        },
+        {
           display: 'Next run-time',
           field: 'nextRunTime',
+          sortable: false,
+          hide: false,
+          nowrap: true
+        },
+        {
+          display: 'Status',
+          field: 'status',
           sortable: false,
           hide: false,
           nowrap: true
@@ -363,7 +377,8 @@ export default {
       return this.servicejob.map((job) => {
         return {
           ...job,
-          nextRunTime: helpers.formatDate(job.nextRunTime, 'M/D/yyyy h:mm:ss a')
+          nextRunTime: helpers.formatDate(job.nextRunTime, 'M/D/yyyy h:mm:ss a'),
+          lastRunTime: helpers.formatDate(job.lastRunTime, 'M/D/yyyy h:mm:ss a')
         }
       })
     },
