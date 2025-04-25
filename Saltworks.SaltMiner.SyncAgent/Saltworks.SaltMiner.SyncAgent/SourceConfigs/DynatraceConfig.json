@@ -11,7 +11,7 @@
   "AuthEndpointAddress": "https://sso.dynatrace.com/sso/oauth2/token",
   "ClientId_Comment": "Dynatrace authentication user client ID",
   "ClientId": "",
-  "ClientSecret": "Dynatrace authentication user client secret",
+  "ClientSecret_Comment": "Dynatrace authentication user client secret",
   "ClientSecret": "",
   "Timeout_Comment": "Interval of seconds between API requests",
   "Timeout": 30,
