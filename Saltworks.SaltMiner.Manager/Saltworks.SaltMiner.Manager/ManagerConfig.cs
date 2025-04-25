@@ -58,9 +58,13 @@ namespace Saltworks.SaltMiner.Manager
         public int SnapshotProcessorMaxErrors { get; set; } = 3;
         public int SnapshotProcessorErrorRetryDelaySec { get; set; } = 60;
         public int SnapshotProcessorApiBatchSize { get; set; } = 100;
-        public int CleanupQueueAfterDays { get; set; } = 1;
+        public int CleanupCompleteAfterHours { get; set; } = 48;
+        public int CleanupErrorAfterHours { get; set; } = 168;
+        public int CleanupProcessingAfterHours { get; set; } = 12;
+        public int CleanupLoadingAfterHours { get; set; } = 48;
         public int CleanupProcessorBatchSize { get; set; } = 500;
         public int CleanupProcessorBatchDelayMs { get; set; } = 0;
+        public int CleanupProcessorMaxTaskCount { get; set; } = 200;
         public int IssueProcessingBatchSize { get; set; } = 500;
         public string WebUiBaseUrl { get; set; }
         public string PublicLicenseKey { get; set; }

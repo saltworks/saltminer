@@ -135,16 +135,25 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                 {
                     request.Filter = new Filter()
                     {
-                        FilterMatches = new Dictionary<string, string>()
+                        FilterMatches = []
                     };
                 }
                 else if (request.Filter.FilterMatches == null)
                 {
-                    request.Filter.FilterMatches = new Dictionary<string, string>();
+                    request.Filter.FilterMatches = [];
                 }
             }
 
             return DataRepo.Search<QueueScan>(request, QueueScanIndex);
+        }
+
+        // Aggregates don't seem to support pagination.  Once they do, finish this and wire up for use with Manager Cleanup
+        public DataResponse<string> SearchForIdsByAggregate(bool assetNotIssue = true)
+        {
+            if (assetNotIssue)
+                return new(DataRepo.SingleGroupAggregation("Saltminer.Internal.QueueScanId", QueueAssetIndex, []).Select(r => r.Result.Key));
+            else
+                return new(DataRepo.SingleGroupAggregation("Saltminer.QueueScanId", QueueIssueIndex, []).Select(r => r.Result.Key));
         }
 
         public DataItemResponse<QueueScan> Get(string id)

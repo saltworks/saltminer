@@ -182,7 +182,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// Deletes multiple QueueScan entities by Id and all assets and issues associated with them.
         /// </summary>
         /// <param name="ids">List of queue scan IDs to remove</param>
-        /// <returns>Non data response</returns>
+        /// <returns>Non data response indicating the number of IDs attempted (results not guaranteed)</returns>
         /// <response code="200">Returns response indicating success</response>
         [Auth(Role.Admin, Role.Manager)]
         [ProducesResponseType(200, Type = typeof(NoDataResponse))]

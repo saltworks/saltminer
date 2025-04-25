@@ -699,6 +699,7 @@ namespace Saltworks.SaltMiner.Manager
                 getExistingIssues = false;
             }
 
+            // Gets a batch of queue issues for the current queue scan ID
             var queueScanIssuesResponse = GetQueueScanIssues(queueScan.Id);
             var queueScanIssues = queueScanIssuesResponse.Data;
             var lastQueueScanIssue = queueScanIssues.LastOrDefault();

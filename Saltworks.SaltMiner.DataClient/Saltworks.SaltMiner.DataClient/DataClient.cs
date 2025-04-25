@@ -216,7 +216,7 @@ namespace Saltworks.SaltMiner.DataClient
         {
             if (queueDocs.Any(q => q is not QueueScan && q is not QueueAsset && q is not QueueIssue))
                 throw new DataClientException("One or more queue documents passed are of the wrong type");
-            var rsp =  await CheckRetryAsync<BulkResponse>(async () =>
+            var rsp =  await CheckRetryAsync(async () =>
             {
                 var req = new QueueDataRequest()
                 {
@@ -253,7 +253,7 @@ namespace Saltworks.SaltMiner.DataClient
         /// <returns>BulkResponse with Count of successful inserts</returns>
         public async Task<BulkResponse> QueueScanAddUpdateBulkAsync(IEnumerable<QueueScan> queueScans)
         {
-            var rsp = await CheckRetryAsync<BulkResponse>(async() =>
+            var rsp = await CheckRetryAsync(async() =>
             {
                 return await ApiClient.PostAsync<BulkResponse>("queuescan/bulk", new DataRequest<QueueScan> { Documents = queueScans });
             });
@@ -265,9 +265,20 @@ namespace Saltworks.SaltMiner.DataClient
         /// </summary>
         /// <param name="searchRequest">Search request parameters</param>
         /// <returns>Response container including results and pagination info (if needed)</returns>
-        public DataResponse<QueueScan> QueueScanSearch(SearchRequest searchRequest)
+        public DataResponse<QueueScan> QueueScanSearch(SearchRequest searchRequest) => QueueScanSearchAsync(searchRequest).Result;
+
+        /// <summary>
+        /// Find QueueScan documents by criteria
+        /// </summary>
+        /// <param name="searchRequest">Search request parameters</param>
+        /// <returns>Response container including results and pagination info (if needed)</returns>
+        public async Task<DataResponse<QueueScan>> QueueScanSearchAsync(SearchRequest searchRequest)
         {
-            return CheckRetry(() => ApiClient.Post<DataResponse<QueueScan>>($"queuescan/search", searchRequest), true).Content;
+            var rsp = await CheckRetryAsync(async () =>
+            {
+                return await ApiClient.PostAsync<DataResponse<QueueScan>>("queuescan/search", searchRequest);
+            });
+            return rsp.Content;
         }
 
         /// <summary>
@@ -356,6 +367,27 @@ namespace Saltworks.SaltMiner.DataClient
         public NoDataResponse QueueScanDeleteAll(string queueScanId)
         {
             return CheckRetry(() => ApiClient.Delete<NoDataResponse>($"queuescan/all/{queueScanId}")).Content;
+        }
+
+        /// <summary>
+        /// Deletes QueueScans ID list, including all related QueueAssets and QueueIssues.
+        /// </summary>
+        /// <param name="idList">The QueueScan ID list to remove</param>
+        /// <returns>Response object indicating the number of queue scans removed</returns>
+        public NoDataResponse QueueScanDeleteAll(List<string> idList) => QueueScanDeleteAllAsync(idList).Result;
+
+        /// <summary>
+        /// Deletes QueueScans ID list, including all related QueueAssets and QueueIssues.
+        /// </summary>
+        /// <param name="idList">The QueueScan ID list to remove</param>
+        /// <returns>Response object indicating the number of queue scans removed</returns>
+        public async Task<NoDataResponse> QueueScanDeleteAllAsync(List<string> idList)
+        {
+            var rsp = await CheckRetryAsync(async () =>
+            {
+                return await ApiClient.PostAsync<NoDataResponse>("queuescan/all/deletelist", idList);
+            });
+            return rsp.Content;
         }
 
         /// <summary>
@@ -512,9 +544,21 @@ namespace Saltworks.SaltMiner.DataClient
         /// <param name="search">The filter request that defines the search parameters</param>
         /// <returns>The first set of results and scrolling/paging information</returns>
         /// <remarks>Pass in both request details and paging info to get the next set of results</remarks>
-        public DataResponse<QueueIssue> QueueIssueSearch(SearchRequest search)
+        public DataResponse<QueueIssue> QueueIssueSearch(SearchRequest search) => QueueIssueSearchAsync(search).Result;
+
+        /// <summary>
+        /// Searches for QueueIssues by filter(s)
+        /// </summary>
+        /// <param name="search">The filter request that defines the search parameters</param>
+        /// <returns>The first set of results and scrolling/paging information</returns>
+        /// <remarks>Pass in both request details and paging info to get the next set of results</remarks>
+        public async Task<DataResponse<QueueIssue>> QueueIssueSearchAsync(SearchRequest search)
         {
-            return CheckRetry(() => ApiClient.Post<DataResponse<QueueIssue>>($"queueissue/search", search), true).Content;
+            var rsp = await CheckRetryAsync(async () =>
+            {
+                return await ApiClient.PostAsync<DataResponse<QueueIssue>>($"queueissue/search", search);
+            });
+            return rsp.Content;
         }
 
         /// <summary>
@@ -610,9 +654,21 @@ namespace Saltworks.SaltMiner.DataClient
         /// <param name="search">The filter request that defines the search parameters</param>
         /// <returns>The first set of results and scrolling/paging information</returns>
         /// <remarks>Pass in both request details and paging info to get the next set of results</remarks>
-        public DataResponse<QueueAsset> QueueAssetSearch(SearchRequest search)
+        public DataResponse<QueueAsset> QueueAssetSearch(SearchRequest search) => QueueAssetSearchAsync(search).Result;
+
+        /// <summary>
+        /// Searches for Assets by filter(s)
+        /// </summary>
+        /// <param name="search">The filter request that defines the search parameters</param>
+        /// <returns>The first set of results and scrolling/paging information</returns>
+        /// <remarks>Pass in both request details and paging info to get the next set of results</remarks>
+        public async Task<DataResponse<QueueAsset>> QueueAssetSearchAsync(SearchRequest search)
         {
-            return CheckRetry(() => ApiClient.Post<DataResponse<QueueAsset>>($"queueasset/search", search), true).Content;
+            var rsp = await CheckRetryAsync(async () =>
+            {
+                return await ApiClient.PostAsync<DataResponse<QueueAsset>>($"queueasset/search", search);
+            });
+            return rsp.Content;
         }
 
         #endregion
@@ -1927,6 +1983,18 @@ namespace Saltworks.SaltMiner.DataClient
         {
             return CheckRetry(() => ApiClient.Get<NoDataResponse>($"utility/version")).Content;
         }
+
+        public NoDataResponse GetClusterTaskCount() => GetClusterTaskCountAsync().Result;
+
+        public async Task<NoDataResponse> GetClusterTaskCountAsync()
+        {
+            var rsp = await CheckRetryAsync(async () =>
+            {
+                return await ApiClient.GetAsync<NoDataResponse>("utility/tasks");
+            });
+            return rsp.Content;
+        }
+
 
         #endregion
 

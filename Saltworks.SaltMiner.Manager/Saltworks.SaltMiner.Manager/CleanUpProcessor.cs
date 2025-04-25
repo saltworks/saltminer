@@ -19,9 +19,10 @@ using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataClient;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
+using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.Manager;
 
@@ -31,23 +32,31 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
     private readonly DataClient.DataClient DataClient = dataClientFactory.GetClient();
     private readonly ManagerConfig Config = config;
     private CleanUpRuntimeConfig RunConfig;
+    private readonly ConcurrentQueue<string> DeleteQueue = new();
+    private readonly ConcurrentQueue<string> TaskQueue = [];
 
     /// <summary>
     /// Runs clean up processing for queue scans that have exceeded the maximum days as assigned
-    /// to the setting variable CleanupQueueAfterDays in config settings. Removes orphaned history scans
+    /// to the setting variables Cleanup[Status]AfterHours in config settings. Removes orphaned history scans
     /// if status is 'pending' and parent scan status is 'complete' or 'error'.
     /// </summary>
     /// <remarks>
-    /// Design decisions:
-    ///     1. Use separate search results for each queue scan end status, because we don't have a way to search for multiple term values yet
-    ///     2. Delete 1 at a time because we don't currently support batch deletes
-    ///     3. Use queue deletion instead of index removal via aging policy because we aren't building date tagged indices
-    /// If this utility ends up being too slow then we may need to add one or more search features or change the delete method
+    /// Design:
+    ///     1. Use async as much as possible and batch delete calls.
+    ///     2. Queue up queue scan IDs to be deleted, even if we expect no queue scan to exist.  Back end deletes all queue scans/assets/issues from this ID.
+    ///     3. Use queue deletion instead of index removal via aging policy because we aren't building date tagged indices.  Policy is based on status/age, not just age
+    ///     4. Don't remove Pentest Error/Loading/Processing queues
+    ///     5. Three phase run:
+    ///        a. Remove by queue status & aging settings
+    ///        b. Find and remove orphan queue assets and queue issues by queue asset search
+    ///        c. Find and remove orphan queue issues by queue issue search - this one must only be run once a & b are complete successfully
+    /// Future:
+    ///     1. Add aggregate search to get distinct queue scan for issues
     /// </remarks>
     public void Run(RuntimeConfig config)
     {
 
-        if (config is not CleanUpRuntimeConfig)
+        if (config is not CleanUpRuntimeConfig crunConfig)
         {
             throw new ArgumentException($"Expected type '{nameof(CleanUpRuntimeConfig)}', but passed value is '{config.GetType().Name}'", nameof(config));
         }
@@ -58,10 +67,25 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
 
         try
         {
-            CleanUpOrphanedHistoryScans();
-            CleanUpScansByStatus(QueueScan.QueueScanStatus.Complete);
-            CleanUpScansByStatus(QueueScan.QueueScanStatus.Error);
-            CleanUpScansByStatus(QueueScan.QueueScanStatus.Cancel);
+            // Remove by status and aging settings
+            Task.WaitAll(
+                GetByStatusAsync(QueueScan.QueueScanStatus.Complete),
+                GetByStatusAsync(QueueScan.QueueScanStatus.Error),
+                GetByStatusAsync(QueueScan.QueueScanStatus.Processing),
+                GetByStatusAsync(QueueScan.QueueScanStatus.Loading),
+                GetByStatusAsync(QueueScan.QueueScanStatus.Cancel),
+                ProcessQueueAsync(crunConfig)
+            );
+            // Remove orphan queue assets and queue issues by queue asset search
+            Task.WaitAll(
+                GetByAssetOrphanAsync(),
+                ProcessQueueAsync(crunConfig)
+            );
+            // Remove orphan queue issues by queue issue search
+            Task.WaitAll(
+                GetByIssueOrphanAsync(),
+                ProcessQueueAsync(crunConfig)
+            );
         }
         catch (CancelTokenException)
         {
@@ -74,147 +98,290 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
         }
     }
 
-    private void CleanUpOrphanedHistoryScans()
+    #region Orphans
+
+    private async Task<int> FindOrphansAsync(List<string> idList)
     {
-        var queueScanRequest = new SearchRequest()
+        var counter = 0;
+        if (idList.Count > 10000)
+            throw new ArgumentOutOfRangeException(nameof(idList), "Must be less than 10000 IDs in list");
+        var srch = new SearchRequest()
         {
             Filter = new()
             {
-                FilterMatches = new Dictionary<string, string>()
+                FilterMatches = new()
                 {
-                    { "Saltminer.Internal.QueueStatus", QueueScan.QueueScanStatus.Pending.ToString("g")},
-                    { "Saltminer.Internal.CurrentQueueScanId", SaltMiner.DataClient.Helpers.BuildMustExistsFilterValue() }
-                },
-                AnyMatch = false
+                    { "Id", SaltMiner.DataClient.Helpers.BuildTermsFilterValue(idList) }
+                }
             },
-            PitPagingInfo = new PitPagingInfo(Config.CleanupProcessorBatchSize, false)
+            UIPagingInfo = new(10000)
         };
-        if (!string.IsNullOrEmpty(RunConfig.SourceType))
+        var rsp = await DataClient.QueueScanSearchAsync(srch);
+        if (!rsp.Success)
+            throw new ManagerException("Failed to search for orphan queue assets (queue scan lookup): " + rsp.Message);
+        foreach (var qs in rsp.Data)
+            if (idList.Contains(qs.Id))
+                idList.Remove(qs.Id);
+        // remaining IDs are the orphans
+        foreach (var id in idList)
         {
-            queueScanRequest.Filter.FilterMatches.Add("Saltminer.Scan.SourceType", RunConfig.SourceType);
+            DeleteQueue.Enqueue(id);
+            counter++;
         }
-
-        var count = 0;
-        IEnumerable<QueueScan> pendingHistoryScans = DataClient.QueueScanSearch(queueScanRequest).Data;
-        do
-        {
-            if (!pendingHistoryScans.Any())
-            {
-                break;
-            }
-
-            foreach (var historyScan in pendingHistoryScans)
-            {
-                CheckCancel();
-
-                var removeOrphan = false;
-
-                QueueScan parentScan = null;
-                try
-                {
-                    parentScan = DataClient.QueueScanGet(historyScan.Saltminer.Internal.CurrentQueueScanId).Data;
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError(ex, "Could not find scan {Scanid} for history scan {HistoryScanId}.", historyScan.Saltminer.Internal.CurrentQueueScanId, historyScan.Id);
-                }
-                
-                if (parentScan == null)
-                {
-                    removeOrphan = true;
-                }
-
-                if (parentScan != null && 
-                        (parentScan.Saltminer.Internal.QueueStatus == QueueScan.QueueScanStatus.Complete.ToString("g") ||
-                        parentScan.Saltminer.Internal.QueueStatus == QueueScan.QueueScanStatus.Error.ToString("g"))
-                )
-                {
-                    removeOrphan = true;
-
-                    // shouldn't have a pending history scan and a parent with complete status - indicates manager bug - critical
-                    if (parentScan.Saltminer.Internal.QueueStatus == QueueScan.QueueScanStatus.Complete.ToString("g"))
-                    {
-                        Logger.LogCritical("Scan {ScanId} has a status of 'complete' with a history scan of 'pending'. This is a critical bug in Manager.", parentScan.Id);
-                    }
-                }
-
-                if (removeOrphan)
-                {
-                    count++;
-                    Logger.LogInformation("Pending history scan {ScanId} will be removed.", historyScan.Id);
-                    if (!RunConfig.ListOnly)
-                    {
-                        DataClient.QueueScanDeleteAll(historyScan.Id);
-                    }
-                }
-            }
-
-            DataClient.RefreshIndex(QueueScan.GenerateIndex());
-
-            if (Config.CleanupProcessorBatchDelayMs > 0)
-            {
-                Thread.Sleep(Config.CleanupProcessorBatchDelayMs);
-            }
-
-            pendingHistoryScans = DataClient.QueueScanSearch(queueScanRequest).Data;
-
-        } while (pendingHistoryScans.Any());
-
-        Logger.LogInformation("{count} pending history scans removed", count);
+        return counter;
     }
 
-    private void CleanUpScansByStatus(QueueScan.QueueScanStatus queueStatus)
+    private async Task GetByAssetOrphanAsync()
     {
-        var queueScanRequest = new SearchRequest()
+        TaskQueue.Enqueue(Guid.NewGuid().ToString());
+        try
+        {
+            var maxloops = 25000;
+            var curloops = 0;
+            var counter = 0;
+            var asrch = new SearchRequest()
+            {
+                Filter = new()
+                {
+                    FilterMatches = []
+                },
+                UIPagingInfo = new(10000)
+                {
+                    SortFilters = new() { { "Saltminer.Internal.QueueScanId", true } }
+                }
+            };
+            // Filter to passed source type if appropriate
+            if (!string.IsNullOrEmpty(RunConfig.SourceType))
+                asrch.Filter.FilterMatches.Add("Saltminer.Scan.SourceType", RunConfig.SourceType);
+
+            while (curloops < maxloops)
+            {
+                curloops++;
+                List<string> qsIds = [];
+                var rsp = await DataClient.QueueAssetSearchAsync(asrch);
+                if (!rsp.Success)
+                    break;
+                foreach (var qs in rsp.Data)
+                {
+                    if (qsIds.Contains(qs.Saltminer.Internal.QueueScanId))
+                        continue;
+                    qsIds.Add(qs.Saltminer.Internal.QueueScanId);
+                }
+                rsp.UIPagingInfo.Page++;
+                counter += await FindOrphansAsync(qsIds);
+                if (rsp.UIPagingInfo.TotalPages > 0 && rsp.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
+                    break;
+            }
+            if (curloops >= maxloops)
+                throw new ManagerException($"Max loops exceeded when searching for queue asset orphans - possible hang bug detected.");
+            CheckCancel(true);
+            Logger.LogInformation("[GetByOrphan] Found a total of {Count} orphaned queue asset scan IDs that can be removed", counter);
+        }
+        finally
+        {
+            if (!TaskQueue.TryDequeue(out _))
+                Logger.LogError("Failed to de-queue GetByAssetOrphan task");
+        }
+    }
+
+    private async Task GetByIssueOrphanAsync()
+    {
+        TaskQueue.Enqueue(Guid.NewGuid().ToString());
+        try
+        {
+            var maxloops = 25000;
+            var curloops = 0;
+            var counter = 0;
+            var asrch = new SearchRequest()
+            {
+                Filter = new()
+                {
+                    FilterMatches = []
+                },
+                UIPagingInfo = new(10000)
+                {
+                    SortFilters = new() { { "Saltminer.QueueScanId", true } }
+                }
+            };
+            // Filter to passed source type if appropriate - this will cause issue orphan search to find no matches, which is fine
+            if (!string.IsNullOrEmpty(RunConfig.SourceType))
+                asrch.Filter.FilterMatches.Add("Saltminer.Scan.SourceType", RunConfig.SourceType);
+
+            while (curloops < maxloops)
+            {
+                curloops++;
+                List<string> qsIds = [];
+                var rsp = await DataClient.QueueIssueSearchAsync(asrch);
+                if (!rsp.Success)
+                    break;
+                foreach (var qs in rsp.Data)
+                {
+                    if (qsIds.Contains(qs.Saltminer.QueueScanId))
+                        continue;
+                    qsIds.Add(qs.Saltminer.QueueScanId);
+                }
+                rsp.UIPagingInfo.Page++;
+                counter += await FindOrphansAsync(qsIds);
+                if (rsp.UIPagingInfo.TotalPages > 0 && rsp.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
+                    break;
+            }
+            if (curloops >= maxloops)
+                throw new ManagerException($"Max loops exceeded when searching for queue issue orphans - possible hang bug detected.");
+            CheckCancel(true);
+            Logger.LogInformation("[GetByOrphan] Found a total of {Count} orphaned queue issue scan IDs that can be removed", counter);
+        }
+        finally
+        {
+            if (!TaskQueue.TryDequeue(out _))
+                Logger.LogError($"Failed to de-queue GetByAssetOrphan task)");
+        }
+    }
+
+    #endregion
+
+    #region Status
+
+    private async Task GetByStatusAsync(QueueScan.QueueScanStatus status)
+    {
+        TaskQueue.Enqueue(Guid.NewGuid().ToString());
+        var maxloops = 25000;
+        var curloops = 0;
+        var counter = 0;
+        var now = DateTime.UtcNow;
+        var hrs = status switch
+        {
+            QueueScan.QueueScanStatus.Complete => Config.CleanupCompleteAfterHours,
+            QueueScan.QueueScanStatus.Cancel => Config.CleanupCompleteAfterHours,
+            QueueScan.QueueScanStatus.Processing => Config.CleanupProcessingAfterHours,
+            QueueScan.QueueScanStatus.Loading => Config.CleanupLoadingAfterHours,
+            QueueScan.QueueScanStatus.Error => Config.CleanupErrorAfterHours,
+            _ => throw new NotImplementedException($"Status {status:g} not supported"),
+        };
+        // Left out Saltminer.Internal.CurrentQueueScanId on purpose - include history scans in results
+        var srch = new SearchRequest()
         {
             Filter = new()
             {
-                FilterMatches = new Dictionary<string, string>()
+                FilterMatches = new()
                 {
-                    { "Saltminer.Internal.QueueStatus", queueStatus.ToString("g")},
-                    { "Saltminer.Scan.ScanDate", SaltMiner.DataClient.Helpers.BuildLessThanFilterValue($"{DateTime.Now.AddDays(-1 * Config.CleanupQueueAfterDays).ToString("yyyy-MM-dd")}") }
+                    { "Saltminer.Internal.QueueStatus", status.ToString("g") },
+                    { "LastUpdated", SaltMiner.DataClient.Helpers.BuildLessThanFilterValue(now.AddHours(-hrs).ToString("o")) }
                 },
                 AnyMatch = false
             },
-            PitPagingInfo = new PitPagingInfo(Config.CleanupProcessorBatchSize, false)
+            UIPagingInfo = new(Config.CleanupProcessorBatchSize)
         };
+        // Don't remove PenTest unless complete or cancel
+        if (status != QueueScan.QueueScanStatus.Complete && status != QueueScan.QueueScanStatus.Cancel)
+            srch.Filter.FilterMatches.Add("Saltminer.Engagment.Id", SaltMiner.DataClient.Helpers.BuildMustNotExistsFilterValue());
+        // Filter to passed source type if appropriate
         if (!string.IsNullOrEmpty(RunConfig.SourceType))
-        {
-            queueScanRequest.Filter.FilterMatches.Add("Saltminer.Scan.SourceType", RunConfig.SourceType);
-        }
+            srch.Filter.FilterMatches.Add("Saltminer.Scan.SourceType", RunConfig.SourceType);
 
-        var count = 0;
-        IEnumerable<QueueScan> outdatedQueueScans = DataClient.QueueScanSearch(queueScanRequest).Data;
-        do
+        while (curloops < maxloops)
         {
-            if (!outdatedQueueScans.Any())
-            {
+            curloops++;
+            var rsp = await DataClient.QueueScanSearchAsync(srch);
+            if (!rsp.Success)
                 break;
-            }
-
-            foreach (var queueScan in outdatedQueueScans)
+            foreach (var qs in rsp.Data)
             {
-                CheckCancel();
-                if (!RunConfig.ListOnly)
+                DeleteQueue.Enqueue(qs.Id);
+                counter++;
+            }
+            rsp.UIPagingInfo.Page++;
+            if (rsp.UIPagingInfo.TotalPages > 0 && rsp.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
+                break;
+        }
+        if (curloops >= maxloops)
+            throw new ManagerException($"Max loops exceeded when searching for queue scans by status '{status:g}' - possible hang bug detected.");
+        CheckCancel(true);
+        Logger.LogInformation("[GetByStatus] Found a total of {Count} queue scans with status '{Status}' that can be removed", counter, status.ToString("g"));
+        if (!TaskQueue.TryDequeue(out _))
+            throw new ManagerException($"Failed to de-queue GetByStatus task ({status:g})");
+    }
+
+    #endregion
+
+    #region Process Em
+
+    private async Task ProcessQueueAsync(CleanUpRuntimeConfig runConfig)
+    {
+        var startingTaskCount = await GetTaskCountAsync();
+        var counter = 0L;
+        await Task.Delay(5000); // make sure other tasks get started first
+        while (!TaskQueue.IsEmpty)
+        {
+            CheckCancel(true);
+            // Wait for empty queue in GetDeleteListBatchAsync()
+            var lst = await GetDeleteListBatchAsync(Config.CleanupProcessorBatchSize);
+            if (lst.Any())
+            {
+                if ((runConfig?.Limit ?? 0) > 0 && counter >= runConfig.Limit)
                 {
-                    DataClient.QueueScanDeleteAll(queueScan.Id);
+                    Logger.LogInformation("[ProcessQueue] Limit of {Limit} reached or exceeded, stopping execution.", runConfig.Limit);
+                    throw new CancelTokenException("Configured limit reached.");
+                }
+                var taskWaitCycles = 0;
+                while ((await GetTaskCountAsync()) > startingTaskCount + Config.CleanupProcessorMaxTaskCount && taskWaitCycles < 360)
+                {
+                    Logger.LogInformation("[ProcessQueue] Waiting for Elasticsearch tasks to complete (10 sec delay)...");
+                    await Task.Delay(10000);
+                    taskWaitCycles++;
+                    if (taskWaitCycles == 360)
+                        throw new ManagerException("Processing failure, Elasticsearch task count remained above threshold (Config.CleanupProcessorMaxTaskCount) for too long.");
+                }
+                if (runConfig.ListOnly)
+                {
+                    Logger.LogInformation("[ProcessQueue] ListOnly set, {Count} queue scan(s) would be deleted...", lst.Count());
+                    continue;
+                }
+                var rsp = await DataClient.QueueScanDeleteAllAsync([.. lst]);
+                if (rsp.Success)
+                {
+                    Logger.LogInformation("[ProcessQueue] removed {Count} queue scan(s).", rsp.Affected);
+                    counter += rsp.Affected;
+                }
+                else
+                {
+                    Logger.LogError("[ProcessQueue] failed to remove queue scan(s), see logs for more detail.");
                 }
             }
-
-            count += Config.CleanupProcessorBatchSize;
-            
-            Logger.LogInformation("{count} queue(s) with status '{status}' removed", count, queueStatus.ToString("g"));
-            DataClient.RefreshIndex(QueueScan.GenerateIndex());
-            
-            if (Config.CleanupProcessorBatchDelayMs > 0)
-            {
-                Thread.Sleep(Config.CleanupProcessorBatchDelayMs);
-            }
-
-            outdatedQueueScans = DataClient.QueueScanSearch(queueScanRequest).Data;
-
-        } while (outdatedQueueScans.Any());
+        }
     }
+
+    private async Task<IEnumerable<string>> GetDeleteListBatchAsync(int size)
+    {
+        var lst = new List<string>();
+        while (lst.Count < size && !TaskQueue.IsEmpty)
+        {
+            while (DeleteQueue.IsEmpty && !TaskQueue.IsEmpty)
+            {
+                Logger.LogDebug("[ProcessQueue] GetDeleteListBatch - waiting 2 sec, empty queue...");
+                await Task.Delay(2000);
+            }
+            if (DeleteQueue.TryDequeue(out var id))
+                lst.Add(id);
+            CheckCancel(true);
+        }
+        return lst;
+    }
+
+    private async Task<long> GetTaskCountAsync()
+    {
+        var retries = 0;
+        while (retries < 3)
+        {
+            var rsp = await DataClient.GetClusterTaskCountAsync();
+            if (rsp.Success)
+                return rsp.Affected;
+            retries++;
+            await Task.Delay(1000); // if failed, wait a sec before trying again
+        }
+        throw new ManagerException("Failed to get count of running tasks from Elasticsearch");
+    }
+
+    #endregion
 
     private void CheckCancel(bool readyToAbort = true)
     {

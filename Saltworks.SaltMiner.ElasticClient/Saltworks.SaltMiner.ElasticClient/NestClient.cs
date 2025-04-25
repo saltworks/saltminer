@@ -1288,7 +1288,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         {
             if (kvp.Value.Contains("||"))
             {
-                if (kvp.Value.Contains(">") || kvp.Value.Contains("<"))
+                if (kvp.Value.Contains('>') || kvp.Value.Contains('<'))
                 {
                     var query = new TermRangeQuery
                     {
@@ -1320,17 +1320,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
                 }
                 else
                 {
-                    if (kvp.Value.Contains("-"))
-                    {
-                        var dates = kvp.Value.Split("||");
-                        queries.Add(new DateRangeQuery
-                        {
-                            Field = kvp.Key.ToSnakeCase(),
-                            GreaterThanOrEqualTo = dates[0],
-                            LessThan = dates[1],
-                        });
-                    }
-                    else if (kvp.Value.Contains("||+"))
+                    if (kvp.Value.Contains("||+"))
                     {
                         var values = kvp.Value.Split("||+");
                         queries.Add(new TermsQuery
@@ -1348,6 +1338,16 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
                             Field = kvp.Key.ToSnakeCase(),
                             Terms = values
 
+                        });
+                    }
+                    else if (kvp.Value.Contains('-'))
+                    {
+                        var dates = kvp.Value.Split("||");
+                        queries.Add(new DateRangeQuery
+                        {
+                            Field = kvp.Key.ToSnakeCase(),
+                            GreaterThanOrEqualTo = dates[0],
+                            LessThan = dates[1],
                         });
                     }
                 }
