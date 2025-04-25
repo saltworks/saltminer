@@ -68,7 +68,7 @@ jobs:
 
     - name: Run Unit Tests
       run: |
-        for project in $(find . -type f -name '*UnitTest*.csproj'); do
+        for project in $(find ${{env.work-dir}} -type f -name '*UnitTest*.csproj'); do
           echo "Running tests for $project"
           dotnet test "$project"
         done
