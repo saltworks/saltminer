@@ -14,7 +14,8 @@
  * ----
  */
 
-﻿using Saltworks.SaltMiner.Core.Util;
+using Saltworks.SaltMiner.Core.Entities;
+using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.UiApiClient.Helpers;
 
 namespace Saltworks.SaltMiner.UiApiClient.ViewModels
@@ -23,5 +24,6 @@ namespace Saltworks.SaltMiner.UiApiClient.ViewModels
     {
         public List<ServiceJobType> ServiceJobTypes { get; set; }
         public List<FieldFilter> SearchFilters { get; set; }
+        public List<LookupValue> ServiceJobCommandDropdowns { get; set; }
     }
 }

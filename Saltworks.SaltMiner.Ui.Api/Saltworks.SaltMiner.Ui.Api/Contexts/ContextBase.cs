@@ -76,6 +76,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
         protected List<LookupValue> SeverityDropdowns => Lookups?.Find(x => x.Type == LookupType.SeverityDropdown.ToString())?.Values ?? [];
         protected List<LookupValue> TestedDropdowns => GetTestedList(Lookups?.Find(x => x.Type == LookupType.TestedDropdown.ToString()));
         protected List<LookupValue> SubtypeDropdowns => Lookups?.Find(x => x.Type == LookupType.EngagementSubTypeDropdown.ToString())?.Values ?? [];
+        protected List<LookupValue> ServiceJobCommandDropdowns => Lookups?.Find(x => x.Type == LookupType.ServiceJobCommandOptions.ToString())?.Values ?? [];
 
         protected List<AttributeDefinition> AllAttributeDefinitions => FieldInfoCache.GetAttributeDefinitions(DataClient) ?? [];
         protected List<ActionDefinition> AllActionDefinitions => FieldInfoCache.GetActionDefinitions(DataClient) ?? [];

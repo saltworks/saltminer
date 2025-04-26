@@ -645,7 +645,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             var result = new ServiceJobPrimer()
             {
                 ServiceJobTypes = Enum.GetValues(typeof(ServiceJobType)).Cast<ServiceJobType>().ToList(),
-                SearchFilters = ServiceJobSearchDisplays
+                SearchFilters = ServiceJobSearchDisplays,
+                ServiceJobCommandDropdowns = ServiceJobCommandDropdowns
             };
 
             return new UiDataItemResponse<ServiceJobPrimer>(result);
