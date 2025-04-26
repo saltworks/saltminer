@@ -528,7 +528,6 @@ export default {
 
       this.selectedJob.schedule = this.cronExpression ?? '';
 
-      alert(JSON.stringify(this.selectedJob))
       return this.$axios
         .$post(`${this.$store.state.config.api_url}/admin/servicejob`, JSON.stringify(this.selectedJob), {
           headers: {
