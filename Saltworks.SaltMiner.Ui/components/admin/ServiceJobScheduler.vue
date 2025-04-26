@@ -185,39 +185,48 @@
         <CronEditorComponent v-model="cronExpression"/>
       </div>
 
-      <div class="extraRoom">
-        <ButtonComponent
-          label="Save"
-          theme="primary"
-          size="medium"
-          @button-clicked="handleEditSave"
-        />
-        <div v-show="selectedJob != null && selectedJob.disabled === false">
-        <ButtonComponent
-            label="Disable"
-            theme="danger"
+      <div style="color:red">{{ this.getJobError() }}</div>
+
+        <div class="extraRoom">
+          <ButtonComponent
+            label="Save"
+            theme="primary"
             size="medium"
-            @button-clicked="handleDisable"
-            />
-        </div>
-        <div v-show="selectedJob != null && selectedJob.disabled === true">
+            @button-clicked="handleEditSave"
+          />
+          <div v-show="selectedJob != null && selectedJob.disabled === false">
             <ButtonComponent
-            label="Enable"
-            theme="primary"
-            size="medium"
-            @button-clicked="handleEnable"
+              label="Disable"
+              theme="danger"
+              size="medium"
+              @button-clicked="handleDisable"
             />
-        </div>
-        <div>
-        <ButtonComponent
-            label="Run"
-            theme="primary"
-            size="medium"
-            :disabled="selectedJob != null && selectedJob.disabled === true"
-            @button-clicked="handleRunNow"
+          </div>
+          <div v-show="selectedJob != null && selectedJob.disabled === true">
+            <ButtonComponent
+              label="Enable"
+              theme="primary"
+              size="medium"
+              @button-clicked="handleEnable"
             />
-        </div>
-        
+          </div>
+          <div>
+            <ButtonComponent
+              label="Run"
+              theme="primary"
+              size="medium"
+              :disabled="selectedJob != null && selectedJob.disabled === true"
+              @button-clicked="handleRunNow"
+            />
+          </div>
+          <div>
+            <ButtonComponent
+              label="Cancel Job"
+              theme="primary"
+              size="medium"
+              @button-clicked="handleCancelJob"
+            />
+          </div>
       </div>
 
     </SlideModal>
@@ -426,6 +435,10 @@ export default {
       this.selectedJob.runNow = true;
       this.handleEditSave();
     },
+    handleCancelJob() {
+      this.selectedJob.cancel = true;
+      this.handleEditSave();
+    },
     handleInput(field, value) {
       this.selectedJob[field] = value
     },
@@ -525,7 +538,7 @@ export default {
       if (!this.validateJob()) {
         return;
       }
-
+      this.selectedJob.lastRunTime = this.servicejob.find(item => item.id === this.selectedJob.id).lastRunTime;
       this.selectedJob.schedule = this.cronExpression ?? '';
       return this.$axios
         .$post(`${this.$store.state.config.api_url}/admin/servicejob`, JSON.stringify(this.selectedJob), {
@@ -572,15 +585,24 @@ export default {
           this.handleErrorResponse(error, "Error Removing Service Job(s)")
         })
     },
+    getJobError() {
+      const err = this.servicejob.find(item => item.id === this.selectedJob.id)
+      return err?.message || ''
+    },
     initNewJob() {
       this.selectedJob = {
         "name": "",
         "description": "",
-        "type" : "Command", // only have the one type so hard-code for now
-        "option" : "",
-        "parameters" : "",
-        "runNow" : false,
-        "disabled" : false
+        "type": "Command", // only have the one type so hard-code for now
+        "option": "",
+        "parameters": "",
+        "runNow": false,
+        "disabled": false,
+        "cancel": false,
+        "lastRunTime": "",
+        "nextRunTime": "",
+        "message": "",
+        "status": ""
       }
     },
     handleAdd() {
