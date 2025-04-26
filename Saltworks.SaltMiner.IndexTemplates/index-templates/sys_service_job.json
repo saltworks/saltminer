@@ -59,6 +59,9 @@
         },
         "message": {
           "type": "keyword"
+        },
+        "cancel": {
+          "type": "boolean"
         }
       }
     }
