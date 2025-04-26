@@ -224,5 +224,43 @@
     "timestamp": "2022-08-12T00:00:00.000000Z",
     "last_updated": "2022-08-12T00:00:00.000000Z",
     "id": "00000000-0000-0000-0000-000000000007"
+  },
+  {
+    "type": "ServiceJobCommandOptions",
+    "values": [
+      {
+        "display": "Manager",
+        "value": "Manager",
+        "order": 1
+      },
+      {
+        "display": "Job Manager",
+        "value": "JobManager",
+        "order": 2
+      },
+      {
+        "display": "Sync Agent",
+        "value": "SyncAgent",
+        "order": 3
+      },
+      {
+        "display": "Data Api",
+        "value": "Api",
+        "order": 4
+      },
+      {
+        "display": "Ui Api",
+        "value": "Ui-Api",
+        "order": 5
+      },
+      {
+        "display": "Service Manager",
+        "value": "ServiceManager",
+        "order": 6
+      }
+    ],
+    "timestamp": "2022-08-12T00:00:00.000000Z",
+    "last_updated": "2022-08-12T00:00:00.000000Z",
+    "id": "00000000-0000-0000-0000-000000000008"
   }
 ]
