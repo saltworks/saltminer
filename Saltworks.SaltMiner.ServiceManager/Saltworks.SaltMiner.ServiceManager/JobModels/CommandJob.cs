@@ -196,7 +196,7 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
                                 try
                                 {
                                     process.Kill();
-                                    Logger.LogWarning("KILLED THE PROCES!!!");
+                                    Logger.LogInformation("[CommandJob] The job {Job} was cancelled.", context.JobDetail.Key.Name);
                                     break;
                                 }
                                 catch (Exception ex)
