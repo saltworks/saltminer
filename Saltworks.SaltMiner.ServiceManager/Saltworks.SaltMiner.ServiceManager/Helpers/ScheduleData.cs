@@ -28,7 +28,6 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
     {
         private readonly ILogger Logger;
         private readonly DataClient.DataClient DataClient;
-        private const string RunOneTimeKey = "RunOneTime-";
         private readonly IJobStatusService JobStatusService;
 
         public ScheduleData
@@ -76,6 +75,14 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
                     var jobKey = new JobKey(key);
                     var jobStatus = JobStatusService.GetStatus(jobKey.Name);
 
+                    if(job.Cancel)
+                    {
+                        job.Cancel = false;
+                        job.Status = ServiceJobStatus.Ready.ToString("g");
+                        DataClient.ServiceJobAddUpdate(job);
+                        await scheduler.Interrupt(jobKey);
+                    }
+
                     if (job.Disabled)
                     {
                         if (await scheduler.CheckExists(jobKey, cancelToken))
@@ -93,7 +100,11 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
                     {
                         job.RunNow = false;
                         DataClient.ServiceJobAddUpdate(job);
-                        await CommandJob.AddOneTimeCommand(scheduler, job.Name, job.Option, $"{RunOneTimeKey}{job.Id}", job.Parameters);
+                        await scheduler.TriggerJob(jobKey, new()
+                        {
+                            { "serviceJobName", job.Name }
+                        },cancelToken);
+
                         Logger.LogInformation("The {JobName} job is scheduled to run immediately.", job.Name);
                     }
 
@@ -173,12 +184,8 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
                     var excludedJobs = scheduledJobKeys.Where(x => !queueJobKeys.Exists(y => y.Name == x.Name) && x.Name != heartbeatJobKey.Name && x.Name != monitoringJobKey.Name);
                     foreach (var excludedJob in excludedJobs)
                     {
-                        // do not log when a temporary "runnow" - it is understood that it is temp and being removed
-                        if (!excludedJob.Name.Contains(RunOneTimeKey))
-                        {
-                            Logger.LogInformation("Job {ExcludedJobName} as been deleted from service jobs. Removing from scheduler", excludedJob.Name);
-                        }
-                        
+                        Logger.LogInformation("Job {ExcludedJobName} as been deleted from service jobs. Removing from scheduler", excludedJob.Name);
+
                         jobCount--;
                         try
                         {

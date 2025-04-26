@@ -81,7 +81,7 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error trying to create an event log for job key '{application}|{jobId}' and service job name {jobName}.", application, serviceJobId, serviceJobName);
+                Logger.LogError(ex, "Error trying to create an event log for job key '{Application}|{JobId}' and service job name {JobName}.", application, serviceJobId, serviceJobName);
             }
         }
     }

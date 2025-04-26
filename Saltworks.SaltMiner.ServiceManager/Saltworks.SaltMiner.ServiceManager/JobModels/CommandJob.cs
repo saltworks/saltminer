@@ -73,8 +73,6 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
                     throw new ServiceManagerException($"Invalid job definition, missing id field.");
                 }
 
-                var jobStatusService = JobStatusService.GetStatus(context.JobDetail.Key.Name);
-
                 var cmdParams = CommandParams;
 
                 if (jobName == "ServiceManager")
@@ -107,7 +105,7 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
                         Config.AllowedExecutables[jobName];
 
                 var exePath = appExePath;
-                
+
                 // If .dll then need to call dotnet as the command (Linux), otherwise call exePath directly (Win exe, python, script, etc.)
                 if (appExePath.EndsWith("dll"))
                 {
@@ -189,7 +187,30 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
                     process.BeginOutputReadLine();
                     process.BeginErrorReadLine();
 
+                    var cancellationMonitorTask = Task.Run(() =>
+                    {
+                        while (!process.HasExited)
+                        {
+                            if (context.CancellationToken.IsCancellationRequested)
+                            {
+                                try
+                                {
+                                    process.Kill();
+                                    Logger.LogWarning("KILLED THE PROCES!!!");
+                                    break;
+                                }
+                                catch (Exception ex)
+                                {
+                                    Logger.LogError(ex, "[CommandJob] Error while trying to kill the job {JobName}. Error message: {ErrMsg}", context.JobDetail.Key.Name, ex.Message);
+                                }
+                            }
+
+                            Thread.Sleep(500);
+                        }
+                    });
+
                     await process.WaitForExitAsync(context.CancellationToken);
+                    await cancellationMonitorTask;
 
                     var isErr = false;
                     var combinedMsg = string.Empty;
@@ -227,6 +248,11 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
                         Logger.LogInformation("[CommandJob] Job {JobName} output: {Output}", context.JobDetail.Key.Name, combinedMsg.TrimEnd());
                     }
                 }
+            }
+            catch (OperationCanceledException ex)
+            {
+                EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.Error, LogSeverity.Error, ex.Message, "failure");
+                Logger.LogError(ex, "[CommandJob] OperationCanceledException in Execute for job key '{Id}': {Msg}", jobKey, ex.Message);
             }
             catch (JobExecutionException ex)
             {
