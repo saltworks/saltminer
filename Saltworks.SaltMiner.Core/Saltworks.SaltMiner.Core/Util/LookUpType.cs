@@ -37,6 +37,8 @@ namespace Saltworks.SaltMiner.Core.Util
         [Description("Engagement SubType Dropdown")]
         EngagementSubTypeDropdown,
         [Description("Report Template Dropdown")]
-        ReportTemplateDropdown
+        ReportTemplateDropdown,
+        [Description("Service Job Command Options")]
+        ServiceJobCommandOptions
     }
 }
