@@ -76,16 +76,14 @@
         />
       </div>
 
-      <div id="job-option" class="input-flex">
-        <FormLabel class="input-label" label="Option" />
-        <InputText
-          reff="txtJobOption"
-          class="text-field_asset btm-input"
-          placeholder="Enter Option"
-          :value="selectedJob && selectedJob.option || ''"
-          @update="(val) => handleInput('option', val)"
-        />
-      </div>
+      <DropdownControl
+        theme="outline"
+        label="Option"
+        reff="txtJobOption"
+        :options="optionsDropdown"
+        :value="selectedJob && selectedJob.option || ''"
+        @update="(val) => handleInput('option', val.value)"
+      />
 
       <div id="job-parameters" class="input-flex">
         <FormLabel class="input-label" label="Parameters" />
@@ -150,16 +148,14 @@
         />
       </div>
 
-      <div id="job-option" class="input-flex">
-        <FormLabel class="input-label" label="Option" />
-        <InputText
-          reff="txtJobOption"
-          class="text-field_asset btm-input"
-          placeholder="Enter Option"
-          :value="selectedJob && selectedJob.option || ''"
-          @update="(val) => handleInput('option', val)"
-        />
-      </div>
+      <DropdownControl
+        theme="outline"
+        label="Option"
+        reff="txtJobOption"
+        :options="optionsDropdown"
+        :value="selectedJob && selectedJob.option || ''"
+        @update="(val) => handleInput('option', val.value)"
+      />
 
       <div id="job-parameters" class="input-flex">
         <FormLabel class="input-label" label="Parameters" />
@@ -278,12 +274,11 @@ export default {
       editServiceJob: {},
       toggleAdd: false,
       toggleEdit: false,
-      availableServiceJobFields: [],
       newField: '',
       newHidden: false,
       newDefault: '',
       checkedRows: [],
-      severityDropdown: [],
+      optionsDropdown: [],
       alert: {
         messages: [],
         type: "",
@@ -474,6 +469,20 @@ export default {
                 field: facet.field.toLowerCase(),
               }
             }) || []
+
+          this.optionsDropdown =
+            r.data?.serviceJobCommandDropdowns
+              .map((option) => {
+                return {
+                  ...option,
+                  display: option.display,
+                  value: option.value
+                  // selected: option.value === r.data?.issue.assetId
+                }
+              })
+              .sort((a, b) => {
+                return ((a, b) => (a.order || 0) - (b.order || 0))
+              }) || []
         })
         .catch((error) => {
           this.handleErrorResponse(error, "Error Getting Service Jobs")
@@ -518,6 +527,8 @@ export default {
       }
 
       this.selectedJob.schedule = this.cronExpression ?? '';
+
+      alert(JSON.stringify(this.selectedJob))
       return this.$axios
         .$post(`${this.$store.state.config.api_url}/admin/servicejob`, JSON.stringify(this.selectedJob), {
           headers: {
@@ -594,13 +605,12 @@ export default {
         "name": "",
         "description": "",
         "type": "Command", // only have the one type so hard-code for now
-        "option": "",
+        "option": this.optionsDropdown[0].value,
         "parameters": "",
         "runNow": false,
         "disabled": false,
         "cancel": false,
-        "lastRunTime": "",
-        "nextRunTime": "",
+
         "message": "",
         "status": ""
       }
