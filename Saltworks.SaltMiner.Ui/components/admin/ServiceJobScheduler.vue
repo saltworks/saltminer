@@ -181,7 +181,7 @@
         <CronEditorComponent v-model="cronExpression"/>
       </div>
 
-      <div style="color:red">{{ this.getJobError() }}</div>
+      <div style="color:red">{{ selectedJob?.message }}</div>
 
         <div class="extraRoom">
           <ButtonComponent
@@ -223,6 +223,7 @@
               @button-clicked="handleCancelJob"
             />
           </div>
+          <ConfirmDialog ref="confirmDialog" />
       </div>
 
     </SlideModal>
@@ -248,6 +249,7 @@ import PaginationComponent from './../../components/PaginationComponent.vue'
 import CronEditorComponent from './../../components/CronEditorComponent.vue'
 import DropdownControl from './../../components/controls/DropdownControl.vue'
 import SearchControl from './../../components/controls/SearchControl.vue'
+import ConfirmDialog from './../../components/ConfirmDialog.vue';
 
 
 export default {
@@ -261,7 +263,8 @@ export default {
     PaginationComponent,
     CronEditorComponent,
     DropdownControl,
-    SearchControl
+    SearchControl,
+    ConfirmDialog
 },
   props: {
   },
@@ -430,9 +433,12 @@ export default {
       this.selectedJob.runNow = true;
       this.handleEditSave();
     },
-    handleCancelJob() {
-      this.selectedJob.cancel = true;
-      this.handleEditSave();
+    async handleCancelJob() {
+      const confirm = await this.$refs.confirmDialog.show("This will stop the job if it is running. Do you want to cancel?", "Confirm Cancel");
+      if (confirm) {
+        this.selectedJob.cancel = true;
+        this.handleEditSave();
+      }
     },
     handleInput(field, value) {
       this.selectedJob[field] = value
@@ -455,6 +461,7 @@ export default {
         }
       }
       this.selectedJob = formattedJob;
+      this.selectedJob.message = row.message;
       this.cronExpression = row.schedule;
       this.toggleEdit = true;
     },
@@ -594,10 +601,6 @@ export default {
         .catch((error) => {
           this.handleErrorResponse(error, "Error Removing Service Job(s)")
         })
-    },
-    getJobError() {
-      const err = this.servicejob.find(item => item.id === this.selectedJob.id)
-      return err?.message || ''
     },
     initNewJob() {
       this.selectedJob = {
