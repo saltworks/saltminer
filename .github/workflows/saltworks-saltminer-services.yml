@@ -218,6 +218,9 @@ jobs:
     - self-hosted
     - dotnet
     needs: build_services
+    concurrency:
+      group: saltminer-setup-${{ github.ref }}
+      cancel-in-progress: false
     env:
       TARGET_KEY: SM_SERVICES_IMAGE_VERSION
 
