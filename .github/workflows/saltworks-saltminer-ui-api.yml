@@ -126,6 +126,9 @@ jobs:
     runs-on:
     - self-hosted
     needs: build_uiapi
+    concurrency:
+      group: saltminer-setup-${{ github.ref }}
+      cancel-in-progress: false
     env:
       TARGET_KEY: SM_UI_API_IMAGE_VERSION
 
