@@ -12,6 +12,7 @@ on:
     - 'Saltworks.SaltMiner.SyncAgent/**'
     - '.github/workflows/saltworks-saltminer-services.yml'
     - '.dockerfiles/Dockerfile-services'
+  workflow_dispatch:
 
 env:
   DIAGNOSTIC_MODE: false

@@ -8,8 +8,7 @@ on:
     paths:
       - 'Saltworks.SaltMiner.Ui/**'
       - '.github/workflows/saltworks-saltminer-ui.yml'      
-  pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
 
 env:
   DIAGNOSTIC_MODE: false
