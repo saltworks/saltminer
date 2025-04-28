@@ -9,8 +9,7 @@ on:
     - 'Saltworks.SaltMiner.DataApi/*'
     - '.github/workflows/saltworks-saltminer-dataapi.yml'
     - '.dockerfiles/Dockerfile'
-  pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
 
 env:
   DIAGNOSTIC_MODE: false

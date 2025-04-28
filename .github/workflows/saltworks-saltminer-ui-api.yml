@@ -9,6 +9,7 @@ on:
     - 'Saltworks.SaltMiner.Ui.Api/**'
     - '.github/workflows/saltworks-saltminer-ui-api.yml'
     - '.dockerfiles/Dockerfile-ui-api'
+  workflow_dispatch:
 
 env:
   DIAGNOSTIC_MODE: false

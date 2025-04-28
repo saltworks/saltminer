@@ -9,6 +9,7 @@ on:
     - 'Saltworks.SaltMiner.JobManager/**'
     - '.github/workflows/saltworks-saltminer-jobmanager.yml'
     - '.dockerfiles/Dockerfile-jobmanager'
+  workflow_dispatch:
 
 env:
   DIAGNOSTIC_MODE: false
