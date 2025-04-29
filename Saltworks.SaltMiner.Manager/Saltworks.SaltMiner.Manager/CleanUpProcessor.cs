@@ -51,7 +51,7 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
     ///        b. Find and remove orphan queue assets and queue issues by queue asset search
     ///        c. Find and remove orphan queue issues by queue issue search - this one must only be run once a & b are complete successfully
     /// Future:
-    ///     1. Add aggregate search to get distinct queue scan for issues
+    ///     1. Add aggregate search to get distinct queue scan for issues, OR search for orphans ordered by oldest first and stop processing when no orphans found in x batches
     /// </remarks>
     public void Run(RuntimeConfig config)
     {
@@ -139,13 +139,15 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
             var maxloops = 25000;
             var curloops = 0;
             var counter = 0;
+            var acounter = 0;
+            var size = 10000;
             var asrch = new SearchRequest()
             {
                 Filter = new()
                 {
                     FilterMatches = []
                 },
-                UIPagingInfo = new(10000)
+                UIPagingInfo = new(size)
                 {
                     SortFilters = new() { { "Saltminer.Internal.QueueScanId", true } }
                 }
@@ -167,10 +169,16 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
                         continue;
                     qsIds.Add(qs.Saltminer.Internal.QueueScanId);
                 }
-                rsp.UIPagingInfo.Page++;
+                asrch.UIPagingInfo.Page++;
                 counter += await FindOrphansAsync(qsIds);
-                if (rsp.UIPagingInfo.TotalPages > 0 && rsp.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
+                if (rsp.UIPagingInfo.TotalPages == 0 || asrch.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
                     break;
+                if (acounter >= Config.CleanupProcessorMaxOrphanSearch)
+                {
+                    Logger.LogInformation("Max orphan search count of {Max} reached (CleanupProcessorMaxOrphanSearch), stopping search for queue asset orphans", Config.CleanupProcessorMaxOrphanSearch);
+                    break;
+                }
+                Logger.LogInformation("Looking for orphans in assets, {Count}/{Total} so far...", acounter, rsp.UIPagingInfo.Total);
             }
             if (curloops >= maxloops)
                 throw new ManagerException($"Max loops exceeded when searching for queue asset orphans - possible hang bug detected.");
@@ -190,6 +198,8 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
         try
         {
             var maxloops = 25000;
+            var issCounter = 0;
+            var size = 10000;
             var curloops = 0;
             var counter = 0;
             var asrch = new SearchRequest()
@@ -198,7 +208,7 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
                 {
                     FilterMatches = []
                 },
-                UIPagingInfo = new(10000)
+                UIPagingInfo = new(size)
                 {
                     SortFilters = new() { { "Saltminer.QueueScanId", true } }
                 }
@@ -212,7 +222,8 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
                 curloops++;
                 List<string> qsIds = [];
                 var rsp = await DataClient.QueueIssueSearchAsync(asrch);
-                if (!rsp.Success)
+                issCounter += size;
+                if (!rsp.Success || !rsp.Data.Any())
                     break;
                 foreach (var qs in rsp.Data)
                 {
@@ -220,10 +231,16 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
                         continue;
                     qsIds.Add(qs.Saltminer.QueueScanId);
                 }
-                rsp.UIPagingInfo.Page++;
+                asrch.UIPagingInfo.Page++;
                 counter += await FindOrphansAsync(qsIds);
-                if (rsp.UIPagingInfo.TotalPages > 0 && rsp.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
+                if (rsp.UIPagingInfo.TotalPages == 0 || asrch.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
                     break;
+                if (counter >= Config.CleanupProcessorMaxOrphanSearch)
+                {
+                    Logger.LogInformation("Max orphan search count of {Max} reached (CleanupProcessorMaxOrphanSearch), stopping search for queue issue orphans", Config.CleanupProcessorMaxOrphanSearch);
+                    break;
+                }
+                Logger.LogInformation("Looking for orphans in issues, {Count}/{Total} so far...", issCounter, rsp.UIPagingInfo.Total);
             }
             if (curloops >= maxloops)
                 throw new ManagerException($"Max loops exceeded when searching for queue issue orphans - possible hang bug detected.");
@@ -289,8 +306,8 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
                 DeleteQueue.Enqueue(qs.Id);
                 counter++;
             }
-            rsp.UIPagingInfo.Page++;
-            if (rsp.UIPagingInfo.TotalPages > 0 && rsp.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
+            srch.UIPagingInfo.Page++;
+            if (rsp.UIPagingInfo.TotalPages == 0 || srch.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
                 break;
         }
         if (curloops >= maxloops)
