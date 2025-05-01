@@ -28,13 +28,13 @@ from requests.exceptions import ConnectionError as RequestsConnectionError, Read
 from .RestClient import RestClient
 
 class SscClient(object):
-        
+
     def __init__(self, appSettings, sourceName):
         '''
         Initializes the class.
 
         appSettings: Settings instance containing application settings
-        sourceName: SourceName appearing in a config file in Config\Sources
+        sourceName: SourceName appearing in a config file in Config\\Sources
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise SscClientConfigurationException("Type of appSettings must be 'ApplicationSettings'")
