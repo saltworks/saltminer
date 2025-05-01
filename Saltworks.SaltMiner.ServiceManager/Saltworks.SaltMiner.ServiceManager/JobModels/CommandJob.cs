@@ -317,14 +317,23 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
                 var jobKey = new JobKey(key);
                 var triggerKey = new TriggerKey(key);
 
-                var trigger = TriggerBuilder.Create()
+                if (!string.IsNullOrEmpty(cronExpression))
+                {
+                    var trigger = TriggerBuilder.Create()
                     .WithIdentity(triggerKey)
                     .UsingJobData("cronExpression", cronExpression)
                     .UsingJobData("serviceJobName", jobName)
                     .WithCronSchedule(cronExpression, x => x.WithMisfireHandlingInstructionFireAndProceed())
                     .Build();
 
-                await AddCommand(jobName, scheduler, jobKey, commandParams, trigger, logger);
+                    await AddCommand(jobName, scheduler, jobKey, commandParams, trigger, logger);
+                }
+                else
+                {
+                    // only the job will be added to the scheduler with no cron expression
+                    // then it can be triggered by triggerjob (run now)
+                    await AddCommand(jobName, scheduler, jobKey, commandParams, null, logger);
+                }
 
                 return jobKey;
             }
@@ -332,11 +341,11 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
             {
                 if (string.IsNullOrEmpty(cronExpression))
                 {
-                    logger.LogDebug(fe, "Empty cron expression won't be added to schedule for '{Type}' and job ID '{Id}: [{ExType}] {ExMsg}", jobOption, jobId, fe.GetType().Name, fe.Message);
+                    logger.LogDebug(fe, "Job '{Type}' and Job Id '{Id}' has empty cron expression and will only be stored in schedule with no trigger: [{ExType}] {ExMsg}", jobOption, jobId, fe.GetType().Name, fe.Message);
                 }
                 else
                 {
-                    logger.LogError(fe, "Unable to add service type '{Type}' and job ID '{Id} to schedule with cron value {Cron}: [{ExType}] {ExMsg}", jobOption, jobId, cronExpression, fe.GetType().Name, fe.Message);
+                    logger.LogError(fe, "Unable to add service type '{Type}' and job Id '{Id} to schedule with cron value {Cron}: [{ExType}] {ExMsg}", jobOption, jobId, cronExpression, fe.GetType().Name, fe.Message);
                 }
 
                 return null;
@@ -348,41 +357,68 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
             }
         }
 
-        private static async Task AddCommand(string jobName, IScheduler scheduler, JobKey jobKey, string commandParams, ITrigger trigger, ILogger logger = null)
+        private static async Task AddCommand(string jobName, IScheduler scheduler, JobKey jobKey, string commandParams, ITrigger trigger = null, ILogger logger = null)
         {
             // Define the job 
-            var job = JobBuilder.Create<CommandJob>()
+            // if trigger (cron) is null, the job is saved as an on demand (run now)
+            if (trigger != null)
+            {
+                var job = JobBuilder.Create<CommandJob>()
                 .WithIdentity(jobKey)
                 .UsingJobData("commandParams", commandParams)
                 .UsingJobData("serviceJobName", jobName)
                 .Build();
 
-            var addToSchedule = !await scheduler.CheckExists(jobKey);
-
-            if (!addToSchedule)
-            {
-                // If job is different from already scheduled, remove already scheduled for replacement
-                var scheduledJob = await scheduler.GetJobDetail(jobKey);
-                var scheduledTrigger = await scheduler.GetTrigger(trigger.Key);
-                var schedJobChanged = !scheduledJob?.JobDataMap["commandParams"].Equals(job.JobDataMap["commandParams"]);
-                var schedTriggerChanged = !scheduledTrigger?.JobDataMap["cronExpression"].Equals(trigger.JobDataMap["cronExpression"]);
-
-                if ((schedJobChanged ?? false) || (schedTriggerChanged ?? false))
+                var addToSchedule = await JobIsUpdated(scheduler, jobKey, job, trigger, logger);
+                if (addToSchedule)
                 {
-                    logger?.LogInformation("Command job {JobKey} has changes and will be reloaded", jobKey.Name);
-                    var success = await scheduler.DeleteJob(jobKey);
-                    if (success)
-                    {
-                        addToSchedule = true;
-                    }
+                    logger?.LogInformation("Loading command job {Key}", jobKey.Name);
+                    await scheduler.ScheduleJob(job, trigger);
                 }
             }
-
-            if (addToSchedule)
+            else
             {
-                logger?.LogInformation("Loading command job {Key}", jobKey.Name);
-                await scheduler.ScheduleJob(job, trigger);
+                var job = JobBuilder.Create<CommandJob>()
+                .WithIdentity(jobKey)
+                .UsingJobData("commandParams", commandParams)
+                .UsingJobData("serviceJobName", jobName)
+                .StoreDurably()
+                .Build();
+
+                var addToSchedule = await JobIsUpdated(scheduler, jobKey, job, trigger, logger);
+                if (addToSchedule)
+                {
+                    logger?.LogInformation("Loading command job {Key}", jobKey.Name);
+                    await scheduler.AddJob(job, true);
+                }
             }
+        }
+
+        private static async Task<bool> JobIsUpdated(IScheduler scheduler, JobKey jobKey, IJobDetail job, ITrigger trigger = null, ILogger logger = null)
+        {
+            // If job is different from already scheduled, remove already scheduled for replacement
+            bool? schedTriggerChanged = false;
+            var scheduledJob = await scheduler.GetJobDetail(jobKey);
+            if (scheduledJob == null) return true;
+
+            if (trigger != null)
+            {
+                var scheduledTrigger = await scheduler.GetTrigger(trigger?.Key);
+                schedTriggerChanged = !scheduledTrigger?.JobDataMap["cronExpression"].Equals(trigger?.JobDataMap["cronExpression"]);
+            }
+            var schedJobChanged = !scheduledJob?.JobDataMap["commandParams"].Equals(job.JobDataMap["commandParams"]);
+            var triggers = await scheduler.GetTriggersOfJob(jobKey);
+
+            if ((schedJobChanged ?? false) || (schedTriggerChanged ?? false) || ((trigger != null && triggers.Count == 0) || (trigger == null && triggers.Count > 0)))
+            {
+                logger?.LogInformation("Command job {JobKey} has changes and will be reloaded", jobKey.Name);
+                var success = await scheduler.DeleteJob(jobKey);
+                if (success)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void UpdateJobStatus(string jobKey, ServiceJobStatus status, string errorMsg = "")
