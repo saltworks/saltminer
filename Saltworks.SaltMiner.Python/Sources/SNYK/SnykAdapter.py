@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 from Sources.SNYK.SnykClient import SnykClient
-from Sources.SNYK.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
+from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 
 from Core.SmDataClient import SmDataClient
 from Core.ElasticClient import ElasticClient
@@ -178,7 +178,9 @@ class SnykAdapter:
         q_scan_doc = self.snyk_docs.map_scan_doc()
         q_scan_doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         q_scan_doc['Saltminer']['Internal']['IssueCount'] = -1  #Setting this value to -1 disables IssueCount validation
+        q_scan_doc['Saltminer']['Internal']['ReplaceIssues'] = True
         scan = q_scan_doc['Saltminer']['Scan']
+
         scan['Product'] = "Snyk"
         scan['Vendor']= "Snyk"
         scan['ReportId'] = project['id'] + project['attributes']['name'] + "|" + datetime.now().isoformat()
