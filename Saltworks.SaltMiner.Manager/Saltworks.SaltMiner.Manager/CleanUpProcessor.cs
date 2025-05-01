@@ -170,6 +170,7 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
                     qsIds.Add(qs.Saltminer.Internal.QueueScanId);
                 }
                 asrch.UIPagingInfo.Page++;
+                asrch.AfterKeys = rsp.AfterKeys;
                 counter += await FindOrphansAsync(qsIds);
                 if (rsp.UIPagingInfo.TotalPages == 0 || asrch.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
                     break;
@@ -232,6 +233,7 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
                     qsIds.Add(qs.Saltminer.QueueScanId);
                 }
                 asrch.UIPagingInfo.Page++;
+                asrch.AfterKeys = rsp.AfterKeys;
                 counter += await FindOrphansAsync(qsIds);
                 if (rsp.UIPagingInfo.TotalPages == 0 || asrch.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
                     break;
@@ -306,6 +308,7 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
                 DeleteQueue.Enqueue(qs.Id);
                 counter++;
             }
+            srch.AfterKeys = rsp.AfterKeys;
             srch.UIPagingInfo.Page++;
             if (rsp.UIPagingInfo.TotalPages == 0 || srch.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
                 break;
