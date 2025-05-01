@@ -148,6 +148,8 @@ class SnykAdapter:
             if issue['attributes'].get('resolution') and issue['attributes']['resolution'].get('resolved_at'):
                 vulnerability['RemovedDate'] = issue['attributes']['resolution'].get('resolved_at')
 
+        if issue['attributes'].get('ignored') is True:
+            vulnerability['IsSuppressed'] = True
 
         vulnerability['FoundDate'] = issue['attributes']['created_at']
         vulnerability["Id"] = [problem['id'] for problem in issue['attributes']['problems']]
@@ -162,9 +164,7 @@ class SnykAdapter:
         scanner = vulnerability['Scanner']
         scanner['Id'] = issue['id'] + "|" + project_id
         #TODO:DETERMINE THE CORRECT SCAN TYPES AND PUT THEM HERE 
-        scanner['AssessmentType'] = "SAST"
-        #scanner['AssessmentType'] = self.get_assessment_type(issue['attributes']['type']) 
-        #Location_full???
+        scanner['AssessmentType'] = "Open"
         scanner['Product'] = "Snyk"
         scanner['Vendor']= "Snyk"
 
@@ -186,7 +186,7 @@ class SnykAdapter:
         scan['SourceType'] = "Saltworks.Snyk"
         scan['Instance'] = "Snyk1"
         scan['AssetType'] = "app"
-        scan['AssessmentType'] = "SAST"
+        scan['AssessmentType'] = "Open"
         scan['ProductType'] = "Application"
 
         return MapScanDocDTO(**q_scan_doc)
@@ -205,7 +205,7 @@ class SnykAdapter:
         asset['Version']= split_project_path[-1]
         asset['VersionId'] = project['id']
         asset['Instance'] = "Snyk1"
-        asset['SourceId'] = project['relationships']['target']['data']['id'] if project['relationships'].get('target') else split_project_path[-1]
+        asset['SourceId'] = project['id']
         asset['AssetType']= "app"
         asset['SourceType'] = "Saltworks.Snyk"
 
