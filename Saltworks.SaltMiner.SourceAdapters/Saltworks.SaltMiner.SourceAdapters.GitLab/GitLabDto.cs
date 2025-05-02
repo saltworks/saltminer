@@ -68,6 +68,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
         public string LastActivityAt { get; set; }
         public List<string> Topics { get; set; }
         public string UpdatedAt { get; set; }
+        public bool Archived { get; set; }
     }
 
     public class GroupDto

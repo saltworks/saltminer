@@ -38,7 +38,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
 
         public async Task<GraphQLResponse<ProjectGroupDto>> GetProjectsByGroupAsync(string projectGroupFullPath, string nextBatchLink = "", int batchSize = 100)
         {
-            var request = @"{""query"": ""query { group(fullPath: \""~3~\"") { projects (first: ~1~ ~2~) { pageInfo { hasNextPage endCursor hasPreviousPage startCursor } nodes { id  name nameWithNamespace description  fullPath openIssuesCount path repository { diskPath empty exists rootRef } createdAt group {fullName fullPath name} lastActivityAt topics updatedAt} } } }""}";
+            var request = @"{""query"": ""query { group(fullPath: \""~3~\"") { projects (first: ~1~ ~2~) { pageInfo { hasNextPage endCursor hasPreviousPage startCursor } nodes { id  name nameWithNamespace description  fullPath openIssuesCount path archived repository { diskPath empty exists rootRef } createdAt group {fullName fullPath name} lastActivityAt topics updatedAt} } } }""}";
             var result = await RequestAsync<GraphQLResponse<ProjectGroupDto>>(SetRequestOptions(request, nextBatchLink, batchSize, projectGroupFullPath));
             return CheckContent(result);
         }
