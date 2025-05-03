@@ -9,8 +9,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Saltworks.SaltMiner.Manager
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.DataClient", "..\Saltworks.SaltMiner.DataClient\Saltworks.SaltMiner.DataClient\Saltworks.SaltMiner.DataClient.csproj", "{8304A91B-DB6D-4A1C-8320-9C1CE322A896}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.Licensing.Core", "..\Saltworks.SaltMiner.Licensing\Saltworks.SaltMiner.Licensing.Core\Saltworks.SaltMiner.Licensing.Core.csproj", "{27FC1C1F-ABAC-46E7-AB8F-5D83E23501DB}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.ConfigurationWizard", "..\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard.csproj", "{8379296F-30EB-48A7-B906-614694A92800}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.Core", "..\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core.csproj", "{34D34D7C-6662-4048-B019-C997B5E89973}"
@@ -37,10 +35,6 @@ Global
 		{8304A91B-DB6D-4A1C-8320-9C1CE322A896}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8304A91B-DB6D-4A1C-8320-9C1CE322A896}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8304A91B-DB6D-4A1C-8320-9C1CE322A896}.Release|Any CPU.Build.0 = Release|Any CPU
-		{27FC1C1F-ABAC-46E7-AB8F-5D83E23501DB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{27FC1C1F-ABAC-46E7-AB8F-5D83E23501DB}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{27FC1C1F-ABAC-46E7-AB8F-5D83E23501DB}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{27FC1C1F-ABAC-46E7-AB8F-5D83E23501DB}.Release|Any CPU.Build.0 = Release|Any CPU
 		{8379296F-30EB-48A7-B906-614694A92800}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{8379296F-30EB-48A7-B906-614694A92800}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8379296F-30EB-48A7-B906-614694A92800}.Release|Any CPU.ActiveCfg = Release|Any CPU
