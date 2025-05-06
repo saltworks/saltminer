@@ -525,6 +525,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                         },
                         Saltminer = new()
                         {
+                            IssueType = FindIssueType(issue.Type),
                             Attributes = new()
                             {
                                 {"org_assessment_type", issue.Type},
@@ -588,6 +589,24 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                 "apisec" => AssessmentType.DAST.ToString("g"),
                 "containers" => AssessmentType.Container.ToString("g"),
                 _ => AssessmentType.Open.ToString("g"),
+            };
+        }
+
+        private static string FindIssueType(string issueType)
+
+        {
+            if (issueType.Contains("sca"))
+            {
+                issueType = "sca";
+            }
+            return issueType switch
+            {
+                "sast" => IssueType.SAST.ToString("g"),
+                "sca" => IssueType.SAST.ToString("g"),
+                "kics" => IssueType.KICS.ToString("g"),
+                "apisec" => IssueType.DAST.ToString("g"),
+                "containers" => IssueType.Container.ToString("g"),
+                _ => IssueType.Open.ToString("g"),
             };
         }
 
