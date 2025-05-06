@@ -240,7 +240,7 @@
       },
       {
         "display": "Sync Agent",
-        "value": "SyncAgent",
+        "value": "AgentCron",
         "order": 3
       },
       {
