@@ -257,6 +257,11 @@
         "display": "Service Manager",
         "value": "ServiceManager",
         "order": 6
+      },
+      {
+        "display": "Python",
+        "value": "Agent25Cron",
+        "order": 7
       }
     ],
     "timestamp": "2022-08-12T00:00:00.000000Z",
