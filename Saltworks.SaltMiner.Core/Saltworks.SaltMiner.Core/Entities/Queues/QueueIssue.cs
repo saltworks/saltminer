@@ -161,7 +161,7 @@ namespace Saltworks.SaltMiner.Core.Entities
         /// <summary>
         /// Gets or sets Issue type.
         /// </summary>
-        public IssueType IssueType { get; set; }
+        public string IssueType { get; set; }
 
         /// <summary>
         /// Gets or sets Engagement.
