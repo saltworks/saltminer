@@ -18,7 +18,7 @@ on:
     - 'Saltworks.SaltMiner.DataClient/**'
     - 'Saltworks.Utility.ApiHelper/**'
     - 'Saltworks.SaltMiner.Licensing.Core/**'
-    #- 'Saltworks.SaltMiner.SourceAdapters.*/**'
+    - 'Saltworks.SaltMiner.SourceAdapters.*/**'
     
 env:
   BRANCH: ${{ github.head_ref || github.ref_name }}
