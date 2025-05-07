@@ -1301,7 +1301,16 @@ export default {
         }
       }
       if (action === 'Checkout') {
-        this.handleCheckout()
+        if (this.engagement.draftEngagementId) {
+          const confirm = await this.$refs.confirmDialog.show("This engagement is already checked out. Would you like to view it?", "Already Checked Out");
+          if (confirm) {
+            this.$router.push({
+              path: `/engagements/${this.engagement.draftEngagementId}`,
+            })
+          }
+        } else {
+          this.handleCheckout()
+        }
       }
     },
     handleReport() {
