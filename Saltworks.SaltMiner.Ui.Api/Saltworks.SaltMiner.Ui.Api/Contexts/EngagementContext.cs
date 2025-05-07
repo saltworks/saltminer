@@ -689,6 +689,29 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 summary.ScanId = DataClient.QueueScanGetByEngagement(summary.Id).Data.Id;
             }
 
+            // search for a draft engagement in the group of a published and set its Id to summary model 
+            if (summary.Status == EngagementStatus.Published.ToString("g"))
+            {
+                var searchReqeust = new SearchRequest()
+                {
+                    Filter = new()
+                    {
+                        AnyMatch = false,
+                        FilterMatches = new Dictionary<string, string>
+                        {
+                            { "Saltminer.Engagement.Status", EngagementStatus.Draft.ToString("g") },
+                            { "Saltminer.Engagement.GroupId", summary.GroupId }
+                        },
+                    }
+                };
+
+                var draftEngagement = DataClient.EngagementSearch(searchReqeust)?.Data?.FirstOrDefault();
+                if (draftEngagement != null)
+                {
+                    summary.DraftEngagementId = draftEngagement.Id;
+                }
+            }
+            
             return new UiDataItemResponse<EngagementSummary>(summary, result);
         }
 
