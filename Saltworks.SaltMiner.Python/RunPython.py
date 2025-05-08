@@ -14,3 +14,31 @@
 * ----
 '''
 
+import logging
+import subprocess
+import sys
+from pathlib import Path
+from Core.Application import Application
+
+app = Application(loggingInstance='RunPython')
+
+def main():
+  logging.info(f'RunPython arguments: {sys.argv}')
+
+  a = sys.argv
+  mod = Path(a[1]).stem
+
+  a[0] = 'python3'
+  a.insert(1, '-m')
+  a[2] = f'Custom.{mod}' 
+
+  try:
+    subprocess.run(a)
+  except Exception as e:
+    prog = Path(__file__).name
+    logging.critical("[%s] Exception: [%s] %s", prog, type(e).__name__, e)
+    raise
+
+
+if __name__ == "__main__":
+    main()
