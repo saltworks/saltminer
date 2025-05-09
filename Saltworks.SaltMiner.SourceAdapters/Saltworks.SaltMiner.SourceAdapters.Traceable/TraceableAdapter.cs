@@ -494,6 +494,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
                     },
                     Saltminer = new SaltMiner.Core.Entities.SaltMinerQueueIssueInfo
                     {
+                        IssueType = IssueType.DAST.ToString("g"),
                         Attributes = new Dictionary<string, string>
                         { 
                             { "status", issue?.Status.Value ?? string.Empty }

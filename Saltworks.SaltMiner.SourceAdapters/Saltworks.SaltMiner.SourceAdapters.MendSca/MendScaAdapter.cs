@@ -522,6 +522,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.MendSca
                             },
                             Saltminer = new()
                             {
+                                IssueType = IssueType.Open.ToString("g"),
                                 Attributes = [],
                                 QueueScanId = queueScan.Id,
                                 QueueAssetId = queueAsset.Id,

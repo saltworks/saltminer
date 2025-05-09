@@ -516,6 +516,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                },
                                Saltminer = new()
                                {
+                                   IssueType = IssueType.Open.ToString("g"),
                                    Attributes = new Dictionary<string, string>
                                    {
                                        {"waived", violation.Waived.ToString() },
