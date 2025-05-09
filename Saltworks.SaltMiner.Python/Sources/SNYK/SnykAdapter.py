@@ -50,25 +50,26 @@ class SnykAdapter:
         - Runs sync_issues if they exist
         """
         start_date = None
-        for project in self.snyk_client.get_snyk_projects_generator():
-            
-            project_id = project.get("id") # Ensure project ID is extracted properly
-            if not project_id:
-                logging.warning("Skipping project with missing ID: %s", project)
-                continue
-
-            if not first_load and project_id in self.prj_version_last_updated.keys() and self.prj_version_last_updated.get(project_id):
-                date = datetime.strptime(self.prj_version_last_updated.get(project_id), "%Y-%m-%dT%H:%M:%S.%fZ")
-                start_date = date.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-            issues_generator = self.snyk_client.get_sync_issues_generator(limit=100, project_id=project_id, start_date=start_date)
-            first_issue = next(issues_generator, None) # Get first issue to check if there is any data
-
-            if first_issue:
-                self.snyc_issues(project, first_issue, issues_generator)
+        for org in self.snyk_client.get_snyk_orgs_generator():
+            for project in self.snyk_client.get_snyk_projects_generator(org_id=org['id']):
                 
-            else:
-                logging.info("No issues found for project %s, skipping.", project_id)
+                project_id = project.get("id") # Ensure project ID is extracted properly
+                if not project_id:
+                    logging.warning("Skipping project with missing ID: %s", project)
+                    continue
+
+                if not first_load and project_id in self.prj_version_last_updated.keys() and self.prj_version_last_updated.get(project_id):
+                    date = datetime.strptime(self.prj_version_last_updated.get(project_id), "%Y-%m-%dT%H:%M:%S.%fZ")
+                    start_date = date.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+                issues_generator = self.snyk_client.get_sync_issues_generator(limit=100, org_id=org['id'], project_id=project_id, start_date=start_date)
+                first_issue = next(issues_generator, None) # Get first issue to check if there is any data
+
+                if first_issue:
+                    self.snyc_issues(project, first_issue, issues_generator)
+                    
+                else:
+                    logging.info("No issues found for project %s, skipping.", project_id)
 
 
     def snyc_issues(self, project, first_issue, issues_generator):

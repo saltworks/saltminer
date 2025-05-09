@@ -8,17 +8,45 @@ class SnykClient:
     """
     def __init__(self, settings):
         self.snyk_url = settings.Get("SnykClient", 'Api Url')
-        self.snyk_org_id = settings.Get('SnykClient','Org Id')
         self.snyk_headers = {
             "Authorization": f"token {settings.Get('SnykClient','Api Key')}",
             "Content-Type": "application/vnd.api+json"
         }
        
+    def get_snyk_orgs_generator(self):
+        "Gets org info"
+        orgs_endpoint = "rest/orgs"
+        try:
+            response = requests.get(
+                url= self.snyk_url + orgs_endpoint,
+                params= { "version": "2024-10-14"},
+                headers= self.snyk_headers,
+                timeout= 30 
+            )
+            response.raise_for_status()
+            data = response.json()
 
-    def get_snyk_projects_generator(self):
+        except requests.exceptions.RequestException as e:
+            logging.error("Request failed: %s", e)
+            return
+        
+        yield from data.get('data', [])
+
+        while data.get('links', {}).get('next'):
+            try:
+                data = self.get_next(url=data['links']['next'])
+
+                yield from data.get('data', [])
+            except requests.exceptions.RequestException as e:
+                logging.error("Pagination request failed: %s", e)
+
+                break
+
+
+    def get_snyk_projects_generator(self, org_id):
         #https://api.snyk.io/rest/orgs/{org_id}/projects/{project_id} ???
-        "Gets project info by Ord Id"
-        projects_endpoint = f"rest/orgs/{self.snyk_org_id}/projects"
+        "Gets project info by Org Id"
+        projects_endpoint = f"rest/orgs/{org_id}/projects"
         try:
             response = requests.get(
                 url=self.snyk_url + projects_endpoint,
@@ -48,7 +76,7 @@ class SnykClient:
                 break
         
 
-    def get_sync_issues_generator(self, limit, project_id, start_date = None):
+    def get_sync_issues_generator(self, limit, org_id, project_id, start_date = None):
         """
         This function calls the /issues endpoint from snyk and yields one issue document at a time.
         Function Params:
@@ -57,7 +85,7 @@ class SnykClient:
         -start_date: The date in which you want to set the api param of "updated_after" to return issues from. 
             -if this value is set to None the generator will return all issues
         """
-        issues_endpoint = f"rest/orgs/{self.snyk_org_id}/issues"
+        issues_endpoint = f"rest/orgs/{org_id}/issues"
         url = self.snyk_url + issues_endpoint
         if start_date:
             params = {
