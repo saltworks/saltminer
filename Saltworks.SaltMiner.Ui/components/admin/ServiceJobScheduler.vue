@@ -382,10 +382,12 @@ export default {
     },
     formattedServiceJobs() {
       return this.servicejob.map((job) => {
+        if (job.disabled) job.nextRunTime = null;
+        const nextRunTime = job.schedule ? 'Unknown' : 'On Demand'
         return {
           ...job,
-          nextRunTime: helpers.formatDate(job.nextRunTime, 'M/D/yyyy h:mm:ss a'),
-          lastRunTime: helpers.formatDate(job.lastRunTime, 'M/D/yyyy h:mm:ss a')
+          nextRunTime: helpers.formatDate(job.nextRunTime, 'M/D/yyyy h:mm:ss a', nextRunTime),
+          lastRunTime: helpers.formatDate(job.lastRunTime, 'M/D/yyyy h:mm:ss a', 'Unknown')
         }
       })
     },

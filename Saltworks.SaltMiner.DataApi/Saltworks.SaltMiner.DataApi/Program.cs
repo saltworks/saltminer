@@ -199,6 +199,7 @@ namespace Saltworks.SaltMiner.DataApi
                 options.DefaultHeaders.Add(ApiClientHeaders.OneHeader("kbn-xsrf", "true"));
                 options.CamelCaseJsonOutput = true;
             });
+            services.AddHostedService<LicenseService>();
         }
 
         private static void ConfigureSwaggerServices(IServiceCollection services, ApiConfig config)
@@ -306,26 +307,28 @@ namespace Saltworks.SaltMiner.DataApi
                 endpoints.MapControllers();
             });
 
-            Log.Information("App builder configuration complete (Configure).");
+            var logger = app.Services.GetRequiredService<ILogger<LicenseContext>>();
+            logger.LogInformation("App builder configuration complete (Configure).");
 
             try
             {
                 app.UseNestClient();
                 var factory = app.Services.GetRequiredService<IElasticClientFactory>();
                 var client = factory.CreateClient();
+                var licenseContext = app.Services.GetRequiredService<LicenseContext>();
                 // Check for data items to process
-                ProcessOneTimeDataItems(config, client);
+                ProcessOneTimeDataItems(config, client, logger);
 
                 // Kibana data items to process
                 var kibanaClient = app.Services.GetRequiredService<KibanaContext>();
                 ProcessKibanaImport(config, kibanaClient);
-                
+
                 if (!client.CheckIndexTemplateExists(config.TemplateToVerify).IsSuccessful)
                 {
                     Log.Error("Index templates not found on ElasticSearch server '{elasticHost}', checked for {templateToVerify}", config.ElasticHost, config.TemplateToVerify);
                     throw new ApiConfigurationException($"Index templates not found on ElasticSearch server '{config.ElasticHost}', checked for {config.TemplateToVerify}");
                 }
-                else 
+                else
                 {
                     Log.Information("Index templates found on ElasticSearch server '{elasticHost}', checked for {templateToVerify}", config.ElasticHost, config.TemplateToVerify);
                 }
@@ -333,7 +336,6 @@ namespace Saltworks.SaltMiner.DataApi
                 // Check for new license
                 if (File.Exists(config.LicenseFileName))
                 {
-                    var logger = app.Services.GetRequiredService<ILogger<LicenseContext>>();
                     License newLicense = null;
                     try
                     {
@@ -341,7 +343,7 @@ namespace Saltworks.SaltMiner.DataApi
                     }
                     catch (Exception ex)
                     {
-                        logger.LogError(ex, "Unable to read new license file '{fname}': {msg}", config.LicenseFileName, ex.Message);
+                        logger.LogError(ex, "Unable to read new license file '{Fname}': {Msg}", config.LicenseFileName, ex.Message);
                     }
 
                     try
@@ -352,7 +354,7 @@ namespace Saltworks.SaltMiner.DataApi
                             // Pull license doc and delete - workaround for strange error with DeleteByQuery
                             // Attempts to repro DeleteByQuery null reference error with empty search have been unsuccessful
                             // client.DeleteByQuery<License>(new() { }, License.GenerateIndex())
-                            foreach(var dto in client.Search<License>(new() { }, License.GenerateIndex()).Results)
+                            foreach (var dto in client.Search<License>(new() { }, License.GenerateIndex()).Results)
                                 client.Delete<License>(dto.Document.Id, License.GenerateIndex());
                             client.AddUpdate(newLicense, License.GenerateIndex());
                             File.Delete(config.LicenseProcessedFileName);
@@ -361,12 +363,20 @@ namespace Saltworks.SaltMiner.DataApi
                     }
                     catch (Exception ex)
                     {
-                        Log.Error(ex, "New License '{fname}' is not valid. {msg}", config.LicenseFileName, ex.Message);
+                        Log.Error(ex, "New License '{Fname}' is not valid. {Msg}", config.LicenseFileName, ex.Message);
                     }
                 }
                 else
                 {
-                    Log.Information($"License File {config.LicenseFileName} not found");
+                    Log.Information("License File {Fname} not found", config.LicenseFileName);
+                }
+
+                var license = licenseContext.Get().Data;
+                var validator = new LicensingValidator(logger, license);
+                var elkVersion = licenseContext.GetElkLicenseType().Message;
+                if (elkVersion.Equals("Enterprise", StringComparison.OrdinalIgnoreCase))
+                {
+                    validator.Validate(config.KeyPath);
                 }
             }
             catch (PipelineException ex)
@@ -374,7 +384,7 @@ namespace Saltworks.SaltMiner.DataApi
                 var lex = ex.InnerException;
                 var smsg = GetSimplePipelineExceptionMessage(ex);
 
-                Log.Error(ex, "Failed to connect to Elasticsearch{smsg}.  Full inner exception stack trace logged to log file.", smsg);
+                Log.Error(ex, "Failed to connect to Elasticsearch{Msg}.  Full inner exception stack trace logged to log file.", smsg);
 
                 while (lex != null && string.IsNullOrEmpty(smsg))
                 {
@@ -513,9 +523,10 @@ namespace Saltworks.SaltMiner.DataApi
             }
         }
 
-        private static void ProcessOneTimeDataItems(ApiConfig config, IElasticClient client)
+        private static void ProcessOneTimeDataItems(ApiConfig config, IElasticClient client, Microsoft.Extensions.Logging.ILogger logger)
         {
             var failMsg = "";
+
             // Index Policies
             try
             {

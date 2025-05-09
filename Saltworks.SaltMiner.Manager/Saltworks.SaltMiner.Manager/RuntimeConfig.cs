@@ -57,9 +57,10 @@ namespace Saltworks.SaltMiner.Manager
 
     public class QueueRuntimeConfig: RuntimeConfig
     {
-        public QueueRuntimeConfig(string sourceType, string queueScanId, int limit, bool listOnly, CancellationToken cancelToken) : base(sourceType, limit, listOnly, cancelToken)
+        public QueueRuntimeConfig(string sourceType, string queueScanId, int limit, bool listOnly, string instanceId, CancellationToken cancelToken) : base(sourceType, limit, listOnly, cancelToken)
         {
             QueueScanId = queueScanId;
+            InstanceId = instanceId;
         }
 
         public override OperationType Operation => OperationType.Queue;
@@ -70,11 +71,17 @@ namespace Saltworks.SaltMiner.Manager
             set { BackingDictionary["QueueScanId"] = value; }
         }
 
-        public static IConsoleAppHostArgs GetArgs(string sourceType, string queueScanId, int limit, bool listOnly, CancellationToken cancelToken) =>
-            ConsoleAppHostArgs.Create(new string[] { OperationType.Queue.ToString("g"), sourceType, queueScanId, limit.ToString(), listOnly.ToString() }, cancelToken);
+        public string InstanceId
+        {
+            get => BackingDictionary["InstanceId"];
+            set { BackingDictionary["InstanceId"] = value; }
+        }
+
+        public static IConsoleAppHostArgs GetArgs(string sourceType, string queueScanId, int limit, bool listOnly, string instanceId, CancellationToken cancelToken) =>
+            ConsoleAppHostArgs.Create([OperationType.Queue.ToString("g"), sourceType, queueScanId, limit.ToString(), listOnly.ToString(), instanceId], cancelToken);
 
         public static QueueRuntimeConfig FromArgs(IConsoleAppHostArgs args) =>
-            new(args.Args[1], args.Args[2], int.Parse(args.Args[3]), bool.Parse(args.Args[4]), args.CancelToken);
+            new(args.Args[1], args.Args[2], int.Parse(args.Args[3]), bool.Parse(args.Args[4]), args.Args[5], args.CancelToken);
 
         public override RuntimeConfig Validate()
         {

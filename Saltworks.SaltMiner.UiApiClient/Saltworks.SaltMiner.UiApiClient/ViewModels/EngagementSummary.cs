@@ -29,6 +29,7 @@ namespace Saltworks.SaltMiner.UiApiClient.ViewModels
                 attributes = fieldInfo.AttributeDefinitions.Select(ad => new TextField(default, ad.Name, fieldInfo, true, true)).ToList();
             Name = engagement.Saltminer.Engagement.Name;
             Id = engagement.Id;
+            GroupId = engagement.Saltminer.Engagement.GroupId;
             Subtype = engagement.Saltminer.Engagement.Subtype;
             Timestamp = engagement.Timestamp;
             PublishDate = engagement.Saltminer.Engagement.PublishDate;
@@ -51,6 +52,7 @@ namespace Saltworks.SaltMiner.UiApiClient.ViewModels
         public string Status { get; set; }
         public string Summary { get; set; }
         public string GroupId { get; set; }
+        public string DraftEngagementId { get; set; }
         public List<UiAttachment> Attachments { get; set; }
         public List<TextField> Attributes { get; set; }
         public List<string> ActionRestrictions { get; set; }

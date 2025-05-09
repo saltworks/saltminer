@@ -22,12 +22,14 @@ using Saltworks.SaltMiner.Core.Entities;
 using System.Linq;
 using System.Collections.Generic;
 using Saltworks.SaltMiner.ElasticClient;
+using Saltworks.SaltMiner.Core.Util;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts
 {
-    public class LicenseContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<LicenseContext> logger) : ContextBase(config, dataRepository, factory, logger)
+    public class LicenseContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<LicenseContext> logger, EventlogContext eventlogContext) : ContextBase(config, dataRepository, factory, logger)
     {
         private readonly string LicenseIndex = License.GenerateIndex();
+        private readonly EventlogContext EventlogContext = eventlogContext;
 
         public DataItemResponse<License> Add(DataItemRequest<License> request)
         {
@@ -101,6 +103,44 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             result.Add(assessmentType, (int)ElasticClient.Count<Scan>(searchRequest, Scan.GenerateIndex(assetType, sourceType, instance)).ToNoDataResponse().Affected);
 
             return new DataItemResponse<Dictionary<string, int>>(result);
+        }
+
+        internal void CheckLicenseCount(string elkVersion = "")
+        {
+            if (string.IsNullOrEmpty(elkVersion))
+                elkVersion = GetElkLicenseType().Message;
+            if (elkVersion.Equals("Enterprise", System.StringComparison.OrdinalIgnoreCase))
+                return;  // don't need to continue if enterprise
+
+            // If not enterprise throw error if over 1MM issues
+            var count = ElasticClient.Count<Issue>(new(), "issue*").CountAffected;
+            if (count > 1000000)
+            {
+                var msg = "License Violation: Free license volume exceeded.  Contact sales@saltworks.io to license this product.";
+                logger.LogError("{Msg}", msg);
+                var entry = new Eventlog
+                {
+                    Event = new()
+                    {
+                        Provider = "Licensing",
+                        DataSet = "SaltMiner.Licensing",
+                        Reason = msg,
+                        Action = EventStatus.Error.ToString("g"),
+                        Kind = "event",
+                        Outcome = "",
+                        Severity = LogSeverity.Error
+                    },
+                    Saltminer = new()
+                    {
+                        Application = "DataApi"
+                    },
+                    Log = new()
+                    {
+                        Level = LogSeverity.Error.ToString("g")
+                    }
+                };
+                EventlogContext.AddUpdate<Eventlog>(new() { Entity = entry }, Eventlog.GenerateIndex());
+            }
         }
     }
 }

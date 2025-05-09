@@ -17,6 +17,8 @@ namespace Saltworks.SaltMiner.Core.Util
         [Description("KICS")]
         KICS,
         [Description("Net")]
-        Net
+        Net,
+        [Description("Container")]
+        Container
     }
 }

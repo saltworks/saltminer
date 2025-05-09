@@ -647,7 +647,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                         {
                             Description = project.Description,
                             Name = project.Name,
-                            Attributes = new Dictionary<string, string> { { "group_name", project.Group.Name }, { "group_fullpath", project.Group.FullPath }, { "project_is_archived", project.Archived.ToString() },
+                            Attributes = new Dictionary<string, string> {{ "group_name", project.Group.Name }, { "group_fullpath", project.Group.FullPath }, { "project_is_archived", project.Archived.ToString() }},
                             IsProduction = true,
                             Instance = Config.Instance,
                             IsSaltminerSource = GitLabConfig.IsSaltminerSource,

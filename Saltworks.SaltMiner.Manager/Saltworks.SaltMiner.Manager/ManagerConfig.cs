@@ -73,5 +73,6 @@ namespace Saltworks.SaltMiner.Manager
         public string CommunityPath { get; set; } = "community.blt";
         public bool ProcessNoScan { get; set; } = true;
         public string IssuesActiveIndexTemplate { get; set; } = "issues_[assetType]_[sourceType]_[instance]";
+        public string InstanceId { get; set; } = "mgr-001";
     }
 }

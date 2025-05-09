@@ -27,7 +27,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard.csproj" />
     <ProjectReference Include="..\..\Saltworks.SaltMiner.DataClient\Saltworks.SaltMiner.DataClient\Saltworks.SaltMiner.DataClient.csproj" />
-    <ProjectReference Include="..\..\Saltworks.SaltMiner.Licensing\Saltworks.SaltMiner.Licensing.Core\Saltworks.SaltMiner.Licensing.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
