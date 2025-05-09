@@ -1429,6 +1429,7 @@ namespace Saltworks.SaltMiner.Manager
             issue.Vulnerability.RemovedDate = queueIssue.Vulnerability.RemovedDate;
             issue.Saltminer = new SaltMinerIssueInfo()
             {
+                IssueType = queueIssue.Saltminer.IssueType,
                 Attributes = queueIssue.Saltminer.Attributes,
                 Scan = new IssueScanInfo
                 {
