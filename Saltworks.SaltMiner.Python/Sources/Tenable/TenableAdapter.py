@@ -15,6 +15,7 @@ class TenableAdapter:
         self._es = ElasticClient(settings)
         self.data_client = SmDataClient(settings, sourceName='Tenable')
         self.sm_docs = SnykDocs()
+        self.counter = 0 
         
         self.sm_scan_data_dict = {}
         self.current_scan_asset_dict = {}
@@ -39,23 +40,30 @@ class TenableAdapter:
             with self._es.SearchScroll('scans_net_saltworks.tenable_tenable1') as scroller:
                 while len(scroller.Results):
                     for p in scroller.Results:
-                        self.sm_scan_data_dict[p['source']['saltminer']['attributes']['tenable_schedule_uuid']] = p['_source']['saltminer']['attributes']['tenable_last_modified']
+                        self.sm_scan_data_dict[p['_source']['saltminer']['attributes']['tenable_schedule_uuid']] = p['_source']['saltminer']['attributes']['tenable_last_modified']
     
 
     def compare_tenable_scans(self):
-        for scan_record in self.tenable_client.get_scans_generator():
-            if not self.first_load:
-                if self.sm_scan_data_dict.get(scan_record['schedule_uuid']):
-                    last_modification_date = self.sm_scan_data_dict[scan_record['last_modification_date']] #Added for readbility
-                    sm_last_modification_date = self.sm_scan_data_dict[scan_record['schedule_uuid']] #Added for readibility
-                    if last_modification_date >= sm_last_modification_date:
-                        continue
+        if self.first_load:
+            scan_record = {"uuid": "None", "last_modification_date": datetime.now() - timedelta(days=30)}
             self.sync_scan(scan_record)
+        else:
+            for scan_record in self.tenable_client.get_scans_generator():
+                if not self.first_load:
+                    if self.sm_scan_data_dict.get(scan_record['schedule_uuid']):
+                        last_modification_date = self.sm_scan_data_dict[scan_record['last_modification_date']] #Added for readbility
+                        sm_last_modification_date = self.sm_scan_data_dict[scan_record['schedule_uuid']] #Added for readibility
+                        if last_modification_date >= sm_last_modification_date:
+                            continue
+                self.sync_scan(scan_record)
+        print(self.counter)
 
 
     def sync_scan(self, scan_record):
         if scan_record.get('uuid'):
+                
             for issue_record in self.tenable_client.get_vuln_export_generator(scan_record['uuid']):
+                self.counter += 1 
                 #TODO: FIND THE APPROPRIATE ASSET ID 
                 if not self.current_scan_asset_dict.get(issue_record['asset']['uuid']):
                     mapped_scan = self.map_scan(scan_record, issue_record)
@@ -66,7 +74,7 @@ class TenableAdapter:
                         "queue_scan_id":queue_scan['id'],
                         "queue_asset_id": queue_asset['id'],
                         "report_id": mapped_scan['Saltminer']['Scan']['ReportId'],
-                        "schedule_uuid": scan_record['schedule_uuid']
+                        "schedule_uuid": scan_record['schedule_uuid'] if scan_record.get('schedule_uuid') else "None"
                     } 
                 mapped_issue = self.map_issue(issue_record, current_scan_dict = self.current_scan_asset_dict[issue_record['asset']['uuid']])
                 self.data_client.AddQueueIssue(mapped_issue)
@@ -87,8 +95,8 @@ class TenableAdapter:
         scan['Attributes'] = {}
         scan['Product'] = "Tenable"
         scan['Vendor'] = "Tenable"
-        scan['ReportId'] = scan_record['uuid'] + " | " + issue_record['asset']['uuid']
-        dt = datetime.fromtimestamp(scan_record['last_modification_date'], tz=timezone.utc)
+        scan['ReportId'] = scan_record['uuid'] + " | " + issue_record['asset']['uuid'] + " | " + str(datetime.now())
+        dt = scan_record['last_modification_date'].astimezone(timezone.utc)
         scan['ScanDate'] = dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         scan['SourceType'] = "Saltworks.Tenable"
         scan['Instance'] = "Tenable1"
@@ -109,7 +117,7 @@ class TenableAdapter:
         asset['Name'] = asset_name
         asset["Version"] = asset_name
         asset['VersionId'] =  issue_record['asset']['uuid']
-        asset['SourceId'] = issue_record['asset']['uuid']
+        asset['SourceId'] = issue_record['asset']['uuid'] 
         asset['Instance'] = 'Tenable1'
         asset['AssetType'] = 'net'
         asset['SourceType'] = 'Saltworks.Tenable'
@@ -152,10 +160,11 @@ class TenableAdapter:
         vulnerability['Recommendation'] = issue_record['plugin'].get('solution')
         
         scanner = vulnerability['Scanner']
-        scanner['Id'] = issue_record['finding_id']
+        scanner['Id'] = issue_record['finding_id'] + " | " + report_id 
         scanner['AssessmentType'] = "Open"
         scanner['Product'] = 'Tenable'
         scanner['Vendor'] = 'Tenable'
 
         return q_issue_doc
+
 
