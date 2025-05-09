@@ -88,43 +88,46 @@ namespace Saltworks.SaltMiner.Manager
 
             //Main CMD
             var mainVerb = new Command("main", "[DEPRECATED, use other main options instead] Runs Manager service, using options to determine which processor(s) run and whether to run them once.");
-            var mainOperationOption = new Option<string>(new[] { "--operation", "-o" }, description: "Run specific operation one time and stop.  Valid operations include queue and snapshot", getDefaultValue: () => "queue");
-            var mainSourceTypeOption = new Option<string>(new[] { "--sourceType", "-st" }, description: "For queue processing, process specified source and stop.  Source must be a valid source name or 'all'.", getDefaultValue: () => "all");
-            var mainSourceIdOption = new Option<string>(new[] { "--sourceId", "-sid" }, description: "For queue processing, process specified source Id.  Requires Source as well.", getDefaultValue: () => "all");
-            var mainRunOnceOption = new Option<bool>(new[] { "--runOnce", "-ro" }, description: "Run processor(s) once and then stop (don't run as service)");
-            
+            var mainOperationOption = new Option<string>(["--operation", "-o"], description: "Run specific operation one time and stop.  Valid operations include queue and snapshot", getDefaultValue: () => "queue");
+            var mainSourceTypeOption = new Option<string>(["--source-type", "-st"], description: "For queue processing, process specified source and stop.  Source must be a valid source name or 'all'.", getDefaultValue: () => "all");
+            var mainSourceIdOption = new Option<string>(["--source-id", "-sid"], description: "For queue processing, process specified source Id.  Requires source type as well.", getDefaultValue: () => "all");
+            var mainInstanceIdOption = new Option<string>(["--instance-id", "-sid"], description: "For queue processing, specify instance ID (for running more than one Manager).", getDefaultValue: () => "");
+
             mainVerb.Add(mainOperationOption);
             mainVerb.Add(mainSourceTypeOption);
             mainVerb.Add(mainSourceIdOption);
-            mainVerb.Add(mainRunOnceOption);
-            mainVerb.SetHandler((operation, sourceType, sourceId, runOnce) =>
+            mainVerb.Add(mainInstanceIdOption);
+            mainVerb.SetHandler((operation, sourceType, sourceId, instanceId) =>
             {
-                HandleMain(operation, sourceType, sourceId, runOnce);
-            }, mainOperationOption, mainSourceTypeOption, mainSourceIdOption, mainRunOnceOption);
+                HandleMain(operation, sourceType, sourceId, instanceId);
+            }, mainOperationOption, mainSourceTypeOption, mainSourceIdOption, mainInstanceIdOption);
+
 
             //Queue CMD
             var queueVerb = new Command("queue", "Runs queue processor, which processes new queue updates and can be run multiple times daily.");
-            var queueSourceTypeOption = new Option<string>(new[] { "--sourceType", "-st" }, description: "Process specified source type only.  Source must be a valid source name or 'all'.", getDefaultValue: () => "all");
-            var queueQueueScanIdOption = new Option<string>(new[] { "--queueScanId", "-id" }, description: "Processes specified queue scan ID only.  Defaults to 'all'.", getDefaultValue: () => "all");
-            var queueLimitOption = new Option<int>(new[] { "--limit", "-n" }, description: "Specifies the maximum number of queue scans (and related) to process.  Defaults to 0 (all)", getDefaultValue: () => 0);
-            var queueListOnlyOption = new Option<bool>(new[] { "--list-only", "-l" }, description: "List queue scans to process without processing them.");
-            
+            var queueSourceTypeOption = new Option<string>(["--source-type", "-st"], description: "Process specified source type only.  Source must be a valid source name or 'all'.", getDefaultValue: () => "all");
+            var queueQueueScanIdOption = new Option<string>(["--queue-scan-id", "-id"], description: "Processes specified queue scan ID only.  Defaults to 'all'.", getDefaultValue: () => "all");
+            var queueLimitOption = new Option<int>(["--limit", "-n"], description: "Specifies the maximum number of queue scans (and related) to process.  Defaults to 0 (all)", getDefaultValue: () => 0);
+            var queueListOnlyOption = new Option<bool>(["--list-only", "-l"], description: "List queue scans to process without processing them.");
+            var queueInstanceIdOption = new Option<string>(["--instance-id", "-sid"], description: "Specify instance ID (for running more than one Manager).", getDefaultValue: () => "");
+
             queueVerb.Add(queueSourceTypeOption);
             queueVerb.Add(queueQueueScanIdOption);
             queueVerb.Add(queueLimitOption);
             queueVerb.Add(queueListOnlyOption);
-            queueVerb.SetHandler((sourceType, queueScanId, limit, listOnly) =>
+            queueVerb.Add(queueInstanceIdOption);
+            queueVerb.SetHandler((sourceType, queueScanId, limit, listOnly, instanceId) =>
             {
-                HandleQueue(sourceType, queueScanId, limit, listOnly);
-            }, queueSourceTypeOption, queueQueueScanIdOption, queueLimitOption, queueListOnlyOption);
+                HandleQueue(sourceType, queueScanId, limit, listOnly, instanceId);
+            }, queueSourceTypeOption, queueQueueScanIdOption, queueLimitOption, queueListOnlyOption, queueInstanceIdOption);
 
             //Snapshot CMD
             var snapshotVerb = new Command("snapshot", "Runs snapshot processor, which generates snapshots and should be run once daily.");
-            var snapshotSourceTypeOption = new Option<string>(new[] { "--sourceType", "-st" }, description: "Process specified sourceType only.  Source must be a valid source name or 'all'.", getDefaultValue: () => "all");
-            var snapshotSourceIdOption = new Option<string>(new[] { "--sourceId", "-sid" }, description: "Processes specified source ID only.  Requires Source as well. Defaults to 'all'.", getDefaultValue: () => "all");
-            var snapshotLimitOption = new Option<int>(new[] { "--limit", "-n" }, description: "Specifies the maximum number of snapshots to process.  Defaults to 0 (all)", getDefaultValue: () => 0);
-            var snapshotListOnlyOption = new Option<bool>(new[] { "--list-only", "-l" }, description: "List assets & vulnerabilities to process without processing them.  It is recommended to direct this output to a file.");
-            
+            var snapshotSourceTypeOption = new Option<string>(["--sourceType", "-st"], description: "Process specified sourceType only.  Source must be a valid source name or 'all'.", getDefaultValue: () => "all");
+            var snapshotSourceIdOption = new Option<string>(["--sourceId", "-sid"], description: "Processes specified source ID only.  Requires Source as well. Defaults to 'all'.", getDefaultValue: () => "all");
+            var snapshotLimitOption = new Option<int>(["--limit", "-n"], description: "Specifies the maximum number of snapshots to process.  Defaults to 0 (all)", getDefaultValue: () => 0);
+            var snapshotListOnlyOption = new Option<bool>(["--list-only", "-l"], description: "List assets & vulnerabilities to process without processing them.  It is recommended to direct this output to a file.");
+
             snapshotVerb.Add(snapshotSourceTypeOption);
             snapshotVerb.Add(snapshotSourceIdOption);
             snapshotVerb.Add(snapshotLimitOption);  
@@ -136,9 +139,9 @@ namespace Saltworks.SaltMiner.Manager
 
             //Clean Up CMD
             var cleanUpVerb = new Command("cleanup", "Runs clean up processor, which deletes old queue scans by day limit defined in Manager config settings as 'CleanupQueueAfterDays'. Removes history scans that do not have a valid parent scan.");
-            var cleanUpSourceOption = new Option<string>(new[] { "--source", "-s" }, description: "Process specified source only.  Source must be a valid source name or 'all'.", getDefaultValue: () => "all");
-            var cleanUpLimitOption = new Option<int>(new[] { "--limit", "-n" }, description: "Specifies the maximum number of queue scans to process.  Defaults to 0 (all)", getDefaultValue: () => 0);
-            var cleanUpListOnlyOption = new Option<bool>(new[] { "--list-only", "-l" }, description: "List queue scans to clean up without processing them.");
+            var cleanUpSourceOption = new Option<string>(["--source", "-s"], description: "Process specified source only.  Source must be a valid source name or 'all'.", getDefaultValue: () => "all");
+            var cleanUpLimitOption = new Option<int>(["--limit", "-n"], description: "Specifies the maximum number of queue scans to process.  Defaults to 0 (all)", getDefaultValue: () => 0);
+            var cleanUpListOnlyOption = new Option<bool>(["--list-only", "-l"], description: "List queue scans to clean up without processing them.");
 
             cleanUpVerb.Add(cleanUpSourceOption);
             cleanUpVerb.Add(cleanUpLimitOption);
@@ -206,7 +209,9 @@ namespace Saltworks.SaltMiner.Manager
             cmd.Add(cryptoVerb);
             cmd.Add(verisonVerb);
 
-            return await cmd.InvokeAsync(args);
+            var ret = await cmd.InvokeAsync(args);
+            CancelTokenSource.Dispose();
+            return ret;
         }
 
         private static void RunManager(IConsoleAppHostArgs args)
@@ -271,7 +276,7 @@ namespace Saltworks.SaltMiner.Manager
                         catch (Exception ex)
                         {
                             var msg = $"Error in service initialization: {ex.Message}";
-                            logger.LogCritical(ex, msg);
+                            logger.LogCritical(ex, "{Msg}", msg);
                             throw new InitializationException(msg, ex);
                         }
                     },
@@ -289,7 +294,7 @@ namespace Saltworks.SaltMiner.Manager
                 }
                 else
                 {
-                    startLogger.LogCritical(ex, "Manager initialization error: {message}", ex.Message);
+                    startLogger.LogCritical(ex, "Manager initialization error: {Message}", ex.Message);
                 }
             }
         }
@@ -310,33 +315,26 @@ namespace Saltworks.SaltMiner.Manager
             }
         }
         
-        private static void HandleMain(string operation, string sourceType, string sourceId, bool runOnce)
+        private static void HandleMain(string operation, string sourceType, string sourceId, string instanceId)
         {
             if (!(new string[] { "queue", "snapshot" }).Contains(operation.ToLower()))
             {
                 throw new InvalidOperationException($"Invalid operation '{operation}'");
             }
 
-            IConsoleAppHostArgs args;
-
-            switch (operation.ToLower())
+            IConsoleAppHostArgs args = operation.ToLower() switch
             {
-                case "queue": 
-                    args = QueueRuntimeConfig.GetArgs(sourceType, sourceId, 0, false, CancelTokenSource.Token); 
-                    break;
-                case "snapshot": 
-                    args = SnapshotRuntimeConfig.GetArgs(sourceType, sourceId, 0, false, CancelTokenSource.Token); 
-                    break;
-                default: 
-                    throw new InvalidOperationException($"Invalid operation '{operation}'");
-            }
+                "queue" => QueueRuntimeConfig.GetArgs(sourceType, sourceId, 0, false, instanceId, CancelTokenSource.Token),
+                "snapshot" => SnapshotRuntimeConfig.GetArgs(sourceType, sourceId, 0, false, CancelTokenSource.Token),
+                _ => throw new InvalidOperationException($"Invalid operation '{operation}'"),
+            };
 
             RunManager(args);
         }
 
-        private static void HandleQueue(string sourceType, string queueScanId, int limit, bool listOnly)
+        private static void HandleQueue(string sourceType, string queueScanId, int limit, bool listOnly, string instanceId)
         {
-            RunManager(QueueRuntimeConfig.GetArgs(sourceType, queueScanId, limit, listOnly, CancelTokenSource.Token));
+            RunManager(QueueRuntimeConfig.GetArgs(sourceType, queueScanId, limit, listOnly, instanceId, CancelTokenSource.Token));
         }
 
         private static void HandleSnapshot(string sourceType, string sourceId, int limit, bool listOnly)
@@ -347,15 +345,6 @@ namespace Saltworks.SaltMiner.Manager
         private static void HandleCleanUp(string source, int limit, bool listOnly)
         {
             RunManager(CleanUpRuntimeConfig.GetArgs(source, limit, listOnly, CancelTokenSource.Token));
-        }
-
-        private static void HandleHello()
-        {
-            while (!CancelTokenSource.Token.IsCancellationRequested)
-            {
-                Console.WriteLine("Well hello again friend");
-                Thread.Sleep(2000);
-            }
         }
 
         private static void HandleManagerConfig()

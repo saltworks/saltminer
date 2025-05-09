@@ -15,7 +15,6 @@
  */
 
 ﻿using Microsoft.Extensions.Logging;
-using Saltworks.SaltMiner.Licensing.Core;
 using Saltworks.SaltMiner.ConsoleApp.Core;
 using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.DataClient;
@@ -61,19 +60,6 @@ public class SyncAgent : IConsoleAppHost
                 throw new SyncAgentConfigurationException($"Invalid arguments.");
             }
 
-            var license = DataClient.GetLicense().Data;
-
-            if (license == null)
-            {
-                Logger.LogInformation("License not found, loading community license.");
-                var licensingGenerator = new LicensingGenerator();
-                license = licensingGenerator.GetCommunity(Config.CommunityPath);
-            }
-
-            var licenseValidator = new LicensingValidator(Logger, license);
-
-            licenseValidator.Validate(Config.KeyPath);
-
             var sourceConfig = args.Args[0];
             var configDirectory = args.Args[1];
             var forceUpdate = args.Args[2] == true.ToString();
@@ -116,8 +102,6 @@ public class SyncAgent : IConsoleAppHost
                     Logger.LogError(ex, "Sync Agent error in source '{Src}' and type '{Type}': [{ExType}] {ExMsg}", config.ConfigFileName, config.SourceType, ex.GetType().Name, ex.Message);
                     continue;
                 }
-
-                licenseValidator.CheckForSourceType(config.SourceType);
 
                 var sourceAssemblyType = config.SourceType.Split(".")[1];
                 var assembly = $"Saltworks.SaltMiner.SourceAdapters.{sourceAssemblyType}.dll";

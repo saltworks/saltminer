@@ -28,11 +28,12 @@ namespace Saltworks.SaltMiner.Licensing.Core
 
         public static void WriteLicenseToFile(License license, string path)
         {
-            using (var file = File.Create(path))
-            {
-                JsonSerializer.Serialize(file, license, typeof(License), new JsonSerializerOptions { WriteIndented = true }); ;
-                Console.Out.WriteLine($"License generated and saved to {file.Name}");
-            }
+            var jsonNode = JsonSerializer.SerializeToNode(license).AsObject();
+            jsonNode.Remove("Timestamp");
+            jsonNode.Remove("LastUpdated");
+            jsonNode.Remove("Id");
+            File.WriteAllText(path, jsonNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            Console.Out.WriteLine($"License generated and saved to {path}");
         }
 
         public static License ReadLicenseFromFile(string filePath)

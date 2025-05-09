@@ -20,7 +20,6 @@ using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Extensions;
 using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.DataClient;
-using Saltworks.SaltMiner.Licensing.Core;
 using Saltworks.SaltMiner.Manager.Helpers;
 using System;
 using System.Collections.Generic;
@@ -36,13 +35,12 @@ namespace Saltworks.SaltMiner.Manager
         private readonly ILogger Logger;
         private readonly DataClient.DataClient DataClient;
         private readonly ManagerConfig Config;
-        private readonly List<Issue> WriteQueue = new();
-        private readonly List<Comment> CommentQueue = new();
-        private LicensingValidator LicensingValidator;
+        private readonly List<Issue> WriteQueue = [];
+        private readonly List<Comment> CommentQueue = [];
         private QueueRuntimeConfig RunConfig = null;
-        private readonly Queue<string> RecentSourceIds = new();
-        private readonly Queue<Asset> RecentAssets = new();
-        private readonly List<Comment> engagementComments = new();
+        private readonly Queue<string> RecentSourceIds = [];
+        private readonly Queue<Asset> RecentAssets = [];
+        private readonly List<Comment> engagementComments = [];
 
         public QueueProcessor
         (
@@ -105,21 +103,6 @@ namespace Saltworks.SaltMiner.Manager
 
             try
             {
-                var license = DataClient.GetLicense().Data;
-
-                if (license == null)
-                {
-                    Logger.LogInformation("License not found, trying to load basic license '{File}'.", Config.CommunityPath);
-                    
-                    var licensingGenerator = new LicensingGenerator();
-                    license = licensingGenerator.GetCommunity(Config.CommunityPath);
-                }
-                
-                LicensingValidator = new LicensingValidator(Logger, license);
-                LicensingValidator.Validate(Config.KeyPath);
-
-                Logger.LogInformation("License found and validated");
-
                 var queueScanSearch = new SearchRequest()
                 {
                     Filter = new()
@@ -181,11 +164,6 @@ namespace Saltworks.SaltMiner.Manager
 
                             Logger.LogInformation("Begin processing {Count}/{Total}, instance '{Instance}', sourceType '{SourceType}', assessmentType '{AType}', report ID '{ReportId}', queue scan ID '{QueueScanId}'", count, total, queueScan.Saltminer.Scan.Instance, queueScan.Saltminer.Scan.SourceType, queueScan.Saltminer.Scan.AssessmentType, queueScan.Saltminer.Scan.ReportId, queueScan.Id);
 
-                            LicensingValidator.CheckForSourceType(queueScan.Saltminer.Scan.SourceType);
-                            LicensingValidator.CheckForAssessmentType(queueScan.Saltminer.Scan.AssessmentType);
-
-                            Logger.LogInformation("License valid for sourceType '{SourceType}', assessmentType '{AType}'.", queueScan.Saltminer.Scan.SourceType, queueScan.Saltminer.Scan.AssessmentType);
-
                             if (!UpdateStatus(queueScan, QueueScan.QueueScanStatus.Processing, EngagementStatus.Processing, false))
                             {
                                 // Skip if status update doesn't work
@@ -208,11 +186,6 @@ namespace Saltworks.SaltMiner.Manager
                             UpdateStatus(queueScan, QueueScan.QueueScanStatus.Complete, EngagementStatus.Published);
                             count++;
                             // TODO: write queue log entry here
-                        }
-                        catch(LicensingException ex)
-                        {
-                            Logger.LogError(ex, "Licensing error: {Msg}", ex.Message);
-                            throw new OperationCanceledException(ex.Message);
                         }
                         catch (Exception ex)
                         {
@@ -280,10 +253,6 @@ namespace Saltworks.SaltMiner.Manager
             catch (CancelTokenException)
             {
                 // Already logged, so just do nothing but quit silently
-            }
-            catch (LicensingException ex)
-            {
-                Logger.LogError(ex, "Licensing error in queue processor");
             }
             catch (Exception ex)
             {
@@ -379,17 +348,11 @@ namespace Saltworks.SaltMiner.Manager
             var currentSourceTypeCount = countResult.Data[queueScan.Saltminer.Scan.SourceType];
             var currentAssessmentTypeCount = countResult.Data[queueScan.Saltminer.Scan.AssessmentType];
 
-            // Licensing validation - errors out here if already over on counts, missing license, etc.
-            LicensingValidator.ValidateOverallCounts(queueAssets.Count, currentSourceTypeCount, currentAssessmentTypeCount, queueScan.Saltminer.Scan.SourceType, queueScan.Saltminer.Scan.AssessmentType);
             Tuple<Scan, Asset> result = null;
             List<Comment> comments;
 
             foreach (var queueAsset in queueAssets) 
             {
-                // Licensing validation - each asset adds to counts, so check to see if still in compliance
-                LicensingValidator.ValidateEachSourceTypeCount(currentSourceTypeCount, queueScan.Saltminer.Scan.SourceType);
-                LicensingValidator.ValidateEachAssessmentTypeCount(currentAssessmentTypeCount, queueScan.Saltminer.Scan.AssessmentType);
-
                 var isNoScan = IsNoScan(queueScan.Saltminer.Scan.ReportId);
 
                 result = ProcessScan(queueScan, queueAsset, isNoScan);
