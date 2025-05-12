@@ -29,6 +29,7 @@ class SnykAdapter:
         self.snyk_docs = SnykDocs()
         self._es = ElasticClient(settings)
         self._sm_data_client = SmDataClient(settings, "Snyk")
+        self.base_gui_url = "https://app.snyk.io/org/"
         self.prj_version_last_updated = {}
 
 
@@ -51,12 +52,14 @@ class SnykAdapter:
         """
         start_date = None
         for org in self.snyk_client.get_snyk_orgs_generator():
+            gui_url_with_org_slug = self.base_gui_url + org['attributes']['slug'] + "/project/"
             for project in self.snyk_client.get_snyk_projects_generator(org_id=org['id']):
                 
                 project_id = project.get("id") # Ensure project ID is extracted properly
                 if not project_id:
                     logging.warning("Skipping project with missing ID: %s", project)
                     continue
+                gui_url_with_project = gui_url_with_org_slug + project_id + "#"
 
                 if not first_load and project_id in self.prj_version_last_updated.keys() and self.prj_version_last_updated.get(project_id):
                     date = datetime.strptime(self.prj_version_last_updated.get(project_id), "%Y-%m-%dT%H:%M:%S.%fZ")
@@ -66,13 +69,13 @@ class SnykAdapter:
                 first_issue = next(issues_generator, None) # Get first issue to check if there is any data
 
                 if first_issue:
-                    self.snyc_issues(project, first_issue, issues_generator)
+                    self.snyc_issues(project, first_issue, issues_generator, gui_url_with_project)
                     
                 else:
                     logging.info("No issues found for project %s, skipping.", project_id)
 
 
-    def snyc_issues(self, project, first_issue, issues_generator):
+    def snyc_issues(self, project, first_issue, issues_generator, gui_url):
         """
         Runs through issues of a specific project and sends them to Saltminer.
         -Maps Scan to SM valid scan document
@@ -96,16 +99,17 @@ class SnykAdapter:
             mapped_asset = self.map_asset(project, queue_scan['id'])
             #Sends mapped asset to SM queue_assets
             queue_asset = self._sm_data_client.AddQueueAsset(json.loads(mapped_asset.model_dump_json()))
-
+            
             # Process the first issue
-            mapped_issue = self.map_issue(first_issue, queue_scan['id'], queue_asset['id'], queue_scan['saltminer']['scan']['reportId'], project_id)
+            mapped_issue = self.map_issue(first_issue, queue_scan['id'], queue_asset['id'], queue_scan['saltminer']['scan']['reportId'], project_id, gui_url)
+
             #Send the first issue to SM queue_issues
             self._sm_data_client.AddQueueIssue(json.loads(mapped_issue.model_dump_json()))
             counter += 1 
 
             #Maps all issues to SM valid issue documents
             for issue in issues_generator:
-                mapped_issue = self.map_issue(issue, queue_scan['id'], queue_asset['id'], queue_scan['saltminer']['scan']['reportId'], project_id)
+                mapped_issue = self.map_issue(issue, queue_scan['id'], queue_asset['id'], queue_scan['saltminer']['scan']['reportId'], project_id, gui_url)
                 #Sends mapped issues to SM queue_issues
                 self._sm_data_client.AddQueueIssue(json.loads(mapped_issue.model_dump_json()))
                 #Tracking the counter so that we can use it to add to the Scan.Issue_count in the future.
@@ -131,7 +135,7 @@ class SnykAdapter:
             return None
 
 
-    def map_issue(self, issue, queue_scan_id, queue_asset_id, report_id, project_id):
+    def map_issue(self, issue, queue_scan_id, queue_asset_id, report_id, project_id, gui_url):
         """
         This will map the issue data into the needed format for the queue_issues
         """
@@ -164,10 +168,11 @@ class SnykAdapter:
 
         scanner = vulnerability['Scanner']
         scanner['Id'] = issue['id'] + "|" + project_id
-        #TODO:DETERMINE THE CORRECT SCAN TYPES AND PUT THEM HERE 
+        #TODO:DETERMINE THE CORRECT SCAN TYPES AND PUT THEM HERE
         scanner['AssessmentType'] = "Open"
         scanner['Product'] = "Snyk"
         scanner['Vendor']= "Snyk"
+        scanner['GuiUrl'] = gui_url + issue['attributes']['key']
 
         return MapIssueDocDTO(**q_issue_doc)
 
