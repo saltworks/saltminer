@@ -6,7 +6,8 @@ on:
     - main
     - '3.*'
     paths:
-    - 'Saltworks.SaltMiner.DataApi/*'
+    - 'Saltworks.SaltMiner.DataApi/**'
+    - 'Saltworks.SaltMiner.IndexTemplates/**'
     - '.github/workflows/saltworks-saltminer-dataapi.yml'
     - '.dockerfiles/Dockerfile'
   workflow_dispatch:
