@@ -271,8 +271,8 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             if (IsInRole(Role.Pentester))
             {
-                // to reset failed engagements, allow changing error back to draft
-                if (currentStatus == EngagementStatus.Error && newStatus == EngagementStatus.Draft)
+                // to reset failed or incomplete published engagements, allow changing error, queued, or processing back to draft
+                if ((currentStatus == EngagementStatus.Error || currentStatus == EngagementStatus.Queued || currentStatus == EngagementStatus.Processing) && newStatus == EngagementStatus.Draft)
                 {
                     return true;
                 }
