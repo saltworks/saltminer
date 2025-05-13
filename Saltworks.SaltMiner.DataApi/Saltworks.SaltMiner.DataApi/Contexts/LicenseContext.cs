@@ -111,8 +111,8 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         {
             if (string.IsNullOrEmpty(elkVersion))
                 elkVersion = GetElkLicenseType().Message;
-            if (elkVersion.Equals("Enterprise", StringComparison.OrdinalIgnoreCase))
-                return;  // don't need to continue if enterprise, if bad or missing license then API won't start
+            if (!elkVersion.Equals("Basic", StringComparison.OrdinalIgnoreCase) && !elkVersion.Equals("Standard", StringComparison.OrdinalIgnoreCase))
+                return;  // don't need to continue if elastic type is above base, if bad or missing license then API won't start
 
             // If not enterprise throw error if over 1MM issues
             var count = ElasticClient.Count<Issue>(new(), "issue*").CountAffected;

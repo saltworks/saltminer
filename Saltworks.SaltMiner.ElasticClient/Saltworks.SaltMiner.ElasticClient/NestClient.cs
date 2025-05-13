@@ -23,6 +23,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
+using System.Runtime.Serialization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -37,10 +38,36 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
     private readonly ILogger Logger = logger;
     private readonly ClientConfiguration ClientConfig = configuration;
 
+    #region Make Nest Compatible with Cloud
+
+    public class SmLicenseInformation: LicenseInformation
+    {
+        [DataMember(Name = "max_nodes")]
+        public new long? MaxNodes { get; set; }
+    }
+    /// <summary>
+    /// Allows max_nodes to be null in license information
+    /// </summary>
+    public class LicenseResponse: GetLicenseResponse
+    {
+        [DataMember(Name = "license")]
+        public new SmLicenseInformation License { get; set; }
+    }
+
+    #endregion
+
     public IElasticClientResponse GetClusterLicenseLevel()
     {
-        var r = ElasticClient.License.Get();
-        return NestClientResponse.BuildResponse(true, r.License.Type.GetStringValue(), 0);
+        try
+        {
+            var r = ElasticClient.LowLevel.License.Get<LicenseResponse>();
+            return NestClientResponse.BuildResponse(true, r.License.Type.GetStringValue(), 0);
+        }
+        catch (UnexpectedElasticsearchClientException ex)
+        {
+            Logger.LogError(ex, "Failed to get Elasticsearch version, assuming cloud standard.  Error: {Msg}", ex.Message);
+        }
+        return NestClientResponse.BuildResponse(false, "", 0);
     }
 
     public async Task<IElasticClientResponse> GetClusterTaskCountAsync()

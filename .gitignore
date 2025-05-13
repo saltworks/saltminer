@@ -10,6 +10,7 @@
 **/*.log
 **/*IntegrationTests/settings.json
 **/*.csproj.user
+/Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi/RunData
 /Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager/Template/*
 !/Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager/Template/Saltworks
 /Saltworks.SaltMiner.Ui/static/config*.json
