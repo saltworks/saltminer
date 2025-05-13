@@ -9,7 +9,7 @@ on:
     branches:
     - '3.*'
     paths:
-    - 'Saltworks.SaltMiner.SyncAgent/*'
+    - 'Saltworks.SaltMiner.SyncAgent/**'
     - '.github/workflows/sync-agent-artifact.yml'
     - 'Saltworks.SaltMiner.ConfigurationWizard/**'
     - 'Saltworks.SaltMiner.ConsoleApp.Core/**'
