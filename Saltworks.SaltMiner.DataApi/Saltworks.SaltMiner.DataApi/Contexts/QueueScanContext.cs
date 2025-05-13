@@ -17,6 +17,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
+using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using Saltworks.SaltMiner.DataApi.Data;
 using Saltworks.SaltMiner.DataApi.Extensions;
@@ -396,8 +397,8 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             if (IsInRole(Role.Agent) || IsInRole(Role.Pentester))
             {
-                // Allow a reset of queue scan if in error state
-                if (currentScanStatus == QueueScanStatus.Error && newScanStatus == QueueScanStatus.Loading)
+                // Allow a pentest reset of queue scan if in error or processing
+                if (IsInRole(Role.Pentester) && (currentScanStatus == QueueScanStatus.Error || currentScanStatus == QueueScanStatus.Processing) && newScanStatus == QueueScanStatus.Loading)
                 {
                     return true;
                 }
