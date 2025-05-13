@@ -14,7 +14,8 @@
  * ----
  */
 
-﻿using Saltworks.SaltMiner.SourceAdapters.Core.Data;
+using Microsoft.Extensions.Logging;
+using Saltworks.SaltMiner.SourceAdapters.Core.Data;
 using System.Globalization;
 using System.Text.Json;
 
@@ -76,14 +77,26 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         {
             if (sync.Data == null)
                 return new(null, null, null);
-            var prms = sync.Data.Split('|');
-            var id = prms.Length > 1 ? prms[1] : "";
-            var vOri = prms.Length > 2 ? prms[2] : "v";
-            DateTime dt = DateTime.MinValue;
-            var validDt = prms.Length > 0 && DateTime.TryParse(prms[0], new CultureInfo("en-US"), out dt);
-            if (!validDt && throwIfInvalid)
-                throw new WizException("Resume data found but failed to understand it.  Correct or remove the sync record.");
-            return new(dt == DateTime.MinValue ? null : dt, id, vOri);
+            try
+            {
+                var prms = sync.Data.Split('|');
+                var id = prms.Length > 1 ? prms[1] : "";
+                var vOri = prms.Length > 2 ? prms[2] : "v";
+                DateTime dt = DateTime.MinValue;
+                var validDt = prms.Length > 0 && DateTime.TryParse(prms[0], new CultureInfo("en-US"), out dt);
+                if (!validDt && throwIfInvalid)
+                    throw new WizException("Resume data found but start date invalid.  Correct or remove the sync record.");
+                return new(dt == DateTime.MinValue ? null : dt, id, vOri);
+            }
+            catch (Exception ex)
+            {
+                var data = sync.Data;
+                if (data.Length > 100)
+                    data = data[..100] + "...";
+                if (throwIfInvalid)
+                    throw new WizException("Exception when parsing the sync record data.  Expected format: startdate|nextId|v or i Data: " + data, ex);
+                return new(null, null, null);
+            }
         }
     }
 }
