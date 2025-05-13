@@ -132,5 +132,6 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
         public bool ValidFileExtensionsReplaceDefault { get; set; } = false;
         public string AppRolePrefix { get; set; } = "smapp_";
         public bool DisableDataClientInitializationCall { get; set; } = false;
+        public int MinimumPublishProcessingMinutes { get; set; } = 10;
     }
 }
