@@ -1899,6 +1899,7 @@ export default {
               this.engagement.summary = r.data.summary
               this.engagement.customer = r.data.customer
               this.engagement.subtype = r.data.subtype
+              this.engagement.draftEngagementId = r.data.draftEngagementId
               this.engagement.attachments = 
                 r.data.attachments !== null ?
                 r.data.attachments.map(function(attachment) { 
@@ -1916,7 +1917,7 @@ export default {
               this.statusStep =
                 this.engagement.status === 'Draft' ? 'Publish' : 'Checkout'
               this.isTemplate = this.engagement.subtype === "Template"
-              
+
               if(this.isTemplate)
               {
                 this.dropdownButtonOptions = this.dropdownButtonTemplateOptions
