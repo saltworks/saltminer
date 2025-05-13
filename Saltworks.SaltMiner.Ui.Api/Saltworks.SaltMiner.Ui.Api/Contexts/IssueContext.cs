@@ -511,12 +511,22 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 throw new UiApiClientValidationException("Id not present in request.");
             }
 
-            DataItemResponse<Issue> response = new();
+            IEnumerable<Issue> issue = null;
             try
             {
                 Logger.LogInformation("Get Issue '{Id}'", issueId);
-                response = DataClient.IssueGet(issueId, UiApiConfig.AssetType, UiApiConfig.SourceType, UiApiConfig.Instance);
-                return new UiDataItemResponse<Issue>(response.Data);
+
+                issue = (DataClient.IssueSearch(new SearchRequest()
+                {
+                    Filter = new()
+                    {
+                        AnyMatch = true,
+                        FilterMatches = new Dictionary<string, string> { { "Id", issueId } },
+                    }
+                })?.Data) ?? throw new UiApiNotFoundException($"No Issue Found for Id {issueId}.");
+
+                
+                return new UiDataItemResponse<Issue>(issue?.FirstOrDefault());
             }
             catch (DataClientResponseException ex)
             {
@@ -530,7 +540,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 }
             }
 
-            return new UiDataItemResponse<Issue>(response.Data);
+            return new UiDataItemResponse<Issue>(issue?.FirstOrDefault());
         }
 
         public UiDataItemResponse<IssueEditPrimer> EditPrimer(string issueId)

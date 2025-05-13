@@ -6,7 +6,6 @@ on:
     - main
     - '3.*'
     paths:
-    - 'Saltworks.SaltMiner.IndexTemplates/**'
     - 'Saltworks.SaltMiner.Manager/**'
     - 'Saltworks.SaltMiner.Python/**'
     - 'Saltworks.SaltMiner.ServiceManager/**'
