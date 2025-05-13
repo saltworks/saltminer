@@ -23,6 +23,8 @@ using System.Linq;
 using System.Collections.Generic;
 using Saltworks.SaltMiner.ElasticClient;
 using Saltworks.SaltMiner.Core.Util;
+using Saltworks.SaltMiner.Licensing.Core;
+using System;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts
 {
@@ -109,38 +111,51 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         {
             if (string.IsNullOrEmpty(elkVersion))
                 elkVersion = GetElkLicenseType().Message;
-            if (elkVersion.Equals("Enterprise", System.StringComparison.OrdinalIgnoreCase))
-                return;  // don't need to continue if enterprise
+            if (elkVersion.Equals("Enterprise", StringComparison.OrdinalIgnoreCase))
+                return;  // don't need to continue if enterprise, if bad or missing license then API won't start
 
             // If not enterprise throw error if over 1MM issues
             var count = ElasticClient.Count<Issue>(new(), "issue*").CountAffected;
-            if (count > 1000000)
+            if (count <= 1000000)
+                return; // if under 1 MM we're good
+
+            var license = Get().Data;
+            var validator = new LicensingValidator(logger, license);
+            try
             {
-                var msg = "License Violation: Free license volume exceeded.  Contact sales@saltworks.io to license this product.";
-                logger.LogError("{Msg}", msg);
-                var entry = new Eventlog
-                {
-                    Event = new()
-                    {
-                        Provider = "Licensing",
-                        DataSet = "SaltMiner.Licensing",
-                        Reason = msg,
-                        Action = EventStatus.Error.ToString("g"),
-                        Kind = "event",
-                        Outcome = "",
-                        Severity = LogSeverity.Error
-                    },
-                    Saltminer = new()
-                    {
-                        Application = "DataApi"
-                    },
-                    Log = new()
-                    {
-                        Level = LogSeverity.Error.ToString("g")
-                    }
-                };
-                EventlogContext.AddUpdate<Eventlog>(new() { Entity = entry }, Eventlog.GenerateIndex());
+                validator.Validate(config.KeyPath);
+                return; // if license is ok then we're good
             }
+            catch (LicensingException)
+            {
+                // ignore, we simply called it to log an invalid license
+            }
+
+            // If we haven't returned then we have an invalid/null license and over 1 MM docs
+            var msg = "License Violation: Free license volume exceeded.  Contact sales@saltworks.io to license this product.";
+            logger.LogError("{Msg}", msg);
+            var entry = new Eventlog
+            {
+                Event = new()
+                {
+                    Provider = "Licensing",
+                    DataSet = "SaltMiner.Licensing",
+                    Reason = msg,
+                    Action = EventStatus.Error.ToString("g"),
+                    Kind = "event",
+                    Outcome = "",
+                    Severity = LogSeverity.Error
+                },
+                Saltminer = new()
+                {
+                    Application = "DataApi"
+                },
+                Log = new()
+                {
+                    Level = LogSeverity.Error.ToString("g")
+                }
+            };
+            EventlogContext.AddUpdate<Eventlog>(new() { Entity = entry }, Eventlog.GenerateIndex());
         }
     }
 }

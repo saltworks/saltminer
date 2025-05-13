@@ -279,10 +279,10 @@ namespace Saltworks.SaltMiner.DataApi
             var schemea = string.IsNullOrEmpty(config.NginxScheme) ? "https" : config.NginxScheme;
             app.UseSwagger(c =>
             {
-                c.PreSerializeFilters.Add((swaggerDoc, httpReq) => swaggerDoc.Servers = new List<OpenApiServer>
-                {
-                    new OpenApiServer { Url = $"{schemea}://{httpReq.Host.Value}{nr}" }
-                });
+                c.PreSerializeFilters.Add((swaggerDoc, httpReq) => swaggerDoc.Servers =
+                [
+                    new() { Url = $"{schemea}://{httpReq.Host.Value}{nr}" }
+                ]);
             });
 
             app.UseSwaggerUI(c => {
@@ -337,6 +337,7 @@ namespace Saltworks.SaltMiner.DataApi
                 if (File.Exists(config.LicenseFileName))
                 {
                     License newLicense = null;
+                    Log.Information("Found new license in file '{Fname}'", config.LicenseFileName);
                     try
                     {
                         newLicense = Helpers.ReadLicenseFromFile(config.LicenseFileName);
@@ -359,6 +360,7 @@ namespace Saltworks.SaltMiner.DataApi
                             client.AddUpdate(newLicense, License.GenerateIndex());
                             File.Delete(config.LicenseProcessedFileName);
                             File.Move(config.LicenseFileName, config.LicenseProcessedFileName);
+                            Log.Information("New license imported successfully.");
                         }
                     }
                     catch (Exception ex)
@@ -374,9 +376,15 @@ namespace Saltworks.SaltMiner.DataApi
                 var license = licenseContext.Get().Data;
                 var validator = new LicensingValidator(logger, license);
                 var elkVersion = licenseContext.GetElkLicenseType().Message;
-                if (elkVersion.Equals("Enterprise", StringComparison.OrdinalIgnoreCase))
+                Log.Information("Elasticsearch license type '{Edition}' detected.", elkVersion);
+                try
                 {
                     validator.Validate(config.KeyPath);
+                }
+                catch (LicensingException)
+                {
+                    if (elkVersion.Equals("Enterprise", StringComparison.OrdinalIgnoreCase))
+                        throw;
                 }
             }
             catch (PipelineException ex)

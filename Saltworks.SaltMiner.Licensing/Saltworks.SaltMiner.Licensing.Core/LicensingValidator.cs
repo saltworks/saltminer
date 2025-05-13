@@ -30,7 +30,7 @@ namespace Saltworks.SaltMiner.Licensing.Core
 
         public void Validate(string publicKey)
         {
-            Logger.LogInformation("Validating License");
+            Logger.LogDebug("Validating License");
 
             if (License == null)
             {
@@ -79,7 +79,7 @@ namespace Saltworks.SaltMiner.Licensing.Core
                 throw new LicensingException(msg);
             }
 
-            Logger.LogInformation("License Validated");
+            Logger.LogDebug("License Validated");
         }
 
 
