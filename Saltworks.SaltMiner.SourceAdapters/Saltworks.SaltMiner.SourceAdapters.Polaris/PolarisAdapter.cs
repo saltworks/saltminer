@@ -554,6 +554,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Polaris
                         },
                         Saltminer = new SaltMiner.Core.Entities.SaltMinerQueueIssueInfo
                         {
+                            IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
                             Attributes = new Dictionary<string, string>(),
                             QueueScanId = queueScan.Entity.Id,
                             QueueAssetId = queueAsset.Entity.Id,

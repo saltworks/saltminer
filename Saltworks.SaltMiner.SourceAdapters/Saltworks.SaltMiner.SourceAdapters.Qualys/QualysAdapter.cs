@@ -732,6 +732,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
                     },
                     Saltminer = new()
                     {
+                        IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
                         Attributes = new() { 
                             { "type", issue.Type },
                             { "status", issue.Status },

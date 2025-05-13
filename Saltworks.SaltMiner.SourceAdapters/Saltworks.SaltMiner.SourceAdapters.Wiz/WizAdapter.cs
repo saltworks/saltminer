@@ -974,6 +974,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
                     },
                     Saltminer = new()
                     {
+                        IssueType = qScan.Entity.Saltminer.Scan.AssessmentType,
                         Attributes = attributes,
                         QueueScanId = qScan.Id,
                         QueueAssetId = qAsset.Id,

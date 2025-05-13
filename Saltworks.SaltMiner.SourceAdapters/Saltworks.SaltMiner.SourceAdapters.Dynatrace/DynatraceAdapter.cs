@@ -506,7 +506,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
                         },
                         Saltminer = new SaltMiner.Core.Entities.SaltMinerQueueIssueInfo
                         {
-                            IssueType = IssueType.SAST.ToString("g"),
+                            IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
                             Attributes = new Dictionary<string, string> 
                             {
                                 {"remediation", issue.Remediation },

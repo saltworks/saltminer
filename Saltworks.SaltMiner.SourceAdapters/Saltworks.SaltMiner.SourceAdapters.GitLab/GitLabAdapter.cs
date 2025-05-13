@@ -717,6 +717,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                         },
                         Saltminer = new SaltMiner.Core.Entities.SaltMinerQueueIssueInfo
                         {
+                            IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
                             Attributes = new Dictionary<string, string>
                             {
                                 { "state", issue.State ?? string.Empty },

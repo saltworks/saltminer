@@ -741,7 +741,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Oligo
                     },
                     Saltminer = new SaltMiner.Core.Entities.SaltMinerQueueIssueInfo
                     {
-                        IssueType = IssueType.Open.ToString("g"),
+                        IssueType = IssueType.Container.ToString("g"),
                         Attributes = new()
                         {
                             { "image_id", issue.Image.Id },
