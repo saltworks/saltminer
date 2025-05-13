@@ -41,7 +41,7 @@
         </div>
         <div v-click-outside="handleSettingsToggle" class="header-right">
           <span class="last-modified">{{ lastModified }}</span>
-          <template v-if="engagement.status === 'Error'">
+          <template v-if="allowReset(engagement.status)">
             <ButtonComponent
             label="Reset to Draft"
             :theme="`danger`"
@@ -1068,6 +1068,9 @@ export default {
     },
     checkRequiredValue(val) {
       return val == null || (typeof val === 'string' ? val.replace(/<br\s*\/?>/gi, "").replace(/\s+/g, "").trim() === '' : val === '' || JSON.stringify(val) === "[]") || val === []
+    },
+    allowReset(status) {
+      return status === 'Error' || status === 'Queued' || status === 'Processing'
     },
     allRequiredFieldsComplete() {
       const requiredList = this.attributeCustomizations.filter((v) => v.isRequired && Object.entries(this.engagement.attributes).find(([key, value]) => key === v.name && this.checkRequiredValue(value)))

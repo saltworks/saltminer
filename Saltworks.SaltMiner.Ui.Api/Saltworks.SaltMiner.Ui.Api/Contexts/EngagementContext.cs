@@ -338,12 +338,13 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 throw new UiApiNotFoundException($"Engagement {id} does not exist.");
             }
 
-            if (engagementResponse.Data.Saltminer.Engagement.Status != EnumExtensions.GetDescription(EngagementStatus.Error))
-            {
-                throw new UiApiClientValidationException($"This Engagement {id} is not in an Error status and can not be reset for publish.");
-            }
-
             var engagement = engagementResponse.Data;
+
+            // do not reset if publish processing hasn't exceeded the minimum processing time
+            if (engagement.Saltminer.Engagement.Status == EngagementStatus.Processing.ToString("g") && DateTime.Now <= engagement.LastUpdated.AddMinutes(Config.MinimumPublishProcessingMinutes))
+            {
+                throw new UiApiClientValidationException($"This Engagement {id} has not completed processing. Please allow at least {Config.MinimumPublishProcessingMinutes} minutes to complete.");
+            }
 
             DataClient.EngagementUpdateStatus(engagement.Id, EngagementStatus.Draft);
             var queueScan = DataClient.QueueScanGetByEngagement(engagement.Id).Data;

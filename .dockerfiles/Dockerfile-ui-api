@@ -4,6 +4,7 @@ LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.15-alpine3.21-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
 ARG smcfg3=/etc/saltworks/saltminer-3.0.0/ui-api
+ARG smfiles=/usr/share/saltworks/saltminer-3.0.0/ui-files
 ARG smlog3=/var/log/saltworks/saltminer-3.0.0
 ARG ARTIFACT_PATH=.
 
@@ -18,8 +19,9 @@ ENV GID=10001
 # curl is used for healthcheck.
 RUN apk add --no-cache curl
 
-RUN mkdir -p ${smcfg3}
-RUN mkdir -p ${smlog3}
+RUN mkdir -p ${smcfg3} \
+  && mkdir -p ${smlog3} \
+  && mkdir -p ${smfiles}
 
 WORKDIR /usr/share/saltworks/saltminer-3.0.0/ui-api
 
@@ -41,6 +43,7 @@ RUN mv appsettings.json ${smcfg3}
 
 RUN chown -R $USER:$GROUPNAME . \
   && chown -R $USER:$GROUPNAME ${smcfg3} \
+  && chown -R $USER:$GROUPNAME ${smfiles} \
   && chown -R $USER:$GROUPNAME ${smlog3}
 
 EXPOSE 5001
