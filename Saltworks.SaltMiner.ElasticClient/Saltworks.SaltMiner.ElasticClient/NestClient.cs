@@ -66,8 +66,8 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         catch (UnexpectedElasticsearchClientException ex)
         {
             Logger.LogError(ex, "Failed to get Elasticsearch version, assuming cloud standard.  Error: {Msg}", ex.Message);
+            return NestClientResponse.BuildResponse(false, "standard", 0);
         }
-        return NestClientResponse.BuildResponse(false, "", 0);
     }
 
     public async Task<IElasticClientResponse> GetClusterTaskCountAsync()
