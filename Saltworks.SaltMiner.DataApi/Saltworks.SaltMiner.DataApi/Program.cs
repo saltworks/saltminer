@@ -61,7 +61,7 @@ namespace Saltworks.SaltMiner.DataApi
         {
             if (args.Length == 0)
             {
-                args = new string[] { "main" };
+                args = [ "main" ];
             }
 
             var cmd = new RootCommand();
@@ -302,10 +302,7 @@ namespace Saltworks.SaltMiner.DataApi
             // This is a quick and somewhat simplified way to avoid the full auth middleware stack while still using [Authorize] attributes on controllers
             app.UseMiddleware<ApiAuthMiddleware>();
 
-            app.UseEndpoints(endpoints =>
-            {
-                endpoints.MapControllers();
-            });
+            app.MapControllers();
 
             var logger = app.Services.GetRequiredService<ILogger<LicenseContext>>();
             logger.LogInformation("App builder configuration complete (Configure).");
@@ -317,7 +314,7 @@ namespace Saltworks.SaltMiner.DataApi
                 var client = factory.CreateClient();
                 var licenseContext = app.Services.GetRequiredService<LicenseContext>();
                 // Check for data items to process
-                ProcessOneTimeDataItems(config, client, logger);
+                ProcessOneTimeDataItems(config, client);
 
                 // Kibana data items to process
                 var kibanaClient = app.Services.GetRequiredService<KibanaContext>();
@@ -325,12 +322,12 @@ namespace Saltworks.SaltMiner.DataApi
 
                 if (!client.CheckIndexTemplateExists(config.TemplateToVerify).IsSuccessful)
                 {
-                    Log.Error("Index templates not found on ElasticSearch server '{elasticHost}', checked for {templateToVerify}", config.ElasticHost, config.TemplateToVerify);
+                    Log.Error("Index templates not found on ElasticSearch server '{ElasticHost}', checked for {TemplateToVerify}", config.ElasticHost, config.TemplateToVerify);
                     throw new ApiConfigurationException($"Index templates not found on ElasticSearch server '{config.ElasticHost}', checked for {config.TemplateToVerify}");
                 }
                 else
                 {
-                    Log.Information("Index templates found on ElasticSearch server '{elasticHost}', checked for {templateToVerify}", config.ElasticHost, config.TemplateToVerify);
+                    Log.Information("Index templates found on ElasticSearch server '{ElasticHost}', checked for {TemplateToVerify}", config.ElasticHost, config.TemplateToVerify);
                 }
 
                 // Check for new license
@@ -396,7 +393,7 @@ namespace Saltworks.SaltMiner.DataApi
 
                 while (lex != null && string.IsNullOrEmpty(smsg))
                 {
-                    Log.Information("^---- Inner exception: [{type}] {msg}", lex.GetType().Name, lex.Message);
+                    Log.Information("^---- Inner exception: [{Type}] {Msg}", lex.GetType().Name, lex.Message);
                     lex = lex.InnerException;
                 }
 
@@ -473,7 +470,7 @@ namespace Saltworks.SaltMiner.DataApi
                 if (!string.IsNullOrEmpty(dir))
                 {
                     var kibanaImports = Directory.GetFiles(dir).Where(t => t.ToLower().EndsWith(".ndjson")).ToList();
-                    Log.Debug("Found {counts} Kibana import file(s).", kibanaImports.Count);
+                    Log.Debug("Found {Counts} Kibana import file(s).", kibanaImports.Count);
 
                     foreach (var kibanaImport in kibanaImports)
                     {
@@ -496,7 +493,7 @@ namespace Saltworks.SaltMiner.DataApi
 
                                 if (!createResults.IsSuccessStatusCode)
                                 {
-                                    throw new($"Space '{spaceName}' was not created. Reason: {createResults.RawContent}");
+                                    throw new ApiException($"Kibana space '{spaceName}' was not created. Reason: {createResults.RawContent}");
                                 }
                             }
 
@@ -515,23 +512,23 @@ namespace Saltworks.SaltMiner.DataApi
                         }
                         catch (Exception ex)
                         {
-                            Log.Error(ex, "Failed to remove kibana space import file '{path}' after use.", kibanaImport);
+                            Log.Error(ex, "Failed to remove kibana space import file '{Path}' after use.", kibanaImport);
                         }
                     }
-                    Log.Information("Processed {counts} Kibana import file(s).", kibanaImports.Count);
+                    Log.Information("Processed {Counts} Kibana import file(s).", kibanaImports.Count);
                 }
                 else
                 {
-                    Log.Information("No Kibana import files found in '{path}' (or invalid/doesn't exist)", config.DataKibanaSpacePath);
+                    Log.Information("No Kibana import files found in '{Path}' (or invalid/doesn't exist)", config.DataKibanaSpacePath);
                 }
             }
             catch (Exception ex)
             {
-                Log.Error(ex, $"{failMsg}: {ex.Message}");
+                Log.Error(ex, "{FMsg}: {ExMsg}", failMsg, ex.Message);
             }
         }
 
-        private static void ProcessOneTimeDataItems(ApiConfig config, IElasticClient client, Microsoft.Extensions.Logging.ILogger logger)
+        private static void ProcessOneTimeDataItems(ApiConfig config, IElasticClient client)
         {
             var failMsg = "";
 
@@ -544,7 +541,7 @@ namespace Saltworks.SaltMiner.DataApi
                 if (!string.IsNullOrEmpty(dir))
                 {
                     var policies = Directory.GetFiles(dir).ToList();
-                    Log.Debug("Found {count} index policy(s).", policies.Count);
+                    Log.Debug("Found {Count} index policy(s).", policies.Count);
 
                     foreach (var policy in policies.Where(t => t.ToLower().EndsWith(".json")))
                     {
@@ -561,11 +558,11 @@ namespace Saltworks.SaltMiner.DataApi
                         File.Delete(policy);
                     }
 
-                    Log.Information("Processed {count} index policy(s).", policies.Count);
+                    Log.Information("Processed {Count} index policy(s).", policies.Count);
                 }
                 else
                 {
-                    Log.Information("No index policies found in '{path}' (or invalid/doesn't exist)", config.DataIndexPolicyPath);
+                    Log.Information("No index policies found in '{Path}' (or invalid/doesn't exist)", config.DataIndexPolicyPath);
                 }
             }
             catch (Exception ex)
@@ -573,8 +570,6 @@ namespace Saltworks.SaltMiner.DataApi
                 Log.Error(ex, failMsg);
             }
 
-
-            failMsg = "";
             // Index Templates
             try
             {
@@ -584,7 +579,7 @@ namespace Saltworks.SaltMiner.DataApi
                 if (!string.IsNullOrEmpty(dir))
                 {
                     var templates = Directory.GetFiles(dir).ToList();
-                    Log.Debug("Found {count} index template(s).", templates.Count);
+                    Log.Debug("Found {Count} index template(s).", templates.Count);
 
                     foreach (var template in templates.Where(t => t.ToLower().EndsWith(".json")))
                     {
@@ -601,11 +596,11 @@ namespace Saltworks.SaltMiner.DataApi
                         File.Delete(template);
                     }
 
-                    Log.Information("Processed {count} index template(s).", templates.Count);
+                    Log.Information("Processed {Count} index template(s).", templates.Count);
                 }
                 else
                 {
-                    Log.Information("No index templates found in '{path}' (or invalid/doesn't exist)", config.DataIndexTemplatePath);
+                    Log.Information("No index templates found in '{Path}' (or invalid/doesn't exist)", config.DataIndexTemplatePath);
                 }
             }
             catch (Exception ex)
@@ -622,7 +617,7 @@ namespace Saltworks.SaltMiner.DataApi
                 if (!string.IsNullOrEmpty(dir))
                 {
                     var seeds = Directory.GetFiles(dir).ToList();
-                    Log.Debug("Found {count} data seed file(s).", seeds.Count);
+                    Log.Debug("Found {Count} data seed file(s).", seeds.Count);
 
                     foreach (var seed in seeds.Where(t => t.ToLower().EndsWith(".json")))
                     {
@@ -640,7 +635,8 @@ namespace Saltworks.SaltMiner.DataApi
                         
                         var type = typeof(SaltMinerEntity).Assembly.GetType($"{typeof(SaltMinerEntity).Namespace}.{name}", false, true) ?? throw new ArgumentException("Seed data type could not be determined");
                         var count = 0;
-                        
+
+                        #pragma warning disable S1854 // Unused assignments should be removed - these are only useless when no exceptions occur
                         using (var r = new StreamReader(seed))
                         {
                             failMsg = $"Failure parsing data seed file '{seed}'";
@@ -656,17 +652,18 @@ namespace Saltworks.SaltMiner.DataApi
                             }
                         }
                         failMsg = $"Failed when attempting to delete file '{seed}'";
-                        
+                        #pragma warning restore S1854 // Unused assignments should be removed
+
                         File.Delete(seed);
                         
-                        Log.Information("Processed '{name}' seed file - {count} addition(s) to index '{index}'", name, count, index);
+                        Log.Information("Processed '{Name}' seed file - {Count} addition(s) to index '{Index}'", name, count, index);
                     }
 
-                    Log.Information("Processed {count} seed file(s).", seeds.Count);
+                    Log.Information("Processed {Count} seed file(s).", seeds.Count);
                 }
                 else
                 {
-                    Log.Information("No seed files found in '{path}' (or invalid/doesn't exist)", config.DataSeedPath);
+                    Log.Information("No seed files found in '{Path}' (or invalid/doesn't exist)", config.DataSeedPath);
                 }
             }
             catch (Exception ex)
@@ -683,7 +680,7 @@ namespace Saltworks.SaltMiner.DataApi
                 if (!string.IsNullOrEmpty(dir))
                 {
                     var roles = Directory.GetFiles(dir).ToList();
-                    Log.Debug("Found {count} role(s).", roles.Count);
+                    Log.Debug("Found {Count} role(s).", roles.Count);
 
                     foreach (var role in roles.Where(t => t.ToLower().EndsWith(".json")))
                     {
@@ -700,11 +697,11 @@ namespace Saltworks.SaltMiner.DataApi
                         File.Delete(role);
                     }
 
-                    Log.Information("Processed {count} role(s).", roles.Count);
+                    Log.Information("Processed {Count} role(s).", roles.Count);
                 }
                 else
                 {
-                    Log.Information("No role found in '{path}' (or invalid/doesn't exist)", config.DataRolesPath);
+                    Log.Information("No role found in '{Path}' (or invalid/doesn't exist)", config.DataRolesPath);
                 }
             }
             catch (Exception ex)
@@ -723,11 +720,11 @@ namespace Saltworks.SaltMiner.DataApi
                     var enrichments = Directory.GetFiles(dir).ToList();
                     if (enrichments.Count > 0)
                     {
-                        Log.Information("Found {count} enrichment(s).", enrichments.Count);
+                        Log.Information("Found {Count} enrichment(s).", enrichments.Count);
                     }
                     else
                     {
-                        Log.Debug("Found {count} enrichment(s).", enrichments.Count);
+                        Log.Debug("Found {Count} enrichment(s).", enrichments.Count);
                     }
 
                     foreach (var enrichment in enrichments.Where(t => t.ToLower().EndsWith(".json")))
@@ -747,7 +744,7 @@ namespace Saltworks.SaltMiner.DataApi
                             var indexName = enrichmentInfo[0];
                             var enrichmentName = enrichmentInfo[1];
 
-                            Log.Information("Processing enrichment {name}", enrichmentName);
+                            Log.Information("Processing enrichment {Name}", enrichmentName);
 
                             try
                             {
@@ -757,7 +754,7 @@ namespace Saltworks.SaltMiner.DataApi
                             {
                                 if (ex.Message.Contains("resource_already_exists_exception"))
                                 {
-                                    Log.Warning("Enrichment {name} already exists.  Will attempt to re-execute.", enrichmentName);
+                                    Log.Warning(ex, "Enrichment {Name} already exists.  Will attempt to re-execute.", enrichmentName);
                                 }
                             }
 
@@ -768,11 +765,11 @@ namespace Saltworks.SaltMiner.DataApi
 
                         File.Delete(enrichment);
                     }
-                    Log.Information("Processed {count} enrichment(s).", enrichments.Count);
+                    Log.Information("Processed {Count} enrichment(s).", enrichments.Count);
                 }
                 else
                 {
-                    Log.Information("No enrichments found in '{path}' (or invalid/doesn't exist)", config.DataEnrichmentPath);
+                    Log.Information("No enrichments found in '{Path}' (or invalid/doesn't exist)", config.DataEnrichmentPath);
                 }
             }
             catch (Exception ex)
@@ -788,13 +785,13 @@ namespace Saltworks.SaltMiner.DataApi
                 if (!string.IsNullOrEmpty(dir))
                 {
                     var pipelines = Directory.GetFiles(dir).OrderBy(f => f).ToList();
-                    if (pipelines.Any())
+                    if (pipelines.Count > 0)
                     {
-                        Log.Information("Found {count} ingest pipeline(s).", pipelines.Count);
+                        Log.Information("Found {Count} ingest pipeline(s).", pipelines.Count);
                     }
                     else
                     {
-                        Log.Debug("Found {count} ingest pipeline(s).", pipelines.Count);
+                        Log.Debug("Found {Count} ingest pipeline(s).", pipelines.Count);
                     }
 
                     foreach (var pipeline in pipelines.Where(t => t.ToLower().EndsWith(".json")))
@@ -812,7 +809,7 @@ namespace Saltworks.SaltMiner.DataApi
                             var fileName = Path.GetFileName(pipeline).Replace(".json", "");
                             var pipelineName = fileName.Split("@");
                            
-                            Log.Information("Processing ingest pipeline {pipelineName}", pipelineName[1]);
+                            Log.Information("Processing ingest pipeline {PipelineName}", pipelineName[1]);
 
                             client.CreateIngestPipeline(pipelineName[1], json);
                         }
@@ -822,11 +819,11 @@ namespace Saltworks.SaltMiner.DataApi
                         File.Delete(pipeline);
                     }
 
-                    Log.Information("Processed {count} ingest pipeline(s).", pipelines.Count);
+                    Log.Information("Processed {Count} ingest pipeline(s).", pipelines.Count);
                 }
                 else
                 {
-                    Log.Information("No ingest pipeline found in '{path}' (or invalid/doesn't exist)", config.DataIngestPipelinePath);
+                    Log.Information("No ingest pipeline found in '{Path}' (or invalid/doesn't exist)", config.DataIngestPipelinePath);
                 }
             }
             catch (Exception ex)
