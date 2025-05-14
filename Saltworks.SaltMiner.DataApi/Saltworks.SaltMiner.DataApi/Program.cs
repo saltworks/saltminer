@@ -380,9 +380,7 @@ namespace Saltworks.SaltMiner.DataApi
                 }
                 catch (LicensingException)
                 {
-                    // Stop if no license and not basic (on-prem) or standard (cloud)
-                    if (!elkVersion.Equals("Basic", StringComparison.OrdinalIgnoreCase) && !elkVersion.Equals("Standard", StringComparison.OrdinalIgnoreCase))
-                        throw;
+                    // Licensing exception logged, keep on running
                 }
             }
             catch (PipelineException ex)
