@@ -76,6 +76,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
     {
         public string Name { get; set; }
         public string Id { get; set; }
+        public List<string> Tags { get; set; }
     }
 
     public class ErrorDetailDto

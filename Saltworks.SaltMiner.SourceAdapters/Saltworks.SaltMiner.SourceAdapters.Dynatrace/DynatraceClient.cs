@@ -195,7 +195,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
         /// <param name="size">Number of results to return at once, defaults to 1000 if null, and scales down automatically if API rejects.</param>
         public async Task<ApiClientResponse<DqlResponse<EntityRecord>>> GetEntitiesAsync(string afterToken = "", int size = 1000, int retryCount = 0)
         {
-            var request = @"fetch dt.entity.process_group | filter id > \""{afterToken}\"" | sort id asc | fields Name = entity.name, id";
+            var request = @"fetch dt.entity.process_group | filter id > \""{afterToken}\"" | sort id asc | fields Name = entity.name, id, tags";
             if (!string.IsNullOrEmpty(Config.EntityQueryOverride))
                 request = Config.EntityQueryOverride;
             request = request.Replace("{afterToken}", afterToken);

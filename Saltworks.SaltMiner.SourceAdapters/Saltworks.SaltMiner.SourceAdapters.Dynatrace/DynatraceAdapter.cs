@@ -437,7 +437,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
                         {
                             Description = asset.Name,
                             Name = asset.Name,
-                            Attributes = [],
+                            Attributes = new() { {"tags", string.Join("|", asset.Tags)} },
                             IsProduction = true,
                             Instance = Config.Instance,
                             IsSaltminerSource = DynatraceConfig.IsSaltminerSource,
