@@ -7,6 +7,13 @@ on:
     - '3.*'
     paths:
     - 'Saltworks.SaltMiner.Ui.Api/**'
+    - 'Saltworks.SaltMiner.ConfigurationWizard/**'
+    - 'Saltworks.SaltMiner.ConsoleApp.Core/**'
+    - 'Saltworks.SaltMiner.Core/**'
+    - 'Saltworks.Common.Data/**'
+    - 'Saltworks.SaltMiner.UiApiClient/**'
+    - 'Saltworks.SaltMiner.DataClient/**'
+    - 'Saltworks.Utility.ApiHelper/**'
     - '.github/workflows/saltworks-saltminer-ui-api.yml'
     - '.dockerfiles/Dockerfile-ui-api'
   workflow_dispatch:
