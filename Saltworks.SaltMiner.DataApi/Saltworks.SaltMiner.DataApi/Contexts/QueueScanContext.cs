@@ -256,7 +256,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                     break;
                 foreach (var item in response.Data)
                 {
-                    item.Saltminer.Internal.LockId = string.Empty;
+                    item.Saltminer.Internal.LockId = null;
                     item.LastUpdated = DateTime.UtcNow;
                     scans.Add(item);
                     counter++;
