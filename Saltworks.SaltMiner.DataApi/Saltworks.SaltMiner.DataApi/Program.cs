@@ -376,7 +376,7 @@ namespace Saltworks.SaltMiner.DataApi
                 Log.Information("Elasticsearch license type '{Edition}' detected.", elkVersion);
                 try
                 {
-                    validator.Validate(config.KeyPath);
+                    validator.Validate(config.KeyPath, true);
                 }
                 catch (LicensingException)
                 {

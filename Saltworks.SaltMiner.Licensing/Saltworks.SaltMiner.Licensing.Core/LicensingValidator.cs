@@ -28,14 +28,17 @@ namespace Saltworks.SaltMiner.Licensing.Core
         private readonly License License = license;
         private readonly int _gracePeriod = 30;
 
-        public void Validate(string publicKey)
+        public void Validate(string publicKey, bool isStartup = false)
         {
             Logger.LogDebug("Validating License");
 
             if (License == null)
             {
-                var msg = "License is missing. Contact Saltworks Support for assistance.";
-                Logger.LogCritical("{Msg}", msg);
+                var msg = "License not found. Contact Saltworks Support for assistance.";
+                if (isStartup)
+                    Logger.LogWarning("{Msg}", msg);
+                else
+                    Logger.LogCritical("{Msg}", msg);
                 throw new LicensingException(msg);
             }
             if (!File.Exists(publicKey))
