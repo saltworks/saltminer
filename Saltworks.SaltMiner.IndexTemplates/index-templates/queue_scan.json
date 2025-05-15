@@ -129,6 +129,9 @@
                 },
                 "queue_status": {
                   "type": "keyword"
+                },
+                "lock_id": {
+                  "type": "keyword"
                 }
               }
             }
