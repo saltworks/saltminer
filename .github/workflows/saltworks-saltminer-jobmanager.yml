@@ -6,7 +6,13 @@ on:
     - main
     - '3.*'
     paths:
-    - 'Saltworks.SaltMiner.JobManager/**'
+    - 'Saltworks.SaltMiner.UiApiClient/**'
+    - 'Saltworks.SaltMiner.DataClient/**'
+    - 'Saltworks.SaltMiner.ConfigurationWizard/**'
+    - 'Saltworks.SaltMiner.ConsoleApp.Core/**'
+    - 'Saltworks.SaltMiner.Core/**'
+    - 'Saltworks.Common.Data/**'
+    - 'Saltworks.Utility.ApiHelper/**'
     - '.github/workflows/saltworks-saltminer-jobmanager.yml'
     - '.dockerfiles/Dockerfile-jobmanager'
   workflow_dispatch:
