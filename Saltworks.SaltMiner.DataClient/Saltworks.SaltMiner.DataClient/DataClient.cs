@@ -310,7 +310,7 @@ namespace Saltworks.SaltMiner.DataClient
         public NoDataResponse QueueScanUnlock(string lockId)
         {
             var qry = $"queuescan/unlock/{lockId}";
-            var rsp = CheckRetry(() => ApiClient.Put<NoDataResponse>(qry, null));
+            var rsp = CheckRetry(() => ApiClient.Post<NoDataResponse>(qry, null));
             return rsp.Content;
         }
 
@@ -345,7 +345,7 @@ namespace Saltworks.SaltMiner.DataClient
         {
             var qry = $"queuescan/status/{id}/{newStatus:g}";
             if (!string.IsNullOrEmpty(lockId))
-                qry = $"{qry}?lockid={lockId}";
+                qry = $"{qry}?lockId={lockId}";
             var rsp = await CheckRetryAsync(async () =>
             {
                 return await ApiClient.GetAsync<NoDataResponse>(qry);
@@ -390,6 +390,16 @@ namespace Saltworks.SaltMiner.DataClient
         /// <returns>Response object indicating the number of queue scans removed</returns>
         public NoDataResponse QueueScanDeleteAll(List<string> idList) => QueueScanDeleteAllAsync(idList).Result;
 
+
+        /// <summary>
+        /// Deletes QueueScans/Assets/Issues by search request.
+        /// </summary>
+        /// <returns>Boolean value indicating success</returns>
+        public NoDataResponse QueueScanDeleteAll(SearchRequest search)
+        {
+            return CheckRetry(() => ApiClient.Post<NoDataResponse>($"queuescan/all/delete", search)).Content;
+        }
+
         /// <summary>
         /// Deletes QueueScans ID list, including all related QueueAssets and QueueIssues.
         /// </summary>
@@ -402,15 +412,6 @@ namespace Saltworks.SaltMiner.DataClient
                 return await ApiClient.PostAsync<NoDataResponse>("queuescan/all/deletelist", idList);
             });
             return rsp.Content;
-        }
-
-        /// <summary>
-        /// Deletes QueueScans/Assets/Issues by search request.
-        /// </summary>
-        /// <returns>Boolean value indicating success</returns>
-        public NoDataResponse QueueScanDeleteAll(SearchRequest search)
-        {
-            return CheckRetry(() => ApiClient.Post<NoDataResponse>($"queuescan/all/delete", search)).Content;
         }
 
         #endregion

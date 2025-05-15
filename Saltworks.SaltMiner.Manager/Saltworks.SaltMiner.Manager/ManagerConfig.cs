@@ -16,7 +16,6 @@
 
 ﻿using Microsoft.Extensions.Configuration;
 using Saltworks.SaltMiner.Core.Common;
-using System.IO;
 
 namespace Saltworks.SaltMiner.Manager
 {
@@ -34,11 +33,7 @@ namespace Saltworks.SaltMiner.Manager
         public ManagerConfig(IConfiguration config, string filePath)
         {
             config.Bind(this);
-
-            this.PublicLicenseKey = File.ReadAllText(this.KeyPath);
-
             CheckEncryption(this, filePath, "ManagerConfig");
-
             DecryptProperties(this);
         }
         public string DataApiBaseUrl { get; set; }
@@ -47,7 +42,7 @@ namespace Saltworks.SaltMiner.Manager
         public string DataApiKeyHeader { get; set; } = "Authorization";
         public int DataApiTimeoutSec { get; set; } = 10;
         public int QueueProcessorInstances { get; set; } = 1;
-        public int QueueProcessorQueueBatchSize { get; set; } = 500;
+        public int QueueProcessorQueueBatchSize { get; set; } = 1000;
         public int QueueProcessorMaxErrors { get; set; } = 3;
         public int QueueProcessorIssueBatchSize { get; set; } = 1000;
         public bool QueueProcessorOneScanOneAssessmentType { get; set; } = true;
@@ -68,9 +63,6 @@ namespace Saltworks.SaltMiner.Manager
         public int CleanupProcessorMaxOrphanSearch { get; set; } = 500000;
         public int IssueProcessingBatchSize { get; set; } = 500;
         public string WebUiBaseUrl { get; set; }
-        public string PublicLicenseKey { get; set; }
-        public string KeyPath { get; set; } = "license.lnf";
-        public string CommunityPath { get; set; } = "community.blt";
         public bool ProcessNoScan { get; set; } = true;
         public string IssuesActiveIndexTemplate { get; set; } = "issues_[assetType]_[sourceType]_[instance]";
         public string InstanceId { get; set; } = "mgr-001";

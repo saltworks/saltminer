@@ -61,9 +61,15 @@ namespace Saltworks.SaltMiner.Core.Extensions
             if (source.Count != compareTo.Count)
                 return false;
             foreach (var kv in source)
+                // We want to gracefully "fail" in case of a NullReferenceException, even though we've taken steps to prevent them
+                #pragma warning disable S1696 // NullReferenceException should not be caught
                 try
                 {
-                    if (!compareTo.ContainsKey(kv.Key) || !kv.Value.Equals(compareTo[kv.Key]))
+                    if (!compareTo.TryGetValue(kv.Key, out TValue value))
+                        return false;
+                    if (EqualityComparer<TValue>.Default.Equals(kv.Value, default) || EqualityComparer<TValue>.Default.Equals(value, default))
+                        return EqualityComparer<TValue>.Default.Equals(kv.Value, default) && EqualityComparer<TValue>.Default.Equals(value, default);
+                    if (!kv.Value.Equals(value))
                         return false;
                 }
                 catch (ArgumentNullException)
@@ -74,6 +80,7 @@ namespace Saltworks.SaltMiner.Core.Extensions
                 {
                     return false;
                 }
+                #pragma warning restore S1696 // NullReferenceException should not be caught
             return true;
         }
 
