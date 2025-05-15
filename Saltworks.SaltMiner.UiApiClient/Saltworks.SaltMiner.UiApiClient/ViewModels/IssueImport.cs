@@ -206,6 +206,7 @@ namespace Saltworks.SaltMiner.UiApiClient.ViewModels
                 {
                     QueueScanId = scanId,
                     QueueAssetId = assetId,
+                    IssueType = IssueType.Pen.ToString("g"),
                     Engagement = new EngagementInfo
                     {
                         Id = engagement.Id,

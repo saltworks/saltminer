@@ -19,6 +19,8 @@ namespace Saltworks.SaltMiner.Core.Util
         [Description("Net")]
         Net,
         [Description("Container")]
-        Container
+        Container,
+        [Description("Pen")]
+        Pen
     }
 }
