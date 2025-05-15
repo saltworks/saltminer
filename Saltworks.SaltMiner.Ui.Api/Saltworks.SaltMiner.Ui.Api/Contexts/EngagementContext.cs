@@ -458,23 +458,42 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
         public async Task<UiDataItemResponse<string>> CheckoutAsync(string id, KibanaUser user)
         {
             General.ValidateIdAndInput(id, Config.ApiFieldRegex, "Id");
-
             var fullEngagement = FullEngagement(id).Data;
+
+            if (fullEngagement.Status == EnumExtensions.GetDescription(EngagementStatus.Historical))
+            {
+                throw new UiApiClientValidationException($"This Engagement {id} is set as 'Historical' and cannot be checked out.");
+            }
+
+            if (fullEngagement.Status != EnumExtensions.GetDescription(EngagementStatus.Published))
+            {
+                throw new UiApiClientValidationException($"This Engagement {id} has not been published and cannot be checked out.");
+            }
+
+            // If a draft engagement exists in the group with the published, then reject the checkout
+            var searchReqeust = new SearchRequest()
+            {
+                Filter = new()
+                {
+                    AnyMatch = false,
+                    FilterMatches = new Dictionary<string, string>
+                    {
+                        { "Saltminer.Engagement.Status", EngagementStatus.Draft.ToString("g") },
+                        { "Saltminer.Engagement.GroupId", fullEngagement.GroupId }
+                    },
+                }
+            };
+            var draftEngagement = DataClient.EngagementSearch(searchReqeust)?.Data?.FirstOrDefault();
+            if (draftEngagement != null)
+            {
+                throw new UiApiClientValidationException($"This Engagement {id} already has a draft and cannot be checked out.");
+            }
+
             List<UiComment> engagementComments = fullEngagement.Comments.Where(x => x.ScanId == fullEngagement.Scan.ScanId).ToList();
 
             if (!Config.EngagementCheckoutWithSystemComments)
             {
                 engagementComments = fullEngagement.Comments.Where(x => x.Type == "User" && x.ScanId == fullEngagement.Scan.ScanId).ToList();
-            }
-
-            if (fullEngagement.Status == EnumExtensions.GetDescription(EngagementStatus.Historical))
-            {
-                throw new UiApiClientValidationException($"This Engagement {id} is set as 'Historical' and can not be checked out.");
-            }
-
-            if (fullEngagement.Status != EnumExtensions.GetDescription(EngagementStatus.Published))
-            {
-                throw new UiApiClientValidationException($"This Engagement {id} has not been published and can not be checked out.");
             }
 
             var newSummaryRequest = new UiApiClient.Requests.EngagementNew()
@@ -543,7 +562,6 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                             commentBatch = [];
                         }
                     }
-
 
                     issueBatch.Add(cloneIssue);
                     SetAttachments(engagement.Id, cloneIssue.Id, attachmentList.Where(attachment => attachment.IsMarkdown).Select(info => info.Attachment).ToList(), user, true, true);
