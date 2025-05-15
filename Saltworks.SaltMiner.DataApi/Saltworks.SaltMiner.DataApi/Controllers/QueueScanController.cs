@@ -151,6 +151,19 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         }
 
         /// <summary>
+        /// Clears lock ID for all queue scans currently set for the given lock ID
+        /// </summary>
+        /// <param name="lockId">Lock ID to unlock</param>
+        /// <returns>Response indicating success or failure and count of affected queue scans</returns>
+        [ProducesResponseType(200, Type = typeof(NoDataResponse))]
+        [HttpGet("[action]/{lockId}")]
+        public ActionResult<NoDataResponse> Unlock(string lockId)
+        {
+            Logger.LogInformation("Unlock action called for lock ID '{LockId}'", lockId);
+            return Ok(Context.Unlock(lockId));
+        }
+
+        /// <summary>
         /// Deletes an QueueScan entity by Id
         /// </summary>
         /// <returns>Non data response</returns>

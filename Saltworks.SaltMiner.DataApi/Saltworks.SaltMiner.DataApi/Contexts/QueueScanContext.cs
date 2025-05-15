@@ -17,7 +17,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
-using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using Saltworks.SaltMiner.DataApi.Data;
 using Saltworks.SaltMiner.DataApi.Extensions;
@@ -225,12 +224,10 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             var scan = tuple.Item1;
             var lockInfo = tuple.Item2;
+            if (!string.IsNullOrEmpty(scan.Saltminer.Internal.LockId) && (scan.Saltminer.Internal.LockId != lockId || string.IsNullOrEmpty(lockId)))
+                throw new ApiValidationQueueStateException($"[Locked] Cannot update queue scan status, already locked to another process.");
             if (!string.IsNullOrEmpty(lockId))
-            {
-                if (!string.IsNullOrEmpty(scan.Saltminer.Internal.LockId) && scan.Saltminer.Internal.LockId != lockId)
-                    throw new ApiValidationQueueStateException($"[Locked] Cannot update queue scan status, already locked to another process.");
                 scan.Saltminer.Internal.LockId = lockId;
-            }
 
             if (!IsOkToEditStatus(scan.Saltminer.Internal.QueueStatus, status))
             {
@@ -241,9 +238,34 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             scan.Saltminer.Internal.QueueStatus = status;
             scan.LastUpdated = DateTime.UtcNow;
-            DataRepo.UpdateWithLocking(scan, QueueScan.GenerateIndex(), lockInfo);
+            DataRepo.UpdateWithLocking(scan, QueueScanIndex, lockInfo);
 
             return new NoDataResponse(1);
+        }
+
+        public NoDataResponse Unlock(string lockId)
+        {
+            Logger.LogInformation("Unlock for lock ID '{Id}'", lockId);
+            var request = new ElasticDataFilter("Saltminer.Internal.LockId", lockId, new UIPagingInfo(1000));
+            var counter = 0;
+            List<QueueScan> scans = [];
+            while (true)
+            {
+                var response = DataRepo.Search<QueueScan>(request, QueueScanIndex);
+                if (!response.Data.Any())
+                    break;
+                foreach (var item in response.Data)
+                {
+                    item.Saltminer.Internal.LockId = string.Empty;
+                    item.LastUpdated = DateTime.UtcNow;
+                    scans.Add(item);
+                    counter++;
+                }
+                DataRepo.AddUpdateBulk(scans, QueueScanIndex);
+                request.UIPagingInfo.Page += 1;
+                request.AfterKeys = response.AfterKeys;
+            }
+            return new NoDataResponse(counter);
         }
 
         #region Helpers
