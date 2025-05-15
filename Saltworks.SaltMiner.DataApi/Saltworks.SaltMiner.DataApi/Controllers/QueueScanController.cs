@@ -155,8 +155,9 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// </summary>
         /// <param name="lockId">Lock ID to unlock</param>
         /// <returns>Response indicating success or failure and count of affected queue scans</returns>
+        [Auth(Role.Admin, Role.Manager)]
         [ProducesResponseType(200, Type = typeof(NoDataResponse))]
-        [HttpPost("[action]/{lockId}")]
+        [HttpPut("[action]/{lockId}")]
         public ActionResult<NoDataResponse> Unlock(string lockId)
         {
             Logger.LogInformation("Unlock action called for lock ID '{LockId}'", lockId);

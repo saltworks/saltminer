@@ -302,12 +302,26 @@ namespace Saltworks.SaltMiner.DataClient
         }
 
         /// <summary>
+        /// Unlocks queue scans that have been locked via prior <see cref="QueueScanUpdateStatus(string, QueueScan.QueueScanStatus, string)"/> calls
+        /// </summary>
+        /// <param name="lockId">Lock ID to find and unlock</param>
+        /// <returns>Response container including the result and affected count</returns>
+        /// <remarks>Unlocks ALL queue scans locked to this ID - expected to happen at the end of processing.</remarks>
+        public NoDataResponse QueueScanUnlock(string lockId)
+        {
+            var qry = $"queuescan/unlock/{lockId}";
+            var rsp = CheckRetry(() => ApiClient.Put<NoDataResponse>(qry, null));
+            return rsp.Content;
+        }
+
+        /// <summary>
         /// Updates status of a QueueScan document using locking to ensure consistency
         /// </summary>
         /// <param name="id">Identity of entity to update</param>
         /// <param name="newStatus">New status to set</param>
         /// <param name="lockId">If included, lock this queue scan to the indicated lock ID</param>
         /// <returns>true if successful</returns>
+        /// <remarks>Must include lock ID if already locked or status update will fail.</remarks>
         public NoDataResponse QueueScanUpdateStatus(string id, QueueScan.QueueScanStatus newStatus, string lockId = "")
         {
             try
