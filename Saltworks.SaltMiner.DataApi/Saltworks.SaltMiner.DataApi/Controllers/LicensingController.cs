@@ -28,13 +28,9 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
     [Produces("application/json")]
     [Auth]
     [ApiController]
-    public class LicenseController : ApiControllerBase
+    public class LicenseController(LicenseContext context, ILogger<LicenseController> logger) : ApiControllerBase(context, logger)
     {
         private LicenseContext Context => ContextBase as LicenseContext;
-
-        public LicenseController(LicenseContext context, ILogger<LicenseController> logger) : base(context, logger)
-        {
-        }
 
         [ProducesResponseType(202, Type = typeof(NoDataResponse))]
         [Auth(Role.Admin, Role.Manager)]
