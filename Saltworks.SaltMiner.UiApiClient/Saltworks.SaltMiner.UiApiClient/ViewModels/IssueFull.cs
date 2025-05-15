@@ -334,7 +334,7 @@ namespace Saltworks.SaltMiner.UiApiClient.ViewModels
             var qIssue = GetQueueIssue(uiBaseUrl);
             qIssue.Id = Guid.NewGuid().ToString();
             qIssue.Vulnerability.Scanner.Id = Guid.NewGuid().ToString();
-            qIssue.Saltminer.QueueScanId= scanId;
+            qIssue.Saltminer.QueueScanId = scanId;
             qIssue.Saltminer.Engagement = new EngagementInfo
             {
                 Id = Engagement.Id,
@@ -366,7 +366,8 @@ namespace Saltworks.SaltMiner.UiApiClient.ViewModels
                         PublishDate = Engagement.PublishDate
                     },
                     Attributes = Attributes.ToDictionary(),
-                    IsHistorical = IsHistorical
+                    IsHistorical = IsHistorical,
+                    IssueType = IssueType.Pen.ToString("g")
                 },
                 Vulnerability = new VulnerabilityInfo
                 {
