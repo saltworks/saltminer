@@ -136,7 +136,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
             // 2023-10-06 15:13:27.820197 +0000 UTC  ->  2023-10-06T15:13:38.820197Z
 
             var newtext = text.Replace(" +0000 UTC", "Z").Replace(" ", "T");
-            if (DateTime.TryParse(newtext, new CultureInfo("en-us"), DateTimeStyles.RoundtripKind, out var date))
+            if (DateTime.TryParse(newtext, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var date))
                 return date;
             else
                 return DateTime.MinValue;

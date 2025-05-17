@@ -531,7 +531,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
         {
             try
             {
-                return DateTime.ParseExact(date, Config.SyncRecordDateFormat, new CultureInfo("en-US"));
+                return DateTime.ParseExact(date, Config.SyncRecordDateFormat, CultureInfo.InvariantCulture);
             }
             catch (Exception ex)
             {

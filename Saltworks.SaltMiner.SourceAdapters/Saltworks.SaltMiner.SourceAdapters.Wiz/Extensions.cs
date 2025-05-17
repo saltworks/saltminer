@@ -14,7 +14,6 @@
  * ----
  */
 
-using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.SourceAdapters.Core.Data;
 using System.Globalization;
 using System.Text.Json;
@@ -61,7 +60,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         public static DateTime? FromDate(this SyncRecord sync)
         {
             var prms = sync.Data.Split('|');
-            if (prms.Length >= 2 && DateTime.TryParse(prms[0], new CultureInfo("en-US"), out var dt))
+            if (prms.Length >= 2 && DateTime.TryParse(prms[0], CultureInfo.InvariantCulture, out var dt))
                 return dt;
             return null;
         }
@@ -83,7 +82,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
                 var id = prms.Length > 1 ? prms[1] : "";
                 var vOri = prms.Length > 2 ? prms[2] : "v";
                 DateTime dt = DateTime.MinValue;
-                var validDt = prms.Length > 0 && DateTime.TryParse(prms[0], new CultureInfo("en-US"), out dt);
+                var validDt = prms.Length > 0 && DateTime.TryParse(prms[0], CultureInfo.InvariantCulture, out dt);
                 if (!validDt && throwIfInvalid)
                     throw new WizException("Resume data found but start date invalid.  Correct or remove the sync record.");
                 return new(dt == DateTime.MinValue ? null : dt, id, vOri);
