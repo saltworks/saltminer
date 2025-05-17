@@ -21,6 +21,13 @@
       }
     },
     "aliases": {
+      "issues_current": {
+        "filter": {
+          "term": {
+            "saltminer.is_historical": false
+          }
+        }
+      },
       "issues_active": {
         "filter": {
           "bool": {
