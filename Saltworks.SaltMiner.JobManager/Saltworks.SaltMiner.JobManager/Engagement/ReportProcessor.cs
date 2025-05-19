@@ -923,6 +923,13 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
         private void ProcessStringReplace(string fieldValue, WParagraph paragraph, int index, FormatType type, WMergeField mergeField = null)
         {
+            // the markdown editor puts \n, \n\n, and <br>\n for carriage returns and to display wysiswyg correctly.
+            // SyncFusion doesn't understand that html and needs it translated to Paragraph objects with nothing in them.
+            // This below attempts to change everything to <br>\n which is later converted to blank paragraphs below.
+            fieldValue = Regex.Replace(fieldValue, @"\n\n", "~~DOUBLE_BREAK~~");
+            fieldValue = Regex.Replace(fieldValue, @"\n", "<br>\n");
+            fieldValue = fieldValue.Replace("~~DOUBLE_BREAK~~", "<br>\n<br>\n");
+
             byte[] contentBytes = Encoding.UTF8.GetBytes(fieldValue);
 
             using MemoryStream memoryStream = new(contentBytes);
@@ -937,14 +944,64 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
             foreach (Entity entity in markdownDoc.LastSection.Body.ChildEntities)
             {
-                Entity clonedEntity = entity.Clone();
-
-                if (mergeField != null)
+                if (entity is WParagraph para)
                 {
-                    CopyCharacterFormatting(clonedEntity, mergeField);
-                }
+                    WParagraph currentPara = new WParagraph(paragraph.Document);
 
-                m_bodyItems.Add(clonedEntity);
+                    foreach (Entity child in para.ChildEntities)
+                    {
+                        // Find any <br>\n and insert paragraphs in their place for carriage return/line feeds to generate on the reports
+                        if (child is WTextRange textRange && textRange.Text.Contains("<br>", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string[] segments = Regex.Split(textRange.Text, @"<br\s*/?>", RegexOptions.IgnoreCase);
+
+                            for (int i = 0; i < segments.Length; i++)
+                            {
+                                if (i > 0)
+                                {
+                                    // Save current paragraph and start a new one
+                                    m_bodyItems.Add(currentPara);
+                                    currentPara = new WParagraph(paragraph.Document);
+                                }
+
+                                string line = segments[i].Trim();
+                                if (!string.IsNullOrEmpty(line))
+                                {
+                                    var newTextRange = new WTextRange(paragraph.Document) { Text = line };
+
+                                    if (mergeField != null)
+                                        CopyCharacterFormatting(newTextRange, mergeField);
+
+                                    currentPara.ChildEntities.Add(newTextRange);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // Clone non-text or normal text that doesn't contain <br>
+                            Entity clonedEntity = child.Clone();
+
+                            if (mergeField != null)
+                                CopyCharacterFormatting(clonedEntity, mergeField);
+
+                            currentPara.ChildEntities.Add(clonedEntity);
+                        }
+                    }
+
+                    // Add the final paragraph
+                    if (currentPara.ChildEntities.Count > 0)
+                        m_bodyItems.Add(currentPara);
+                }
+                else
+                {
+                    // Clone non-paragraph content directly
+                    Entity clonedEntity = entity.Clone();
+
+                    if (mergeField != null)
+                        CopyCharacterFormatting(clonedEntity, mergeField);
+
+                    m_bodyItems.Add(clonedEntity);
+                }
             }
 
             bodyPart.PasteAt(paragraph.OwnerTextBody, paragraph.OwnerTextBody.ChildEntities.IndexOf(paragraph), index);

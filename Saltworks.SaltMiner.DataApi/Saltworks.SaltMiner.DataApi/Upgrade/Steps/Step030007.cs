@@ -102,7 +102,7 @@ namespace Saltworks.SaltMiner.DataApi.Upgrade.Steps
                     var docJson = array[count].AsObject()["_source"].AsObject();
                     if (docJson != null)
                     {
-                        entity.Saltminer.Comment.Added = DateTime.Parse(docJson["timestamp"].ToString(), new CultureInfo("en-US"));
+                        entity.Saltminer.Comment.Added = DateTime.Parse(docJson["timestamp"].ToString(), CultureInfo.InvariantCulture);
                     }
                 }
                 count++;

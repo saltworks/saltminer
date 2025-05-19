@@ -171,7 +171,7 @@ namespace Saltworks.SaltMiner.UiApiClient
                 Value = null;
                 return;
             }
-            if (!string.IsNullOrEmpty(FieldDefinition.Default) && DateTime.TryParse(FieldDefinition.Default, new CultureInfo("en-US"), out var val))
+            if (!string.IsNullOrEmpty(FieldDefinition.Default) && DateTime.TryParse(FieldDefinition.Default, CultureInfo.InvariantCulture, out var val))
                 DefaultValue = val;
             Value = setDefault ? value ?? DefaultValue : value;
         }
