@@ -485,6 +485,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         internal async IAsyncEnumerable<AssetInfo> GetAsync<T>(WizClient client, SyncRecord syncRecord, List<string> skipIds) where T : class
         {
             var prms = syncRecord.GetData();
+            Logger.LogDebug("[Get] Sync record data: {Data}", syncRecord.Data);
             var fromDate = prms.Item1 ?? throw new ArgumentNullException(nameof(syncRecord), "[Get] Invalid/missing data in sync record.");
             Logger.LogInformation("[Get] Start date for data retrieval: {Dt:o}", fromDate);
             var resumeIdFromSync = prms.Item2;

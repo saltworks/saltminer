@@ -848,8 +848,8 @@ namespace Saltworks.SaltMiner.DataApi
             // Create IConfiguration to use temporarily for logging and kestrel config
             var configuration = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile(fullPathSettingsFile, optional: false, reloadOnChange: true)
-                .AddJsonFile($"{sf}.{env}.json", optional: true, reloadOnChange: true)
+                .AddJsonFile(fullPathSettingsFile, optional: false, reloadOnChange: false)
+                .AddJsonFile($"{sf}.{env}.json", optional: true, reloadOnChange: false)
                 .Build();
 
             // Get kestrel options from config
