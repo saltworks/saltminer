@@ -70,19 +70,37 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     /// </summary>
     private async Task GetAsync()
     {
+        int nopeCount = 0;  // if we fail to lock for processing 3x in a row, we can skip forward for efficiency
+        bool drawDownNope = false;
         foreach (var qscan in GetPendingQueueScans())
         {
+            // Trigger "draw down" when nopeCount == 3, and then skip a batch of queue scans
+            if (nopeCount == 3 && !drawDownNope)
+            {
+                drawDownNope = true;
+                nopeCount = 200;
+                Logger.LogWarning("[Q-Get] Too many collisions detected, skipping {Count} queue scans", nopeCount);
+            }
+            if (nopeCount == 0)
+                drawDownNope = false;
+            if (drawDownNope)
+            {
+                nopeCount--;
+                continue;
+            }
             try
             {
                 CheckCancel(true);
                 QueueControl.CurrentSourceType = qscan.Saltminer.Scan.SourceType;
-                if (!await UpdateStatusAsync(qscan, QueueScan.QueueScanStatus.Processing, EngagementStatus.Processing, true, true))
+                if (!await UpdateStatusAsync(qscan, QueueScan.QueueScanStatus.Processing, EngagementStatus.Processing, true, false))
                 {
                     // Skip if status update doesn't work
-                    Logger.LogError("[Q-Get] Unable to update status to processing for source '{SourceType}', instance '{Instance}', source scan ID '{Id}', queue scan ID '{Sid}'",
+                    Logger.LogInformation("[Q-Get] Skipping source '{SourceType}', instance '{Instance}', source scan ID '{Id}', queue scan ID '{Sid}', unable to lock for processing",
                         qscan.Saltminer.Scan.SourceType, qscan.Saltminer.Scan.Instance, qscan.Saltminer.Scan.ReportId, qscan.Id);
+                    nopeCount++;
                     continue;
                 }
+                nopeCount--;
                 QueueControl.ProcessQueue.Enqueue(qscan);
             }
             catch (CancelTokenException)
@@ -238,7 +256,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     /// Runs queue processing for queue updates (scans and issues)
     /// Kicks off overall processing by launching all the async tasks
     /// </summary>
-    public async Task Run(RuntimeConfig config)
+    public void Run(RuntimeConfig config)
     {
         if (config is not QueueRuntimeConfig)
         {
