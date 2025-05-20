@@ -35,6 +35,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         protected readonly IDataRepo DataRepo;
         protected readonly ILogger Logger;
         protected readonly IElasticClient ElasticClient;
+        protected readonly ApiCache ApiCache;
 
         internal ApiControllerBase Controller { get; set; }
         public bool IsInRole(Role role) => role switch
@@ -56,6 +57,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             DataRepo = services.GetRequiredService<IDataRepo>();
             Logger = logger;
             ElasticClient = services.GetRequiredService<IElasticClientFactory>().CreateClient();
+            ApiCache = services.GetRequiredService<ApiCache>();
         }
 
         public ContextBase(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger logger)

@@ -14,19 +14,28 @@
  * ----
  */
 
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.DataApi.Authentication;
-using Saltworks.SaltMiner.DataApi.Data;
 using Saltworks.SaltMiner.DataApi.Models;
-using Saltworks.SaltMiner.ElasticClient;
+using System;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts
 {
-    public class RegisterContext : ContextBase
+    public class RegisterContext(IServiceProvider services, ILogger<RegisterContext> logger) : ContextBase(services, logger)
     {
-        public RegisterContext(ApiConfig config, IDataRepo dataRepo, IElasticClientFactory factory, ILogger<RegisterContext> logger) : base(config, dataRepo, factory, logger)
-        { }
+        public NoDataResponse NewMgrInstance()
+        {
+            var inst = $"mgr-{ApiCache.ManagerInstances.Count:D3}";
+            ApiCache.ManagerInstances.Add(inst);
+            return new(1, inst);
+        }
+
+        public NoDataResponse DelMgrInstance(string instance)
+        {
+            var did = ApiCache.ManagerInstances.Remove(instance);
+            return new NoDataResponse(did ? 1 : 0);
+        }
 
         public NoDataResponse GetRole()
         {

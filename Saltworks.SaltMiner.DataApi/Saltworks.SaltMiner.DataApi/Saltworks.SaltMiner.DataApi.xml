@@ -963,6 +963,20 @@
             <returns>The response object will indicate success and message will contain the role</returns>
             <response code="200">Returns the requested object</response>
         </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RegisterController.ManagerId">
+            <summary>
+            Returns new manager instance ID
+            </summary>
+            <returns>The response object will indicate success and message will contain the instance ID</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RegisterController.ManagerId(System.String)">
+            <summary>
+            Removes manager instance ID from active instance list
+            </summary>
+            <returns>The response object will indicate success</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RoleController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.AppRole})">
             <summary>
             Updates one or more Role(s) using update by query

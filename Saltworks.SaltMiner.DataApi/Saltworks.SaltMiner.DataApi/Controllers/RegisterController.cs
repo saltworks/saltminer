@@ -26,13 +26,9 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
     [Produces("application/json")]
     [Auth]
     [ApiController]
-    public class RegisterController : ApiControllerBase
+    public class RegisterController(RegisterContext context, ILogger<RegisterController> logger) : ApiControllerBase(context, logger)
     {
-        private readonly RegisterContext Context;
-        public RegisterController(RegisterContext context, ILogger<RegisterController> logger) : base(context, logger)
-        {
-            Context = context;
-        }
+        private readonly RegisterContext Context = context;
 
         /// <summary>
         /// Returns role of caller
@@ -44,8 +40,35 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         public ActionResult<NoDataResponse> Role()
         {
             Logger.LogDebug("Role action called");
-            
             return Ok(Context.GetRole());
+        }
+
+        /// <summary>
+        /// Returns new manager instance ID
+        /// </summary>
+        /// <returns>The response object will indicate success and message will contain the instance ID</returns>
+        /// <response code="200">Returns the requested object</response>
+        [Auth(Authentication.Role.Manager)]
+        [ProducesResponseType(200, Type = typeof(NoDataResponse))]
+        [HttpGet("[action]")]
+        public ActionResult<NoDataResponse> ManagerId()
+        {
+            Logger.LogDebug("Manager ID action called");
+            return Ok(Context.NewMgrInstance());
+        }
+
+        /// <summary>
+        /// Removes manager instance ID from active instance list
+        /// </summary>
+        /// <returns>The response object will indicate success</returns>
+        /// <response code="200">Returns the requested object</response>
+        [Auth(Authentication.Role.Manager)]
+        [ProducesResponseType(200, Type = typeof(NoDataResponse))]
+        [HttpDelete("[action]/{id}")]
+        public ActionResult<NoDataResponse> ManagerId(string id)
+        {
+            Logger.LogDebug("Manager remove ID action called");
+            return Ok(Context.DelMgrInstance(id));
         }
     }
 }

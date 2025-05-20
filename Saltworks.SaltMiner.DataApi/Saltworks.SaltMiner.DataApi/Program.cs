@@ -168,6 +168,7 @@ namespace Saltworks.SaltMiner.DataApi
             services.AddTransient<IDataRepo, ElasticDataRepo>();
             services.AddSingleton(config);
             services.AddSingleton(new LockHelper());
+            services.AddSingleton(new ApiCache());
             services.AddLogging(configure =>
             {
                 configure.ClearProviders();
