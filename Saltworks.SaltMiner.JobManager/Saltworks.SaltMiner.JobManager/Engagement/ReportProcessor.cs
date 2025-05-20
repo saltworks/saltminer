@@ -923,12 +923,13 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
         private void ProcessStringReplace(string fieldValue, WParagraph paragraph, int index, FormatType type, WMergeField mergeField = null)
         {
-            // the markdown editor puts \n, \n\n, and <br>\n for carriage returns and to display wysiswyg correctly.
+            // the markdown editor puts \n and <br>\n for carriage returns and to display wysiswyg correctly.
             // SyncFusion doesn't understand that html and needs it translated to Paragraph objects with nothing in them.
-            // This below attempts to change everything to <br>\n which is later converted to blank paragraphs below.
-            fieldValue = Regex.Replace(fieldValue, @"\n\n", "~~DOUBLE_BREAK~~");
-            fieldValue = Regex.Replace(fieldValue, @"\n", "<br>\n");
-            fieldValue = fieldValue.Replace("~~DOUBLE_BREAK~~", "<br>\n<br>\n");
+            // This below attempts to change any stand alone \n to <br>\n which is later converted to blank paragraphs below.
+            fieldValue = Regex.Replace(fieldValue, @"(?<!<br>)\n", "<br>\n");
+
+            // markdown escapes specific characters and syncfusion treats it as text. So, remove the escape (backslash)!
+            fieldValue = Regex.Replace(fieldValue, @"\\([\\`*_{}\[\]()#+\-.!~|])", "$1");
 
             byte[] contentBytes = Encoding.UTF8.GetBytes(fieldValue);
 
