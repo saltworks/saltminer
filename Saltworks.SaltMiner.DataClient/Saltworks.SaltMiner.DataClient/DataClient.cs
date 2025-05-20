@@ -86,6 +86,19 @@ namespace Saltworks.SaltMiner.DataClient
 
         #endregion
 
+        #region Register
+
+        public NoDataResponse RegisterNewManagerInstanceId()
+        {
+            return CheckRetry(() => ApiClient.Get<NoDataResponse>("register/managerid")).Content;
+        }
+        public NoDataResponse RegisterDeleteManagerInstanceId(string instanceId)
+        {
+            return CheckRetry(() => ApiClient.Delete<NoDataResponse>($"register/managerid/{instanceId}")).Content;
+        }
+
+        #endregion
+
         #region Scan
 
         /// <summary>

@@ -44,6 +44,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     private readonly Queue<Asset> RecentAssets = [];
     private readonly List<Comment> EngagementComments = [];
     private readonly QueueQueryControl QueueControl = new();
+    private string InstanceId = string.Empty; // Instance ID for this run, set in Run()
 
     private Asset GetRecentAsset(string sourceType, string sourceId) => RecentAssets.FirstOrDefault(ra => ra.Saltminer.Asset.SourceType == sourceType && ra.Saltminer.Asset.SourceId == sourceId);
     private void SetRecentAsset(Asset asset)
@@ -271,21 +272,17 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         {
             Config.QueueProcessorInstances = 1;
         }
-        // Override config instance ID if passed as arg
-        if (!string.IsNullOrEmpty(RunConfig.InstanceId))
-            Config.InstanceId = RunConfig.InstanceId;
-        if (string.IsNullOrEmpty(Config.InstanceId))
-            throw new ManagerException("Configuration invalid; InstanceID cannot be empty.");
-
-        Logger.LogInformation("Queue processor instance {Instance} configured for sourceType '{SourceType}', queue scan ID '{QueueScanId}', limit {Limit}, and listOnly {ListOnly}",
-            Config.InstanceId,
-            (string.IsNullOrEmpty(RunConfig.SourceType) ? "[all]" : RunConfig.SourceType),
-            (string.IsNullOrEmpty(RunConfig.QueueScanId) ? "[all]" : RunConfig.QueueScanId),
-            RunConfig.Limit, RunConfig.ListOnly);
 
         QueueControl.StillRunning = true;
         try
         {
+            InstanceId = DataClient.RegisterNewManagerInstanceId().Message;
+            Logger.LogInformation("Queue processor instance {Instance} configured for sourceType '{SourceType}', queue scan ID '{QueueScanId}', limit {Limit}, and listOnly {ListOnly}",
+                InstanceId,
+                (string.IsNullOrEmpty(RunConfig.SourceType) ? "[all]" : RunConfig.SourceType),
+                (string.IsNullOrEmpty(RunConfig.QueueScanId) ? "[all]" : RunConfig.QueueScanId),
+                RunConfig.Limit, RunConfig.ListOnly);
+
             Task.WaitAll(GetAsync(), ProcessAsync(), FinishAsync());
         }
         catch (CancelTokenException)
@@ -294,7 +291,11 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         }
         finally
         {
-            Unlock();
+            if (!string.IsNullOrEmpty(InstanceId))
+            {
+                Unlock();
+                DataClient.RegisterDeleteManagerInstanceId(InstanceId);
+            }
         }
     }
 
@@ -302,7 +303,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     {
         try
         {
-            var rsp = DataClient.QueueScanUnlock(Config.InstanceId);
+            var rsp = DataClient.QueueScanUnlock(InstanceId);
             Logger.LogInformation("Cleaned up instance locks for {Count} queue scans", rsp.Affected);
         }
         catch (Exception ex)
@@ -471,7 +472,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         if (queueAssets.Any(a => a.Saltminer.Asset.IsRetired))
         {
             // process retirees - (1) get asset & set flag, (2) set flag for all issues
-            // ProcessRetirees(queueAssets);
+            // ProcessRetirees(queueAssets)
 
             queueAssets.RemoveAll(a => a.Saltminer.Asset.IsRetired);
             if (queueAssets.Count == 0)
@@ -779,7 +780,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         if (scanInfo.ScanDate != issue.Saltminer.Scan.ScanDate)
             return new SaltminerEqualityResponse(["Scan info changed."]);
 
-        return new(new());
+        return new([]);
     }
 
     private void ProcessQueueIssues(Scan scan, QueueScan queueScan, Asset asset, QueueAsset queueAsset)
@@ -969,7 +970,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 else
                 {
                     // Needs update
-                    Logger.LogDebug("{Msg}", string.Join(',', equalsCheck.Messages.ToArray()));
+                    Logger.LogDebug("{Msg}", string.Join(',', [.. equalsCheck.Messages]));
                     queueScanIssue.Id = issue.Id;
                     UpdateIssue(scan, queueScanIssue, issue);
                     queueScanIssue.IsProcessed = true;
@@ -1412,7 +1413,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         try
         {
             if (withLock)
-                await DataClient.QueueScanUpdateStatusAsync(queueScan.Id, scanStatus, Config.InstanceId);
+                await DataClient.QueueScanUpdateStatusAsync(queueScan.Id, scanStatus, InstanceId);
             else
                 await DataClient.QueueScanUpdateStatusAsync(queueScan.Id, scanStatus);
             if (queueScan.Saltminer.Engagement?.Id != null)

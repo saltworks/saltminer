@@ -65,6 +65,5 @@ namespace Saltworks.SaltMiner.Manager
         public string WebUiBaseUrl { get; set; }
         public bool ProcessNoScan { get; set; } = true;
         public string IssuesActiveIndexTemplate { get; set; } = "issues_[assetType]_[sourceType]_[instance]";
-        public string InstanceId { get; set; } = "mgr-001";
     }
 }
