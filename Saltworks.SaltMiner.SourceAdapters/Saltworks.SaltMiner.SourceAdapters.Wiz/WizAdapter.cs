@@ -271,7 +271,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
                             {
                                 // Dates in the API and report seem to be UTC, so not converting.
                                 if (!isDiffUpdate)
-                                    issue.ResolveReportFields(Config.WizUiIssueUriLeft, Config.WizUiIssueUriRight);
+                                    issue.ResolveReportFields();
+                                issue.ResolveWizUrl(Config.WizUiIssueUriLeft, Config.WizUiIssueUriRight);
                                 if (issue.Control == null || string.IsNullOrEmpty(issue.Control.Id) || string.IsNullOrEmpty(issue.Control.Name))
                                 {
                                     Logger.LogWarning("[Sync] Invalid Wiz issue, missing required control information (ID and/or name).  Skipping.");
@@ -340,7 +341,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
                             {
                                 // Dates in the API and report seem to be UTC, so not converting.
                                 if (!isDiffUpdate)
-                                    vuln.ResolveReportFields(Config.WizUiVulnUriLeft, Config.WizUiVulnUriRight);
+                                    vuln.ResolveReportFields();
+                                vuln.ResolveWizUrl(Config.WizUiVulnUriLeft, Config.WizUiVulnUriRight);
                                 currentThing = $"ID: {vuln.Id}, Vuln: {vuln.Name}, Asset: {vuln.VulnerableAsset.Name}";
                                 if (firstIssue)
                                 {

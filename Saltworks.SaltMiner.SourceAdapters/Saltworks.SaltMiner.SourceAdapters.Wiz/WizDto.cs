@@ -268,7 +268,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         /// <summary>Do not map, not set by API</summary>
         public string CloudProviderUrl { get; set; }
 
-        public Issue ResolveReportFields(string uiUriLeft, string uiUriRight)
+        public void ResolveWizUrl(string uiUriLeft, string uiUriRight)
         {
             if (string.IsNullOrEmpty(WizUrl) && !string.IsNullOrEmpty(Id))
                 WizUrl = $"{uiUriLeft}{Id}{uiUriRight}";
@@ -276,7 +276,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
                 WizUrl = $"{uiUriLeft}{Control.Id}{uiUriRight}";
             if (string.IsNullOrEmpty(WizUrl) && !string.IsNullOrEmpty(IssueId))
                 WizUrl = $"{uiUriLeft}{IssueId}{uiUriRight}";
+        }
 
+        public Issue ResolveReportFields()
+        {
             if (Control != null) // Already called or came from API instead of report
                 return this;
             Control = new()
@@ -453,10 +456,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         public string ResourceTags { get; set; }
         public string WizUrl { get; set; }
 
-        public Vulnerability ResolveReportFields(string uiUriLeft, string uiUriRight)
+        public void ResolveWizUrl(string uiUriLeft, string uiUriRight)
         {
             if (string.IsNullOrEmpty(WizUrl))
                 WizUrl = $"{uiUriLeft}{Id}{uiUriRight}";
+        }
+
+        public Vulnerability ResolveReportFields()
+        {
             if (VulnerableAsset != null) // Already called or came from API instead of report
                 return this;
             VulnerableAsset = new()
