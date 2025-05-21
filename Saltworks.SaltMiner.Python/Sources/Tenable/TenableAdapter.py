@@ -19,6 +19,7 @@ class TenableAdapter:
 
         self.sm_scan_data_dict = {}
         self.current_scan_asset_dict = {}
+        self.tenable_asset_tags = {}
 
 
     def run_sync(self, first_load=False):
@@ -28,6 +29,7 @@ class TenableAdapter:
         else:
             self.first_load = False
 
+        self.get_asset_tags()
         self.sm_scans_generator()
         self.get_sm_scans()
         self.compare_tenable_scans()
@@ -86,7 +88,7 @@ class TenableAdapter:
                         "queue_scan_id": queue_scan['id'],
                         "queue_asset_id": queue_asset['id'],
                         "report_id": mapped_scan['Saltminer']['Scan']['ReportId'],
-                        "schedule_uuid": scan_record['schedule_uuid'] if scan_record.get('schedule_uuid') else "None"
+                        "schedule_uuid": scan_record['schedule_uuid'] if scan_record.get('schedule_uuid') else "None",
                     }
                 mapped_issue = self.map_issue(
                     issue_record, current_scan_dict=self.current_scan_asset_dict[issue_record['asset']['uuid']])
@@ -142,7 +144,19 @@ class TenableAdapter:
         asset['Instance'] = 'Tenable1'
         asset['AssetType'] = 'net'
         asset['SourceType'] = 'Saltworks.Tenable'
-        asset['ip'] = asset.get('ipv4')
+        asset['Ip'] = asset.get('ipv4')
+        asset['Host'] = asset.get('hostname')
+        asset['Port'] = issue_record['port']['port'] if issue_record.get('port') else 'None'
+        asset['Scheme'] = issue_record['port']['protocol'] if issue_record.get('protocol') else 'None'
+        asset_tags = self.tenable_asset_tags.get(issue_record['asset']['uuid'])
+        if asset_tags:
+            asset['Attributes'] = {"tenable_asset_tags": self.tenable_asset_tags[issue_record['asset']['uuid']]}
+
+        asset['Attributes'] = issue_record['asset'].get('agent_uuid')
+        asset['Attributes'] = issue_record['asset'].get('bios_uuid')
+        asset['Attributes'] = issue_record['asset'].get('fqdn')
+        asset['Attributes'] = issue_record['asset'].get('last_scan_target')
+
 
         return q_asset_doc
 
@@ -162,9 +176,30 @@ class TenableAdapter:
         saltminer = q_issue_doc['Saltminer']
         saltminer['QueueScanId'] = queue_scan_id
         saltminer['QueueAssetId'] = queue_asset_id
-        saltminer['Attributes']['status'] = issue_record['state']
-        saltminer['Attributes']['issue_last_found'] = issue_record['last_found']
-        saltminer['Attributes']['tenable_schedule_uuid'] = schedule_uuid
+        ##Adding Issue Attributes here
+        split_operating_systems= issue_record['asset']['operating_system'].split(",")
+        attributes = saltminer['Attributes']
+        attributes['status'] = issue_record['state']
+        attributes['issue_last_found'] = issue_record['last_found']
+        attributes['tenable_schedule_uuid'] = schedule_uuid
+        attributes['operating_systems'] = issue_record['asset']['operating_system']
+        attributes['operating_system'] = split_operating_systems[0] if len(split_operating_systems) > 1 else "None"
+        attributes['ipv6'] = issue_record['asset'].get('ipv6')
+        attributes['mac_address'] = issue_record['asset'].get('mac_address')
+        attributes["exploit_available"]= str(issue_record['plugin'].get('exploit_available'))
+        attributes["exploit_framework_canvas"]= str(issue_record['plugin'].get('exploit_framework_canvas'))
+        attributes["exploit_framework_core"]= str(issue_record['plugin'].get('exploit_framework_core'))
+        attributes["exploit_framework_d2_elliot"]= str(issue_record['plugin'].get('exploit_framework_d2_elliot'))
+        attributes["exploit_framework_exploithub"]= str(issue_record['plugin'].get('exploit_framework_exploithub'))
+        attributes["exploit_framework_metasploit"]= str(issue_record['plugin'].get('exploit_framework_metasploit'))
+        attributes["exploited_by_malware"]= str(issue_record['plugin'].get('exploited_by_malware'))
+        attributes["exploited_by_nessus"]= str(issue_record['plugin'].get('exploited_by_nessus'))
+        attributes["has_patch"]= str(issue_record['plugin'].get('has_patch'))
+        attributes["risk_factor"]= issue_record['plugin'].get('risk_factor')
+        attributes["in_the_news"]= str(issue_record['plugin'].get('in_the_news'))
+        attributes["unsupported_by_vendor"]= str(issue_record['plugin'].get('unsupported_by_vendor'))
+        attributes["has_workaround"]= str(issue_record['plugin'].get('has_workaround'))
+        
 
         vulnerability = q_issue_doc['Vulnerability']
         if issue_record['state'] == "FIXED":
@@ -187,7 +222,12 @@ class TenableAdapter:
             "|" + issue_record['port']['protocol']
         vulnerability['Recommendation'] = issue_record['plugin'].get(
             'solution')
-
+        vulnerability['Reference'] = issue_record['plugin']['see_also'][0] if issue_record['plugin'].get('see_also') else 'None'
+        vulnerability['References'] = (
+            [item for item in issue_record['plugin']['see_also']]
+            if issue_record['plugin'].get('see_also')
+            else ['None']
+        )
         scanner = vulnerability['Scanner']
         scanner['Id'] = issue_record['finding_id'] + " | " + asset_name
         scanner['AssessmentType'] = "Open"
@@ -196,6 +236,12 @@ class TenableAdapter:
         scanner['GuiUrl'] = f"https://cloud.tenable.com/vm/#/explore/findings/host-vulnerabilities/finding-details/{issue_record['finding_id']}"
 
         return q_issue_doc
+
+
+    def get_asset_tags(self):
+        for asset in self.tenable_client.get_assets_generator():
+            if asset.get('tags'):
+                self.tenable_asset_tags[asset['id']] = ",".join([item['key'] + "|" + item['value'] + "|" + item["uuid"] for item in asset['tags']])
 
 
     def schedule_uuid_agg_query(self):
