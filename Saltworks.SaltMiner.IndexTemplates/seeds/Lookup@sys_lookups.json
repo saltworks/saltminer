@@ -262,6 +262,11 @@
         "display": "Python",
         "value": "Agent25Cron",
         "order": 7
+      },
+      {
+        "display": "Manager Cron",
+        "value": "ManagerCron",
+        "order": 8
       }
     ],
     "timestamp": "2022-08-12T00:00:00.000000Z",

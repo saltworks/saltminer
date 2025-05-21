@@ -67,7 +67,13 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
                 {
                     if (!config.IsValidJobType(job.Option))
                     {
-                        Logger.LogError("Invalid option '{SvcType}' in service manager job data, skipping...", job.Option);
+                        Logger.LogError("Invalid option '{SvcType}' in service manager config, skipping...", job.Option);
+                        if (job.Status != ServiceJobStatus.Failed.ToString("g"))
+                        {
+                            job.Status = ServiceJobStatus.Failed.ToString("g");
+                            job.Message = $"'{job.Option}' is an invalid option in service manager config";
+                            DataClient.ServiceJobAddUpdate(job);
+                        }
                         continue;
                     }
 
