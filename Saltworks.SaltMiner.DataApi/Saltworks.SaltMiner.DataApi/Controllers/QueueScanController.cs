@@ -154,14 +154,15 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// Clears lock ID for all queue scans currently set for the given lock ID
         /// </summary>
         /// <param name="lockId">Lock ID to unlock</param>
+        /// <param name="resetProcessing">If set and status is Processing, reset status to Pending</param>
         /// <returns>Response indicating success or failure and count of affected queue scans</returns>
         [Auth(Role.Admin, Role.Manager)]
         [ProducesResponseType(200, Type = typeof(NoDataResponse))]
         [HttpPost("[action]/{lockId}")]
-        public ActionResult<NoDataResponse> Unlock(string lockId)
+        public ActionResult<NoDataResponse> Unlock(string lockId, [FromQuery]bool resetProcessing=true)
         {
             Logger.LogInformation("Unlock action called for lock ID '{LockId}'", lockId);
-            return Ok(Context.Unlock(lockId));
+            return Ok(Context.Unlock(lockId, resetProcessing));
         }
 
         /// <summary>

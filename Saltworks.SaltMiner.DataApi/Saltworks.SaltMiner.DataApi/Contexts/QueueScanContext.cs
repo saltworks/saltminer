@@ -14,7 +14,8 @@
  * ----
  */
 
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.Http.Metadata;
+using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Authentication;
@@ -243,7 +244,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             return new NoDataResponse(1);
         }
 
-        public NoDataResponse Unlock(string lockId)
+        public NoDataResponse Unlock(string lockId, bool resetProcessing=true)
         {
             Logger.LogInformation("Unlock for lock ID '{Id}'", lockId);
             var request = new ElasticDataFilter("Saltminer.Internal.LockId", lockId, new UIPagingInfo(1000));
@@ -256,6 +257,8 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                     break;
                 foreach (var item in response.Data)
                 {
+                    if (resetProcessing && item.Saltminer.Internal.QueueStatus == QueueScanStatus.Processing.ToString("g"))
+                        item.Saltminer.Internal.QueueStatus = QueueScanStatus.Pending.ToString("g");
                     item.Saltminer.Internal.LockId = null;
                     item.LastUpdated = DateTime.UtcNow;
                     scans.Add(item);

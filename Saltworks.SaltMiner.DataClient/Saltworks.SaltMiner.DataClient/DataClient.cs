@@ -318,11 +318,12 @@ namespace Saltworks.SaltMiner.DataClient
         /// Unlocks queue scans that have been locked via prior <see cref="QueueScanUpdateStatus(string, QueueScan.QueueScanStatus, string)"/> calls
         /// </summary>
         /// <param name="lockId">Lock ID to find and unlock</param>
+        /// <param name="resetProcessing">If set and queue scan is in Processing state, reset to Pending</param>
         /// <returns>Response container including the result and affected count</returns>
         /// <remarks>Unlocks ALL queue scans locked to this ID - expected to happen at the end of processing.</remarks>
-        public NoDataResponse QueueScanUnlock(string lockId)
+        public NoDataResponse QueueScanUnlock(string lockId, bool resetProcessing=true)
         {
-            var qry = $"queuescan/unlock/{lockId}";
+            var qry = $"queuescan/unlock/{lockId}?resetProcessing={resetProcessing}";
             var rsp = CheckRetry(() => ApiClient.Post<NoDataResponse>(qry, null));
             return rsp.Content;
         }

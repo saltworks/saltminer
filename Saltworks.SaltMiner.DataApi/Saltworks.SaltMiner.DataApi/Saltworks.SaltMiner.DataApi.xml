@@ -919,11 +919,12 @@
             State transition rules will be enforced, for example Agent should only use Loading/Pending/Cancel.
             </remarks>
         </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Unlock(System.String)">
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Unlock(System.String,System.Boolean)">
             <summary>
             Clears lock ID for all queue scans currently set for the given lock ID
             </summary>
             <param name="lockId">Lock ID to unlock</param>
+            <param name="resetProcessing">If set and status is Processing, reset status to Pending</param>
             <returns>Response indicating success or failure and count of affected queue scans</returns>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Delete(System.String)">
