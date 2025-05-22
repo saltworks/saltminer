@@ -52,7 +52,11 @@ class SnykAdapter:
         """
         start_date = None
         for org in self.snyk_client.get_snyk_orgs_generator():
-            gui_url_with_org_slug = self.base_gui_url + org['attributes']['slug'] + "/project/"
+            org_info = {
+                "slug": org['attributes']['slug'], 
+                "name": org['attributes']['name']
+            }
+            gui_url_with_org_slug = self.base_gui_url + org_info['slug'] + "/project/"
             for project in self.snyk_client.get_snyk_projects_generator(org_id=org['id']):
                 
                 project_id = project.get("id") # Ensure project ID is extracted properly
@@ -69,13 +73,13 @@ class SnykAdapter:
                 first_issue = next(issues_generator, None) # Get first issue to check if there is any data
 
                 if first_issue:
-                    self.snyc_issues(project, first_issue, issues_generator, gui_url_with_project)
+                    self.snyc_issues(project, first_issue, issues_generator, gui_url_with_project, org_info)
                     
                 else:
                     logging.info("No issues found for project %s, skipping.", project_id)
 
 
-    def snyc_issues(self, project, first_issue, issues_generator, gui_url):
+    def snyc_issues(self, project, first_issue, issues_generator, gui_url, org_info):
         """
         Runs through issues of a specific project and sends them to Saltminer.
         -Maps Scan to SM valid scan document
@@ -96,7 +100,7 @@ class SnykAdapter:
             #Sends mapped scan to SM queue_scans
             queue_scan = self._sm_data_client.AddQueueScan(json.loads(mapped_scan.model_dump_json()))
             #Maps Asset to SM valid asset document
-            mapped_asset = self.map_asset(project, queue_scan['id'])
+            mapped_asset = self.map_asset(project, queue_scan['id'], org_info)
             #Sends mapped asset to SM queue_assets
             queue_asset = self._sm_data_client.AddQueueAsset(json.loads(mapped_asset.model_dump_json()))
             
@@ -200,7 +204,7 @@ class SnykAdapter:
         return MapScanDocDTO(**q_scan_doc)
 
 
-    def map_asset(self, project, q_scan_id):
+    def map_asset(self, project, q_scan_id, org_info):
         """
         This will map an asset into the format needed for queue issue import
         """
@@ -217,6 +221,9 @@ class SnykAdapter:
         asset['AssetType']= "app"
         asset['SourceType'] = "Saltworks.Snyk"
 
+        attributes = asset['Attributes']
+        attributes['org_slug'] = org_info['slug']
+        attributes['org_name'] = org_info['name'] 
         return MapAssetDocDTO(**q_asset_doc)
     
 

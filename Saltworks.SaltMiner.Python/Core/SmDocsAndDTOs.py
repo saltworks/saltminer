@@ -17,6 +17,9 @@ class SnykDocs:
                     "Asset": {  
                         "Name": None,
                         "Description": None,
+                        "Ip":None,
+                        "Scheme": None,
+                        "Port": None,
                         "VersionId": None,
                         "Version": None,
                         "ConfigName": None,
@@ -104,6 +107,7 @@ class SnykDocs:
                     "Enumeration": "",                     
                     "Name": None,
                     "Reference": None,
+                    "References": [],
                     "Severity": None,
                     "Scanner": {
                         "ApiUrl": None,

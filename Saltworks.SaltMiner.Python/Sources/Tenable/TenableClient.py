@@ -14,20 +14,23 @@ class TenableClient:
         yield from self.tio.scans.list()
 
     def get_assets_generator(self):
-        yield from self.tio.assets.list()
+        yield from self.tio.exports.assets()
     
     def get_vuln_export_generator(self, scan_uuid):
         if scan_uuid == "None":
             yield from self.tio.exports.vulns(
             severity = self.severity_list,
+            state = ["OPEN", "REOPENED"],
             since = 0000000000
             )
         else:
             yield from self.tio.exports.vulns(
                 scan_uuid=scan_uuid,
                 severity = self.severity_list,
+                state = ["OPEN", "REOPENED", "FIXED"],
                 first_found = 0000000000
                 )
+            
     # def get_vuln_export_generator(self, scan_uuid):
     #     yield from self.tio.exports.vulns(
     #         scan_uuid=scan_uuid,
