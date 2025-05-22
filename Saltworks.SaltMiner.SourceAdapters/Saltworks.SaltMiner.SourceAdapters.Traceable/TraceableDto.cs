@@ -96,6 +96,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
         public LongDto ClosedTimestampMillis { get; set; }
         public StringListDto ScanId { get; set; }
         public StringListDto Sources { get; set; }
+        public StringListDto AffectedDomainIds { get; set; }
+        public StringListDto AffectedDomainNames { get; set; }
         public StringDto EnvironmentId { get; set; }
         public StringDto Severity { get; set; }
         public FloatDto CvssScore { get; set; }
@@ -112,6 +114,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
     public class StringListDto
     {
         public List<string> Value { get; set; }
+        public string ToCsv() => string.Join(",", Value);
     }
     public class StringDto
     {

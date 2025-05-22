@@ -21,6 +21,7 @@ using Saltworks.SaltMiner.SourceAdapters.Core;
 using Saltworks.SaltMiner.SourceAdapters.Core.Data;
 using Saltworks.SaltMiner.SourceAdapters.Core.Helpers;
 using Saltworks.SaltMiner.SourceAdapters.Core.Interfaces;
+using System.ComponentModel;
 using System.Globalization;
 using static Saltworks.SaltMiner.Core.Entities.QueueScan;
 
@@ -473,8 +474,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
                         },
                         Category = item,
                         FoundDate = ConvertMillisecondsDate(issue?.CreatedTimestampMillis.Value) ?? DateTime.Now,
-                        LocationFull = "N/A", // todo - where to get?
-                        Location = "N/A", // todo - where to get?
+                        LocationFull = issue?.DisplayName.Value,
+                        Location = issue?.DisplayName.Value,
                         Name = issue?.DisplayName.Value,
                         Description = issue?.DisplayName.Value,
                         ReportId = issue.VulnerabilityId.Value,
@@ -497,7 +498,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
                         IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
                         Attributes = new Dictionary<string, string>
                         { 
-                            { "status", issue?.Status.Value ?? string.Empty }
+                            { "status", issue?.Status.Value ?? string.Empty },
+                            { "sources", issue?.Sources?.ToCsv() },
+                            { "affected_domain_ids", issue?.AffectedDomainIds?.ToCsv() },
+                            { "affected_domains", issue?.AffectedDomainNames?.ToCsv() }
                         },
                         QueueScanId = queueScan.Id,
                         QueueAssetId = queueAsset.Id,

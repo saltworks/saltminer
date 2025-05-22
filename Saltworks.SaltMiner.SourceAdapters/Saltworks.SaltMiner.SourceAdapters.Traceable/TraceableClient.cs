@@ -109,6 +109,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
               VulnerabilitySubCategory: selection(key: VULNERABILITY_SUB_CATEGORY) {value }
               DisplayName: selection(key: DISPLAY_NAME) {value }
               OwaspApiTop10: selection(key: OWASP_API_TOP10) {value }
+              AffectedDomainIds: selection(key: AFFECTED_DOMAIN_IDS) { value }
+              AffectedDomainNames: selection(key: AFFECTED_DOMAIN_NAMES) { value }
               apiEntity: entity(type: ""API"") { 
                 id
                 id1: attribute(expression: {key: ""id""})
