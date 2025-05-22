@@ -76,6 +76,9 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
                 GetByStatusAsync(QueueScan.QueueScanStatus.Cancel),
                 ProcessQueueAsync(crunConfig)
             );
+            Logger.LogInformation("Pausing for 30 sec to allow delete to complete before looking for orphans...");
+            Task.Delay(TimeSpan.FromSeconds(30)).Wait(); // wait for the delete to finish before looking for orphans
+
             // Remove orphan queue assets and queue issues by queue asset search
             Task.WaitAll(
                 GetByAssetOrphanAsync(),
