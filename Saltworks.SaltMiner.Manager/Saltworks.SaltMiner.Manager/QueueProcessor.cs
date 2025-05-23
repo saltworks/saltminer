@@ -152,7 +152,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         while (true)
         {
             // If needed, add subfilter to exclude sources from the sources removed list
-            if (QueueControl.SourcesRemoved.Count > 0)
+            if (!QueueControl.SourcesRemoved.IsEmpty)
             {
                 queueScanSearch.Filter.SubFilter = new()
                 {
@@ -177,16 +177,21 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             foreach (var qs in queueScans.Data)
             {
                 const string message = "[Q-Get] Processing {Count}/{Total}, source '{SourceType}', instance '{Instance}', report ID '{ReportId}', queue scan ID '{QueueScanId}'";
+                // don't process sources removed because of too many errors
+                if (QueueControl.SourcesRemoved.Contains(qs.Saltminer.Scan.SourceType))
+                {
+                    continue;
+                }
+                // skip those already locked to another instance
+                if (!string.IsNullOrEmpty(qs.Saltminer.Internal.LockId) && qs.Saltminer.Internal.LockId != InstanceId)
+                {
+                    continue;
+                }
                 // list only - just output logging messages instead of processing
                 if (RunConfig.ListOnly)
                 {
                     Logger.LogInformation(message, count, QueueControl.TotalCount, qs.Saltminer.Scan.SourceType, qs.Saltminer.Scan.Instance, qs.Saltminer.Scan.ReportId, qs.Id);
                     count++;
-                    continue;
-                }
-                // don't process sources removed because of too many errors
-                if (QueueControl.SourcesRemoved.Contains(qs.Saltminer.Scan.SourceType))
-                {
                     continue;
                 }
                 // issues_active alias maintenance - build a list of issue index names seen during processing
