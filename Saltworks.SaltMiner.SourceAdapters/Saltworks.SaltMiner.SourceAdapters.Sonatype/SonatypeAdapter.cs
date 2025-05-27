@@ -24,6 +24,7 @@ using Saltworks.SaltMiner.SourceAdapters.Core.Interfaces;
 using Saltworks.Utility.ApiHelper;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -114,9 +115,17 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 
                 OrganizationDto Organization = new();
 
+                string[] sourceFilters = [];
+                string fileName = "debugSourceFilters.txt";
+                if (File.Exists(fileName))
+                {
+                    Logger.LogWarning("Using {FileName} to process specific source applications only", fileName);
+                    sourceFilters = await File.ReadAllLinesAsync(fileName);
+                }
+
                 //Design decision: expectations to handle 10k applications
                 Logger.LogInformation($"[Sync] Getting Applications...");
-                var assets = (await client.GetAppsAsync());
+                var assets = (await client.GetAppsAsync(sourceFilters));
 
                 if (Config.TestingAssetLimit > 0)
                 {
@@ -448,7 +457,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                             IsSaltminerSource = SonatypeConfig.IsSaltminerSource,
                             SourceType = Config.SourceType,
                             SourceId = sourceId,
-                            Version = stage,
+                            Version = string.Empty,
                             AssetType = AssetType,
                             LastScanDaysPolicy = Config.LastScanDaysPolicy,
                             IsRetired = isRetired

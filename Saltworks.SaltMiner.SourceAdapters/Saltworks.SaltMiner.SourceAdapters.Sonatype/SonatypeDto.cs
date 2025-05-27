@@ -71,7 +71,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                 IsSaltminerSource = SonatypeConfig.IsSaltminerSource,
                 SourceType = config.SourceType,
                 SourceId = $"{application.Id}|{Stage}",
-                VersionId = Stage,
+                VersionId = string.Empty,
                 Attributes = new Dictionary<string, string>()
             };
         }
