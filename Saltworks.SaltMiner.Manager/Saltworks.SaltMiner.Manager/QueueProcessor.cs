@@ -174,6 +174,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             }
             QueueControl.TotalCount = queueScans.Data.Count();
             Logger.LogInformation("[Q-Get] {Count} pending queue scans found in current batch.", QueueControl.TotalCount);
+            var processedOne = false;
             foreach (var qs in queueScans.Data)
             {
                 const string message = "[Q-Get] Processing {Count}/{Total}, source '{SourceType}', instance '{Instance}', report ID '{ReportId}', queue scan ID '{QueueScanId}'";
@@ -203,6 +204,12 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 Logger.LogInformation(message, count, QueueControl.TotalCount, qs.Saltminer.Scan.SourceType, qs.Saltminer.Scan.Instance, qs.Saltminer.Scan.ReportId, qs.Id);
                 yield return qs;
                 count++;
+                processedOne = true;
+            }
+            if (!processedOne)
+            {
+                Logger.LogInformation("[Q-Get] No eligible queue scans found in current batch, ending processing.");
+                break;
             }
             if (RunConfig.Limit > 0 && count >= RunConfig.Limit)
             {
