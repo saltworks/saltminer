@@ -80,7 +80,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             {
                 drawDownNope = true;
                 nopeCount = 200;
-                Logger.LogWarning("[Q-Get] Too many collisions detected, skipping {Count} queue scans", nopeCount);
+                Logger.LogWarning("[Q-Get] Too many collisions detected, skipping forward up to {Count} queue scans", nopeCount);
             }
             if (nopeCount == 0)
                 drawDownNope = false;
@@ -120,6 +120,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 await Task.Delay(TimeSpan.FromSeconds(3), RunConfig.CancelToken);
             }
         }
+        Logger.LogInformation("[Q-Get] Complete, no more pending queue scans found.");
         QueueControl.StillRunning = false; // No more queue scans to process
     }
 
@@ -133,8 +134,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             Filter = new()
             {
                 FilterMatches = new() { { "Saltminer.Internal.QueueStatus", QueueScan.QueueScanStatus.Pending.ToString("g") } }
-            },
-            PitPagingInfo = new(Config.QueueProcessorQueueBatchSize)
+            }, 
+            UIPagingInfo = new(Config.QueueProcessorQueueBatchSize)
             {
                 SortFilters = new() { { "Timestamp", false } }
             }
@@ -172,12 +173,12 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 Logger.LogInformation("[Q-Get] No more pending queue scans found.");
                 break;
             }
-            QueueControl.TotalCount = queueScans.Data.Count();
+            QueueControl.TotalCount = queueScans.UIPagingInfo.Total ?? 0;
             Logger.LogInformation("[Q-Get] {Count} pending queue scans found in current batch.", QueueControl.TotalCount);
             var processedOne = false;
             foreach (var qs in queueScans.Data)
             {
-                const string message = "[Q-Get] Processing {Count}/{Total}, source '{SourceType}', instance '{Instance}', report ID '{ReportId}', queue scan ID '{QueueScanId}'";
+                const string message = "[Q-Get] Processed {Count}/{Total}, source '{SourceType}', instance '{Instance}', report ID '{ReportId}', queue scan ID '{QueueScanId}'";
                 // don't process sources removed because of too many errors
                 if (QueueControl.SourcesRemoved.Contains(qs.Saltminer.Scan.SourceType))
                 {
@@ -238,7 +239,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
 
                 if (!QueueControl.FinishQueue.TryDequeue(out qscan))
                 {
-                    Logger.LogError("[Q-Finish] Failed to retrieve queued ID.");
+                    Logger.LogDebug("[Q-Finish] Failed to retrieve queued ID.");
                     // otherwise ignore
                     continue;
                 }
@@ -361,8 +362,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                     if (!QueueControl.ProcessQueue.TryDequeue(out queueScan))
                     {
                         CheckCancel(true);
-                        Logger.LogError("[Q-Process] Failed to dequeue next queue scan.");
-                        throw new QueueProcessorException("Failed to dequeue next queue scan.");
+                        Logger.LogWarning("[Q-Process] Failed to dequeue next queue scan - this can occur with multiple instances of Manager.");
+                        continue;
                     }
 
                     // Null means exception in GetAsync, count them here to quit if count gets too high.

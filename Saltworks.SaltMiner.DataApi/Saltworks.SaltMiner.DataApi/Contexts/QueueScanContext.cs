@@ -128,7 +128,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
         public DataResponse<QueueScan> Search(SearchRequest request)
         {
-            Logger.LogInformation(Extensions.LoggerExtensions.SearchPagingLoggerMessage("Search", request));
+            Logger.LogInformation("{Msg}", Extensions.LoggerExtensions.SearchPagingLoggerMessage("Search", request));
 
             if ((IsInRole(Role.Agent) || IsInRole(Role.Pentester) || IsInRole(Role.PentesterViewer)) && (request.Filter == null || request.Filter.FilterMatches == null))
             {
