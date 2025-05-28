@@ -17,7 +17,7 @@ ENV UID=10000
 ENV GID=10001
 
 # curl is used for healthcheck.
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl jq
 
 RUN mkdir -p ${smcfg3} \
   && mkdir -p ${smlog3} \
@@ -44,7 +44,11 @@ RUN mv appsettings.json ${smcfg3}
 RUN chown -R $USER:$GROUPNAME . \
   && chown -R $USER:$GROUPNAME ${smcfg3} \
   && chown -R $USER:$GROUPNAME ${smfiles} \
-  && chown -R $USER:$GROUPNAME ${smlog3}
+  && chown -R $USER:$GROUPNAME ${smlog3} \
+  && mkdir /scripts
+COPY config-ui-api.sh /scripts
+RUN chown -R $USER:$USER /scripts \
+  && chmod u+x /scripts/config-ui-api.sh
 
 EXPOSE 5001
 
