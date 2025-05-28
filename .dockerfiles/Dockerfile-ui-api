@@ -46,7 +46,7 @@ RUN chown -R $USER:$GROUPNAME . \
   && chown -R $USER:$GROUPNAME ${smfiles} \
   && chown -R $USER:$GROUPNAME ${smlog3} \
   && mkdir /scripts
-COPY config-ui-api.sh /scripts
+COPY .dockerfiles/config-ui-api.sh /scripts
 RUN chown -R $USER:$USER /scripts \
   && chmod u+x /scripts/config-ui-api.sh
 
