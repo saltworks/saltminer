@@ -149,7 +149,6 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
 
         queueScanSearch.Filter.FilterMatches.Add("Saltminer.Internal.CurrentQueueScanId", SaltMiner.DataClient.Helpers.BuildMustNotExistsFilterValue());
 
-        var count = 1;
         while (true)
         {
             // If needed, add subfilter to exclude sources from the sources removed list
@@ -163,6 +162,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
 
             // Call the API to get queue scans
             var queueScans = DataClient.QueueScanSearch(queueScanSearch);
+            var count = 1;
             if (queueScans == null || !queueScans.Success)
             {
                 Logger.LogError("[Q-Get] Queue scan search failure.");
@@ -178,7 +178,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             var processedOne = false;
             foreach (var qs in queueScans.Data)
             {
-                const string message = "[Q-Get] Processed {Count}/{Total}, source '{SourceType}', instance '{Instance}', report ID '{ReportId}', queue scan ID '{QueueScanId}'";
+                const string message = "[Q-Get] Processed {Count}/{Total} in batch, source '{SourceType}', instance '{Instance}', report ID '{ReportId}', queue scan ID '{QueueScanId}'";
                 // don't process sources removed because of too many errors
                 if (QueueControl.SourcesRemoved.Contains(qs.Saltminer.Scan.SourceType))
                 {
@@ -1426,7 +1426,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         try
         {
             if (withLock)
-                await DataClient.QueueScanUpdateStatusAsync(queueScan.Id, scanStatus, InstanceId);
+                await DataClient.QueueScanUpdateStatusAsync(queueScan.Id, scanStatus, InstanceId, false);
             else
                 await DataClient.QueueScanUpdateStatusAsync(queueScan.Id, scanStatus);
             if (queueScan.Saltminer.Engagement?.Id != null)
@@ -1436,16 +1436,20 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
 
             return true;
         }
-        catch (DataClientException ex)
+        catch (DataClientValidationException ex)
         {
             if (logErrOnFail)
             {
-                Logger.LogError(ex, "DataClientException: {Msg}", ex.Message);
+                Logger.LogError(ex, "DataClient validation exception: {Msg}", ex.Message);
             }
             else
             {
-                Logger.LogDebug(ex, "DataClientException: {Msg}", ex.Message);
+                Logger.LogInformation(ex, "DataClient validation exception: {Msg}", ex.Message);
             }
+        }
+        catch (DataClientResponseException ex)
+        {
+            Logger.LogError(ex, "DataClient exception: [{Status}] {Msg}", ex.Response.StatusCode.GetHashCode(), ex.Message);
         }
         catch (Exception ex)
         {

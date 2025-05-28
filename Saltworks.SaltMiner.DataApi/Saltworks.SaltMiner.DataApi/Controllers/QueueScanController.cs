@@ -20,6 +20,7 @@ using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using Saltworks.SaltMiner.DataApi.Contexts;
+using System;
 using System.Collections.Generic;
 
 namespace Saltworks.SaltMiner.DataApi.Controllers
@@ -135,7 +136,8 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// Sets status for given id and new status value
         /// </summary>
         /// <param name="id">queue scan ID</param>
-        /// <param name="status">new status</param>
+        /// <param name="oldStatus">old status, fail update if status doesn't match (can be left empty to not check)</param>
+        /// <param name="newStatus">new status</param>
         /// <param name="lockId">if included, lock this queue scan to the provided lock ID</param>
         /// <returns>Container indicating success or failure</returns>
         /// <remarks>
@@ -143,11 +145,11 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// State transition rules will be enforced, for example Agent should only use Loading/Pending/Cancel.
         /// </remarks>
         [ProducesResponseType(200, Type = typeof(NoDataResponse))]
-        [HttpGet("[action]/{Id}/{status}")]
-        public ActionResult<NoDataResponse> Status(string id, string status, [FromQuery] string lockId = "")
+        [HttpGet("[action]/{Id}/{newStatus}")]
+        public ActionResult<NoDataResponse> Status(string id, string newStatus, [FromQuery] string lockId = "", [FromQuery] string oldStatus = "")
         {
-            Logger.LogInformation("Status action called for id '{Id}' and status '{Status}'", id, status);
-            return Ok(Context.UpdateStatus(id, status, lockId));
+            Logger.LogInformation("Status action called for id '{Id}' status '{Old}' -> '{New}'", id, oldStatus, newStatus);
+            return Ok(Context.UpdateStatus(id, oldStatus, newStatus, lockId));
         }
 
         /// <summary>

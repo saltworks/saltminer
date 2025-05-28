@@ -211,11 +211,16 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             }
         }
 
-        public NoDataResponse UpdateStatus(string id, string status, string lockId = "")
+        public NoDataResponse UpdateStatus(string id, string fromStatus, string toStatus, string lockId = "")
         {
-            Logger.LogInformation("UpdateStatus for id '{Id}' and status '{Status}'", id, status);
+            const string ANY_STATUS = "[any]";
+            if (string.IsNullOrEmpty(fromStatus) || fromStatus == QueueScanStatus.None.ToString("g"))
+                fromStatus = ANY_STATUS;
+            Logger.LogInformation("UpdateStatus for id '{Id}' from '{From}' to '{To}'", id, fromStatus, toStatus);
 
-            ValidateStatus(status);
+            if (fromStatus != ANY_STATUS)
+                ValidateStatus(fromStatus);
+            ValidateStatus(toStatus);
 
             var tuple = DataRepo.GetWithLocking<QueueScan>(id, QueueScanIndex);
             if (tuple?.Item1 == null)
@@ -225,19 +230,21 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             var scan = tuple.Item1;
             var lockInfo = tuple.Item2;
+            if (fromStatus != ANY_STATUS && scan.Saltminer.Internal.QueueStatus != fromStatus)
+                throw new ApiValidationQueueStateException($"[Invalid] Cannot update queue scan status, actual current status '{scan.Saltminer.Internal.QueueStatus:g}', expected current status '{fromStatus}'.");
             if (!string.IsNullOrEmpty(scan.Saltminer.Internal.LockId) && (scan.Saltminer.Internal.LockId != lockId || string.IsNullOrEmpty(lockId)))
-                throw new ApiValidationQueueStateException($"[Locked] Cannot update queue scan status, already locked to another process.");
+                throw new ApiValidationQueueStateException($"[Locked] Cannot update queue scan status from '{fromStatus}' to '{toStatus}', already locked to another process.");
             if (!string.IsNullOrEmpty(lockId))
                 scan.Saltminer.Internal.LockId = lockId;
 
-            if (!IsOkToEditStatus(scan.Saltminer.Internal.QueueStatus, status))
+            if (!IsOkToEditStatus(scan.Saltminer.Internal.QueueStatus, toStatus))
             {
-                throw new ApiValidationQueueStateException($"[Invalid] Cannot update queue scan from '{scan.Saltminer.Internal.QueueStatus:g}' to '{status}' state, invalid transition.");
+                throw new ApiValidationQueueStateException($"[Invalid] Cannot update queue scan from '{scan.Saltminer.Internal.QueueStatus:g}' to '{toStatus}' state, invalid transition.");
             }
 
-            ValidatePendingStatus(status.ToQueueScanStatus(), scan);
+            ValidatePendingStatus(toStatus.ToQueueScanStatus(), scan);
 
-            scan.Saltminer.Internal.QueueStatus = status;
+            scan.Saltminer.Internal.QueueStatus = toStatus;
             scan.LastUpdated = DateTime.UtcNow;
             DataRepo.UpdateWithLocking(scan, QueueScanIndex, lockInfo);
 

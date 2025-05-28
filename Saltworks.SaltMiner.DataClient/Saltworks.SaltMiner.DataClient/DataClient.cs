@@ -334,13 +334,14 @@ namespace Saltworks.SaltMiner.DataClient
         /// <param name="id">Identity of entity to update</param>
         /// <param name="newStatus">New status to set</param>
         /// <param name="lockId">If included, lock this queue scan to the indicated lock ID</param>
+        /// <param name="logBadRequestError">Log any bad request (400) error if set</param>
         /// <returns>true if successful</returns>
         /// <remarks>Must include lock ID if already locked or status update will fail.</remarks>
-        public NoDataResponse QueueScanUpdateStatus(string id, QueueScan.QueueScanStatus newStatus, string lockId = "")
+        public NoDataResponse QueueScanUpdateStatus(string id, QueueScan.QueueScanStatus newStatus, string lockId = "", bool logBadRequestError = true)
         {
             try
             {
-                return QueueScanUpdateStatusAsync(id, newStatus, lockId).Result;
+                return QueueScanUpdateStatusAsync(id, newStatus, lockId, logBadRequestError).Result;
             }
             catch (AggregateException ex)
             {
@@ -354,16 +355,37 @@ namespace Saltworks.SaltMiner.DataClient
         /// <param name="id">Identity of entity to update</param>
         /// <param name="newStatus">New status to set</param>
         /// <param name="lockId">If included, lock this queue scan to the indicated lock ID</param>
+        /// <param name="logBadRequestError">Log any bad request (400) error if set</param>
         /// <returns>true if successful</returns>
-        public async Task<NoDataResponse> QueueScanUpdateStatusAsync(string id, QueueScan.QueueScanStatus newStatus, string lockId = "")
+        public async Task<NoDataResponse> QueueScanUpdateStatusAsync(string id, QueueScan.QueueScanStatus newStatus, string lockId = "", bool logBadRequestError = true) =>
+            await QueueScanUpdateStatusAsync(id, QueueScan.QueueScanStatus.None, newStatus, lockId, logBadRequestError);
+        
+        /// <summary>
+        /// Updates status of a QueueScan document using locking to ensure consistency - asynchronously
+        /// </summary>
+        /// <param name="id">Identity of entity to update</param>
+        /// <param name="oldStatus">Old status, fail update if status doesn't match</param>
+        /// <param name="newStatus">New status to set</param>
+        /// <param name="lockId">If included, lock this queue scan to the indicated lock ID</param>
+        /// <param name="logBadRequestError">Log any bad request (400) error if set</param>
+        /// <returns>true if successful</returns>
+        public async Task<NoDataResponse> QueueScanUpdateStatusAsync(string id, QueueScan.QueueScanStatus oldStatus, QueueScan.QueueScanStatus newStatus, string lockId = "", bool logBadRequestError=true)
         {
             var qry = $"queuescan/status/{id}/{newStatus:g}";
+            var ander = "?";
             if (!string.IsNullOrEmpty(lockId))
-                qry = $"{qry}?lockId={lockId}";
+            {
+                qry = $"{qry}{ander}lockId={lockId}";
+                ander = "&";
+            }
+            if (oldStatus != QueueScan.QueueScanStatus.None)
+            {
+                qry = $"{qry}{ander}from={oldStatus:g}";
+            }
             var rsp = await CheckRetryAsync(async () =>
             {
                 return await ApiClient.GetAsync<NoDataResponse>(qry);
-            });
+            }, false, logBadRequestError);
             return rsp.Content;
         } 
 
@@ -1944,34 +1966,39 @@ namespace Saltworks.SaltMiner.DataClient
 
         }
 
-        private async Task<ApiClientResponse<T>> CheckRetryAsync<T>(Func<Task<ApiClientResponse<T>>> retry, bool skipRetry = false) where T : Response
+        private async Task<ApiClientResponse<T>> CheckRetryAsync<T>(Func<Task<ApiClientResponse<T>>> retry, bool skipRetry = false, bool logBadRequestError=true) where T : Response
         {
             ApiClientResponse<T> response = null;
+            ApiClientException aex = null;
             var msg = "";
             // Stay in retry loop until retries exhausted or good response or bad response that isn't a 5xx error
             for (int i = 0; i < (skipRetry ? 1 : RunConfig.ApiClientRetryCount); i++)
             {
+                // Attempt the API request
                 try
                 {
                     response = await retry();
                 }
+                catch (ApiClientException ex)
+                {
+                    aex = ex;
+                    // Don't throw here
+                }
                 catch (Exception ex)
                 {
+                    // Failure in ApiClient call that wasn't a REST error
                     throw new DataClientException(ex.Message, ex);
                 }
 
-                if (response.IsSuccessStatusCode)
-                {
+                // Happy path, return successful response
+                if (aex == null && (response?.IsSuccessStatusCode ?? false))
                     return response;
-                }
 
+                // Get response or exception error message
                 try
                 {
-                    if(response?.Content?.ErrorMessages != null && response.Content.ErrorMessages.Any())
-                    {
+                    if ((response?.Content?.ErrorMessages?.Count ?? 0) > 0)
                         msg = string.Join(",", response.Content.ErrorMessages);
-                    }
-
                     msg = string.IsNullOrEmpty(msg) ? response?.Content?.Message ?? "" : msg;
                 }
                 catch (ApiClientSerializationException)
@@ -1979,25 +2006,24 @@ namespace Saltworks.SaltMiner.DataClient
                     msg = response.HttpResponse.ReasonPhrase;
                 }
 
-                if (response.StatusCode == HttpStatusCode.RequestEntityTooLarge)
-                {
+                // Based on response or exception status, throw appropriate exception or retry
+                var statusCode = response?.StatusCode ?? aex?.Status ?? HttpStatusCode.InternalServerError;
+
+                if (statusCode == HttpStatusCode.RequestEntityTooLarge)
                     msg = $"{msg}. Consider reducing the batch size if this request contains a batch of entities.";
-                }
 
                 if (string.IsNullOrEmpty(msg) && response?.RawContent != null)
-                {
                     msg = $"Response raw content (up to 300 chars): {response?.RawContent?.Left(300)}";
-                }
 
-                if (response.StatusCode == HttpStatusCode.BadRequest)
+                if (statusCode == HttpStatusCode.BadRequest)
                 {
+                    if (logBadRequestError) 
+                        Logger.LogError("{Msg}", msg);
                     throw new DataClientValidationException(msg, response);
                 }
 
-                if (response.StatusCode < HttpStatusCode.InternalServerError)
-                {
+                if (statusCode < HttpStatusCode.InternalServerError)
                     throw new DataClientResponseException(msg, response);
-                }
 
                 Logger.LogError("{Msg}", msg);
                 Logger.LogInformation("Retry {Cur}/{Count} after {DelaySec} sec delay...", i + 1, RunConfig.ApiClientRetryCount, RunConfig.ApiClientRetryDelaySec);

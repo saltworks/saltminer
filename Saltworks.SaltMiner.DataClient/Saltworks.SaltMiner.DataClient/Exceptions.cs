@@ -32,12 +32,11 @@ namespace Saltworks.SaltMiner.DataClient
     }
 
     [Serializable]
-    public class DataClientValidationException : DataClientException
+    public class DataClientValidationException : DataClientResponseException
     {
-        public ApiClientResponse Response { get; }
-        public DataClientValidationException(ApiClientResponse response) { Response = response; }
-        public DataClientValidationException(string message, ApiClientResponse response) : base(message) { Response = response; }
-        public DataClientValidationException(string message, Exception inner, ApiClientResponse response) : base(message, inner) { Response = response; }
+        public DataClientValidationException(ApiClientResponse response) : base(response) { }
+        public DataClientValidationException(string message, ApiClientResponse response) : base(message, response) { }
+        public DataClientValidationException(string message, Exception inner, ApiClientResponse response) : base(message, inner, response) { }
         protected DataClientValidationException(
           System.Runtime.Serialization.SerializationInfo info,
           System.Runtime.Serialization.StreamingContext context) : base(info, context) { }

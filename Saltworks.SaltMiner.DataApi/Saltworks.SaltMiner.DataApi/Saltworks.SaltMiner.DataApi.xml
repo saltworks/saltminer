@@ -906,12 +906,13 @@
             <returns>The item inside a response object</returns>
             <response code="200">Returns the requested object</response>
         </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Status(System.String,System.String,System.String)">
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Status(System.String,System.String,System.String,System.String)">
             <summary>
             Sets status for given id and new status value
             </summary>
             <param name="id">queue scan ID</param>
-            <param name="status">new status</param>
+            <param name="oldStatus">old status, fail update if status doesn't match (can be left empty to not check)</param>
+            <param name="newStatus">new status</param>
             <param name="lockId">if included, lock this queue scan to the provided lock ID</param>
             <returns>Container indicating success or failure</returns>
             <remarks>
