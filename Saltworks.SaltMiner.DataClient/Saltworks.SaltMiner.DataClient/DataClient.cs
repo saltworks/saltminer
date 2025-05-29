@@ -380,7 +380,7 @@ namespace Saltworks.SaltMiner.DataClient
             }
             if (oldStatus != QueueScan.QueueScanStatus.None)
             {
-                qry = $"{qry}{ander}from={oldStatus:g}";
+                qry = $"{qry}{ander}oldStatus={oldStatus:g}";
             }
             var rsp = await CheckRetryAsync(async () =>
             {
