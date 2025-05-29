@@ -152,10 +152,10 @@ class TenableAdapter:
         if asset_tags:
             asset['Attributes'] = {"tenable_asset_tags": self.tenable_asset_tags[issue_record['asset']['uuid']]}
 
-        asset['Attributes'] = issue_record['asset'].get('agent_uuid')
-        asset['Attributes'] = issue_record['asset'].get('bios_uuid')
-        asset['Attributes'] = issue_record['asset'].get('fqdn')
-        asset['Attributes'] = issue_record['asset'].get('last_scan_target')
+        asset['Attributes']['agent_uuid'] = issue_record['asset'].get('agent_uuid')
+        asset['Attributes']['bios_uuid'] = issue_record['asset'].get('bios_uuid')
+        asset['Attributes']['fqdn'] = issue_record['asset'].get('fqdn')
+        asset['Attributes']['last_scan_target'] = issue_record['asset'].get('last_scan_target')
 
 
         return q_asset_doc
@@ -177,13 +177,13 @@ class TenableAdapter:
         saltminer['QueueScanId'] = queue_scan_id
         saltminer['QueueAssetId'] = queue_asset_id
         ##Adding Issue Attributes here
-        split_operating_systems= issue_record['asset']['operating_system'].split(",")
+        operating_systems= issue_record['asset']['operating_system'] if issue_record['asset'].get('operating_system') else ['None']
         attributes = saltminer['Attributes']
         attributes['status'] = issue_record['state']
         attributes['issue_last_found'] = issue_record['last_found']
         attributes['tenable_schedule_uuid'] = schedule_uuid
-        attributes['operating_systems'] = issue_record['asset']['operating_system']
-        attributes['operating_system'] = split_operating_systems[0] if len(split_operating_systems) > 1 else "None"
+        attributes['operating_systems'] = ", ".join(operating_systems)if len(operating_systems) > 1 else "None"
+        attributes['operating_system'] = operating_systems[0] if len(operating_systems) > 1 else "None"
         attributes['ipv6'] = issue_record['asset'].get('ipv6')
         attributes['mac_address'] = issue_record['asset'].get('mac_address')
         attributes["exploit_available"]= str(issue_record['plugin'].get('exploit_available'))
@@ -222,12 +222,6 @@ class TenableAdapter:
             "|" + issue_record['port']['protocol']
         vulnerability['Recommendation'] = issue_record['plugin'].get(
             'solution')
-        vulnerability['Reference'] = issue_record['plugin']['see_also'][0] if issue_record['plugin'].get('see_also') else 'None'
-        vulnerability['References'] = (
-            [item for item in issue_record['plugin']['see_also']]
-            if issue_record['plugin'].get('see_also')
-            else ['None']
-        )
         scanner = vulnerability['Scanner']
         scanner['Id'] = issue_record['finding_id'] + " | " + asset_name
         scanner['AssessmentType'] = "Open"

@@ -125,11 +125,17 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 
                 //Design decision: expectations to handle 10k applications
                 Logger.LogInformation($"[Sync] Getting Applications...");
-                var assets = (await client.GetAppsAsync(sourceFilters));
+                var assets = (await client.GetAppsAsync());
 
                 if (Config.TestingAssetLimit > 0)
                 {
                     assets.Applications = assets.Applications.Take(Config.TestingAssetLimit).ToList();
+                }
+                else if (sourceFilters.Length > 0)
+                {
+                    var filters = new HashSet<string>(sourceFilters);
+                    assets.Applications = assets.Applications.Where(x => filters.Contains(x.Id)).ToList();
+                    Logger.LogWarning("A filter file will limit the processing to only {Count} apps", assets.Applications.Count);
                 }
 
                 var appTotal = assets.Applications.Count;

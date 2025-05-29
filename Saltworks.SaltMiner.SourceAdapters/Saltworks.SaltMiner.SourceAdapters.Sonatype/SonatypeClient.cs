@@ -34,19 +34,13 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             SetApiClientDefaults(config.BaseAddress, config.Timeout, ApiClientHeaders.AuthorizationBasicHeader(config.UserName, config.Password), true);
         }
 
-        public async Task<ApplicationCollectionDto> GetAppsAsync(string[] appFilters)
+        public async Task<ApplicationCollectionDto> GetAppsAsync()
         {
             var result = await ApiClient.GetAsync<ApplicationCollectionDto>("applications");
 
-            if(Config.TestingAssetLimit > 0)
+            if (Config.TestingAssetLimit > 0)
             {
                 result.Content.Applications = result.Content.Applications.Take(Config.TestingAssetLimit).ToList();
-            }
-            else if (appFilters.Length > 0)
-            {
-                var filters = new HashSet<string>(appFilters);
-                result.Content.Applications = result.Content.Applications.Where(x => filters.Contains(x.Id)).ToList();
-                Logger.LogWarning("A filter file will limit the processing to only {Count} apps", result.Content.Applications.Count);
             }
 
             return result.Content;

@@ -73,6 +73,8 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=0
 
+    - run: cp ${{ github.workspace }}/.dockerfiles/config-ui-api.sh ${{ env.ARTIFACT_PATH }}
+
     - name: Show output
       run: |
         ls -lah ${{ env.ARTIFACT_PATH }} --group-directories-first
