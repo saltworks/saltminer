@@ -93,7 +93,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             {
                 CheckCancel(true);
                 QueueControl.CurrentSourceType = qscan.Saltminer.Scan.SourceType;
-                if (!await UpdateStatusAsync(qscan, QueueScan.QueueScanStatus.Processing, EngagementStatus.Processing, true, false))
+                if (!await UpdateStatusAsync(qscan, QueueScan.QueueScanStatus.Pending, QueueScan.QueueScanStatus.Processing, EngagementStatus.Processing, false))
                 {
                     // Skip if status update doesn't work
                     Logger.LogInformation("[Q-Get] Skipping source '{SourceType}', instance '{Instance}', source scan ID '{Id}', queue scan ID '{Sid}', unable to lock for processing",
@@ -244,7 +244,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                     continue;
                 }
                 CheckCancel();
-                await UpdateStatusAsync(qscan, QueueScan.QueueScanStatus.Complete, EngagementStatus.Published, true);
+                await UpdateStatusAsync(qscan, QueueScan.QueueScanStatus.Processing, QueueScan.QueueScanStatus.Complete, EngagementStatus.Published, true);
             }
             catch (CancelTokenException)
             {
@@ -397,7 +397,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 {
                     try
                     {
-                        await UpdateStatusAsync(queueScan, QueueScan.QueueScanStatus.Error, EngagementStatus.Error, true);
+                        await UpdateStatusAsync(queueScan, QueueScan.QueueScanStatus.None, QueueScan.QueueScanStatus.Error, EngagementStatus.Error, true);
                     }
                     catch (Exception ex1)
                     {
@@ -1421,14 +1421,21 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         }
     }
 
-    private async Task<bool> UpdateStatusAsync(QueueScan queueScan, QueueScan.QueueScanStatus scanStatus, EngagementStatus engagementStatus, bool withLock = false, bool logErrOnFail = true)
+    /// <summary>
+    /// Update queue scan status and engagement status if applicable.
+    /// </summary>
+    /// <param name="queueScan">Queue scan to update</param>
+    /// <param name="fromStatus">From status to validate from state (or None to not do that)</param>
+    /// <param name="toStatus">To status</param>
+    /// <param name="engagementStatus">Engagement status to apply for PenTest</param>
+    /// <param name="withLock">Apply my instance ID to the queue scan, "locking" it</param>
+    /// <param name="logErrOnFail">Failure to lock should be logged as error if true, info if false</param>
+    /// <remarks>Will fail if "locked" to an instance that doesn't match the current session instance.</remarks>
+    private async Task<bool> UpdateStatusAsync(QueueScan queueScan, QueueScan.QueueScanStatus fromStatus, QueueScan.QueueScanStatus toStatus, EngagementStatus engagementStatus, bool logErrOnFail = true)
     {
         try
         {
-            if (withLock)
-                await DataClient.QueueScanUpdateStatusAsync(queueScan.Id, scanStatus, InstanceId, false);
-            else
-                await DataClient.QueueScanUpdateStatusAsync(queueScan.Id, scanStatus);
+            await DataClient.QueueScanUpdateStatusAsync(queueScan.Id, fromStatus, toStatus, InstanceId, logErrOnFail);
             if (queueScan.Saltminer.Engagement?.Id != null)
             {
                 DataClient.EngagementUpdateStatus(queueScan.Saltminer.Engagement.Id, engagementStatus);
