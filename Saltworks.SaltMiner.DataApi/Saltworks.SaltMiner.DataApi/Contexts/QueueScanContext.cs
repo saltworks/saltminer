@@ -233,7 +233,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             if (fromStatus != ANY_STATUS && scan.Saltminer.Internal.QueueStatus != fromStatus)
                 throw new ApiValidationQueueStateException($"[Invalid] Cannot update queue scan status, actual current status '{scan.Saltminer.Internal.QueueStatus:g}', expected current status '{fromStatus}'.");
             if (!string.IsNullOrEmpty(scan.Saltminer.Internal.LockId) && (scan.Saltminer.Internal.LockId != lockId || string.IsNullOrEmpty(lockId)))
-                throw new ApiValidationQueueStateException($"[Locked] Cannot update queue scan status from '{fromStatus}' to '{toStatus}', already locked to another process.");
+                throw new ApiValidationQueueStateException($"[Locked] Cannot update queue scan status from '{fromStatus}' to '{toStatus}', locked to process '{scan.Saltminer.Internal.LockId}', not expected '{lockId}'.");
             if (!string.IsNullOrEmpty(lockId))
                 scan.Saltminer.Internal.LockId = lockId;
 
