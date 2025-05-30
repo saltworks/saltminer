@@ -72,10 +72,10 @@ jobs:
       run: dotnet new buildprops --use-artifacts
     - name: Restore dependencies
       run: dotnet restore --disable-build-servers
-    - name: Build
+    - name: Build ServiceManager
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
 
-    - run: cp ${{ github.workspace }}/.dockerfiles/config-services.sh ${{ env.ARTIFACT_PATH }}
+    - run: cp ${{ github.workspace }}/.dockerfiles/config-services.sh ${{ github.workspace }}/${{ env.ARTIFACT_PATH }}
 
     - name: Show ServiceManager output
       run: |
@@ -95,7 +95,7 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore --disable-build-servers
       working-directory: ${{ github.workspace }}/${{ env.MGR_DIR }}
-    - name: Build
+    - name: Build Manager
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
       working-directory: ${{ github.workspace }}/${{ env.MGR_DIR }}
 
@@ -131,7 +131,7 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore --disable-build-servers
       working-directory: ${{ github.workspace }}/${{ env.AGENT_DIR }}
-    - name: Build
+    - name: Build SyncAgent
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
       working-directory: ${{ github.workspace }}/${{ env.AGENT_DIR }}
 
