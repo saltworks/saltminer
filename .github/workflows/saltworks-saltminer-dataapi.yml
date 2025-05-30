@@ -10,6 +10,7 @@ on:
     - 'Saltworks.SaltMiner.IndexTemplates/**'
     - '.github/workflows/saltworks-saltminer-dataapi.yml'
     - '.dockerfiles/Dockerfile'
+    - '.dockerfiles/config-api.sh'
   workflow_dispatch:
 
 env:

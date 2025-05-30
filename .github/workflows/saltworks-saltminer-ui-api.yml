@@ -16,6 +16,7 @@ on:
     - 'Saltworks.Utility.ApiHelper/**'
     - '.github/workflows/saltworks-saltminer-ui-api.yml'
     - '.dockerfiles/Dockerfile-ui-api'
+    - '.dockerfiles/config-ui-api.sh'
   workflow_dispatch:
 
 env:
