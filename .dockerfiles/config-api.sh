@@ -52,11 +52,14 @@ echo 'Existing host: '
 jq '.ApiConfig.ElasticHost' $CONFIG_FILE
 echo 'Existing port: '
 jq '.ApiConfig.ElasticPort' $CONFIG_FILE
+echo 'Existing KibanaBaseUrl: '
+jq 'ApiConfig.KibanaBaseUrl: ' $CONFIG_FILE
 
 jq --arg s "$scheme" \
   --arg h "$host" \
   --arg p "$port" \
-  '.ApiConfig.ElasticHttpScheme = $s | .ApiConfig.ElasticHost = $h | .ApiConfig.ElasticPort = $p' \
+  --arg k "$KIBANA_URL" \
+  '.ApiConfig.ElasticHttpScheme = $s | .ApiConfig.ElasticHost = $h | .ApiConfig.ElasticPort = $p | .ApiConfig.KibanaBaseUrl = $k' \
   $CONFIG_FILE \
   > "$CONFIG_FILE.new"
 
