@@ -27,14 +27,14 @@ ENV AGENT_ARTIFACT_PATH=$AGENT_ARTIFACT_PATH
 ENV PY_ARTIFACT_PATH=$PY_ARTIFACT_PATH
 ENV JOB_ARTIFACT_PATH=$JOB_ARTIFACT_PATH
 
-RUN mkdir -p ${smcfg2}
-RUN mkdir -p ${smcfg3}
-RUN mkdir ${smcfg3}/agent
-RUN mkdir ${smcfg3}/manager
-RUN mkdir ${smcfg3}/servicemanager
-# Create log directories.
-RUN mkdir -p ${smlog2}
-RUN mkdir -p ${smlog3}
+RUN mkdir -p ${smcfg2} \
+  && mkdir -p ${smcfg3} \
+  && mkdir ${smcfg3}/agent \
+  && mkdir ${smcfg3}/manager \
+  && mkdir ${smcfg3}/servicemanager \
+  && mkdir -p ${smlog2} \
+  && mkdir -p ${smlog3} \
+  && apk add --no-cache py3-pip bash jq
 
 COPY $AGENT_ARTIFACT_PATH ${smapp3}/agent/
 RUN mv ${smapp3}/agent/AgentSettings.json ${smcfg3}/agent/
@@ -46,16 +46,15 @@ COPY $ARTIFACT_PATH ${smapp3}/servicemanager/
 RUN mv ${smapp3}/servicemanager/ServiceManagerSettings.json ${smcfg3}/servicemanager/
 
 COPY $PY_ARTIFACT_PATH ${smapp2}/
-RUN cp -r ${smapp2}/Config/* ${smcfg2}
-RUN rm -rf ${smapp2}/Config
+RUN cp -r ${smapp2}/Config/* ${smcfg2} \
+  && rm -rf ${smapp2}/Config
 
 COPY $JOB_ARTIFACT_PATH/*.sh ${smapp3}/
-RUN rm ${smapp3}/sm-install.sh
-RUN rm ${smapp3}/sm-upgrade.sh
-RUN rm ${smapp3}/sm-auto-install.sh
-RUN chmod u+x ${smapp3}/*.sh
 
-RUN apk add --no-cache py3-pip bash
+RUN rm ${smapp3}/sm-install.sh \
+  && rm ${smapp3}/sm-upgrade.sh \
+  && rm ${smapp3}/sm-auto-install.sh \
+  && chmod u+x ${smapp3}/*.sh
 
 RUN pip install -r ${smapp2}/requirements.txt --break-system-packages
 

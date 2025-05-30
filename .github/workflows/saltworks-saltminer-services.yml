@@ -75,6 +75,8 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
 
+    - run: cp ${{ github.workspace }}/.dockerfiles/config-services.sh ${{ env.ARTIFACT_PATH }}
+
     - name: Show ServiceManager output
       run: |
         ls -lah ${{ env.ARTIFACT_PATH }} --group-directories-first
