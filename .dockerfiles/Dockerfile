@@ -16,10 +16,10 @@ ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_API_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/api
 
 # curl is used for healthcheck.
-RUN apk add --no-cache curl
-
-RUN mkdir -p ${smcfg3}
-RUN mkdir -p ${smlog3}
+RUN apk add --no-cache curl jq \
+  && mkdir -p ${smcfg3} \
+  && mkdir -p ${smlog3} \
+  && chmod u+x config-api.sh
 
 WORKDIR ${smapp3}
 
