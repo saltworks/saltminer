@@ -8,7 +8,7 @@ handle_error() {
 
 trap 'handle_error $LINENO' ERR
 
-CONFIG_FILE=/etc/saltworks/saltminer-3.0.0/api/appsettings.json
+CONFIG_FILE=/etc/saltworks/saltminer-2.5.0/Elastic.json
 
 # Extract the scheme.
 scheme="$(echo $ELASTIC_URL | grep :// | sed -e's,^\(.*://\).*,\1,g')"
@@ -47,19 +47,16 @@ if [ "${port,,}" == "" ]; then
 fi
 
 echo 'Existing scheme: '
-jq '.ApiConfig.ElasticHttpScheme' $CONFIG_FILE
+jq '.Scheme' $CONFIG_FILE
 echo 'Existing host: '
-jq '.ApiConfig.ElasticHost' $CONFIG_FILE
+jq '.Host' $CONFIG_FILE
 echo 'Existing port: '
-jq '.ApiConfig.ElasticPort' $CONFIG_FILE
-echo 'Existing KibanaBaseUrl: '
-jq '.ApiConfig.KibanaBaseUrl' $CONFIG_FILE
+jq '.Port' $CONFIG_FILE
 
 jq --arg s "$scheme" \
   --arg h "$host" \
   --arg p "$port" \
-  --arg k "$KIBANA_URL" \
-  '.ApiConfig.ElasticHttpScheme = $s | .ApiConfig.ElasticHost = $h | .ApiConfig.ElasticPort = $p | .ApiConfig.KibanaBaseUrl = $k' \
+  '.ApiConfig.ElasticHttpScheme = $s | .ApiConfig.ElasticHost = $h | .ApiConfig.ElasticPort = $p' \
   $CONFIG_FILE \
   > "$CONFIG_FILE.new"
 
