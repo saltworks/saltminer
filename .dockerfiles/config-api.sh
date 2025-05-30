@@ -63,5 +63,5 @@ jq --arg s "$scheme" \
   $CONFIG_FILE \
   > "$CONFIG_FILE.new"
 
-mv $CONFIG_FILE "$CONFIG_FILE.old"
-mv "$CONFIG_FILE.new" $CONFIG_FILE
+cp $CONFIG_FILE "$CONFIG_FILE.old"
+cp "$CONFIG_FILE.new" $CONFIG_FILE

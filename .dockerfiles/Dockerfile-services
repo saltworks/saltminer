@@ -54,7 +54,8 @@ COPY $JOB_ARTIFACT_PATH/*.sh ${smapp3}/
 RUN rm ${smapp3}/sm-install.sh \
   && rm ${smapp3}/sm-upgrade.sh \
   && rm ${smapp3}/sm-auto-install.sh \
-  && chmod u+x ${smapp3}/*.sh
+  && chmod u+x ${smapp3}/*.sh \
+  && chmod u+x ${smapp3}/servicemanager/config-services.sh
 
 RUN pip install -r ${smapp2}/requirements.txt --break-system-packages
 
