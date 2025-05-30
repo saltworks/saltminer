@@ -20,6 +20,7 @@ on:
     - 'Saltworks.SaltMiner.Licensing.Core/**'
     - '.github/workflows/saltworks-saltminer-services.yml'
     - '.dockerfiles/Dockerfile-services'
+    - '.dockerfiles/config-services.sh'
   workflow_dispatch:
 
 env:
