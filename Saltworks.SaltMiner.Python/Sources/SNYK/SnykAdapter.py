@@ -37,6 +37,7 @@ class SnykAdapter:
         """
         This is used to call the needed functions for the sync process
         """
+
         if first_load:
             self.get_prj_last_updated()
 
@@ -63,7 +64,7 @@ class SnykAdapter:
                 if not project_id:
                     logging.warning("Skipping project with missing ID: %s", project)
                     continue
-                gui_url_with_project = gui_url_with_org_slug + project_id + "#"
+                gui_url_with_project = gui_url_with_org_slug + project_id + "#issue-"
 
                 if not first_load and project_id in self.prj_version_last_updated.keys() and self.prj_version_last_updated.get(project_id):
                     date = datetime.strptime(self.prj_version_last_updated.get(project_id), "%Y-%m-%dT%H:%M:%S.%fZ")
@@ -113,7 +114,7 @@ class SnykAdapter:
 
             #Maps all issues to SM valid issue documents
             for issue in issues_generator:
-                mapped_issue = self.map_issue(issue, queue_scan['id'], queue_asset['id'], queue_scan['saltminer']['scan']['reportId'], project_id, gui_url)
+                mapped_issue = self.map_issue(issue, queue_scan['id'], queue_asset['id'], queue_scan['saltminer']['scan']['reportId'], project, gui_url)
                 #Sends mapped issues to SM queue_issues
                 self._sm_data_client.AddQueueIssue(json.loads(mapped_issue.model_dump_json()))
                 #Tracking the counter so that we can use it to add to the Scan.Issue_count in the future.
@@ -139,7 +140,7 @@ class SnykAdapter:
             return None
 
 
-    def map_issue(self, issue, queue_scan_id, queue_asset_id, report_id, project_id, gui_url):
+    def map_issue(self, issue, queue_scan_id, queue_asset_id, report_id, project, gui_url):
         """
         This will map the issue data into the needed format for the queue_issues
         """
@@ -148,6 +149,27 @@ class SnykAdapter:
         saltminer = q_issue_doc['Saltminer']
         saltminer['Attributes']['snyk_last_updated'] = issue['attributes']['updated_at']
         saltminer['Attributes']['status'] = issue['attributes']['status']
+        if (coord := issue.get('attributes', {}).get('coordinates', {})):
+            coordinate_list = [
+                "is_fixable_manually",
+                "is_fixable_snyk",
+                "is_fixable_upstream",
+                "is_patchable",
+                "is_pinnable",
+                "is_upgradeable",
+                "reachability"
+                ]
+            matching_keys = coordinate_list & set(coord.keys())
+            for key in matching_keys:
+                saltminer['Attributes'][key] = coord[key]
+            if coord.get('representations'):
+                for item in coord['representations']:
+                    if item.get('dependency'):
+                        if not saltminer['Attributes'].get('dependencies'):
+                            saltminer['Attributes']['dependencies'] = ""
+                        saltminer['Attributes']['dependencies']  +=  f"{item['dependency']['package_name']}|{item['dependency']['package_version']} ,"
+        
+
         saltminer['QueueScanId'] = queue_scan_id
         saltminer['QueueAssetId']= queue_asset_id
         vulnerability = q_issue_doc['Vulnerability']
@@ -166,17 +188,30 @@ class SnykAdapter:
             vulnerability["Id"].extend([cls['id'] for cls in issue['attributes']['classes']])
         vulnerability['Severity'] = issue['attributes']['effective_severity_level'].title()
         vulnerability['Name'] = issue['attributes']['title']
-        vulnerability['LocationFull'] = "None"
-        vulnerability['Location'] = "None"
+        
+        if (reps := issue.get('attributes', {}).get('coordinates', {}).get('representations')) and (src := reps.get('sourceLocation')) and src.get('file'):
+            location = src.get("file")
+            location_full = src.get("file")
+            if src.get('region') and src['region'].get('end') and src['region'].get('start'):
+                start = src['region']['start']
+                end = src['region']['end']
+                location_full = location_full + ":" +" start: col:" + start['column'] + " ,line:" + start['line'] + " end: col:"+ end['column'] + " ,line:" + end['line']
+        else:
+            location = "None"
+            location_full = "None"
+        vulnerability['LocationFull'] = location_full
+        vulnerability['Location'] = location
         vulnerability['ReportId'] = report_id
+        vulnerability['Details'] = f"{issue['attributes']['title']} found in {project['name']}"
 
         scanner = vulnerability['Scanner']
-        scanner['Id'] = issue['id'] + "|" + project_id
+        scanner['Id'] = issue['id'] + "|" + project.get("id")
         #TODO:DETERMINE THE CORRECT SCAN TYPES AND PUT THEM HERE
         scanner['AssessmentType'] = "Open"
         scanner['Product'] = "Snyk"
         scanner['Vendor']= "Snyk"
         scanner['GuiUrl'] = gui_url + issue['attributes']['key']
+
 
         return MapIssueDocDTO(**q_issue_doc)
 
@@ -229,8 +264,12 @@ class SnykAdapter:
 
     def get_assessment_type(self, source_assessment_type):
         assessment_types = {
-            "package_vulnerability": "SAST"
-
+            "package_vulnerability": "Open",
+            "license": "License",
+            "code": "SAST",
+            "custom": "Custom",
+            "config": "IAC",
+            "cloud": "Cloud"
         }
 
         return assessment_types.get(source_assessment_type)
