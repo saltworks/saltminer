@@ -1,4 +1,4 @@
-#!/bin/ash
+#!/bin/bash
 handle_error() {
   echo "Error on line $1"
   echo "This does not affect SaltMiner container start."

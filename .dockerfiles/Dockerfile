@@ -21,7 +21,7 @@ COPY $ARTIFACT_PATH .
 
 # curl is used for healthcheck.
 # jq is used for configuration file manipulation
-RUN apk add --no-cache curl jq \
+RUN apk add --no-cache curl jq bash \
   && mkdir -p ${smcfg3} \
   && mkdir -p ${smlog3} \
   && chmod u+x config-api.sh \
