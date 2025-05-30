@@ -8,7 +8,7 @@ handle_error() {
 
 trap 'handle_error $LINENO' ERR
 
-CONFIG_FILE=/etc/saltworks/saltminer-3.0.0/api/appsettings.json
+CONFIG_FILE=/appsettings.json
 
 # Extract the scheme.
 scheme="$(echo $ELASTIC_URL | grep :// | sed -e's,^\(.*://\).*,\1,g')"
@@ -63,5 +63,4 @@ jq --arg s "$scheme" \
   $CONFIG_FILE \
   > "$CONFIG_FILE.new"
 
-cp $CONFIG_FILE "$CONFIG_FILE.old"
-cp "$CONFIG_FILE.new" $CONFIG_FILE
+cp "$CONFIG_FILE.new" /etc/saltworks/saltminer-3.0.0/api/appsettings.json
