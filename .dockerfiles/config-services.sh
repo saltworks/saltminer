@@ -8,7 +8,7 @@ handle_error() {
 
 trap 'handle_error $LINENO' ERR
 
-CONFIG_FILE=/etc/saltworks/saltminer-2.5.0/Elastic.json
+CONFIG_FILE=/Elastic.json
 
 # Extract the scheme.
 scheme="$(echo $ELASTIC_URL | grep :// | sed -e's,^\(.*://\).*,\1,g')"
@@ -53,12 +53,11 @@ jq '.Host' $CONFIG_FILE
 echo 'Existing port: '
 jq '.Port' $CONFIG_FILE
 
-jq --arg s "$scheme" \
+jq --arg s "${scheme%???}" \
   --arg h "$host" \
   --arg p "$port" \
-  '.ApiConfig.ElasticHttpScheme = $s | .ApiConfig.ElasticHost = $h | .ApiConfig.ElasticPort = $p' \
+  '.Scheme = $s | .Host = $h | .Port = $p' \
   $CONFIG_FILE \
   > "$CONFIG_FILE.new"
 
-mv $CONFIG_FILE "$CONFIG_FILE.old"
-mv "$CONFIG_FILE.new" $CONFIG_FILE
+cp "$CONFIG_FILE.new" /etc/saltworks/saltminer-2.5.0/Elastic.json
