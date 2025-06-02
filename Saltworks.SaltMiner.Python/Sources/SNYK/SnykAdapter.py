@@ -31,6 +31,8 @@ class SnykAdapter:
         self._sm_data_client = SmDataClient(settings, "Snyk")
         self.base_gui_url = "https://app.snyk.io/org/"
         self.prj_version_last_updated = {}
+        self.remediations_by_project = {}
+
 
 
     def run_sync(self, first_load= False):
@@ -55,10 +57,19 @@ class SnykAdapter:
         for org in self.snyk_client.get_snyk_orgs_generator():
             org_info = {
                 "slug": org['attributes']['slug'], 
-                "name": org['attributes']['name']
+                "name": org['attributes']['name'],
+                "project":{}
             }
             gui_url_with_org_slug = self.base_gui_url + org_info['slug'] + "/project/"
             for project in self.snyk_client.get_snyk_projects_generator(org_id=org['id']):
+                self.remediations_by_project = {}
+                v1_project_data = self.snyk_client.get_v1_project_details(org_id=org['id'], project_id=project['id'])
+                if (importing_user_object := v1_project_data.get('importingUser')):
+                    org_info['project']['importing_user_name']= importing_user_object['name']
+                    org_info['project']['importing_user_email']=importing_user_object['email']
+
+                self.get_project_remedies(v1_project_data)
+
                 
                 project_id = project.get("id") # Ensure project ID is extracted properly
                 if not project_id:
@@ -147,34 +158,23 @@ class SnykAdapter:
         q_issue_doc = self.snyk_docs.map_issue_doc()
         q_issue_doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         saltminer = q_issue_doc['Saltminer']
-        saltminer['Attributes']['snyk_last_updated'] = issue['attributes']['updated_at']
-        saltminer['Attributes']['status'] = issue['attributes']['status']
-        if (coord := issue.get('attributes', {}).get('coordinates', {})):
-            coordinate_list = [
-                "is_fixable_manually",
-                "is_fixable_snyk",
-                "is_fixable_upstream",
-                "is_patchable",
-                "is_pinnable",
-                "is_upgradeable",
-                "reachability"
-                ]
-            matching_keys = coordinate_list & set(coord.keys())
-            for key in matching_keys:
-                saltminer['Attributes'][key] = coord[key]
-            if coord.get('representations'):
-                for item in coord['representations']:
-                    if item.get('dependency'):
-                        if not saltminer['Attributes'].get('dependencies'):
-                            saltminer['Attributes']['dependencies'] = ""
-                        saltminer['Attributes']['dependencies']  +=  f"{item['dependency']['package_name']}|{item['dependency']['package_version']} ,"
-        
-
         saltminer['QueueScanId'] = queue_scan_id
         saltminer['QueueAssetId']= queue_asset_id
+        saltminer['IssueType'] = self.get_assessment_type(issue['type'])
         vulnerability = q_issue_doc['Vulnerability']
 
         #Setting the removed date will trigger the IsRemoved boolean to change within SM
+
+        vulnerability['FoundDate'] = issue['attributes']['created_at']
+        vulnerability["Id"] = [problem['id'] for problem in issue['attributes']['problems']]
+        vulnerability['Severity'] = issue['attributes']['effective_severity_level'].title()
+        vulnerability['Name'] = issue['attributes']['title']
+        vulnerability['ReportId'] = report_id
+        vulnerability['Details'] = f"{issue['attributes']['title']} found in {project['name']}"
+
+        if (solution := self.remediations_by_project[project['id']].get(issue['key'])):
+            vulnerability['Recommendation'] = solution
+
         if issue['attributes']['status'] == 'resolved':
             if issue['attributes'].get('resolution') and issue['attributes']['resolution'].get('resolved_at'):
                 vulnerability['RemovedDate'] = issue['attributes']['resolution'].get('resolved_at')
@@ -182,13 +182,9 @@ class SnykAdapter:
         if issue['attributes'].get('ignored') is True:
             vulnerability['IsSuppressed'] = True
 
-        vulnerability['FoundDate'] = issue['attributes']['created_at']
-        vulnerability["Id"] = [problem['id'] for problem in issue['attributes']['problems']]
         if issue["attributes"].get('classes'):
             vulnerability["Id"].extend([cls['id'] for cls in issue['attributes']['classes']])
-        vulnerability['Severity'] = issue['attributes']['effective_severity_level'].title()
-        vulnerability['Name'] = issue['attributes']['title']
-        
+
         if (reps := issue.get('attributes', {}).get('coordinates', {}).get('representations')) and (src := reps.get('sourceLocation')) and src.get('file'):
             location = src.get("file")
             location_full = src.get("file")
@@ -199,19 +195,19 @@ class SnykAdapter:
         else:
             location = "None"
             location_full = "None"
+
         vulnerability['LocationFull'] = location_full
         vulnerability['Location'] = location
-        vulnerability['ReportId'] = report_id
-        vulnerability['Details'] = f"{issue['attributes']['title']} found in {project['name']}"
 
         scanner = vulnerability['Scanner']
         scanner['Id'] = issue['id'] + "|" + project.get("id")
-        #TODO:DETERMINE THE CORRECT SCAN TYPES AND PUT THEM HERE
         scanner['AssessmentType'] = "Open"
         scanner['Product'] = "Snyk"
         scanner['Vendor']= "Snyk"
         scanner['GuiUrl'] = gui_url + issue['attributes']['key']
 
+        #Setting the attributes separately for readability and maintainability purposes
+        q_issue_doc= self.map_issue_attributes(issue, project, q_issue_doc)
 
         return MapIssueDocDTO(**q_issue_doc)
 
@@ -256,11 +252,53 @@ class SnykAdapter:
         asset['AssetType']= "app"
         asset['SourceType'] = "Saltworks.Snyk"
 
-        attributes = asset['Attributes']
-        attributes['org_slug'] = org_info['slug']
-        attributes['org_name'] = org_info['name'] 
+        q_asset_doc = self.map_asset_attributes(project, q_asset_doc, org_info)
         return MapAssetDocDTO(**q_asset_doc)
     
+
+    def map_issue_attributes(self, issue, project, q_isssue_doc):
+        """
+        This will map the issue specific attributes to the issue document. I separated this from the main
+        map_issue script for readability purposes as these are often source specific and are the most likely
+        to need changes in the future. 
+        """
+        saltminer= q_isssue_doc['Saltminer']
+        saltminer['Attributes']['snyk_last_updated'] = issue['attributes']['updated_at']
+        saltminer['Attributes']['status'] = issue['attributes']['status']
+
+        if (coord := issue.get('attributes', {}).get('coordinates', {})):
+            coordinate_list = [
+                "is_fixable_manually",
+                "is_fixable_snyk",
+                "is_fixable_upstream",
+                "is_patchable",
+                "is_pinnable",
+                "is_upgradeable",
+                "reachability"
+                ]
+            matching_keys = coordinate_list & set(coord.keys())
+            for key in matching_keys:
+                saltminer['Attributes'][key] = coord[key]
+            if coord.get('representations'):
+                for item in coord['representations']:
+                    if item.get('dependency'):
+                        if not saltminer['Attributes'].get('dependencies'):
+                            saltminer['Attributes']['dependencies'] = ""
+                        saltminer['Attributes']['dependencies']  +=  f"{item['dependency']['package_name']}|{item['dependency']['package_version']} ,"
+        
+        return q_isssue_doc
+
+    def map_asset_attributes(self, project, q_asset_doc, org_info):
+        asset = q_asset_doc['Saltminer']['Asset']
+        attributes = asset['Attributes']
+        attributes['org_slug'] = org_info['slug']
+        attributes['org_name'] = org_info['name']
+        if (name := org_info['project'].get('importing_user_name')):
+            attributes['importing_user_name'] = name
+        if (email := org_info['project'].get('importing_user_email')):
+            attributes['importing_user_email'] = email
+        
+        return q_asset_doc
 
     def get_assessment_type(self, source_assessment_type):
         assessment_types = {
@@ -271,8 +309,9 @@ class SnykAdapter:
             "config": "IAC",
             "cloud": "Cloud"
         }
-
-        return assessment_types.get(source_assessment_type)
+        dist_assessment_type = assessment_types.get(source_assessment_type) if assessment_types.get(source_assessment_type) else "Open"
+        
+        return dist_assessment_type
 
 
     def get_issue_counts(self, issue_counts_object):
@@ -283,6 +322,23 @@ class SnykAdapter:
 
         return counter
 
+    def get_project_remedies(self, project):
+        if not project.get("remediation"):
+            return
+        project_id = project['id']
+        self.remediations_by_project[project_id] = {
+        }
+        for key in project['remediation'].keys():
+
+            if key =="upgrade":
+                for current, info in project["remediation"]["upgrade"].items():
+                    if (upgrade_to := info.get("upgradeTo")):
+                        for vuln in info["vulns"]:
+                            self.remediations_by_project[project_id][vuln] = f"Upgrade from {current} to {upgrade_to}"
+
+            #TODO:Use this code for all remediation types when I get data structure examples. 
+            # if project['remediation'].get(key):
+            #     pass 
 
     def last_updated_query(self):
         return {

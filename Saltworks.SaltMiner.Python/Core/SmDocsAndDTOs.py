@@ -98,6 +98,7 @@ class SnykDocs:
                     "IsSuppressed":False,
                     "Location": None,
                     "LocationFull": None,
+                    "Recommendation": None,
                     "RemovedDate": None,
                     "SourceSeverity": None,
                     "ReportId": None,

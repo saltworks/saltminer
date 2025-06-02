@@ -75,6 +75,21 @@ class SnykClient:
 
                 break
         
+    def get_v1_project_details(self, org_id, project_id):
+        """
+        This function gets the details of a single project and returns it.
+        """
+        v1_projects_endpoint = f"/v1/org/{org_id}/project/{project_id}"
+        url = self.snyk_url +v1_projects_endpoint
+        try:
+            response = requests.get(url, headers=self.snyk_headers, timeout=30)
+            response.raise_for_status()  # Raise an error for HTTP failures
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logging.error("Request failed: %s", e)
+            return
+
+
 
     def get_sync_issues_generator(self, limit, org_id, project_id, start_date = None):
         """

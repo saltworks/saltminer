@@ -78,22 +78,22 @@ class TenableAdapter:
             for issue_record in self.tenable_client.get_vuln_export_generator(scan_record['uuid']):
                 self.counter += 1
                 # TODO: FIND THE APPROPRIATE ASSET ID
-                if not self.current_scan_asset_dict.get(issue_record['asset']['uuid']):
-                    mapped_scan = self.map_scan(scan_record, issue_record)
-                    queue_scan = self.data_client.AddQueueScan(mapped_scan)
-                    mapped_asset = self.map_asset(
-                        issue_record, queue_scan['id'])
-                    queue_asset = self.data_client.AddQueueAsset(mapped_asset)
-                    self.current_scan_asset_dict[issue_record['asset']['uuid']] = {
-                        "queue_scan_id": queue_scan['id'],
-                        "queue_asset_id": queue_asset['id'],
-                        "report_id": mapped_scan['Saltminer']['Scan']['ReportId'],
-                        "schedule_uuid": scan_record['schedule_uuid'] if scan_record.get('schedule_uuid') else "None",
-                    }
-                mapped_issue = self.map_issue(
-                    issue_record, current_scan_dict=self.current_scan_asset_dict[issue_record['asset']['uuid']])
-                self.data_client.AddQueueIssue(mapped_issue)
-            self.finalize_all_scans()
+            #     if not self.current_scan_asset_dict.get(issue_record['asset']['uuid']):
+            #         mapped_scan = self.map_scan(scan_record, issue_record)
+            #         queue_scan = self.data_client.AddQueueScan(mapped_scan)
+            #         mapped_asset = self.map_asset(
+            #             issue_record, queue_scan['id'])
+            #         queue_asset = self.data_client.AddQueueAsset(mapped_asset)
+            #         self.current_scan_asset_dict[issue_record['asset']['uuid']] = {
+            #             "queue_scan_id": queue_scan['id'],
+            #             "queue_asset_id": queue_asset['id'],
+            #             "report_id": mapped_scan['Saltminer']['Scan']['ReportId'],
+            #             "schedule_uuid": scan_record['schedule_uuid'] if scan_record.get('schedule_uuid') else "None",
+            #         }
+            #     mapped_issue = self.map_issue(
+            #         issue_record, current_scan_dict=self.current_scan_asset_dict[issue_record['asset']['uuid']])
+            #     self.data_client.AddQueueIssue(mapped_issue)
+            # self.finalize_all_scans()
 
 
     def finalize_all_scans(self):
@@ -182,8 +182,15 @@ class TenableAdapter:
         attributes['status'] = issue_record['state']
         attributes['issue_last_found'] = issue_record['last_found']
         attributes['tenable_schedule_uuid'] = schedule_uuid
-        attributes['operating_systems'] = ", ".join(operating_systems)if len(operating_systems) > 1 else "None"
-        attributes['operating_system'] = operating_systems[0] if len(operating_systems) > 1 else "None"
+        if len(operating_systems) > 1:
+            operating_systems_joined =  ", ".join(operating_systems)
+        elif len(operating_systems) > 0:
+            operating_systems_joined = operating_systems[0]
+        else:
+            operating_systems_joined = "None"
+
+        attributes['operating_systems'] = operating_systems_joined
+        attributes['operating_system'] = operating_systems[0] if len(operating_systems) > 0 else "None"
         attributes['ipv6'] = issue_record['asset'].get('ipv6')
         attributes['mac_address'] = issue_record['asset'].get('mac_address')
         attributes["exploit_available"]= str(issue_record['plugin'].get('exploit_available'))
@@ -235,6 +242,9 @@ class TenableAdapter:
     def get_asset_tags(self):
         for asset in self.tenable_client.get_assets_generator():
             if asset.get('tags'):
+                for item in asset['tags']:
+                    if "WVD" in item['value']:
+                        print(item)
                 self.tenable_asset_tags[asset['id']] = ",".join([item['key'] + "|" + item['value'] + "|" + item["uuid"] for item in asset['tags']])
 
 
