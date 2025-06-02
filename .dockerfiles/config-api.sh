@@ -55,9 +55,10 @@ jq '.ApiConfig.ElasticPort' $CONFIG_FILE
 echo 'Existing KibanaBaseUrl: '
 jq '.ApiConfig.KibanaBaseUrl' $CONFIG_FILE
 
-jq --arg s "$scheme" \
+echo 'Transforming configuration file'
+jq --arg s "${scheme%???}" \
   --arg h "$host" \
-  --arg p "$port" \
+  --argjson p $port \
   --arg k "$KIBANA_URL" \
   '.ApiConfig.ElasticHttpScheme = $s | .ApiConfig.ElasticHost = $h | .ApiConfig.ElasticPort = $p | .ApiConfig.KibanaBaseUrl = $k' \
   $CONFIG_FILE \
