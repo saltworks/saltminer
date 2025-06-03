@@ -15,6 +15,7 @@
  */
 
 ﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Saltworks.SaltMiner.Core.Extensions;
 using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.SourceAdapters.Core;
@@ -24,6 +25,7 @@ using Saltworks.SaltMiner.SourceAdapters.Core.Interfaces;
 using Saltworks.Utility.ApiHelper;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -114,9 +116,17 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 
                 OrganizationDto Organization = new();
 
+                string[] sourceFilters = [];
+                string fileName = "debugSourceFilters.txt";
+                if (File.Exists(fileName))
+                {
+                    Logger.LogWarning("Using {FileName} to process specific source applications only", fileName);
+                    sourceFilters = await File.ReadAllLinesAsync(fileName);
+                }
+                
                 //Design decision: expectations to handle 10k applications
                 Logger.LogInformation($"[Sync] Getting Applications...");
-                var assets = (await client.GetAppsAsync());
+                var assets = (await client.GetAppsAsync(sourceFilters));
 
                 if (Config.TestingAssetLimit > 0)
                 {
@@ -484,7 +494,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                         }
 
                         var vulReportLink = $"{Config.AppReportBaseUrl}{application.Name}/{appReport.ReportId}/componentDetails/{component.Hash}/overview";
-
+                        var location = (component.PackageUrl == "" || component.PackageUrl == null) ? "N/A" : component.PackageUrl;
                         queueIssues.Add(new QueueIssue
                         {
                            Entity = new()
@@ -498,13 +508,13 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                    },
                                    Category = new string[1] { "Application" },
                                    FoundDate = appReport.EvaluationDate.ToUniversalTime(),
-                                   LocationFull = (component.PackageUrl == "" || component.PackageUrl == null) ? "N/A" : component.PackageUrl,
-                                   Location = (component.PackageUrl == "" || component.PackageUrl == null) ? "N/A" : component.PackageUrl,
+                                   LocationFull = location,
+                                   Location = location,
                                    Name = violation.Constraints[0]?.Conditions[0]?.ConditionReason ?? "N/A",
                                    ReportId = appReport.ReportId,
                                    Scanner = new()
                                    {
-                                       Id = $"{violation.CompositeId}~{application.Id}~{appReport.ReportId}~{appReport.EvaluationDate.ToUniversalTime().ToString()}",
+                                       Id = $"{violation.CompositeId}~{application.Id}~{location}",
                                        AssessmentType = AssessmentType.Open.ToString("g"),
                                        Product = "Lifecycle",
                                        Vendor = "Sonatype",
@@ -573,6 +583,3 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
         }
     }
 }
-
-
-
