@@ -478,18 +478,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 
         private void MapIssues(ApplicationDto application, Report appReport, List<ComponentDto> components, QueueScan queueScan, QueueAsset queueAsset)
         {
-            var stage = appReport?.Stage;
-            var sourceId = $"{application.Id}|{ stage }";
-            List<QueueIssue> queueIssues = new();
-            var zeroIssueCounter = 1;
+            List<QueueIssue> queueIssues = [];
             if (queueScan.Entity.Saltminer.Internal.IssueCount == 0)
             {
                 queueIssues.Add(GetZeroQueueIssue(queueScan, queueAsset));
-                zeroIssueCounter++;
             }
             else
             {
-                foreach (var component in components.Where(x => x.Violations?.Any() ?? false))
+                foreach (var component in components.Where(x => (x.Violations?.Count ?? 0) > 0))
                 {
                     foreach (var violation in component.Violations)
                     {
@@ -499,12 +495,12 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                         }
 
                         var vulReportLink = $"{Config.AppReportBaseUrl}{application.Name}/{appReport.ReportId}/componentDetails/{component.Hash}/overview";
-
+                        var location = (component.PackageUrl == "" || component.PackageUrl == null) ? "N/A" : component.PackageUrl;
                         queueIssues.Add(new QueueIssue
                         {
                            Entity = new()
                            {
-                               Labels = new Dictionary<string, string>(),
+                               Labels = [],
                                Vulnerability = new()
                                {
                                    Audit = new()
@@ -513,13 +509,13 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                    },
                                    Category = new string[1] { "Application" },
                                    FoundDate = appReport.EvaluationDate.ToUniversalTime(),
-                                   LocationFull = (component.PackageUrl == "" || component.PackageUrl == null) ? "N/A" : component.PackageUrl,
-                                   Location = (component.PackageUrl == "" || component.PackageUrl == null) ? "N/A" : component.PackageUrl,
+                                   LocationFull = location,
+                                   Location = location,
                                    Name = violation.Constraints[0]?.Conditions[0]?.ConditionReason ?? "N/A",
                                    ReportId = appReport.ReportId,
                                    Scanner = new()
                                    {
-                                       Id = $"{violation.CompositeId}~{application.Id}~{appReport.ReportId}~{appReport.EvaluationDate.ToUniversalTime().ToString()}",
+                                       Id = $"{violation.CompositeId}~{application.Id}~{location}",
                                        AssessmentType = AssessmentType.Open.ToString("g"),
                                        Product = "Lifecycle",
                                        Vendor = "Sonatype",
