@@ -61,4 +61,4 @@ jobs:
       with:
         name: ${{env.sln-name}}.${{env.BRANCH}}.${{env.BUILD_NUMBER}}
         path: ${{env.work-dir}}/*
-        retention-days: 10
+        retention-days: 15
