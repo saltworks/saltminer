@@ -44,21 +44,6 @@ namespace Saltworks.Utility.ApiHelper.UnitTests
         }
 
         [TestMethod]
-        public void Exception_NotThrown_NotFound()
-        {
-            // Arrange
-            var url = TEST_BASE_URL;
-
-            // Act
-            var c = ApiClientFactory.CreateApiClient<ExceptionTests>(url);
-            c.Options.ExceptionOnFailure = false;
-            var r = c.Get<Thing>("user/23");
-
-            // Assert
-            Assert.AreEqual(HttpStatusCode.NotFound, r.StatusCode);
-        }
-
-        [TestMethod]
         public void Exception_Unauthorized()
         {
             // Disabling this test - test server API no longer available
@@ -82,33 +67,6 @@ namespace Saltworks.Utility.ApiHelper.UnitTests
             catch (ApiClientUnauthorizedException ex)
             {
                 Assert.AreEqual(HttpStatusCode.Unauthorized, ex.Status);
-                Assert.AreNotEqual(0, ex.Message.Length);
-            }
-            catch (ApiClientException ex)
-            {
-                throw new AssertFailedException($"Got exception of type [{ex.GetType().Name}], but expected exception of type [{exType}]");
-            }
-        }
-
-        [TestMethod]
-        public void Exception_NotFound()
-        {
-            // Arrange
-            var url = TEST_BASE_URL;
-            var exType = typeof(ApiClientNotFoundException).Name;
-
-            // Act
-            var c = ApiClientFactory.CreateApiClient<ExceptionTests>(url);
-            c.Options.ExceptionOnFailure = true;
-            try
-            {
-                c.Get<Thing>("users/23");
-                throw new AssertFailedException($"No exception thrown, but expected type [{exType}]");
-            }
-            // Assert
-            catch (ApiClientNotFoundException ex)
-            {
-                Assert.AreEqual(HttpStatusCode.NotFound, ex.Status);
                 Assert.AreNotEqual(0, ex.Message.Length);
             }
             catch (ApiClientException ex)
