@@ -1,0 +1,13 @@
+{
+    "Source": "Tenable",
+    "SourceName": "Tenable",
+    "Enabled":false,
+    "Access Key":"",
+    "Secret Key": "",
+    "VulnSeverities":[
+        "critical",
+        "high",
+        "medium",
+        "low"
+    ]
+}

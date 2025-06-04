@@ -1,0 +1,8 @@
+{
+    "Source": "SNYK",
+    "SourceName": "SNYK1",
+    "Enabled": false,
+    "BaseUrl": "https://api.snyk.io/",
+    "Org Id": "",
+    "ApiKey": ""
+}

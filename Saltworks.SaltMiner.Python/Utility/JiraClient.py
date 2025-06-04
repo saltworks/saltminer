@@ -28,9 +28,9 @@ from jira import JIRA
 class JiraClient:
     def __init__(self, settings):
         self._Es = ElasticClient(settings)
-        self.url = settings.Get('JiraImport', 'Url')
-        self.userName = settings.Get('JiraImport', 'UserName')
-        self.apiKey = settings.Get('JiraImport', 'ApiKey')
+        self.url = settings.GetSource('JiraImport', 'Url')
+        self.userName = settings.GetSource('JiraImport', 'UserName')
+        self.apiKey = settings.GetSource('JiraImport', 'ApiKey')
         self.jira = JIRA(self.url, basic_auth=(self.userName, self.apiKey))
         #self.jira_task_ids = self.getCurrentJiraIssues()
 

@@ -4,9 +4,9 @@ from tenable.io import TenableIO
 class TenableClient:
 
     def __init__(self, settings):
-        self.access_key = settings.Get("TenableClient", "Access Key")
-        self.secret_key = settings.Get("TenableClient", "Secret Key")
-        self.severity_list = settings.Get("TenableClient", "VulnSeverities")
+        self.access_key = settings.GetSource("TenableClient", "Access Key")
+        self.secret_key = settings.GetSource("TenableClient", "Secret Key")
+        self.severity_list = settings.GetSource("TenableClient", "VulnSeverities")
         self.tio = TenableIO(access_key=self.access_key, secret_key=self.secret_key)
 
 

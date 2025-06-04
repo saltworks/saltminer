@@ -7,9 +7,9 @@ class SnykClient:
     Client class for all needed snyk requests.
     """
     def __init__(self, settings):
-        self.snyk_url = settings.Get("SnykClient", 'Api Url')
+        self.snyk_url = settings.GetSource("SNYK1", 'BaseUrl')
         self.snyk_headers = {
-            "Authorization": f"token {settings.Get('SnykClient','Api Key')}",
+            "Authorization": f"token {settings.GetSource('SNYK1','ApiKey')}",
             "Content-Type": "application/vnd.api+json"
         }
        
