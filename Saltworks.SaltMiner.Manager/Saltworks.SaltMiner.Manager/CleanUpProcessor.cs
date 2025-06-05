@@ -295,7 +295,10 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
         };
         // Don't remove PenTest unless complete or cancel
         if (status != QueueScan.QueueScanStatus.Complete && status != QueueScan.QueueScanStatus.Cancel)
+        {
             srch.Filter.FilterMatches.Add("Saltminer.Engagment.Id", SaltMiner.DataClient.Helpers.BuildMustNotExistsFilterValue());
+            srch.Filter.FilterMatches.Add("Saltminer.Scan.SourceType", SaltMiner.DataClient.Helpers.BuildExcludeTermsFilterValue(["Saltworks.PenTest"]));
+        }
         // Filter to passed source type if appropriate
         if (!string.IsNullOrEmpty(RunConfig.SourceType))
             srch.Filter.FilterMatches.Add("Saltminer.Scan.SourceType", RunConfig.SourceType);
@@ -308,6 +311,12 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
                 break;
             foreach (var qs in rsp.Data)
             {
+                // Redundant check for draft pentest queue data
+                if (!string.IsNullOrEmpty(qs.Saltminer.Engagement?.Id) && status != QueueScan.QueueScanStatus.Complete && status != QueueScan.QueueScanStatus.Cancel)
+                {
+                    Logger.LogWarning("[GetByStatus] Pentest queue scan {Id} with status '{Status}' was found for removal but will not be removed.", qs.Id, status.ToString("g"));
+                    continue;
+                }
                 DeleteQueue.Enqueue(qs.Id);
                 counter++;
             }
