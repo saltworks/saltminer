@@ -20,7 +20,7 @@ class TenableClient:
         if scan_uuid == "None":
             yield from self.tio.exports.vulns(
             severity = self.severity_list,
-            state = ["OPEN", "REOPENED"],
+            state = ["OPEN", "REOPENED", "FIXED"],
             since = 0000000000
             )
         else:
