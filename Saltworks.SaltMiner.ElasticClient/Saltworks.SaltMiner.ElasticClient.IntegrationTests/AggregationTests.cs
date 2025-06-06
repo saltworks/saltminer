@@ -20,46 +20,66 @@ using System.Linq;
 using Saltworks.SaltMiner.Core.Entities;
 using System.Threading;
 using Saltworks.SaltMiner.Core.Data;
+using System;
+using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
 {
     [TestClass]
     public class AggregationTests
     {
+        private const string SOURCE_TYPE = "ElasticClient";
         private static IElasticClient Client = null;
-        
+        private static readonly List<string> _indicesToDelete = [];
+
+        private static void RegisterDeleteIndex(string index)
+        {
+            if (!_indicesToDelete.Contains(index))
+                _indicesToDelete.Add(index);
+        }
+
+        [ClassCleanup(ClassCleanupBehavior.EndOfClass)]
+        public static void Cleanup()
+        {
+            foreach (var index in _indicesToDelete)
+            {
+                try
+                {
+                    Client.DeleteIndex(index);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error deleting index {index}: {ex.Message}");
+                }
+            }
+        }
+
+
         [ClassInitialize]
-        public static void Initialize(TestContext context)
+        public static void Initialize(TestContext _)
         {
             var c = Helpers.SettingsConfig();
             Client = Helpers.GetElasticClient(c);
         }
         
-        [ClassCleanup]
-        public static void CleanUp()
-        {
-            Helpers.CleanIndex(Client, "issue");
-            Helpers.CleanIndex(Client, "scan");
-        }
-
         [TestMethod]
-        public void Aggregate_No_Query()
+        public async Task Aggregate_No_Query()
         {
             // Arrange
-            var agg = Client.BuildRequestAggregation("counts", "Saltminer.Asset.SourceType", new List<IElasticClientRequestAggregate>
-            {
+            var agg = Client.BuildRequestAggregation("counts", "Saltminer.Asset.SourceType", [
                 Client.BuildRequestAggregate("Saltminer.critical", "Saltminer.Critical", ElasticAggregateType.Sum),
                 Client.BuildRequestAggregate("Saltminer.high", "Saltminer.High", ElasticAggregateType.Sum),
                 Client.BuildRequestAggregate("Saltminer.medium", "Saltminer.Medium", ElasticAggregateType.Sum),
                 Client.BuildRequestAggregate("Saltminer.low", "Saltminer.Low", ElasticAggregateType.Sum)
-            });
+            ]);
 
             // Act
-            var sourceType = "ElasticClient";
+            var sourceType = SOURCE_TYPE;
             var issue = Mock.Issue(sourceType);
             var issueIndex = Issue.GenerateIndex(issue.Saltminer.Asset.AssetType, issue.Saltminer.Asset.SourceType, issue.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(issueIndex);
             var issueResult = Client.AddUpdate(issue, issueIndex);
-            Thread.Sleep(2000); // give time to digest
+            await Task.Delay(2000); // give time to digest
             var request = new SearchRequest
             {
                 Filter = new()
@@ -81,24 +101,25 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         }
 
         [TestMethod]
-        public void Aggregate_With_Query()
+        public async Task Aggregate_With_Query()
         {
             // Arrange
-            var agg = Client.BuildRequestAggregation("counts", "Saltminer.Asset.SourceType", new List<IElasticClientRequestAggregate>
-            {
+            var agg = Client.BuildRequestAggregation("counts", "Saltminer.Asset.SourceType", 
+            [
                 Client.BuildRequestAggregate("Saltminer.critical", "Saltminer.Critical", ElasticAggregateType.Sum),
                 Client.BuildRequestAggregate("Saltminer.high", "Saltminer.High", ElasticAggregateType.Sum),
                 Client.BuildRequestAggregate("Saltminer.medium", "Saltminer.Medium", ElasticAggregateType.Sum),
                 Client.BuildRequestAggregate("Saltminer.low", "Saltminer.Low", ElasticAggregateType.Sum)
-            });
+            ]);
             var qry = new Dictionary<string, string> { { "Saltminer.Asset.IsProduction", "true" } };
 
             // Act
-            var sourceType = "ElasticClient";
+            var sourceType = SOURCE_TYPE;
             var issue = Mock.Issue(sourceType);
             var issueIndex = Issue.GenerateIndex(issue.Saltminer.Asset.AssetType, issue.Saltminer.Asset.SourceType, issue.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(issueIndex);
             issue = Client.AddUpdate(issue, issueIndex).Result.Document;
-            Thread.Sleep(2000); // give time to digest
+            await Task.Delay(2000); // give time to digest
             var request = new SearchRequest
             {
                 Filter = new()
@@ -119,14 +140,15 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         }
 
         [TestMethod]
-        public void Aggregate_Source_Counts()
+        public async Task Aggregate_Source_Counts()
         {
             // Arrange
             var instance = "ElasticClient";
-            var sourceType = "ElasticClient";
+            var sourceType = SOURCE_TYPE;
             var sourceId = "ElasticClientTest001";
             var scan = Mock.Scan(sourceType);
             var scanIndex = Scan.GenerateIndex(scan.Saltminer.Asset.AssetType, scan.Saltminer.Asset.SourceType, scan.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(scanIndex);
             scan.Saltminer.Asset.SourceId = sourceId;
             scan.Id = "";
             scan = Client.AddUpdate(scan, scanIndex).Result.Document;
@@ -147,20 +169,23 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 issue.Saltminer.Asset.SourceId = sourceId;
                 list.Add(issue);
             }
-            var issueIndex = Issue.GenerateIndex(list.First().Saltminer.Asset.AssetType, list.First().Saltminer.Asset.SourceType, list.First().Saltminer.Asset.Instance);
+            var issueIndex = Issue.GenerateIndex(scan.Saltminer.Asset.AssetType, sourceType, instance);
 
             Client.AddUpdateBulk(list, issueIndex);
-            Thread.Sleep(2000); // wait for save to complete
+            await Task.Delay(2000); // wait for save to complete
 
-            var agg = Client.BuildRequestAggregation("Saltminer.Asset.Instance", "Saltminer.Asset.SourceType", new List<IElasticClientRequestAggregate>
-            {
+            var agg = Client.BuildRequestAggregation("Saltminer.Asset.Instance", "Saltminer.Asset.SourceType",
+            [
                 Client.BuildRequestAggregate("Saltminer.Critical", "Saltminer.Critical", ElasticAggregateType.Sum),
                 Client.BuildRequestAggregate("Saltminer.High", "Saltminer.High", ElasticAggregateType.Sum),
                 Client.BuildRequestAggregate("Saltminer.Medium", "Saltminer.Medium", ElasticAggregateType.Sum),
                 Client.BuildRequestAggregate("Saltminer.Low", "Saltminer.Low", ElasticAggregateType.Sum)
-            });
-            var qry = new Dictionary<string, string> { { "Saltminer.Asset.Instance", sourceType } };
-            qry.Add("Saltminer.Asset.SourceId", sourceId);
+            ]);
+            var qry = new Dictionary<string, string>
+            {
+                { "Saltminer.Asset.Instance", sourceType },
+                { "Saltminer.Asset.SourceId", sourceId }
+            };
             var request = new SearchRequest
             {
                 Filter = new()
@@ -176,7 +201,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             // Assert
             Assert.IsNotNull(response);
             Assert.AreEqual(instance, result.BucketKey);
-            Assert.IsTrue(result.Aggregates.Any());
+            Assert.IsTrue(result.Aggregates.Count > 0);
 
             //Clean Up
             var scanDelete = Client.Delete<Scan>(scan.Id, scanIndex);

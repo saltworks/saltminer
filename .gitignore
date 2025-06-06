@@ -14,6 +14,8 @@
 /Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager/Template/*
 !/Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager/Template/Saltworks
 /Saltworks.SaltMiner.Ui/static/config*.json
+/Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi.Tests/settings.json
+/Saltworks.SaltMiner.ElasticClient/Saltworks.SaltMiner.ElasticClient.IntegrationTests/settings.json
 
 # Python
 **/*/__pycache__/

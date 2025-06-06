@@ -38,35 +38,19 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             return f.CreateClient();
         }
 
-        public static void CleanIndex(IElasticClient Client, string indexType)
+        public static void CleanIndex(IElasticClient Client, string indexType, string instance = "test1", string sourceType = "mocked")
         {
             var assetType = AssetType.Mocked.ToString();
-            var sourceType = "ElasticClient";
-
             switch (indexType)
             {
                 case "asset":
-                    Client.DeleteIndex(Asset.GenerateIndex(assetType, sourceType));
+                    Client.DeleteIndex(Asset.GenerateIndex(assetType, sourceType, instance));
                     break;
                 case "scan":
-                    Client.DeleteIndex(Scan.GenerateIndex(assetType, sourceType));
+                    Client.DeleteIndex(Scan.GenerateIndex(assetType, sourceType, instance));
                     break;
                 case "issue":
-                    Client.DeleteIndex(Issue.GenerateIndex(assetType, sourceType));
-                    break;
-            }
-
-            sourceType = "Mocked";
-            switch (indexType)
-            {
-                case "asset":
-                    Client.DeleteIndex(Asset.GenerateIndex(assetType, sourceType));
-                    break;
-                case "scan":
-                    Client.DeleteIndex(Scan.GenerateIndex(assetType, sourceType));
-                    break;
-                case "issue":
-                    Client.DeleteIndex(Issue.GenerateIndex(assetType, sourceType));
+                    Client.DeleteIndex(Issue.GenerateIndex(assetType, sourceType, instance));
                     break;
             }
         }

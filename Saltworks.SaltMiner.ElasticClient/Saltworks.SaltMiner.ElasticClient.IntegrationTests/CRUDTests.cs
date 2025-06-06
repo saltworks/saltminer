@@ -19,7 +19,6 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Entities;
 using System;
 using System.Collections.Generic;
-using System.Threading;
 using Saltworks.SaltMiner.Core.Data;
 using System.Threading.Tasks;
 
@@ -28,21 +27,37 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
     [TestClass]
     public class CRUDTests
     {
+        private const string SOURCE_TYPE = "ElasticClient";
         private static IElasticClient Client = null;
+        private static readonly List<string> _indicesToDelete = [];
+
+        private static void RegisterDeleteIndex(string index)
+        {
+            if (!_indicesToDelete.Contains(index))
+                _indicesToDelete.Add(index);
+        }
+
+        [ClassCleanup(ClassCleanupBehavior.EndOfClass)]
+        public static void Cleanup()
+        {
+            foreach (var index in _indicesToDelete)
+            {
+                try
+                {
+                    Client.DeleteIndex(index);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error deleting index {index}: {ex.Message}");
+                }
+            }
+        }
 
         [ClassInitialize]
-        public static void Initialize(TestContext context)
+        public static void Initialize(TestContext _)
         {
             var c = Helpers.SettingsConfig();
             Client = Helpers.GetElasticClient(c);
-        }
-
-        [ClassCleanup]
-        public static void CleanUp()
-        {
-            Helpers.CleanIndex(Client, "issue");
-            Helpers.CleanIndex(Client, "scan");
-            Helpers.CleanIndex(Client, "asset");
         }
 
         [TestMethod]
@@ -139,15 +154,16 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 },
             }, IndexMeta.GenerateIndex());
 
-            Assert.IsTrue(result != null);
+            Assert.IsNotNull(result);
         }
 
         [TestMethod]
-        public void SearchTest()
+        public async Task SearchTest()
         {
-            var sourceType = "ElasticClient";
+            var sourceType = SOURCE_TYPE;
             var mockIssue = Mock.Issue(sourceType);
             var indexName = Issue.GenerateIndex(mockIssue.Saltminer.Asset.AssetType, mockIssue.Saltminer.Asset.SourceType, mockIssue.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(indexName);
             mockIssue.Saltminer.Low = 0;
             var kvps = new Dictionary<string, string>
             {
@@ -180,7 +196,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             }
 
             Client.AddUpdateBulk(issues, indexName);
-            Thread.Sleep(2000); // Will fail if search happens right after inserts
+            await Task.Delay(2000); // Will fail if search happens right after inserts
             request = new SearchRequest
             {
                 Filter = new()
@@ -195,7 +211,6 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             Assert.AreEqual(10, result.Results.Count());
 
             //Clean Up
-
             request = new SearchRequest
             {
                 Filter = new()
@@ -209,11 +224,12 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         }
 
         [TestMethod]
-        public void CountTest()
+        public async Task CountTest()
         {
-            var sourceType = "ElasticClient";
+            var sourceType = SOURCE_TYPE;
             var mockIssue = Mock.Issue(sourceType);
             var indexName = Issue.GenerateIndex(mockIssue.Saltminer.Asset.AssetType, mockIssue.Saltminer.Asset.SourceType, mockIssue.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(indexName);
             var kvps = new Dictionary<string, string>
             {
                 ["Saltminer.Asset.Name"] = "CountTest"
@@ -240,7 +256,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             }
 
             var r = Client.AddUpdateBulk(issues, indexName);
-            Thread.Sleep(2000); //Will fail if count happens right after update
+            await Task.Delay(2000); //Will fail if count happens right after update
             var result = Client.Count<Issue>(request, indexName);
 
             Assert.AreEqual(issueCount, r.CountAffected);
@@ -253,11 +269,12 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         }
 
         [TestMethod]
-        public void SearchWithScrollingTest()
+        public async Task SearchWithScrollingTest()
         {
             var sourceType = "ElasticClient";
             var mockIssue = Mock.Issue(sourceType);
             var indexName = Issue.GenerateIndex(mockIssue.Saltminer.Asset.AssetType, mockIssue.Saltminer.Asset.SourceType, mockIssue.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(indexName);
             var kvps = new Dictionary<string, string>() {
                 { "Saltminer.Asset.Name", "SearchWithScrollingTest" },
                 { "Vulnerability.Severity", "Critically" }
@@ -287,7 +304,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
 
             Client.AddUpdateBulk(issues, indexName);
 
-            Thread.Sleep(2000);//Will fail if search happens right after inserts
+            await Task.Delay(2000); //Will fail if search happens right after inserts
 
 
             request = new SearchRequest
@@ -321,14 +338,13 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             Assert.AreEqual(0, result.Results.Count());
 
             //Clean Up
-
             request.PitPagingInfo = null;
             var issueDelete = Client.DeleteByQuery<Issue>(request, indexName).CountAffected;
             Assert.AreEqual(issueCount, issueDelete);
         }
 
         [TestMethod]
-        public void AddUpdateBulkQueueIssues()
+        public async Task AddUpdateBulkQueueIssues()
         {
             var queuedIssues = new List<QueueIssue>();
             var issueCount = 5;
@@ -343,7 +359,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             }
 
             var result = Client.AddUpdateBulk(queuedIssues, QueueIssue.GenerateIndex());
-            Thread.Sleep(2000); // gimme a sec or two to save that
+            await Task.Delay(2000); // gimme a sec or two to save that
 
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(issueCount, result.CountAffected);
@@ -360,7 +376,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         }
 
         [TestMethod]
-        public void UpdateByQueryueueIssues()
+        public async Task UpdateByQueryueueIssues()
         {
             var queuedIssues = new List<QueueIssue>();
             var issueCount = 5;
@@ -387,7 +403,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             }
 
             var result = Client.AddUpdateBulk(queuedIssues, QueueIssue.GenerateIndex());
-            Thread.Sleep(2000); // gimme a sec or two to save that
+            await Task.Delay(2000); // gimme a sec or two to save that
 
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(issueCount, result.CountAffected);
@@ -425,9 +441,9 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.Location, location);
             Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.LocationFull, name);
             Assert.IsTrue(newIssues.Results.First().Document.Vulnerability.RemovedDate != null);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.IsSuppressed, true);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.IsActive, false);
-            Assert.AreEqual(newIssues.Results.First().Document.Saltminer.Engagement.Attributes, null);
+            Assert.IsTrue(newIssues.Results.First().Document.Vulnerability.IsSuppressed);
+            Assert.IsFalse(newIssues.Results.First().Document.Vulnerability.IsActive);
+            Assert.IsNull(newIssues.Results.First().Document.Saltminer.Engagement.Attributes);
 
             Client.UpdateByQuery<QueueIssue>(updateRequest, QueueIssue.GenerateIndex());
 
@@ -441,9 +457,9 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.Location, newLocaion);
             Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.LocationFull, newName);
             Assert.IsTrue(newIssues.Results.First().Document.Vulnerability.RemovedDate == null);
-            Assert.IsTrue(newIssues.Results.First().Document.Saltminer.Engagement.Attributes.Count == 1);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.IsSuppressed, false);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.IsActive, true);
+            Assert.AreEqual(1, newIssues.Results.First().Document.Saltminer.Engagement.Attributes.Count);
+            Assert.IsFalse(newIssues.Results.First().Document.Vulnerability.IsSuppressed);
+            Assert.IsTrue(newIssues.Results.First().Document.Vulnerability.IsActive);
 
             //Clean Up
             var issueDelete = Client.DeleteByQuery<QueueIssue>(new SearchRequest
@@ -461,15 +477,17 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         {
             var queueLogs = new List<QueueLog>();
             var queueLog = Mock.QueueLog();
+            var indexName = QueueLog.GenerateIndex();
+            RegisterDeleteIndex(indexName);
 
             queueLogs.Add(queueLog);
-            Client.AddUpdate(queueLog, QueueLog.GenerateIndex());
+            Client.AddUpdate(queueLog, indexName);
 
             queueLog = Mock.QueueLog();
             queueLogs.Add(queueLog);
-            Client.AddUpdate(queueLog, QueueLog.GenerateIndex());
+            Client.AddUpdate(queueLog, indexName);
 
-            var result = Client.DeleteBulk<QueueLog>(queueLogs.Select(ql => ql.Id), QueueLog.GenerateIndex());
+            var result = Client.DeleteBulk<QueueLog>(queueLogs.Select(ql => ql.Id), indexName);
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(2, result.CountAffected);
         }
@@ -478,29 +496,23 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         public void DeleteTests()
         {
             var queueLog = Mock.QueueLog();
-            var result = Client.AddUpdate(queueLog, QueueLog.GenerateIndex());
+            var indexName = QueueLog.GenerateIndex();
+            RegisterDeleteIndex(indexName);
+            var result = Client.AddUpdate(queueLog, indexName);
             Assert.IsTrue(result.IsSuccessful);
-            result = Client.Delete<QueueLog>(queueLog.Id, QueueLog.GenerateIndex());
+            result = Client.Delete<QueueLog>(queueLog.Id, indexName);
             Assert.IsTrue(result.IsSuccessful);
 
             //Clean Up
-            var deleteQueueLog = Client.Delete<QueueLog>(queueLog.Id, QueueLog.GenerateIndex()).CountAffected;
+            var deleteQueueLog = Client.Delete<QueueLog>(queueLog.Id, indexName).CountAffected;
             Assert.AreEqual(1, deleteQueueLog);
-        }
-
-        [TestMethod]
-        public void TempDeleteTest()
-        {
-            // Same thing from DataApi?  Null ref exception.  ??????
-            Client.DeleteByQuery<License>(new SearchRequest { }, License.GenerateIndex());
-            Assert.IsTrue(true);
         }
 
         [TestMethod]
         public void DeleteByQueryNoFilterTest()
         {
             var indexName = "throwaway";
-            var request = new SearchRequest { }; // crux of the test, will it break with no search stuff?
+            var request = new SearchRequest(); // crux of the test, will it break with no search stuff?
             Client.AddUpdate(new ThrowawayEntity { Id = "hi" }, indexName);
             Task.Delay(2000).Wait(); // Will fail unless we give elastic time to process
             var booboo = false;
@@ -508,7 +520,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             IElasticClientResponse<ThrowawayEntity> result = null;
             try { result = Client.DeleteByQuery<ThrowawayEntity>(request, indexName); }
             catch (Exception ex) { booboo = true; msg = ex.Message; }
-            Assert.IsFalse(booboo, "DeleteByQuery had a boo-boo with no searchy stuff. Msg: {msg}", msg);
+            Assert.IsFalse(booboo, "DeleteByQuery had a boo-boo with no searchy stuff. Msg: {0}", msg);
             Assert.AreEqual(1, result.CountAffected);
             Client.DeleteIndex(indexName);
         }
@@ -516,10 +528,11 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         [TestMethod]
         public void DeleteByQueryTest()
         {
-            var sourceType = "ElasticClient";
+            var sourceType = SOURCE_TYPE;
             var issue = Mock.Issue(sourceType);
             var issueCount = 2;
             var issueIndex = Issue.GenerateIndex(issue.Saltminer.Asset.AssetType, issue.Saltminer.Asset.SourceType, issue.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(issueIndex);
             var reportId = "DeleteByQueryTest_ReportId";
             var kvps = new Dictionary<string, string>
             {
@@ -544,7 +557,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             }
 
             Task.Delay(2000).Wait(); // Will fail if happens right after inserts
-            var result = Client.DeleteByQuery<Issue>(request, Issue.GenerateIndex(issue.Saltminer.Asset.AssetType, issue.Saltminer.Asset.SourceType, issue.Saltminer.Asset.Instance));
+            var result = Client.DeleteByQuery<Issue>(request, issueIndex);
             Assert.AreEqual(2, result.CountAffected);
         }
 
@@ -552,19 +565,21 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         public void UpdateWithLocking()
         {
             var queueLog = Mock.QueueLog();
-            var result = Client.AddUpdate(queueLog, QueueLog.GenerateIndex());
+            var idx = QueueLog.GenerateIndex();
+            RegisterDeleteIndex(idx);
+            var result = Client.AddUpdate(queueLog, idx);
 
             var queueDescription = "A different description";
             queueLog.QueueDescription = queueDescription;
 
-            result = Client.UpdateWithLocking(queueLog, QueueLog.GenerateIndex(), result.Result.Primary, result.Result.Sequence);
+            result = Client.UpdateWithLocking(queueLog, idx, result.Result.Primary, result.Result.Sequence);
             Assert.IsTrue(result.IsSuccessful);
 
-            result = Client.Get<QueueLog>(queueLog.Id, QueueLog.GenerateIndex());
+            result = Client.Get<QueueLog>(queueLog.Id, idx);
             Assert.AreEqual(queueDescription, result.Result.Document.QueueDescription);
 
             //Clean Up
-            var delete = Client.Delete<QueueLog>(result.Result.Document.Id, QueueLog.GenerateIndex()).CountAffected;
+            var delete = Client.Delete<QueueLog>(result.Result.Document.Id, idx).CountAffected;
             Assert.AreEqual(1, delete);
         }
 
@@ -572,23 +587,25 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         public void UpdateWithLocking_Error()
         {
             var queueLog = Mock.QueueLog();
-            var result = Client.AddUpdate(queueLog, QueueLog.GenerateIndex());
+            var index = QueueLog.GenerateIndex();
+            var result = Client.AddUpdate(queueLog, index);
+            RegisterDeleteIndex(index);
 
             Assert.IsTrue(result.IsSuccessful);
 
-            var get = Client.Get<QueueLog>(result.Result.Document.Id, QueueLog.GenerateIndex());
+            var get = Client.Get<QueueLog>(result.Result.Document.Id, index);
             Assert.IsTrue(get.IsSuccessful);
 
             get.Result.Document.Message = "test";
-            var update = Client.Update(get.Result.Document, QueueLog.GenerateIndex());
+            var update = Client.Update(get.Result.Document, index);
             Assert.IsTrue(update.IsSuccessful);
 
             update.Result.Document.Message = "test2";
-            var update2 = Client.UpdateWithLocking(update.Result.Document, QueueLog.GenerateIndex(), get.Result.Primary, get.Result.Sequence);
+            var update2 = Client.UpdateWithLocking(update.Result.Document, index, get.Result.Primary, get.Result.Sequence);
             Assert.IsFalse(update2.IsSuccessful);
 
             //Clean Up
-            var delete = Client.Delete<QueueLog>(result.Result.Document.Id, QueueLog.GenerateIndex()).CountAffected;
+            var delete = Client.Delete<QueueLog>(result.Result.Document.Id, index).CountAffected;
             Assert.AreEqual(1, delete);
         }
 
@@ -596,39 +613,41 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         public void QueueLog_AddUpdate()
         {
             var queueLog = Mock.QueueLog();
-            var result = Client.AddUpdate(queueLog, QueueLog.GenerateIndex());
+            var index = QueueLog.GenerateIndex();
+            var result = Client.AddUpdate(queueLog, index);
             Assert.IsTrue(result.IsSuccessful);
 
             queueLog.Read = true;
 
-            result = Client.AddUpdate(queueLog, QueueLog.GenerateIndex());
+            result = Client.AddUpdate(queueLog, index);
             Assert.IsTrue(result.IsSuccessful);
 
-            queueLog = Client.Get<QueueLog>(queueLog.Id, QueueLog.GenerateIndex()).Result.Document;
+            queueLog = Client.Get<QueueLog>(queueLog.Id, index).Result.Document;
             Assert.IsTrue(queueLog.Read);
 
             //Clean Up
-            var delete = Client.Delete<QueueLog>(result.Result.Document.Id, QueueLog.GenerateIndex()).CountAffected;
+            var delete = Client.Delete<QueueLog>(result.Result.Document.Id, index).CountAffected;
             Assert.AreEqual(1, delete);
         }
 
         [TestMethod]
         public void AssetIssue_AddUpdate()
         {
-            var sourceType = "ElasticClient";
+            var sourceType = SOURCE_TYPE;
             var issue = Mock.Issue(sourceType);
-            var isssueIndex = Issue.GenerateIndex(issue.Saltminer.Asset.AssetType, issue.Saltminer.Asset.SourceType, issue.Saltminer.Asset.Instance);
-            var result = Client.AddUpdate(issue, isssueIndex);
+            var issueIndex = Issue.GenerateIndex(issue.Saltminer.Asset.AssetType, issue.Saltminer.Asset.SourceType, issue.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(issueIndex);
+            var result = Client.AddUpdate(issue, issueIndex);
             Assert.IsTrue(result.IsSuccessful);
 
             issue.Message = "Updated Message";
             issue.Labels["customer_specific_key1"] = "newly updated value";
 
-            result = Client.AddUpdate(issue, isssueIndex);
+            result = Client.AddUpdate(issue, issueIndex);
             Assert.IsTrue(result.IsSuccessful);
 
             //Clean Up
-            var delete = Client.Delete<Issue>(result.Result.Document.Id, isssueIndex).CountAffected;
+            var delete = Client.Delete<Issue>(result.Result.Document.Id, issueIndex).CountAffected;
             Assert.AreEqual(1, delete);
         }
 
@@ -640,8 +659,8 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             Assert.IsTrue(result.IsSuccessful);
 
             queueIssue.Saltminer.Attributes = null;
-            queueIssue.Labels = new Dictionary<string, string>() { };
-            queueIssue.Tags = new string[] { "newtag1", "newtag2" };
+            queueIssue.Labels = [];
+            queueIssue.Tags = [ "newtag1", "newtag2" ];
 
             result = Client.AddUpdate(queueIssue, QueueIssue.GenerateIndex());
             Assert.IsTrue(result.IsSuccessful);
@@ -671,9 +690,10 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         [TestMethod]
         public void AssetScan_AddUpdate()
         {
-            var sourceType = "ElasticClient";
+            var sourceType = SOURCE_TYPE;
             var scan = Mock.Scan(sourceType);
             var scanIndex = Scan.GenerateIndex(scan.Saltminer.Asset.AssetType, scan.Saltminer.Asset.SourceType, scan.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(scanIndex);
             var result = Client.AddUpdate(scan, scanIndex);
             Assert.IsTrue(result.IsSuccessful);
 
@@ -702,7 +722,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             Assert.AreEqual(1, delete);
         }
 
-        public void Snapshot_AddUpdate()
+        public static void Snapshot_AddUpdate()
         {
             var assetSnapshot = Mock.Snapshot();
             var assetSnapshotIndex = Snapshot.GenerateIndex(assetSnapshot.Saltminer.Asset.AssetType, false);
@@ -723,9 +743,10 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         [TestMethod]
         public void Asset_AddUpdate()
         {
-            var sourceType = "ElasticClient";
+            var sourceType = SOURCE_TYPE;
             var asset = Mock.Asset(sourceType);
             var assetIndex = Asset.GenerateIndex(asset.Saltminer.Asset.AssetType, asset.Saltminer.Asset.SourceType, asset.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(assetIndex);
             var result = Client.AddUpdate(asset, assetIndex);
             Assert.IsTrue(result.IsSuccessful);
             
@@ -755,7 +776,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 PitPagingInfo = new PitPagingInfo(300)
             }, QueueScan.GenerateIndex());
 
-            Assert.IsTrue(results != null);
+            Assert.IsNotNull(results);
         }
     }
 }
