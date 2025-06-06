@@ -496,6 +496,11 @@ namespace Saltworks.SaltMiner.DataApi
                                     throw new ApiException($"Kibana space '{spaceName}' was not created. Reason: {createResults.RawContent}");
                                 }
                             }
+                            else
+                            {
+                                Log.Warning("Kibana space '{SpaceName}' already exists, will not import file {FileName}.", spaceName, kibanaImport);
+                                continue;
+                            }
 
                             var task = kibanaContext.ImportSpaceData(kibanaDto.Id, fs);
                             task.Wait();
