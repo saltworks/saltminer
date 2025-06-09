@@ -66,6 +66,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         RecentSourceIds.Enqueue(id);
     }
 
+    private int ManagerInstanceCount => Convert.ToInt32(DataClient.RegisterManagerInstanceCount().Affected);
+
     /// <summary>
     /// Queues up the next pending queue scans to be processed, limited by QueueControl.PreloadCount (and then waiting until queue goes down)
     /// </summary>
@@ -175,6 +177,13 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             }
             QueueControl.TotalCount = queueScans.UIPagingInfo.Total ?? 0;
             Logger.LogInformation("[Q-Get] {Count} pending queue scans found in current batch.", QueueControl.TotalCount);
+
+            var alone = ManagerInstanceCount <= 1;
+            if (QueueControl.TotalCount <= Config.QueueProcessorInstanceBailoutCount && !alone)
+            {
+                Logger.LogInformation("[Q-Get] Pending queue scan count ({Count}) is low enough for one instance, canceling this one.", QueueControl.TotalCount);
+                break;
+            }
             var processedOne = false;
             foreach (var qs in queueScans.Data)
             {

@@ -96,6 +96,14 @@ namespace Saltworks.SaltMiner.DataClient
         {
             return CheckRetry(() => ApiClient.Delete<NoDataResponse>($"register/managerid/{instanceId}")).Content;
         }
+        /// <summary>
+        /// Returns the current count of active manager instances.
+        /// </summary>
+        /// <returns></returns>
+        public NoDataResponse RegisterManagerInstanceCount()
+        {
+            return CheckRetry(() => ApiClient.Get<NoDataResponse>("register/managerid/count")).Content;
+        }
 
         #endregion
 

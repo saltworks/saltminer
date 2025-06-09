@@ -65,25 +65,47 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
 
         Logger.LogInformation("Looking for queue scan(s) to clean up, configured for source '{Source}', limit {Limit}, and listOnly {ListOnly}", string.IsNullOrEmpty(RunConfig?.SourceType) ? "[all]" : RunConfig?.SourceType, RunConfig?.Limit, RunConfig?.ListOnly);
 
+        var tasks = new List<Task>();
+        List<string> skips = [];
+        List<QueueScan.QueueScanStatus> statuses = [
+            QueueScan.QueueScanStatus.Complete,
+            QueueScan.QueueScanStatus.Error,
+            QueueScan.QueueScanStatus.Processing,
+            QueueScan.QueueScanStatus.Loading,
+            QueueScan.QueueScanStatus.Cancel
+        ];
+        foreach (var s in statuses)
+        {
+            if (Config.CleanupProcessorDisableForStatus.Contains(s.ToString("g")))
+                skips.Add(s.ToString("g"));
+            else
+                tasks.Add(GetByStatusAsync(QueueScan.QueueScanStatus.Complete));
+        }
+        
+        if (skips.Count > 0)
+            Logger.LogInformation("Per CleanupProcessorDisableForStatus setting, skipping cleanup for statuses: {Statuses}", string.Join(", ", skips));
+
         try
         {
             // Remove by status and aging settings
-            Task.WaitAll(
-                GetByStatusAsync(QueueScan.QueueScanStatus.Complete),
-                GetByStatusAsync(QueueScan.QueueScanStatus.Error),
-                GetByStatusAsync(QueueScan.QueueScanStatus.Processing),
-                GetByStatusAsync(QueueScan.QueueScanStatus.Loading),
-                GetByStatusAsync(QueueScan.QueueScanStatus.Cancel),
-                ProcessQueueAsync(crunConfig)
-            );
-            Logger.LogInformation("Pausing for 30 sec to allow delete to complete before looking for orphans...");
-            Task.Delay(TimeSpan.FromSeconds(30)).Wait(); // wait for the delete to finish before looking for orphans
+            if (tasks.Count == 0)
+            {
+                Logger.LogInformation("No queue scan statuses to clean up.");
+            }
+            else
+            {
+                tasks.Add(ProcessQueueAsync(crunConfig));
+                Task.WaitAll([.. tasks]);
+                Logger.LogInformation("Pausing for 30 sec to allow delete to complete before looking for orphans...");
+                Task.Delay(TimeSpan.FromSeconds(30)).Wait(); // wait for the delete to finish before looking for orphans
+            }
 
             // Remove orphan queue assets and queue issues by queue asset search
             Task.WaitAll(
                 GetByAssetOrphanAsync(),
                 ProcessQueueAsync(crunConfig)
             );
+
             // Remove orphan queue issues by queue issue search
             Task.WaitAll(
                 GetByIssueOrphanAsync(),

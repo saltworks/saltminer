@@ -44,6 +44,20 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         }
 
         /// <summary>
+        /// Returns a count of active manager instances
+        /// </summary>
+        /// <returns>The response object will indicate success and message will contain the count</returns>
+        /// <response code="200">Returns the requested object</response>
+        [Auth(Authentication.Role.Manager)]
+        [ProducesResponseType(200, Type = typeof(NoDataResponse))]
+        [HttpGet("[action]/count")]
+        public ActionResult<NoDataResponse> ManagerIdCount()
+        {
+            Logger.LogDebug("Manager ID count action called");
+            return Ok(Context.GetMgrInstanceCount());
+        }
+
+        /// <summary>
         /// Returns new manager instance ID
         /// </summary>
         /// <returns>The response object will indicate success and message will contain the instance ID</returns>
