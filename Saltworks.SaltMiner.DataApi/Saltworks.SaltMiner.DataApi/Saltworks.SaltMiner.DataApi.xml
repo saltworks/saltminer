@@ -965,6 +965,13 @@
             <returns>The response object will indicate success and message will contain the role</returns>
             <response code="200">Returns the requested object</response>
         </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RegisterController.ManagerIdCount">
+            <summary>
+            Returns a count of active manager instances
+            </summary>
+            <returns>The response object will indicate success and message will contain the count</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RegisterController.ManagerId">
             <summary>
             Returns new manager instance ID

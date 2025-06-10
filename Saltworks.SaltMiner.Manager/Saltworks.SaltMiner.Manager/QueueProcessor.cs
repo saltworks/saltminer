@@ -321,9 +321,21 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
 
             Task.WaitAll(GetAsync(), ProcessAsync(), FinishAsync());
         }
-        catch (CancelTokenException)
+        catch (TaskCanceledException)
         {
             // Already logged, so just do nothing but quit silently
+        }
+        catch (AggregateException ex)
+        {
+            if (ex.InnerExceptions.Count == 1 && ex.InnerException is TaskCanceledException)
+            {
+                // Already logged, so just do nothing but quit silently
+            }
+            else
+            {
+                Logger.LogError(ex, "Queue processor encountered an error: [{Type}] {Msg}", ex.InnerException.GetType().Name, ex.InnerException.Message);
+                throw new QueueProcessorException($"Unexpected error in queue processor: {ex.InnerException.Message}", ex);
+            }
         }
         finally
         {
