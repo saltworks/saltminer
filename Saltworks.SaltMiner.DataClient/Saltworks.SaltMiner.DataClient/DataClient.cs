@@ -102,7 +102,7 @@ namespace Saltworks.SaltMiner.DataClient
         /// <returns></returns>
         public NoDataResponse RegisterManagerInstanceCount()
         {
-            return CheckRetry(() => ApiClient.Get<NoDataResponse>("register/managerid/count")).Content;
+            return CheckRetry(() => ApiClient.Get<NoDataResponse>("register/manageridcount")).Content;
         }
 
         #endregion
@@ -2019,6 +2019,9 @@ namespace Saltworks.SaltMiner.DataClient
 
                 if (statusCode == HttpStatusCode.RequestEntityTooLarge)
                     msg = $"{msg}. Consider reducing the batch size if this request contains a batch of entities.";
+
+                if (statusCode == HttpStatusCode.MethodNotAllowed)
+                    msg = "Server responded with 'Method Not Allowed'.";
 
                 if (string.IsNullOrEmpty(msg) && response?.RawContent != null)
                     msg = $"Response raw content (up to 300 chars): {response?.RawContent?.Left(300)}";

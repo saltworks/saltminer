@@ -75,55 +75,61 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     {
         int nopeCount = 0;  // if we fail to lock for processing 3x in a row, we can skip forward for efficiency
         bool drawDownNope = false;
-        foreach (var qscan in GetPendingQueueScans())
+        try
         {
-            // Trigger "draw down" when nopeCount == 3, and then skip a batch of queue scans
-            if (nopeCount == 3 && !drawDownNope)
+            foreach (var qscan in GetPendingQueueScans())
             {
-                drawDownNope = true;
-                nopeCount = 200;
-                Logger.LogWarning("[Q-Get] Too many collisions detected, skipping forward up to {Count} queue scans", nopeCount);
-            }
-            if (nopeCount == 0)
-                drawDownNope = false;
-            if (drawDownNope)
-            {
-                nopeCount--;
-                continue;
-            }
-            try
-            {
-                CheckCancel(true);
-                QueueControl.CurrentSourceType = qscan.Saltminer.Scan.SourceType;
-                if (!await UpdateStatusAsync(qscan, QueueScan.QueueScanStatus.Pending, QueueScan.QueueScanStatus.Processing, EngagementStatus.Processing, false))
+                // Trigger "draw down" when nopeCount == 3, and then skip a batch of queue scans
+                if (nopeCount == 3 && !drawDownNope)
                 {
-                    // Skip if status update doesn't work
-                    Logger.LogInformation("[Q-Get] Skipping source '{SourceType}', instance '{Instance}', source scan ID '{Id}', queue scan ID '{Sid}', unable to lock for processing",
-                        qscan.Saltminer.Scan.SourceType, qscan.Saltminer.Scan.Instance, qscan.Saltminer.Scan.ReportId, qscan.Id);
-                    nopeCount++;
+                    drawDownNope = true;
+                    nopeCount = 200;
+                    Logger.LogWarning("[Q-Get] Too many collisions detected, skipping forward up to {Count} queue scans", nopeCount);
+                }
+                if (nopeCount == 0)
+                    drawDownNope = false;
+                if (drawDownNope)
+                {
+                    nopeCount--;
                     continue;
                 }
-                nopeCount--;
-                QueueControl.ProcessQueue.Enqueue(qscan);
+                try
+                {
+                    CheckCancel(true);
+                    QueueControl.CurrentSourceType = qscan.Saltminer.Scan.SourceType;
+                    if (!await UpdateStatusAsync(qscan, QueueScan.QueueScanStatus.Pending, QueueScan.QueueScanStatus.Processing, EngagementStatus.Processing, false))
+                    {
+                        // Skip if status update doesn't work
+                        Logger.LogInformation("[Q-Get] Skipping source '{SourceType}', instance '{Instance}', source scan ID '{Id}', queue scan ID '{Sid}', unable to lock for processing",
+                            qscan.Saltminer.Scan.SourceType, qscan.Saltminer.Scan.Instance, qscan.Saltminer.Scan.ReportId, qscan.Id);
+                        nopeCount++;
+                        continue;
+                    }
+                    nopeCount--;
+                    QueueControl.ProcessQueue.Enqueue(qscan);
+                }
+                catch (CancelTokenException)
+                {
+                    // Already logged, so just do nothing but quit silently
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "[Q-Get] Error updating status or queueing next pending scan (ID '{Id}'): [{Type}] {Msg}", qscan.Id, ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
+                    QueueControl.ProcessQueue.Enqueue(null);
+                }
+                while (QueueControl.ProcessQueue.Count >= QueueControl.PreloadCount && QueueControl.StillRunning)
+                {
+                    Logger.LogDebug("[Q-Get] Waiting for queue draw down...");
+                    await Task.Delay(TimeSpan.FromSeconds(3), RunConfig.CancelToken);
+                }
             }
-            catch (CancelTokenException)
-            {
-                // Already logged, so just do nothing but quit silently
-                break;
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "[Q-Get] Error updating status or queueing next pending scan (ID '{Id}'): [{Type}] {Msg}", qscan.Id, ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
-                QueueControl.ProcessQueue.Enqueue(null);
-            }
-            while (QueueControl.ProcessQueue.Count >= QueueControl.PreloadCount && QueueControl.StillRunning)
-            {
-                Logger.LogDebug("[Q-Get] Waiting for queue draw down...");
-                await Task.Delay(TimeSpan.FromSeconds(3), RunConfig.CancelToken);
-            }
+            Logger.LogInformation("[Q-Get] Complete, no more pending queue scans found.");
         }
-        Logger.LogInformation("[Q-Get] Complete, no more pending queue scans found.");
-        QueueControl.StillRunning = false; // No more queue scans to process
+        finally
+        {
+            QueueControl.StillRunning = false; // No more queue scans to process
+        }
     }
 
     /// <summary>
@@ -178,7 +184,15 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             QueueControl.TotalCount = queueScans.UIPagingInfo.Total ?? 0;
             Logger.LogInformation("[Q-Get] {Count} pending queue scans found in current batch.", QueueControl.TotalCount);
 
-            var alone = ManagerInstanceCount <= 1;
+            var alone = false;
+            try
+            {
+                alone = ManagerInstanceCount <= 1;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "[Q-Get] Failed to get manager instance count, assuming more than one.  Details: [{Type}] {Msg}", ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
+            }
             if (QueueControl.TotalCount <= Config.QueueProcessorInstanceBailoutCount && !alone)
             {
                 Logger.LogInformation("[Q-Get] Pending queue scan count ({Count}) is low enough for one instance, canceling this one.", QueueControl.TotalCount);

@@ -50,7 +50,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <response code="200">Returns the requested object</response>
         [Auth(Authentication.Role.Manager)]
         [ProducesResponseType(200, Type = typeof(NoDataResponse))]
-        [HttpGet("[action]/count")]
+        [HttpGet("[action]")]
         public ActionResult<NoDataResponse> ManagerIdCount()
         {
             Logger.LogDebug("Manager ID count action called");
