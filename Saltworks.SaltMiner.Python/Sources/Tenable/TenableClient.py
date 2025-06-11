@@ -21,6 +21,7 @@ class TenableClient:
             yield from self.tio.exports.vulns(
             severity = self.severity_list,
             state = ["OPEN", "REOPENED", "FIXED"],
+            include_unlicensed = True,
             since = 0000000000
             )
         else:
@@ -28,7 +29,8 @@ class TenableClient:
                 scan_uuid=scan_uuid,
                 severity = self.severity_list,
                 state = ["OPEN", "REOPENED", "FIXED"],
-                first_found = 0000000000
+                include_unlicensed = True,
+                since = 0000000000
                 )
             
     # def get_vuln_export_generator(self, scan_uuid):
