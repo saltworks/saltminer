@@ -513,7 +513,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
                 if (isIssue)
                 {
                     var batchDto = (await client.IssuesGetUpdatedAssetsAsync(fromDate, afterToken, null)).Content;
-                    if (batchDto.Data.IssuesV2 != null && batchDto.Data.IssuesV2.Nodes != null)
+                    if ((batchDto.Data.IssuesV2?.Nodes?.Count ?? 0) > 0 )
                     {
                         if (!string.IsNullOrEmpty(resumeIdFromSync))
                         {
@@ -535,7 +535,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
                 else
                 {
                     var batchDto = (await client.VulnsGetUpdatedAssetsAsync(fromDate, afterToken, null)).Content;
-                    if (batchDto.Data.VulnerabilityFindings != null && batchDto.Data.VulnerabilityFindings.Nodes != null)
+                    if ((batchDto.Data.VulnerabilityFindings?.Nodes?.Count ?? 0) > 0)
                     {
                         if (!string.IsNullOrEmpty(resumeIdFromSync))
                         {
