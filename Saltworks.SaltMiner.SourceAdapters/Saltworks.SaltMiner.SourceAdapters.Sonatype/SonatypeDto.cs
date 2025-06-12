@@ -108,6 +108,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
         public int PolicyThreatLevel { get; set; }
         public string PolicyViolationId { get; set; }
         public bool Waived { get; set; }
+        public bool WaivedWithAutoWaiver { get; set; }
         public bool Grandfathered { get; set; }
         public List<ConstraintDto> Constraints { get; set; }
         public string CompositeId => $"{PolicyId}~{PolicyName}~{PolicyThreatCategory}~{PolicyViolationId}";

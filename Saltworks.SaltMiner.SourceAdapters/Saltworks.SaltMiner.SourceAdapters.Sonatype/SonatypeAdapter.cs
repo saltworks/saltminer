@@ -84,7 +84,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             catch (Exception ex)
             {
                 Logger.LogCritical(ex, "Error in RunAsync: {Error}", ex.InnerException?.Message ?? ex.Message);
-                throw;
+                throw new SonatypeException($"Sonatype adapter failed: [{ex.GetType().Name}] {ex.InnerException?.Message ?? ex.Message}");
             }
         }
 
@@ -119,25 +119,25 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                 string fileName = "debugSourceFilters.txt";
                 if (File.Exists(fileName))
                 {
-                    Logger.LogWarning("Using {FileName} to process specific source applications only", fileName);
                     sourceFilters = await File.ReadAllLinesAsync(fileName);
+                    Logger.LogWarning("Using {FileName} to process specific source applications only. {Count} applications found in file.", fileName, sourceFilters.Length);
                 }
 
                 //Design decision: expectations to handle 10k applications
                 Logger.LogInformation($"[Sync] Getting Applications...");
                 var assets = (await client.GetAppsAsync());
 
+                if (sourceFilters.Length > 0)
+                {
+                    var filters = new HashSet<string>(sourceFilters);
+                    assets.Applications = assets.Applications.Where(x => filters.Contains(x.Id) || filters.Contains(x.PublicId) || filters.Contains(x.Name)).ToList();
+                    Logger.LogWarning("Filter file will limit the processing to only {Count} apps", assets.Applications.Count);
+                }
                 if (Config.TestingAssetLimit > 0)
                 {
                     assets.Applications = assets.Applications.Take(Config.TestingAssetLimit).ToList();
                 }
-                else if (sourceFilters.Length > 0)
-                {
-                    var filters = new HashSet<string>(sourceFilters);
-                    assets.Applications = assets.Applications.Where(x => filters.Contains(x.Id)).ToList();
-                    Logger.LogWarning("A filter file will limit the processing to only {Count} apps", assets.Applications.Count);
-                }
-
+                
                 var appTotal = assets.Applications.Count;
 
                 Logger.LogInformation("[Sync] Received {AppTotal} applications, starting SourceMetrics", appTotal);
@@ -523,7 +523,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                    },
                                    Severity = SeverityHelper.ValidSeverity(Config.IssueSeverityMap, violation.PolicyName),
                                    SourceSeverity = violation.PolicyName,
-                                   IsSuppressed = IsSuppressed(violation)
+                                   IsSuppressed = violation.Waived || violation.Grandfathered || violation.WaivedWithAutoWaiver
                                },
                                Saltminer = new()
                                {
@@ -531,6 +531,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                    Attributes = new Dictionary<string, string>
                                    {
                                        {"waived", violation.Waived.ToString() },
+                                       {"waivedWithAutoWaiver", violation.WaivedWithAutoWaiver.ToString() },
                                        {"grandfathered", violation.Grandfathered.ToString() },
                                        {"policyType", violation.PolicyThreatCategory.ToString() }
 
@@ -576,12 +577,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
         {
             var issueCount = components?.SelectMany(c => c?.Violations).Count(v => v.PolicyName.ToLower().Contains(severity)) ?? 0;
             return issueCount;
-        }
-
-        private static bool IsSuppressed(ViolationDto violation)
-        {
-            if (violation.Waived || violation.Grandfathered) return true;
-            return false;
         }
     }
 }

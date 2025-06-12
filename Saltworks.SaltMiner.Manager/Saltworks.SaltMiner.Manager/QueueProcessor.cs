@@ -149,11 +149,18 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             }
         };
 
+        var irSpecific = false;  // controls whether we will continue to run as a "second" instance with low matching queue scan counts
         if (!string.IsNullOrEmpty(RunConfig.SourceType))
+        {
             queueScanSearch.Filter.FilterMatches.Add("Saltminer.Scan.SourceType", RunConfig.SourceType);
+            irSpecific = true;
+        }
 
         if (!string.IsNullOrEmpty(RunConfig.QueueScanId))
+        {
             queueScanSearch.Filter.FilterMatches.Add("Id", RunConfig.QueueScanId);
+            irSpecific = true;
+        }
 
         queueScanSearch.Filter.FilterMatches.Add("Saltminer.Internal.CurrentQueueScanId", SaltMiner.DataClient.Helpers.BuildMustNotExistsFilterValue());
 
@@ -187,7 +194,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             var alone = false;
             try
             {
-                alone = ManagerInstanceCount <= 1;
+                alone = irSpecific || ManagerInstanceCount <= 1;
             }
             catch (Exception ex)
             {
@@ -327,7 +334,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         }
         catch (AggregateException ex)
         {
-            if (ex.InnerExceptions.Count == 1 && ex.InnerException is TaskCanceledException)
+            if (ex.InnerException is TaskCanceledException)
             {
                 // Already logged, so just do nothing but quit silently
             }
@@ -424,7 +431,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                     QueueControl.FinishQueue.Enqueue(queueScan);
                     count++;
                 }
-                catch (CancelTokenException)
+                catch (TaskCanceledException)
                 {
                     // Already logged, so just do nothing but quit silently
                 }
@@ -455,14 +462,14 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             // issues_active alias maintenance - make sure alias exists for issues indices gathered while processing queues
             UpdateActiveIssueAlias(QueueControl.IndexNames.ToList());
         }
-        catch (CancelTokenException)
+        catch (TaskCanceledException)
         {
             // Already logged, so just do nothing but quit silently
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[Q-Process] Error in queue processor");
-            throw new QueueProcessorException($"Error in queue processor: {ex.Message}", ex);
+            throw new QueueProcessorException($"Error in queue processor: [{ex.GetType().Name}] {ex.InnerException?.Message ?? ex.Message}", ex);
         }
         finally
         {

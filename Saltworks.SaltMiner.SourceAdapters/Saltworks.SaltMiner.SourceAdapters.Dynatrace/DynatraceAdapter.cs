@@ -358,7 +358,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
                 }
                 else
                 {
-                    afterToken = issueBatch.Records.Last().Id;
+                    afterToken = issueBatch.Records[-1].Id;
 
                     foreach (var issue in issueBatch.Records)
                     {
@@ -387,7 +387,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
                         {
                             AssessmentType = assessmentType,
                             Product = Product,
-                            ReportId = noScan ? GetNoScanReportId(assessmentType) : $"{sourceId}|{scanDate:yyyy-MM-dd}",
+                            ReportId = noScan ? GetNoScanReportId(assessmentType) : $"{sourceId}|{scanDate:yyyyMMdd-HHmm}",
                             ScanDate = noScan ? now : scanDate,
                             ProductType = "Application",
                             Vendor = Vendor,
