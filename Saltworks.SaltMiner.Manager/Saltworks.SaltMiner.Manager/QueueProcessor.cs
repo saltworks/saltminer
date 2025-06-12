@@ -340,8 +340,15 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             }
             else
             {
-                Logger.LogError(ex, "Queue processor encountered an error: [{Type}] {Msg}", ex.InnerException.GetType().Name, ex.InnerException.Message);
-                throw new QueueProcessorException($"Unexpected error in queue processor: {ex.InnerException.Message}", ex);
+                var name = ex.InnerException?.GetType().Name;
+                var msg = ex.InnerException?.Message;
+                if (string.IsNullOrEmpty(name))
+                {
+                    name = ex.GetType().Name;
+                    msg = ex.Message;
+                }
+                Logger.LogError(ex, "Queue processor encountered an error: [{Type}] {Msg}", name, msg);
+                throw new QueueProcessorException($"Unexpected error in queue processor: [{name}] {msg}", ex);
             }
         }
         finally
