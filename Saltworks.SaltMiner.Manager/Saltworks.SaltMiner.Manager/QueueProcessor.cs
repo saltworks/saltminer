@@ -339,13 +339,17 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
 
             Task.WaitAll(GetAsync(), ProcessAsync(), FinishAsync());
         }
+        catch (CancelTokenException)
+        {
+            // Already logged, so just do nothing but quit silently
+        }
         catch (TaskCanceledException)
         {
             // Already logged, so just do nothing but quit silently
         }
         catch (AggregateException ex)
         {
-            if (ex.InnerException is TaskCanceledException)
+            if (ex.InnerException is CancelTokenException || ex.InnerException is TaskCanceledException)
             {
                 // Already logged, so just do nothing but quit silently
             }
@@ -452,7 +456,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                     QueueControl.FinishQueue.Enqueue(queueScan);
                     count++;
                 }
-                catch (TaskCanceledException)
+                catch (CancelTokenException)
                 {
                     // Already logged, so just do nothing but quit silently
                 }
@@ -483,7 +487,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             // issues_active alias maintenance - make sure alias exists for issues indices gathered while processing queues
             UpdateActiveIssueAlias(QueueControl.IndexNames.ToList());
         }
-        catch (TaskCanceledException)
+        catch (CancelTokenException)
         {
             // Already logged, so just do nothing but quit silently
         }
