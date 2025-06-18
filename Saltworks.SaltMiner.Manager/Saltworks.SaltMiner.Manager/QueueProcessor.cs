@@ -96,6 +96,11 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 try
                 {
                     CheckCancel(true);
+                    if (!QueueControl.ProcessStillRunning)
+                    {
+                        Logger.LogInformation("[Q-Get] Process queue is not running, stopping Get.");
+                        break;
+                    }
                     QueueControl.CurrentSourceType = qscan.Saltminer.Scan.SourceType;
                     if (!await UpdateStatusAsync(qscan, QueueScan.QueueScanStatus.Pending, QueueScan.QueueScanStatus.Processing, EngagementStatus.Processing, false))
                     {
@@ -105,7 +110,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                         nopeCount++;
                         continue;
                     }
-                    nopeCount--;
+                    if (nopeCount > 0)
+                        nopeCount--;
                     QueueControl.ProcessQueue.Enqueue(qscan);
                 }
                 catch (CancelTokenException)
@@ -118,17 +124,17 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                     Logger.LogError(ex, "[Q-Get] Error updating status or queueing next pending scan (ID '{Id}'): [{Type}] {Msg}", qscan.Id, ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
                     QueueControl.ProcessQueue.Enqueue(null);
                 }
-                while (QueueControl.ProcessQueue.Count >= QueueControl.PreloadCount && QueueControl.StillRunning)
+                while (QueueControl.ProcessQueue.Count >= QueueControl.PreloadCount && QueueControl.ProcessStillRunning)
                 {
                     Logger.LogDebug("[Q-Get] Waiting for queue draw down...");
                     await Task.Delay(TimeSpan.FromSeconds(3), RunConfig.CancelToken);
                 }
             }
-            Logger.LogInformation("[Q-Get] Complete, no more pending queue scans found.");
+            Logger.LogInformation("[Q-Get] Complete.");
         }
         finally
         {
-            QueueControl.StillRunning = false; // No more queue scans to process
+            QueueControl.GetStillRunning = false; // No more queue scans to process
         }
     }
 
@@ -164,7 +170,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
 
         queueScanSearch.Filter.FilterMatches.Add("Saltminer.Internal.CurrentQueueScanId", SaltMiner.DataClient.Helpers.BuildMustNotExistsFilterValue());
 
-        while (true)
+        var breakOut = false;
+        while (!breakOut)
         {
             // If needed, add subfilter to exclude sources from the sources removed list
             if (!QueueControl.SourcesRemoved.IsEmpty)
@@ -226,6 +233,13 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                     count++;
                     continue;
                 }
+                // reached passed limit
+                if (RunConfig.Limit > 0 && count >= RunConfig.Limit)
+                {
+                    Logger.LogInformation("[Q-Get] Limit of {Limit} reached, ending processing.", RunConfig.Limit);
+                    breakOut = true;
+                    break;
+                }
                 // issues_active alias maintenance - build a list of issue index names seen during processing
                 var idx = Issue.GenerateIndex(qs.Saltminer.Scan.AssetType, qs.Saltminer.Scan.SourceType, qs.Saltminer.Scan.Instance);
                 if (!QueueControl.IndexNames.Contains(idx))
@@ -242,11 +256,6 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 Logger.LogInformation("[Q-Get] No eligible queue scans found in current batch, ending processing.");
                 break;
             }
-            if (RunConfig.Limit > 0 && count >= RunConfig.Limit)
-            {
-                Logger.LogInformation("[Q-Get] Limit of {Limit} reached, ending processing.", RunConfig.Limit);
-                break;
-            }
         }
     }
 
@@ -255,9 +264,9 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     /// </summary>
     private async Task FinishAsync()
     {
-        while (!QueueControl.FinishQueue.IsEmpty || QueueControl.StillRunning)
+        while (!QueueControl.FinishQueue.IsEmpty || QueueControl.ProcessStillRunning)
         {
-            while (QueueControl.FinishQueue.IsEmpty && QueueControl.StillRunning)
+            while (QueueControl.FinishQueue.IsEmpty && QueueControl.ProcessStillRunning)
             {
                 CheckCancel(true);
                 Logger.LogDebug("[Q-Finish] Waiting for new finish queue items to process...");
@@ -294,6 +303,9 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 }
             }
         }
+        if (!QueueControl.FinishQueue.IsEmpty)
+            Logger.LogError("[Q-Finish] {Count} queue scan(s) still in finish queue when processing complete.", QueueControl.FinishQueue.Count);
+        Logger.LogInformation("[Q-Finish] Queue processing complete.");
     }
 
     /// <summary>
@@ -316,7 +328,6 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             Config.QueueProcessorInstances = 1;
         }
 
-        QueueControl.StillRunning = true;
         try
         {
             InstanceId = DataClient.RegisterNewManagerInstanceId().Message;
@@ -356,22 +367,25 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             if (!string.IsNullOrEmpty(InstanceId))
             {
                 Unlock();
-                DataClient.RegisterDeleteManagerInstanceId(InstanceId);
             }
         }
     }
 
     private void Unlock()
     {
+        var failedUnlock = true;
         try
         {
             var rsp = DataClient.QueueScanUnlock(InstanceId);
             Logger.LogInformation("Cleaned up instance locks for {Count} queue scans", rsp.Affected);
+            failedUnlock = false;
+            DataClient.RegisterDeleteManagerInstanceId(InstanceId);
         }
         catch (Exception ex)
         {
             // Just log the error
-            Logger.LogError(ex, "Failed to clean up instance locks on queue scans: {Msg}", ex.InnerException?.Message ?? ex.Message);
+            var msg = failedUnlock ? "Failed to clean up instance locks on queue scans" : "Failed to clear manager instance ID";
+            Logger.LogError(ex, "{Msg}: {Err}", msg, ex.InnerException?.Message ?? ex.Message);
         }
     }
 
@@ -384,7 +398,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         {
             var count = 0;
             QueueScan queueScan = null;
-            while (!QueueControl.ProcessQueue.IsEmpty || QueueControl.StillRunning)
+            while (!QueueControl.ProcessQueue.IsEmpty || QueueControl.GetStillRunning)
             {
                 CheckCancel(true);
                 try
@@ -400,7 +414,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                     }
 
                     // Wait for GetAsync to run if queue empty
-                    while (QueueControl.ProcessQueue.IsEmpty && QueueControl.StillRunning)
+                    while (QueueControl.ProcessQueue.IsEmpty && QueueControl.GetStillRunning)
                     {
                         CheckCancel(true);
                         Logger.LogDebug("[Q-Process] Nothing in queue to process, waiting 5 sec...");
@@ -480,7 +494,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         }
         finally
         {
-            QueueControl.StillRunning = false;
+            QueueControl.ProcessStillRunning = false;
         }
     }
 
@@ -1843,7 +1857,44 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         internal int ErrorCount { get; set; } = 0;
         internal string CurrentSourceType { get; set; } = "";
         internal int PreloadCount { get; set; } = 10;
-        internal bool StillRunning { get; set; } = true;
+        private bool _GetStillRunning = true;
+        private readonly object _GetLock = new();
+        internal bool GetStillRunning
+        {
+            get
+            {
+                lock (_GetLock)
+                {
+                    return _GetStillRunning;
+                }
+            }
+            set
+            {
+                lock (_GetLock)
+                {
+                    _GetStillRunning = value;
+                }
+            }
+        }
+        private bool _ProcessStillRunning = true;
+        private readonly object _ProcessLock = new();
+        internal bool ProcessStillRunning
+        {
+            get
+            {
+                lock (_ProcessLock)
+                {
+                    return _ProcessStillRunning;
+                }
+            }
+            set
+            {
+                lock (_ProcessLock)
+                {
+                    _ProcessStillRunning = value;
+                }
+            }
+        }
         internal ConcurrentBag<string> IndexNames { get; set; } = [];
         internal ConcurrentBag<string> SourcesRemoved { get; set; } = [];
         internal ConcurrentQueue<QueueScan> ProcessQueue { get; set; } = [];
