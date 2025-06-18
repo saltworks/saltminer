@@ -15,6 +15,7 @@
  */
 
 ﻿using Microsoft.Extensions.Logging;
+using Org.BouncyCastle.Asn1.Cmp;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Extensions;
 using Saltworks.SaltMiner.Core.Util;
@@ -474,16 +475,30 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         {
             var assetIds = new List<string>();  // track seen IDs so can skip duplicates
             var mySync = syncRecord.GetData();
-            if (mySync.Item3 != "i")  // "i" means we've finished "v" already in a prior run
+            if (Config.SkipVulns)
             {
-                await foreach (var a in GetAsync<Vulnerability>(client, syncRecord, assetIds))
-                    yield return a;
-                syncRecord.SetData(mySync.Item1 ?? default, mySync.Item2, "i");
-                LocalData.AddUpdate(syncRecord, true);
+                Logger.LogWarning("[Get] Skipping Wiz vulnerability updates per configuration.");
             }
-            assetIds.Clear(); // clear before starting issues - asset IDs no longer seem to cross
-            await foreach (var a in GetAsync<Issue>(client, syncRecord, assetIds))
-                yield return a;
+            else
+            {
+                if (mySync.Item3 != "i")  // "i" means we've finished "v" already in a prior run
+                {
+                    await foreach (var a in GetAsync<Vulnerability>(client, syncRecord, assetIds))
+                        yield return a;
+                    syncRecord.SetData(mySync.Item1 ?? default, mySync.Item2, "i");
+                    LocalData.AddUpdate(syncRecord, true);
+                }
+            }
+            if (Config.SkipIssues)
+            {
+                Logger.LogWarning("[Get] Skipping Wiz issue updates per configuration.");
+            }
+            else
+            {
+                assetIds.Clear(); // clear before starting issues - asset IDs no longer seem to cross
+                await foreach (var a in GetAsync<Issue>(client, syncRecord, assetIds))
+                    yield return a;
+            }
         }
 
         /// <summary>

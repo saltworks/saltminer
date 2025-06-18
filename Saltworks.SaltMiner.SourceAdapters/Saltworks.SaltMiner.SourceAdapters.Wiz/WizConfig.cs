@@ -57,6 +57,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         public int MaxApiDaysToPull { get; set; } = 14;
         public DateTime? OverrideFromDate { get; set; } = null;
         public string OverrideWizType { get; set; } = null;
+        public bool SkipVulns { get; set; } = false;
+        public bool SkipIssues { get; set; } = false;
         public override string CurrentCompatibleApiVersion => "3.1.0";
         public override string MinimumCompatibleApiVersion => "3.0.8";
 
@@ -83,6 +85,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
             if (SyncHoldForSendThreshold < 200 || SyncResumeWhenSendThreshold < 50 || SyncHoldForSendThreshold - SyncResumeWhenSendThreshold <= 50)
             {
                 throw new SourceConfigurationException($"Invalid {nameof(SyncHoldForSendThreshold)} and/or {nameof(SyncResumeWhenSendThreshold)}.  Minimums are 200 and 50 and they must be at least 50 apart.");
+            }
+            if (SkipVulns && SkipIssues)
+            {
+                throw new SourceConfigurationException("Both vulnerabilities and issues are set to be skipped - this is invalid.  Please check Wiz source configuration.");
             }
         }
     }
