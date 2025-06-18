@@ -303,7 +303,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 }
             }
         }
-        if (!QueueControl.FinishQueue.IsEmpty)
+        if (!QueueControl.FinishQueue.IsEmpty && !RunConfig.CancelToken.IsCancellationRequested)
             Logger.LogError("[Q-Finish] {Count} queue scan(s) still in finish queue when processing complete.", QueueControl.FinishQueue.Count);
         Logger.LogInformation("[Q-Finish] Queue processing complete.");
     }
@@ -489,7 +489,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "[Q-Process] Error in queue processor");
+            Logger.LogError(ex, "[Q-Process] Error in queue processor: [{Type}] {Msg}", ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
             throw new QueueProcessorException($"Error in queue processor: [{ex.GetType().Name}] {ex.InnerException?.Message ?? ex.Message}", ex);
         }
         finally
