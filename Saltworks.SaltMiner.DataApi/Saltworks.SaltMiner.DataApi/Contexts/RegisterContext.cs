@@ -26,19 +26,17 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
     {
         public NoDataResponse NewMgrInstance()
         {
-            var inst = $"mgr-{ApiCache.NextManagerInstanceId:D3}";
-            ApiCache.ManagerInstances.Add(inst);
-            ApiCache.NextManagerInstanceId++;
+            var inst = ApiCache.ManagerInstanceManager.NewManagerInstance();
             return new(1, inst);
         }
 
         public NoDataResponse DelMgrInstance(string instance)
         {
-            var did = ApiCache.ManagerInstances.Remove(instance);
-            return new NoDataResponse(did ? 1 : 0);
+            var did = ApiCache.ManagerInstanceManager.RemoveManagerInstance(instance);
+            return new NoDataResponse(did);
         }
 
-        public NoDataResponse GetMgrInstanceCount() => new(ApiCache.ManagerInstances.Count);
+        public NoDataResponse GetMgrInstanceCount() => new(ApiCache.ManagerInstanceManager.ManagerInstances.Count);
 
         public NoDataResponse GetRole()
         {

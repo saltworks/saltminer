@@ -213,6 +213,9 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
         public NoDataResponse UpdateStatus(string id, string fromStatus, string toStatus, string lockId = "")
         {
+            if (!string.IsNullOrEmpty(lockId))
+                ApiCache.ManagerInstanceManager.SawManagerInstance(lockId);
+
             const string ANY_STATUS = "[any]";
             if (string.IsNullOrEmpty(fromStatus) || fromStatus == QueueScanStatus.None.ToString("g"))
                 fromStatus = ANY_STATUS;
