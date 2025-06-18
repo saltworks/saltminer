@@ -14,7 +14,7 @@
  * ----
  */
 
-using Microsoft.AspNetCore.Http.Metadata;
+using Elastic.CommonSchema;
 using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
@@ -23,6 +23,7 @@ using Saltworks.SaltMiner.DataApi.Data;
 using Saltworks.SaltMiner.DataApi.Extensions;
 using Saltworks.SaltMiner.DataApi.Models;
 using Saltworks.SaltMiner.ElasticClient;
+using Serilog.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -30,15 +31,11 @@ using static Saltworks.SaltMiner.Core.Entities.QueueScan;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts
 {
-    public class QueueScanContext : ContextBase
+    public class QueueScanContext(IServiceProvider services, ILogger<QueueScanContext> logger) : ContextBase(services, logger)
     {
         private readonly string QueueScanIndex = GenerateIndex();
         private readonly string QueueIssueIndex = QueueIssue.GenerateIndex();
         private readonly string QueueAssetIndex = QueueAsset.GenerateIndex();
-
-        public QueueScanContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<QueueScanContext> logger) : base(config, dataRepository, factory, logger)
-        {
-        }
 
         public DataItemResponse<QueueScan> AddUpdate(DataItemRequest<QueueScan> request)
         {
