@@ -256,69 +256,70 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
 
                         #region Issues
 
-                        var count = 0;
-                        var firstIssue = true;
-                        string sourceId = asset.Id;
-                        QueueScan qScan = null;
-                        QueueAsset qAsset = null;
+                        if (asset.AssetType == typeof(Issue).Name)
+                        {
+                            var count = 0;
+                            var firstIssue = true;
+                            string sourceId = asset.Id;
+                            QueueScan qScan = null;
+                            QueueAsset qAsset = null;
 
-                        // 1a. Issues - for current asset, pull and process issues
-                        await foreach (var issue in GetListFromApiAsync<Issue>(client, asset.Id))
-                        {
-                            CheckCancel(true);
-                            currentThing = "[unknown]";
-                            try
+                            // 1a. Issues - for current asset, pull and process issues
+                            await foreach (var issue in GetListFromApiAsync<Issue>(client, asset.Id))
                             {
-                                // Dates in the API and report seem to be UTC, so not converting.
-                                if (!isDiffUpdate)
-                                    issue.ResolveReportFields();
-                                issue.ResolveWizUrl(Config.WizUiIssueUriLeft, Config.WizUiIssueUriRight);
-                                if (issue.Control == null || string.IsNullOrEmpty(issue.Control.Id) || string.IsNullOrEmpty(issue.Control.Name))
+                                CheckCancel(true);
+                                currentThing = "[unknown]";
+                                try
                                 {
-                                    Logger.LogWarning("[Sync] Invalid Wiz issue, missing required control information (ID and/or name).  Skipping.");
-                                    continue;
+                                    // Dates in the API and report seem to be UTC, so not converting.
+                                    issue.ResolveWizUrl(Config.WizUiIssueUriLeft, Config.WizUiIssueUriRight);
+                                    if (issue.Control == null || string.IsNullOrEmpty(issue.Control.Id) || string.IsNullOrEmpty(issue.Control.Name))
+                                    {
+                                        Logger.LogWarning("[Sync] Invalid Wiz issue, missing required control information (ID and/or name).  Skipping.");
+                                        continue;
+                                    }
+                                    else
+                                    {
+                                        currentThing = $"ID: {issue.Control.Id}, Issue: {issue.Control.Name}, Asset: {issue.EntitySnapshot.Name}";
+                                    }
+                                    if (firstIssue)
+                                    {
+                                        sourceId = string.IsNullOrEmpty(issue.EntitySnapshot?.Id) ? sourceId : issue.EntitySnapshot.Id;
+                                        if (string.IsNullOrEmpty(sourceId))
+                                            throw new WizValidationException("Invalid asset, couldn't determine source ID");
+                                        qScan = MapScan<Issue>(sourceId);
+                                        qAsset = MapAsset(qScan, issue, sourceId);
+                                        newLocalScans++;
+                                        newLocalAssets++;
+                                    }
+                                    MapIssue(issue, qScan, qAsset);
+                                    newLocalIssues++;
+                                    firstIssue = false;
                                 }
-                                else
+                                catch (Exception ex)
                                 {
-                                    currentThing = $"ID: {issue.Control.Id}, Issue: {issue.Control.Name}, Asset: {issue.EntitySnapshot.Name}";
+                                    Logger.LogError(ex, "[Sync] Failure loading issue '{Issue}': [{Type}] {Msg}", currentThing, ex.GetType().Name, ex.Message);
+                                    issueExceptionCounter++;
+                                    if (issueExceptionCounter > Config.MaxIssueOrVulnExceptions)
+                                        throw new WizIssueFailedException($"[Sync] Max error count of {issueExceptionCounter} reached, aborting processing asset.");
                                 }
-                                if (firstIssue)
+                                count++;
+                                if (count % 1000 == 0)
                                 {
-                                    sourceId = string.IsNullOrEmpty(issue.EntitySnapshot?.Id) ? sourceId : issue.EntitySnapshot.Id;
-                                    if (string.IsNullOrEmpty(sourceId))
-                                        throw new WizValidationException("Invalid asset, couldn't determine source ID");
-                                    qScan = MapScan<Issue>(sourceId);
-                                    qAsset = MapAsset(qScan, issue, sourceId);
-                                    newLocalScans++;
-                                    newLocalAssets++;
+                                    Logger.LogInformation("[Sync] Loading issues for asset ID {Id}, {Count} processed so far.", asset.Id, count);
+                                    Logger.LogDebug("Current issue: '{Issue}'", currentThing);
                                 }
-                                MapIssue(issue, qScan, qAsset);
-                                newLocalIssues++;
-                                firstIssue = false;
                             }
-                            catch (Exception ex)
+                            if (qScan == null)
                             {
-                                Logger.LogError(ex, "[Sync] Failure loading issue '{Issue}': [{Type}] {Msg}", currentThing, ex.GetType().Name, ex.Message);
-                                issueExceptionCounter++;
-                                if (issueExceptionCounter > Config.MaxIssueOrVulnExceptions)
-                                    throw new WizIssueFailedException($"[Sync] Max error count of {issueExceptionCounter} reached, aborting processing asset.");
+                                Logger.LogDebug("[Sync] No issues found for asset with ID '{Id}' and name '{Name}'.", asset.Id, asset.Name);
                             }
-                            count++;
-                            if (count % 1000 == 0)
+                            else
                             {
-                                Logger.LogInformation("[Sync] Loading issues for asset ID {Id}, {Count} processed so far.", asset.Id, count);
-                                Logger.LogDebug("Current issue: '{Issue}'", currentThing);
+                                qScan = MapScanLastScan(qScan, LocalData.GetLatestFoundDate(qScan.Id), sourceId);
+                                qScan.Loading = false;
+                                LocalData.AddUpdate(qScan);
                             }
-                        }
-                        if (qScan == null)
-                        {
-                            Logger.LogDebug("[Sync] No issues found for asset with ID '{Id}' and name '{Name}'.", asset.Id, asset.Name);
-                        }
-                        else
-                        {
-                            qScan = MapScanLastScan(qScan, LocalData.GetLatestFoundDate(qScan.Id), sourceId);
-                            qScan.Loading = false;
-                            LocalData.AddUpdate(qScan);
                         }
 
                         #endregion
@@ -327,61 +328,64 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
 
                         #region Vulnerabilities
 
-                        count = 0;
-                        firstIssue = true;
-                        sourceId = asset.Id;  // source ID value (asset.Id) also set in GetSourceMetric call above
-                        qScan = null;
-                        qAsset = null;
-                        // 1b. Vulns - for current asset, pull and process vulnerabilities
-                        await foreach (var vuln in GetListFromApiAsync<Vulnerability>(client, asset.Id))
+                        if (asset.AssetType == typeof(Vulnerability).Name)
                         {
-                            CheckCancel(true);
-                            currentThing = "[unknown]";
-                            try
+                            var count = 0;
+                            var firstIssue = true;
+                            var sourceId = asset.Id;  // source ID value (asset.Id) also set in GetSourceMetric call above
+                            QueueScan qScan = null;
+                            QueueAsset qAsset = null;
+                            // 1b. Vulns - for current asset, pull and process vulnerabilities
+                            await foreach (var vuln in GetListFromApiAsync<Vulnerability>(client, asset.Id))
                             {
-                                // Dates in the API and report seem to be UTC, so not converting.
-                                if (!isDiffUpdate)
-                                    vuln.ResolveReportFields();
-                                vuln.ResolveWizUrl(Config.WizUiVulnUriLeft, Config.WizUiVulnUriRight);
-                                currentThing = $"ID: {vuln.Id}, Vuln: {vuln.Name}, Asset: {vuln.VulnerableAsset.Name}";
-                                if (firstIssue)
+                                CheckCancel(true);
+                                currentThing = "[unknown]";
+                                try
                                 {
-                                    sourceId = vuln.VulnerableAsset.Id;
-                                    if (string.IsNullOrEmpty(sourceId))
-                                        throw new WizValidationException("Invalid asset, couldn't determine source ID");
-                                    qScan = MapScan<Vulnerability>(sourceId);
-                                    metric.LastScan = qScan.Entity.Saltminer.Scan.ScanDate;
-                                    qAsset = MapAsset(qScan, vuln, sourceId);
-                                    newLocalScans++;
-                                    newLocalAssets++;
+                                    // Dates in the API and report seem to be UTC, so not converting.
+                                    if (!isDiffUpdate)
+                                        vuln.ResolveReportFields();
+                                    vuln.ResolveWizUrl(Config.WizUiVulnUriLeft, Config.WizUiVulnUriRight);
+                                    currentThing = $"ID: {vuln.Id}, Vuln: {vuln.Name}, Asset: {vuln.VulnerableAsset.Name}";
+                                    if (firstIssue)
+                                    {
+                                        sourceId = vuln.VulnerableAsset.Id;
+                                        if (string.IsNullOrEmpty(sourceId))
+                                            throw new WizValidationException("Invalid asset, couldn't determine source ID");
+                                        qScan = MapScan<Vulnerability>(sourceId);
+                                        metric.LastScan = qScan.Entity.Saltminer.Scan.ScanDate;
+                                        qAsset = MapAsset(qScan, vuln, sourceId);
+                                        newLocalScans++;
+                                        newLocalAssets++;
+                                    }
+                                    MapIssue(vuln, qScan, qAsset);
+                                    newLocalIssues++;
+                                    firstIssue = false;
                                 }
-                                MapIssue(vuln, qScan, qAsset);
-                                newLocalIssues++;
-                                firstIssue = false;
+                                catch (Exception ex)
+                                {
+                                    Logger.LogError(ex, "[Sync] Failure loading vulnerability '{Vuln}': [{Type}] {Msg}", currentThing, ex.GetType().Name, ex.Message);
+                                    issueExceptionCounter++;
+                                    if (issueExceptionCounter > Config.MaxIssueOrVulnExceptions)
+                                        throw new WizIssueFailedException($"[Sync] Max error count of {issueExceptionCounter} reached, aborting processing issues.");
+                                }
+                                count++;
+                                if (count % 5000 == 0)
+                                {
+                                    Logger.LogInformation("[Sync] Loading vulnerabilities for asset ID {Id}, {Count} processed so far.", asset.Id, count);
+                                    Logger.LogDebug("Current vulnerability: '{Vuln}'", currentThing);
+                                }
                             }
-                            catch (Exception ex)
+                            if (qScan == null)
                             {
-                                Logger.LogError(ex, "[Sync] Failure loading vulnerability '{Vuln}': [{Type}] {Msg}", currentThing, ex.GetType().Name, ex.Message);
-                                issueExceptionCounter++;
-                                if (issueExceptionCounter > Config.MaxIssueOrVulnExceptions)
-                                    throw new WizIssueFailedException($"[Sync] Max error count of {issueExceptionCounter} reached, aborting processing issues.");
+                                Logger.LogDebug("[Sync] No vulns found for asset with ID '{Id}' and name '{Name}'.", asset.Id, asset.Name);
                             }
-                            count++;
-                            if (count % 5000 == 0)
+                            else
                             {
-                                Logger.LogInformation("[Sync] Loading vulnerabilities for asset ID {Id}, {Count} processed so far.", asset.Id, count);
-                                Logger.LogDebug("Current vulnerability: '{Vuln}'", currentThing);
+                                qScan = MapScanLastScan(qScan, LocalData.GetLatestFoundDate(qScan.Id), sourceId);
+                                qScan.Loading = false;
+                                LocalData.AddUpdate(qScan);
                             }
-                        }
-                        if (qScan == null)
-                        {
-                            Logger.LogDebug("[Sync] No vulns found for asset with ID '{Id}' and name '{Name}'.", asset.Id, asset.Name);
-                        }
-                        else
-                        {
-                            qScan = MapScanLastScan(qScan, LocalData.GetLatestFoundDate(qScan.Id), sourceId);
-                            qScan.Loading = false;
-                            LocalData.AddUpdate(qScan);
                         }
 
                         #endregion
@@ -470,13 +474,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         {
             var assetIds = new List<string>();  // track seen IDs so can skip duplicates
             var mySync = syncRecord.GetData();
-            if (mySync.Item3 != "i")
+            if (mySync.Item3 != "i")  // "i" means we've finished "v" already in a prior run
             {
                 await foreach (var a in GetAsync<Vulnerability>(client, syncRecord, assetIds))
                     yield return a;
                 syncRecord.SetData(mySync.Item1 ?? default, mySync.Item2, "i");
                 LocalData.AddUpdate(syncRecord, true);
             }
+            assetIds.Clear(); // clear before starting issues - asset IDs no longer seem to cross
             await foreach (var a in GetAsync<Issue>(client, syncRecord, assetIds))
                 yield return a;
         }

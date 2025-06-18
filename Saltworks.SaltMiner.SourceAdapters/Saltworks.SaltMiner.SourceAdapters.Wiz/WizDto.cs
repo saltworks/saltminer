@@ -127,6 +127,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
 
         public string Id { get; set; }
         public string Name { get; set; }
+        public string AssetType { get; set; }
     }
 
     public class DataDto
@@ -201,27 +202,23 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
     public class IssueAsset
     {
         public string Id { get; set; }
-        public AssetInfo EntitySnapshot { get; set; }
-        // Report fields
-        /// <summary>Do not map, not set by API</summary>
-        public string ResourceVertexId { get; set; }
-        /// <summary>Do not map, not set by API</summary>
-        public string ResourceName { get; set; }
-        public IssueAsset ResolveReportFields()
+        private AssetInfo _EntitySnapshot = null;
+        public AssetInfo EntitySnapshot
         {
-            EntitySnapshot = new()
+            get => _EntitySnapshot;
+            set
             {
-                Id = ResourceVertexId,
-                Name = ResourceName
-            };
-            return this;
+                _EntitySnapshot = value;
+                _EntitySnapshot.AssetType = typeof(Issue).Name;
+            }
         }
     }
 
     public class Issue
     {
         public string Id { get; set; }
-        public IssueControl Control { get; set; }
+        public IssueSourceRule Control => SourceRules?.FirstOrDefault();
+        public List<IssueSourceRule> SourceRules { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
         public DateTime? DueAt { get; set; }
@@ -232,7 +229,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         public string Severity { get; set; }
         public IssueEntitySnapshot EntitySnapshot { get; set; }
         public string Note { get; set; }
-        public List<ServiceTicketsDTO> ServiceTickets { get; set; }
+        public List<ServiceTicketsDto> ServiceTickets { get; set; }
         // Report fields
         /// <summary>Do not map, not set by API</summary>
         public string Title { get; set; }
@@ -277,48 +274,20 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
             if (string.IsNullOrEmpty(WizUrl) && !string.IsNullOrEmpty(IssueId))
                 WizUrl = $"{uiUriLeft}{IssueId}{uiUriRight}";
         }
-
-        public Issue ResolveReportFields()
-        {
-            if (Control != null) // Already called or came from API instead of report
-                return this;
-            Control = new()
-            {
-                Id = IssueId,
-                Name = Title,
-                Description = Description,
-                ResolutionRecommendation = RemediationRecommendation
-            };
-            EntitySnapshot = new()
-            {
-                Id = ResourceVertexId,
-                NativeType = ResourceType,
-                Name = ResourceName,
-                Status = ResourceStatus,
-                CloudProviderUrl = CloudProviderUrl,
-                CloudPlatform = ResourcePlatform,
-                Region = ResourceRegion,
-                ExternalId = ResourceExternalId,
-                SubscriptionName = SubscriptionName
-            };
-            ResolvedAt = ResolvedTime;
-            return this;
-        }
     }
 
-    public class ServiceTicketsDTO
+    public class ServiceTicketsDto
     {
         public string ExternalId { get; set; }
         public string Name { get; set; }
         public string Url { get; set; }
     }
 
-    public class IssueControl
+    public class IssueSourceRule
     {
         public string Id { get; set; }
         public string Name { get; set; }
         public string Description { get; set; }
-        public string ResolutionRecommendation { get; set; }
     }
 
     public class IssueEntitySnapshot : AssetInfo
@@ -372,7 +341,16 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
     public class VulnerabilityAssetOnly
     {
         public string Id { get; set; }
-        public AssetInfo VulnerableAsset { get; set; }
+        private AssetInfo _VulnerableAsset = null;
+        public AssetInfo VulnerableAsset
+        {
+            get => _VulnerableAsset;
+            set
+            { 
+                _VulnerableAsset = value; 
+                _VulnerableAsset.AssetType = typeof(Vulnerability).Name; 
+            }
+        }
         // Report fields
         /// <summary>Do not map, not set by API</summary>
         public string ResourceVertexId { get; set; }
@@ -386,7 +364,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
             VulnerableAsset = new()
             {
                 Id = ResourceVertexId,
-                Name = ResourceName
+                Name = ResourceName,
+                AssetType = typeof(Vulnerability).Name
             };
             return this;
         }
