@@ -270,7 +270,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             {
                 CheckCancel(true);
                 Logger.LogDebug("[Q-Finish] Waiting for new finish queue items to process...");
-                await Task.Delay(TimeSpan.FromSeconds(10));
+                await Task.Delay(TimeSpan.FromSeconds(3));
             }
             QueueScan qscan = null;
             try
@@ -422,7 +422,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                     {
                         CheckCancel(true);
                         Logger.LogDebug("[Q-Process] Nothing in queue to process, waiting 5 sec...");
-                        await Task.Delay(TimeSpan.FromSeconds(5));
+                        await Task.Delay(TimeSpan.FromSeconds(3));
                     }
 
                     // Get next queue scan

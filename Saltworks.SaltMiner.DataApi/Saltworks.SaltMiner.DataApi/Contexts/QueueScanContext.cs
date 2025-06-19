@@ -27,6 +27,7 @@ using Serilog.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using static Saltworks.SaltMiner.Core.Entities.QueueScan;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts
@@ -257,6 +258,8 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             var request = new ElasticDataFilter("Saltminer.Internal.LockId", lockId, new UIPagingInfo(1000));
             var counter = 0;
             List<QueueScan> scans = [];
+            ElasticClient.FlushIndex(QueueScanIndex);
+            Task.Delay(1000).Wait(); // wait for index to flush
             while (true)
             {
                 var response = DataRepo.Search<QueueScan>(request, QueueScanIndex);
