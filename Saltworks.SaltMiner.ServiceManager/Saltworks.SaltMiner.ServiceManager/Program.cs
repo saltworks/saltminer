@@ -179,7 +179,7 @@ namespace Saltworks.SaltMiner.ServiceManager
                 }
                 else
                 {
-                    startLogger.LogCritical(ex, "Service Manager initialization error: {msg}", ex.Message);
+                    startLogger.LogCritical(ex, "Service Manager initialization error: {Msg}", ex.Message);
                 }
             }
         }

@@ -24,22 +24,43 @@ using Saltworks.SaltMiner.ServiceManager.JobModels;
 
 namespace Saltworks.SaltMiner.ServiceManager.Helpers
 {
-    public class ScheduleData
+    public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataClient.DataClient> dataClientFactory, IJobStatusService jobStatusService)
     {
-        private readonly ILogger Logger;
-        private readonly DataClient.DataClient DataClient;
-        private readonly IJobStatusService JobStatusService;
+        private readonly ILogger Logger = logger;
+        private readonly DataClient.DataClient DataClient = dataClientFactory.GetClient();
+        private readonly IJobStatusService JobStatusService = jobStatusService;
 
-        public ScheduleData
-        (
-            ILogger<ScheduleData> logger,
-            DataClientFactory<DataClient.DataClient> dataClientFactory,
-            IJobStatusService jobStatusService
-        )
+        /// <summary>
+        /// Write service job types from config into sys_lookups ServiceJobCommandOptions doc
+        /// </summary>
+        public void UpdateServiceJobTypes(ServiceManagerConfig config)
         {
-            Logger = logger;
-            DataClient = dataClientFactory.GetClient();
-            JobStatusService = jobStatusService;
+            var srch = new SearchRequest
+            {
+                Filter = new()
+                {
+                    FilterMatches = new()
+                    {
+                        { "type", "ServiceJobCommandOptions" }
+                    }
+                }
+            };
+            var rsp = DataClient.LookupSearch(srch);
+            var lookup = rsp.Data?.FirstOrDefault();
+            if (!rsp.Success || lookup == null)
+            {
+                Logger.LogError("Failed to read service job options lookup from sys_lookups.");
+                return;
+            }
+            lookup.Values.Clear();
+            foreach (var c in config.AllowedExecutables.Select(x => x.Key))
+            {
+                if (!lookup.Values.Any(x => x.Value == c))
+                    lookup.Values.Add(new() { Display = c, Value = c });
+            }
+            var rsp2 = DataClient.LookupAddUpdate(lookup);
+            if (!rsp2.Success)
+                Logger.LogError("Failed to update service job options lookup in sys_lookups ([{Code}] {Msg}).", rsp2.StatusCode, rsp2.Message);
         }
 
         /// <summary>
@@ -86,7 +107,7 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
                         job.Cancel = false;
                         job.Status = ServiceJobStatus.Ready.ToString("g");
                         DataClient.ServiceJobAddUpdate(job);
-                        await scheduler.Interrupt(jobKey);
+                        await scheduler.Interrupt(jobKey, cancelToken);
                     }
 
                     if (job.Disabled)
@@ -123,7 +144,7 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
                     bool updateJob = false;
 
                     // Need to get and update next run time from trigger
-                    var associatedTriggers = scheduler.GetTriggersOfJob(jobKey).Result;
+                    var associatedTriggers = scheduler.GetTriggersOfJob(jobKey, cancelToken).Result;
                     if (associatedTriggers.Count > 0)
                     {
                         var nextScheduledRunTime = associatedTriggers.FirstOrDefault().GetNextFireTimeUtc().GetValueOrDefault().UtcDateTime;

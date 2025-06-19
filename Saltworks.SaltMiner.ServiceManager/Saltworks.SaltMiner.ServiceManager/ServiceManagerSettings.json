@@ -11,7 +11,7 @@
       "Agent25Cron": "/usr/share/saltworks/saltminer-3.0.0/agentcron25.sh",
       "AgentCron": "/usr/share/saltworks/saltminer-3.0.0/agentcron.sh",
       "ManagerCron": "/usr/share/saltworks/saltminer-3.0.0/managercron.sh",
-	  "RiskRoller": "/usr/share/saltworks/saltminer-3.0.0/riskrollercron.sh"
+	    "RiskRoller": "/usr/share/saltworks/saltminer-3.0.0/riskrollercron.sh"
     }
   },
   "LogConfig": {

@@ -67,6 +67,8 @@ namespace Saltworks.SaltMiner.ServiceManager
                 {
                     Logger.LogInformation("Service starting.  Data API client is using base url '{DataApiBaseUrl}'", Config.DataApiBaseUrl);
                     var runconfig = ServiceRuntimeConfig.FromArgs(args);
+                    Logger.LogInformation("Writing service job types to lookup index");
+                    ScheduleData.UpdateServiceJobTypes(Config);
                     ExecuteAsync(runconfig.CancelToken).Wait();
                 }
 
