@@ -29,6 +29,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         private int IssueRequestSize = 5000;
         private int VulnRequestSize = 5000;
         internal bool StillLoading = false;
+        private bool RateLimited = false;
+        private int RateLimitMax;
+        private readonly object RateLimitLock = new();
+        private readonly List<DateTime> RecentRequestTimes = [];
 
         private WizToken Token
         {
@@ -46,9 +50,42 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         public WizClient(ApiClient client, WizConfig config, ILogger logger) : base(client, logger)
         {
             Config = config;
+            RateLimitMax = Config.WizRateLimitInitialMaxRequests;
             var hdrs = new ApiClientHeaders();
             hdrs.Add("Accept", "application/json");
             SetApiClientDefaults(config.BaseAddress, config.Timeout, hdrs);
+        }
+
+        private void RateLimiter(bool tooManyRequestsError=false)
+        {
+            lock (RateLimitLock)
+            {
+                if (tooManyRequestsError)
+                {
+                    if (RateLimited && RateLimitMax > 1)
+                    {
+                        RateLimitMax--;
+                    }
+                    else
+                    {
+                        if (RateLimitMax <= 1)
+                        {
+                            Logger.LogError("Rate limit (1/{Sec} sec) minimum reached, but still receiving rate limit error responses from Wiz API.  Cannot continue.", Config.WizRateLimitIntervalSeconds);
+                            throw new WizClientException($"Rate limit (1/{Config.WizRateLimitIntervalSeconds} sec) minimum reached, but still receiving rate limit error responses from Wiz API.  Cannot continue.");
+                        }
+                    }
+                    RateLimited = true;
+                    Logger.LogWarning("Wiz API call failed due to rate limiting, reducing max API call rate (now set to {Max}/{Secs} sec) ", RateLimitMax, Config.WizRateLimitIntervalSeconds);
+                }
+                if (!RateLimited) return; // no rate limiting in effect
+                RecentRequestTimes.RemoveAll(x => x < DateTime.UtcNow.AddSeconds(-Config.WizRateLimitIntervalSeconds));
+                if (RecentRequestTimes.Count >= RateLimitMax)
+                {
+                    Logger.LogWarning("Rate limiter waiting {Wait} seconds before next Wiz API call.", Config.WizRateLimitDelaySeconds);
+                    Task.Delay(TimeSpan.FromSeconds(Config.WizRateLimitDelaySeconds)).Wait();
+                }
+                RecentRequestTimes.Add(DateTime.UtcNow);
+            }
         }
 
         private void Login()
@@ -93,39 +130,40 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
             Logger.LogDebug("Token authentication complete");
         }
 
-        private ApiClientResponse Request(string jsonRequestBody, int retries = 0)
-        {
-            ApiClientResponse r;
-            try
-            {
-                r = ApiClient.Post<string>("", jsonRequestBody, ApiClientHeaders.AuthorizationBearerHeader(Token.AccessToken));
-            }
-            catch (ApiClientUnauthorizedException ex)
-            {
-                if (retries > 0)
-                {
-                    throw new WizClientAuthenticationException("Failed authentication retry.");
-                }
-                Logger.LogWarning(ex, "Token invalid/missing, attempting to obtain new token");
-                Login();
-                return Request(jsonRequestBody, retries + 1);
-            }
-            catch (TaskCanceledException ex)
-            {
-                if (retries > Config.ApiRetryCount)
-                {
-                    throw new WizClientTimeoutException($"Wiz API retry count ({Config.ApiRetryCount}) reached.");
-                }
-                retries++;
-                Logger.LogWarning(ex, "TaskCanceled exception thrown, treating as timeout and retrying ({Retries} of {RetryCount} after a short delay.)", retries, Config.ApiRetryCount);
-                Task.Delay(60000).Wait();
-                return Request(jsonRequestBody, retries);
-            }
-            return r;
-        }
+        //private ApiClientResponse Request(string jsonRequestBody, int retries = 0)
+        //{
+        //    ApiClientResponse r;
+        //    try
+        //    {
+        //        r = ApiClient.Post<string>("", jsonRequestBody, ApiClientHeaders.AuthorizationBearerHeader(Token.AccessToken));
+        //    }
+        //    catch (ApiClientUnauthorizedException ex)
+        //    {
+        //        if (retries > 0)
+        //        {
+        //            throw new WizClientAuthenticationException("Failed authentication retry.");
+        //        }
+        //        Logger.LogWarning(ex, "Token invalid/missing, attempting to obtain new token");
+        //        Login();
+        //        return Request(jsonRequestBody, retries + 1);
+        //    }
+        //    catch (TaskCanceledException ex)
+        //    {
+        //        if (retries > Config.ApiRetryCount)
+        //        {
+        //            throw new WizClientTimeoutException($"Wiz API retry count ({Config.ApiRetryCount}) reached.");
+        //        }
+        //        retries++;
+        //        Logger.LogWarning(ex, "TaskCanceled exception thrown, treating as timeout and retrying ({Retries} of {RetryCount} after a short delay.)", retries, Config.ApiRetryCount);
+        //        Task.Delay(60000).Wait();
+        //        return Request(jsonRequestBody, retries);
+        //    }
+        //    return r;
+        //}
 
         private async Task<ApiClientResponse<T>> RequestAsync<T>(string jsonRequestBody, int retries=0, bool suppressError=true) where T : class
         {
+            RateLimiter();
             ApiClientResponse<T> r;
             ApiClient.Options.ExceptionOnFailure = suppressError;
             try
@@ -167,6 +205,16 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
             {
                 await HandleExceptionRetryAsync(retries, "ApiClientTimeout");
                 return await RequestAsync<T>(jsonRequestBody, retries + 1);
+            }
+            catch (ApiClientException ex)
+            {
+                // ApiClient doesn't throw a too many requests exception...
+                if (ex.Status == System.Net.HttpStatusCode.TooManyRequests)
+                {
+                    RateLimiter(true);
+                    return await RequestAsync<T>(jsonRequestBody, retries);
+                }
+                throw; // rethrow other ApiClientExceptions
             }
             catch (TaskCanceledException)
             {

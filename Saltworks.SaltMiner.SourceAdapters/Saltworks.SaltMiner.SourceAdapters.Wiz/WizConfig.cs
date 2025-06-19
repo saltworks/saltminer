@@ -17,6 +17,7 @@
 ﻿using Saltworks.SaltMiner.SourceAdapters.Core;
 using System.Text.Json;
 using Saltworks.SaltMiner.Core.Util;
+using Org.BouncyCastle.Asn1.Mozilla;
 
 namespace Saltworks.SaltMiner.SourceAdapters.Wiz
 {
@@ -59,6 +60,18 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         public string OverrideWizType { get; set; } = null;
         public bool SkipVulns { get; set; } = false;
         public bool SkipIssues { get; set; } = false;
+        /// <summary>
+        /// Interval over which we count requests for rate limiting.  Set in config and not changed.
+        /// </summary>
+        public int WizRateLimitIntervalSeconds { get; set; } = 10;
+        /// <summary>
+        /// Initial max requests allowed in the interval.  Ramps up as rate limits are hit.
+        /// </summary>
+        public int WizRateLimitInitialMaxRequests { get; set; } = 50;
+        /// <summary>
+        /// How long to delay when rate limit reached.
+        /// </summary>
+        public int WizRateLimitDelaySeconds { get; set; } = 3;
         public override string CurrentCompatibleApiVersion => "3.1.0";
         public override string MinimumCompatibleApiVersion => "3.0.8";
 
