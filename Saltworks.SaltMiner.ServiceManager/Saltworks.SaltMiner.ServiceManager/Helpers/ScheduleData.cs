@@ -56,7 +56,7 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
             foreach (var c in config.AllowedExecutables.Select(x => x.Key).OrderBy(x => x))
             {
                 if (!lookup.Values.Any(x => x.Value == c))
-                    lookup.Values.Add(new() { Display = c, Value = c, Order = lookup.Values.Count });
+                    lookup.Values.Add(new() { Display = c, Value = c, Order = lookup.Values.Count + 1 });
             }
             var rsp2 = DataClient.LookupAddUpdate(lookup);
             if (!rsp2.Success)
