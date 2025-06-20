@@ -53,10 +53,10 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
                 return;
             }
             lookup.Values.Clear();
-            foreach (var c in config.AllowedExecutables.Select(x => x.Key))
+            foreach (var c in config.AllowedExecutables.Select(x => x.Key).OrderBy(x => x))
             {
                 if (!lookup.Values.Any(x => x.Value == c))
-                    lookup.Values.Add(new() { Display = c, Value = c });
+                    lookup.Values.Add(new() { Display = c, Value = c, Order = lookup.Values.Count });
             }
             var rsp2 = DataClient.LookupAddUpdate(lookup);
             if (!rsp2.Success)
