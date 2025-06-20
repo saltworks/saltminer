@@ -14,7 +14,6 @@
  * ----
  */
 
-using Elastic.CommonSchema;
 using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
@@ -22,8 +21,6 @@ using Saltworks.SaltMiner.DataApi.Authentication;
 using Saltworks.SaltMiner.DataApi.Data;
 using Saltworks.SaltMiner.DataApi.Extensions;
 using Saltworks.SaltMiner.DataApi.Models;
-using Saltworks.SaltMiner.ElasticClient;
-using Serilog.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;

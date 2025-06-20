@@ -82,7 +82,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <response code="202">Returns a response object containing the updated entity</response>
         [ProducesResponseType(202, Type = typeof(DataItemResponse<Lookup>))]
         [HttpPost]
-        [Auth(Role.Admin, Role.Pentester)]
+        [Auth(Role.Admin, Role.Pentester, Role.ServiceManager)]
         public ActionResult<DataItemResponse<Lookup>> Post([FromBody] DataItemRequest<Lookup> request)
         {
             Logger.LogInformation("Post action called");
