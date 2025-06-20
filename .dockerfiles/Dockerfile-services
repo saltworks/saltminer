@@ -1,6 +1,6 @@
-FROM mcr.microsoft.com/dotnet/aspnet:8.0.15-alpine3.21-amd64
+FROM mcr.microsoft.com/dotnet/aspnet:8.0.17-alpine3.22-amd64
 
-LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.15-alpine3.21-amd64"
+LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.17-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
 ARG ARTIFACT_PATH=.
@@ -34,7 +34,7 @@ RUN mkdir -p ${smcfg2} \
   && mkdir ${smcfg3}/servicemanager \
   && mkdir -p ${smlog2} \
   && mkdir -p ${smlog3} \
-  && apk add --no-cache py3-pip bash jq
+  && apk add --no-cache py3-pip bash jq dos2unix
 
 COPY $AGENT_ARTIFACT_PATH ${smapp3}/agent/
 RUN mv ${smapp3}/agent/AgentSettings.json ${smcfg3}/agent/
