@@ -65,11 +65,12 @@ class JiraClient:
         return update_list
 
     def addNewIssue(self, key, issuetype, project, issue, formattedIssue, addLabel= None, attachement = None, directClose = False, cve = None):
+        priority = str(issue.get('priority') or "Info")
         fields = {
             "project":{"key": project},
             "summary": "SM-" + issue['summary'],
             "description": formattedIssue,
-            "priority": {'name': str(issue['priority'])},
+            "priority": {'name': priority},
             "duedate": issue['due_date'],
             "issuetype": {'name': issuetype}
         }
