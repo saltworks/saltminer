@@ -1,6 +1,6 @@
-FROM mcr.microsoft.com/dotnet/aspnet:8.0.15-alpine3.21-amd64
+FROM mcr.microsoft.com/dotnet/aspnet:8.0.17-alpine3.22-amd64
 
-LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.15-alpine3.21-amd64"
+LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.17-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
 WORKDIR /usr/share/saltworks/saltminer-3.0.0/jobmanager
