@@ -56,7 +56,8 @@ jq '.Port' $CONFIG_FILE
 jq --arg s "${scheme%???}" \
   --arg h "$host" \
   --arg p "$port" \
-  '.Scheme = $s | .Host = $h | .Port = $p' \
+  --arg pwd "$ELASTIC_PWD" \
+  '.Scheme = $s | .Host = $h | .Port = $p | .Password = $pwd' \
   $CONFIG_FILE \
   > "$CONFIG_FILE.new"
 
