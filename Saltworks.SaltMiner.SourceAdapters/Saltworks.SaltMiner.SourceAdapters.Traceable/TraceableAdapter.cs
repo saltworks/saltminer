@@ -21,7 +21,6 @@ using Saltworks.SaltMiner.SourceAdapters.Core;
 using Saltworks.SaltMiner.SourceAdapters.Core.Data;
 using Saltworks.SaltMiner.SourceAdapters.Core.Helpers;
 using Saltworks.SaltMiner.SourceAdapters.Core.Interfaces;
-using System.ComponentModel;
 using System.Globalization;
 using static Saltworks.SaltMiner.Core.Entities.QueueScan;
 
@@ -432,7 +431,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
                             Attributes = new()
                             {
                                 { "labels", string.Join(", ", asset.Labels.Results.Select(x => x.Key)) },
-                                { "is_external", asset.IsExternal.ToString().ToLower() }
+                                { "is_external", asset.IsExternal.ToString().ToLower() },
+                                { "environment", asset.Environment }
                             },
                             IsProduction = true,
                             Instance = Config.Instance,
