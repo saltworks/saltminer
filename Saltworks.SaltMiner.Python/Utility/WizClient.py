@@ -32,11 +32,11 @@ class WizClient:
 
         self.auth_headers = {"Content-Type": "application/x-www-form-urlencoded"}
         self.headers = {"Content-Type": "application/json"}
-        self.client_id = self.settings.Get("WizClient", 'ClientId')
-        self.client_secret = self.settings.Get("WizClient", "ClientSecret")
-        self.auth_url = self.settings.Get("WizClient", "AuthUrl")
-        self.api_url = self.settings.Get("WizClient", "ApiUrl")
-        self.ssl_verify = self.settings.Get("WizClient", "SslVerify")
+        self.client_id = self.settings.GetSource("WizClient", 'ClientId')
+        self.client_secret = self.settings.GetSource("WizClient", "ClientSecret")
+        self.auth_url = self.settings.GetSource("WizClient", "AuthUrl")
+        self.api_url = self.settings.GetSource("WizClient", "ApiUrl")
+        self.ssl_verify = self.settings.GetSource("WizClient", "SslVerify")
         self.headers["Authorization"] = "Bearer " + self.get_wiz_auth_token()
         
 
