@@ -433,8 +433,32 @@ class SscClient(object):
             if limit <= ccount and limit > 0:
                 done = True
 
+    def GetProjectVersionByName(self, name = "", version = "", inactive = False):
+        '''
+        Find project version by project name and/or version
 
-    def GetProjectVersions(self, fields = None, inactive = False, batchSize = 200, forceRefresh = False, limit = 0, startIndex=0):
+        :name: Project version name to find.
+        :version: Project version/release to find.
+        :inactive: Enable search to include inactive project versions.
+
+        Must specify at least one search parameter (name or version).
+        '''
+        if not name and not version:
+            raise ValueError("At least one search term must be specified (name or version).")
+        q = ""
+        ander = ""
+        if name:
+            q += f"project.name:{name}"
+            ander = ","
+        if version:
+            q += f"{ander}name:{version}"
+        url = f"/api/v1/projectVersions?limit=1&fulltextsearch=false&includeInactive={str(inactive).lower()}&q={q}"
+        data = self.__Get(url, navToData=True, errorOnEmptyResponse=False)
+        if data and len(data) > 0:
+            return data[0]
+        return None
+
+    def GetProjectVersions(self, fields = None, inactive = False, batchSize = 200, forceRefresh = False, limit = 0, startIndex = 0):
         '''
         Returns complete list of project versions, calling the API in batches
 
@@ -620,13 +644,22 @@ class SscClient(object):
             if filter['defaultFilterSet'] == True:
                 return filter['guid']
 
-    def GetProjectVersionScans(self, id, batchSize=1000):
+    def GetProjectVersionArtifacts(self, pvid, limit=1000):
+        '''
+        Returns artifacts for a given project version id, up to specified limit.  Currently ordered by uploadDate descending from API.
+
+        :id: Project version ID
+        :limit: Max artifacts to return (no paging in this method). Set 0 for no limit.
+        '''
+        return self.__Get(f"/api/v1/projectVersions/{pvid}/artifacts?start=0&limit={limit}", True, False)
+    
+    def GetProjectVersionScans(self, pvid, batchSize=1000):
         '''
         Returns scan artifacts for a given project version id
 
         Original name: getProjectVersionScans
         '''
-        response = self.__Get(f"/api/v1/projectVersions/{id}/artifacts?embed=scans&start=0&limit={batchSize}", False, False, "GetProjectVersionScans")
+        response = self.__Get(f"/api/v1/projectVersions/{pvid}/artifacts?embed=scans&start=0&limit={batchSize}", False, False, "GetProjectVersionScans")
         if not response['data']:
             return []
         data = response['data']
@@ -821,11 +854,22 @@ class SscClient(object):
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
             self.__Client.Put(url=f'/api/v1/projectVersions/{projectVersionId}', data=data)
 
-    def UploadFile(self, projectVersionId, engineType, filePath= None):
+    def UploadFile(self, projectVersionId, engineType = None, filePath = None, fileName = "issues.zip"):
+        '''
+        Upload an FPR into SSC.
 
+        :projectVersionId: project version ID, required
+        :engineType: Engine type of the FPR (can be omitted if embedded in FPR)
+        :filePath: File path to the upload file (FPR), required even if it seems like it isn't
+        :fileName: File name to send, defaults to issues.zip probably because this method was originally single-purpose...
+        '''
+
+        if len(str(filePath).strip()) == 0:
+            raise ValueError("filePath is required.")
         file_token = self.GetFileToken("UPLOAD")
+        et = "?engineType=" + str(engineType) if len(str(engineType).strip()) > 0 else ""
         try:
-            url = "/api/v1/projectVersions/" + str(projectVersionId) + "/artifacts?engineType=" + str(engineType)
+            url = "/api/v1/projectVersions/" + str(projectVersionId) + "/artifacts" + et
 
             headers = {
                 'Authorization': f'FortifyToken {file_token}',
@@ -834,12 +878,12 @@ class SscClient(object):
             }
 
             with open(filePath, 'rb') as file:
-                return self.__Client.Post(url, headers=headers, files={"file": ("issues.zip", file)})
+                return self.__Client.Post(url, headers=headers, files={"file": (fileName, file)})
             
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid {e}, attempting to get new token and retry previous operation")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
-            self.__Client.Post(url, headers=headers, files={"file": file})
+            return self.__Client.Post(url, headers=headers, files={"file": (fileName, file)})
     
     def CreateIssuesDeltaExport(self, pvidList, fileName, sinceDate):
         try:

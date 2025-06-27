@@ -60,7 +60,8 @@ jq --arg s "${scheme%???}" \
   --arg h "$host" \
   --argjson p $port \
   --arg k "$KIBANA_URL" \
-  '.ApiConfig.ElasticHttpScheme = $s | .ApiConfig.ElasticHost = $h | .ApiConfig.ElasticPort = $p | .ApiConfig.KibanaBaseUrl = $k' \
+  --arg pwd "$ELASTIC_PWD" \
+  '.ApiConfig.ElasticHttpScheme = $s | .ApiConfig.ElasticHost = $h | .ApiConfig.ElasticPort = $p | .ApiConfig.KibanaBaseUrl = $k | .ApiConfig.ElasticPassword = $pwd' \
   $CONFIG_FILE \
   > "$CONFIG_FILE.new"
 
