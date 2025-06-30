@@ -867,7 +867,7 @@ class SscClient(object):
         if len(str(filePath).strip()) == 0:
             raise ValueError("filePath is required.")
         file_token = self.GetFileToken("UPLOAD")
-        et = "?engineType=" + str(engineType) if len(str(engineType).strip()) > 0 else ""
+        et = "?engineType=" + str(engineType) if engineType and len(str(engineType).strip()) > 0 else ""
         try:
             url = "/api/v1/projectVersions/" + str(projectVersionId) + "/artifacts" + et
 
