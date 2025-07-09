@@ -209,7 +209,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         public NoDataResponse UpdateStatus(string id, string fromStatus, string toStatus, string lockId = "")
         {
             if (!string.IsNullOrEmpty(lockId))
-                ApiCache.ManagerInstanceManager.SawManagerInstance(lockId);
+                ApiCache.ManagerInstanceManager.SawManagerInstance(lockId, this);
 
             const string ANY_STATUS = "[any]";
             if (string.IsNullOrEmpty(fromStatus) || fromStatus == QueueScanStatus.None.ToString("g"))
@@ -249,14 +249,17 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             return new NoDataResponse(1);
         }
 
-        public NoDataResponse Unlock(string lockId, bool resetProcessing=true)
+        public NoDataResponse Unlock(string lockId, bool resetProcessing=true, bool noFlush = false)
         {
             Logger.LogInformation("Unlock for lock ID '{Id}'", lockId);
             var request = new ElasticDataFilter("Saltminer.Internal.LockId", lockId, new UIPagingInfo(1000));
             var counter = 0;
             List<QueueScan> scans = [];
-            ElasticClient.FlushIndex(QueueScanIndex);
-            Task.Delay(1000).Wait(); // wait for index to flush
+            if (!noFlush)
+            {
+                ElasticClient.FlushIndex(QueueScanIndex);
+                Task.Delay(1000).Wait(); // wait for index to flush
+            }
             while (true)
             {
                 var response = DataRepo.Search<QueueScan>(request, QueueScanIndex);
