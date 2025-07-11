@@ -41,4 +41,16 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
           System.Runtime.Serialization.SerializationInfo info,
           System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
     }
+
+
+    [Serializable]
+    public class SonatypeClientException : SonatypeException
+    {
+        public SonatypeClientException() { }
+        public SonatypeClientException(string message) : base(message) { }
+        public SonatypeClientException(string message, Exception inner) : base(message, inner) { }
+        protected SonatypeClientException(
+          System.Runtime.Serialization.SerializationInfo info,
+          System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
+    }
 }

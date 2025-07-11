@@ -33,48 +33,32 @@
         public ExceptionInfo InnerException { get; set; } = null;
     }
 
-    [Serializable]
     public class GitLabException : Exception
     {
         public GitLabException() { }
         public GitLabException(string message) : base(message) { }
         public GitLabException(string message, Exception inner) : base(message, inner) { }
-        protected GitLabException(
-          System.Runtime.Serialization.SerializationInfo info,
-          System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
     }
 
 
-    [Serializable]
     public class GitLabValidationException : GitLabException
     {
         public GitLabValidationException() { }
         public GitLabValidationException(string message) : base(message) { }
         public GitLabValidationException(string message, Exception inner) : base(message, inner) { }
-        protected GitLabValidationException(
-          System.Runtime.Serialization.SerializationInfo info,
-          System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
     }
 
-    [Serializable]
     public class GitLabClientAuthenticationException : GitLabException
     {
         public GitLabClientAuthenticationException() { }
         public GitLabClientAuthenticationException(string message) : base(message) { }
         public GitLabClientAuthenticationException(string message, Exception inner) : base(message, inner) { }
-        protected GitLabClientAuthenticationException(
-          System.Runtime.Serialization.SerializationInfo info,
-          System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
     }
 
-    [Serializable]
     public class GitLabClientTimeoutException : GitLabException
     {
         public GitLabClientTimeoutException() { }
         public GitLabClientTimeoutException(string message) : base(message) { }
         public GitLabClientTimeoutException(string message, Exception inner) : base(message, inner) { }
-        protected GitLabClientTimeoutException(
-          System.Runtime.Serialization.SerializationInfo info,
-          System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
     }
 }

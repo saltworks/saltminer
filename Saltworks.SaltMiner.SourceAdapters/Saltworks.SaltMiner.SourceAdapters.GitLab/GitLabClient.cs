@@ -91,7 +91,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
 
         public SourceMetric GetSourceMetric(ProjectNodeDto project, DateTime? latestScanDate = null)
         {
-            var issueCounts = 0; // project.Meta.LatestIssueCounts;
             return new SourceMetric
             {
                 LastScan = latestScanDate,
@@ -100,11 +99,11 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                 SourceType = Config.SourceType,
                 SourceId = project.Id,
                 VersionId = "",
-                Attributes = new Dictionary<string, string>(),
+                Attributes = [],
             };
         }
 
-        private string SetRequestOptions(string request, string nextBatchLink, int batchSize, string projectFullPath = "")
+        private static string SetRequestOptions(string request, string nextBatchLink, int batchSize, string projectFullPath = "")
         {
             request = request.Replace("~1~", Convert.ToString(batchSize));
             var afterOption = !string.IsNullOrEmpty(nextBatchLink) ? $@", after: \""{nextBatchLink}\""" : string.Empty;
@@ -116,7 +115,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
             return request;
         }
 
-        private string SetRequestOptions(string request, string projectFullPath)
+        private static string SetRequestOptions(string request, string projectFullPath)
         {
             request = request.Replace("~1~", projectFullPath);
             return request;
@@ -135,24 +134,24 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                     var rc = r.RawContent.Length > 1000 ? r.RawContent[..999] : r.RawContent;
                     if (retries > Config.ApiRetryCount)
                     {
-                        Logger.LogError("API call failure (http 500 response) - first 1000 chars of raw content: {rc}", rc);
+                        Logger.LogError("API call failure (http 500 response) - first 1000 chars of raw content: {Rc}", rc);
                         throw new GitLabException($"API call failed with 500 server error, max retries of {retries} reached.");
                     }
                     else
                     {
-                        Logger.LogWarning("API call failure (http 500 response), will retry in 90 sec - first 1000 chars of raw content: {rc}", rc);
+                        Logger.LogWarning("API call failure (http 500 response), will retry in 90 sec - first 1000 chars of raw content: {Rc}", rc);
                         await Task.Delay(90000);
                         return await RequestAsync<T>(jsonRequestBody, retries + 1);
                     }
                 }
             }
-            catch (ApiClientUnauthorizedException)
+            catch (ApiClientUnauthorizedException ex)
             {
                 if (retries > 0)
                 {
                     throw new GitLabClientAuthenticationException("Failed authentication retry.");
                 }
-                Logger.LogWarning("Token invalid/missing, attempting to obtain new token");
+                Logger.LogWarning(ex, "Token invalid/missing, attempting to obtain new token");
                 return await RequestAsync<T>(jsonRequestBody, retries + 1);
             }
             catch (TimeoutException)

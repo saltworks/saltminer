@@ -114,7 +114,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
     public class StringListDto
     {
         public List<string> Value { get; set; }
-        public string ToCsv() => string.Join(",", Value);
+        public string ToCsv() => string.Join(",", Value ?? []);
     }
     public class StringDto
     {
