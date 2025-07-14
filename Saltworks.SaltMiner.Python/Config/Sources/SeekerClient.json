@@ -1,0 +1,7 @@
+{
+    "Source": "Seeker",
+    "SourceName": "Seeker",
+    "Enabled": false,
+    "API_Key": "",
+    "Base_Url": "https://partner-seeker.demo.blackduck.com/rest/api"
+}

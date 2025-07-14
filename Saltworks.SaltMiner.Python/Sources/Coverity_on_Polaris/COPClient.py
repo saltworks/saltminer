@@ -1,19 +1,3 @@
-''' --[auto-generated, do not modify this block]--
-*
-* Copyright (c) 2025 Saltworks Security, LLC
-*
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
-*
-* Change Date: 2029-06-30
-*
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
-*
-* ----
-'''
-
 import json
 import logging
 import requests
@@ -21,10 +5,10 @@ import requests
 class COPClient:
 
     def __init__(self, settings):
-        self.api_key = settings.Get("COPClient", "API_Key")
-        self.base_url = settings.Get("COPClient", "Base Url")
+        self.api_key = settings.GetSource("COP", "API_Key")
+        self.base_url = settings.GetSource("COP", "Base Url")
 
-        self.token = None
+        self.token = self.get_token()
         self.headers = {
             "Authorization": f"Bearer {self.token}"
         }
@@ -38,21 +22,22 @@ class COPClient:
             response = requests.post(url=token_url, data=payload, timeout=30)
             response.raise_for_status()
             data = response.json()
-            self.token = data['jwt']
+            return data['jwt']
         
         except requests.exceptions.RequestException as e:
             logging.error("[COPClient] Token request failed: %s", e)
             return
         
+        
     def get_projects_generator(self):
-        projects_url = self.base_url + "/api/common/v0/projects"
+        projects_endpoint = self.base_url + "/api/common/v0/projects"
         params = {
             "page[limit]": 100,
             "page[offset]": 0
         }
         try:
             response = requests.get(
-                url=projects_url,
+                url=projects_endpoint,
                 params=params,
                 headers=self.headers,
                 timeout=30
@@ -119,6 +104,67 @@ class COPClient:
 
         if recipe:
             params["recipe"] = recipe
+        try:
+            response = requests.get(
+                url=runs_endpoint,
+                params=params,
+                headers=self.headers,
+                timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        except requests.exceptions.RequestException as e:
+            logging.error("Request failed: %s", e)
+            return
+        
+        yield from data.get('data', [])
+
+        while data.get('links', {}).get('next'):
+            try:
+                data = self.get_next(url=data['links']['next'], headers=self.headers)
+
+                yield from data.get('data', [])
+            except requests.exceptions.RequestException as e:
+                logging.error("Pagination request failed: %s", e)
+
+                break
+        
+        
+
+    def get_issues_by_run_generator(self,project_id, run_id):
+        issues_endpoint = self.base_url + "/api/query/v0/issues?include[issue]=severity&include[issue]=issue-kind&include[issue]=related-indicators"
+        params = {
+            "page[limit]":100000,
+            "project-id": project_id,
+            "run-id[]": run_id,
+        }
+
+        try:
+            response = requests.get(
+                url= issues_endpoint,
+                params=params,
+                headers=self.headers,
+                timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        except requests.exceptions.RequestException as e:
+            logging.error("[COPClient] Issues by run request failed: %s", e)
+            return
+        
+        yield from data.get('data', [])
+        while data.get('links', {}).get('next'):
+            try:
+                data = self.get_next(url=data['links']['next'], headers=self.headers)
+
+                yield from data.get('data', [])
+            except requests.exceptions.RequestException as e:
+                logging.error("Pagination request failed: %s", e)
+
+                break
+        
 
 
 
