@@ -154,12 +154,13 @@ class COPClient:
             logging.error("[COPClient] Issues by run request failed: %s", e)
             return
         
-        yield from data.get('data', [])
+        yield data
+        
         while data.get('links', {}).get('next'):
             try:
                 data = self.get_next(url=data['links']['next'], headers=self.headers)
 
-                yield from data.get('data', [])
+                yield data
             except requests.exceptions.RequestException as e:
                 logging.error("Pagination request failed: %s", e)
 

@@ -109,7 +109,7 @@ class SeekerAdapter:
         asset = q_asset_doc['Saltminer']['Asset']
         asset['Name'] = project['name']
         asset['Version'] = project['type']
-        asset['Versionid'] = project['key']
+        asset['VersionId'] = project['key']
         asset['Instance'] = 'Seeker1'
         asset['SourceId'] = project['key']
         asset['AssetType'] = 'app'
