@@ -38,14 +38,13 @@ class COPAdapter:
         #else:
         self.get_projects_data()
         for run in self.cop_client.get_runs_generator(project_id, recipe="latest-completed-run-by-project"):
-            run_id = run['id']
             project_id = run['relationships']['project']['data']['id']
-            self.sync_issues(project_id, run_id)
+            self.sync_issues(project_id, run)
   
 
 
-    def sync_issues(self, project_id, run_id):
-
+    def sync_issues(self, project_id, run):
+        run_id = run ['id']
         project_name = self.projects_data[project_id]['project_name']
         issues_generator = self.cop_client.get_issues_by_run_generator(project_id=project_id, run_id=run_id)
         first_page = next(issues_generator, None)
@@ -54,10 +53,10 @@ class COPAdapter:
                 item["id"]: item for item in first_page.get("included", [])
             }
 
-            mapped_scan = self.map_scan()
+            mapped_scan = self.map_scan(run)
             queue_scan = self._sm_data_client.AddQueueScan(json.loads(mapped_scan.model_dump_json()))
 
-            mapped_asset = self.map_asset()
+            mapped_asset = self.map_asset(queue_scan['id'], project_id)
             queue_asset = self._sm_data_client.AddQueueAsset(json.loads(mapped_asset.model_dump_json()))
 
             for issue in first_page:
@@ -77,7 +76,52 @@ class COPAdapter:
 
 
     def map_issue(self, issue, q_asset_id, q_scan_id, report_id, included_lookup):
-        pass
+        relationships = issue['relationships']
+        q_issue_doc = self.sm_docs.map_issue_doc()
+        q_issue_doc['Saltminer']['QueueAssetId'] = q_asset_id
+        q_issue_doc['Saltminer']['QueueScanId'] = q_scan_id
+        q_issue_doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        
+        vulnerability = q_issue_doc['Vulnerability']
+        vulnerability['Severity'] = issue['relationships'].get('severity') if issue['relationships'].get('severity') else "Info"
+        vulnerability['Name'] = included_lookup.get(relationships['issue-type']['data']['id'], {}).get('attributes', {}).get('name')
+        vulnerability['Description'] = included_lookup.get(relationships['issue-type']['data']['id'], {}).get('attributes', {}).get('description')
+        vulnerability['Implication'] = included_lookup.get(relationships['issue-type']['data']['id'], {}).get('attributes', {}).get('local-effect')
+        vulnerability['Location']=",".join(included_lookup.get(relationships['path']['data']['id'], {}).get('attributes', {}).get('path'))
+        vulnerability['LocationFull']=",".join(included_lookup.get(relationships['path']['data']['id'], {}).get('attributes', {}).get('path'))
+        vulnerability['FoundDate'] = self.get_transition_date(
+            ids=[item['data'].get('id') for item in relationships['transitions']], 
+            included_lookup= included_lookup, 
+            transition_type='opened'
+            )
+        
+        if (removed_date := self.get_transition_date(
+            ids=[item['data'].get('id') for item in relationships['transitions']], 
+            included_lookup= included_lookup, 
+            transition_type='closed'
+            )):
+            vulnerability['RemovedDate'] = removed_date
+
+        vulnerability['ReportId']= report_id
+        vulnerability['Scanner']['GuiUrl'] = issue.get('links', {}).get('self',{}).get('href')
+        vulnerability['Scanner']['Id'] = issue['attributes'].get('issue-key')
+        vulnerability['Scanner']['AssessmentType'] = 'SAST'
+        vulnerability['Scanner']['Product'] = "Coverity on Polaris"
+        vulnerability['Scanner']['Vendor']= "Black Duck"
+
+        issue_attributes = q_issue_doc['Saltminer']['Attributes']
+        issue_attributes['sub-tool'] = issue['attributes'].get('sub-tool')
+        issue_attributes['tool-domain-service'] = included_lookup(relationships
+                                                                  .get('tool-domain-service', {})
+                                                                  .get('data', {})
+                                                                  .get('id')).get('attributes', {}).get('name')
+        issue_attributes['tool'] = "{} {}".format(
+            *(included_lookup(relationships
+                              .get('tool', {})
+                              .get('data', {})
+                              .get('id')).get('attributes', {}).get(k, '') for k in ['name', 'version'])).strip()
+
+        return MapIssueDocDTO(**q_issue_doc)
 
 
     def map_scan(self, run):
@@ -124,6 +168,15 @@ class COPAdapter:
             return formatted_date
         return None
 
+
+    def get_transition_date(self, ids, included_lookup, transition_type):
+        for id in ids:
+            data = included_lookup.get(id)
+            if data['attributes'].get('transition-type') == transition_type:
+                return self.format_date(data['attributes'].get('transition-date'))
+            else:
+                return None
+            
 
     def get_projects_data(self):
         for project in self.cop_client.get_projects_generator():
