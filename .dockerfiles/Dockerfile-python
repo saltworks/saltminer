@@ -16,9 +16,6 @@ WORKDIR /usr/share/saltworks/saltminer-2.5.0
 
 RUN mkdir -p ${smcfg2} \
   && mkdir -p ${smcfg3} \
-  && mkdir ${smcfg3}/agent \
-  && mkdir ${smcfg3}/manager \
-  && mkdir ${smcfg3}/servicemanager \
   && mkdir -p ${smlog2} \
   && mkdir -p ${smlog3} \
   && apk add --no-cache py3-pip bash jq dos2unix
@@ -27,11 +24,7 @@ COPY . .
 
 RUN cp -r ${smapp2}/Config/* ${smcfg2} \
   && rm -rf ${smapp2}/Config \
-  && rm ${smapp3}/sm-install.sh \
-  && rm ${smapp3}/sm-upgrade.sh \
-  && rm ${smapp3}/sm-auto-install.sh \
-  && chmod u+x ${smapp3}/*.sh \
-  && chmod u+x ${smapp3}/servicemanager/config-services.sh
+  && chmod u+x config-services.sh
 
 RUN pip install -r ${smapp2}/requirements.txt --break-system-packages
 
