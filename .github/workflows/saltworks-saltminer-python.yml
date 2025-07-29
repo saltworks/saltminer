@@ -1,0 +1,102 @@
+name: Saltworks.SaltMiner.Python
+
+on:
+  push:
+    branches:
+    - main
+    - '3.*'
+    paths:
+    - 'Saltworks.SaltMiner.Python/**'
+    - '.github/workflows/saltworks-saltminer-python.yml'
+    - '.dockerfiles/Dockerfile-python'
+    - '.dockerfiles/config-services.sh'
+  workflow_dispatch:
+
+env:
+  DIAGNOSTIC_MODE: false
+
+jobs:
+  build_python:
+    name: Build Python
+    runs-on:
+    - self-hosted
+    - dotnet
+    defaults:
+      run:
+        working-directory: ./Saltworks.SaltMiner.Python
+    env:
+      CONFIGURATION: release
+      DATA_API_BASE_URL: http://api:5000
+      PY_ARTIFACT_PATH: Saltworks.SaltMiner.Python
+      PY_CONFIG_FILE: SMv3.json
+      EXEC_TRANSFORM: true
+      WARNING_LEVEL: 0
+
+    steps:
+    - uses: actions/checkout@v4
+#    - name: Setup .NET
+#      uses: actions/setup-dotnet@v4
+#      with:
+#        dotnet-version: 8.0.x
+    - name: Transform Python config file
+      working-directory: ${{ github.workspace }}/Saltworks.SaltMiner.Python/Config
+      if: env.EXEC_TRANSFORM == 'true'
+      run: |
+        echo 'Transforming configuration file'
+        jq '.ApiUrl' ${{ env.PY_CONFIG_FILE }}
+        jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
+          '.ApiUrl = $dapi' \
+          ${{ env.PY_CONFIG_FILE }} \
+          > ${{ env.PY_CONFIG_FILE }}.new
+        jq '.ApiUrl' ${{ env.PY_CONFIG_FILE }}.new
+        mv ${{ env.PY_CONFIG_FILE }} ${{ env.PY_CONFIG_FILE }}.old
+        mv ${{ env.PY_CONFIG_FILE }}.new ${{ env.PY_CONFIG_FILE }}
+
+    - run: cp ${{ github.workspace }}/.dockerfiles/config-services.sh .
+
+    - name: Login to the container registry
+      uses: docker/login-action@v3.4.0
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract metadata (tags, labels) for Docker
+      id: meta
+      uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+      with:
+        images: saltworks/saltminer
+        tags: |
+          type=raw,value=python-${{ github.ref_name }}.{{date 'YYYYMMDD-HHmmss'}}
+        labels: |
+          org.opencontainers.image.title=saltminer-python
+          org.opencontainers.image.description=SaltMiner Python
+          org.opencontainers.image.vendor=Saltworks Security, LLC
+
+    - name: Build and push Docker images
+      uses: docker/build-push-action@v6.15.0
+      with:
+        file: .dockerfiles/Dockerfile-python
+        context: ${{ github.workspace }}/Saltworks.SaltMiner.Python
+        push: false
+        provenance: mode=max
+        sbom: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+      
+    - name: Show complete docker tag
+      run: echo ${{ steps.meta.outputs.tags }}
+      if: env.DIAGNOSTIC_MODE == 'true'
+    
+    - name: Extract tag component
+      run: echo "TAG=`cut -d ':' -f2 <<< ${{ steps.meta.outputs.tags }}`" >> $GITHUB_ENV
+
+    - name: Show new tag
+      run: echo "Tag ${{ env.TAG }}"
+      if: env.DIAGNOSTIC_MODE == 'true'
+    
+    - id: extract_tag
+      run: echo "tag=${{ env.TAG }}" >> $GITHUB_OUTPUT
+      name: Set tag output
+
+    outputs:
+      tag: ${{ steps.extract_tag.outputs.tag }}

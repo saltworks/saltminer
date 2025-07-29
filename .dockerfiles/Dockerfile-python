@@ -1,0 +1,32 @@
+FROM python:3.13.5-alpine3.22
+
+LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.18-alpine3.22-amd64"
+LABEL vendor="Saltworks Security, LLC"
+
+ARG smapp=/usr/share/saltworks
+ARG smapp2=${smapp}/saltminer-2.5.0
+
+ARG smcfg=/etc/saltworks
+ARG smcfg2=${smcfg}/saltminer-2.5.0
+
+ARG smlog=/var/log/saltworks
+ARG smlog2=${smlog}/saltminer-2.5.0
+
+WORKDIR ${smapp2}
+
+RUN mkdir -p ${smcfg2} \
+  && mkdir -p ${smlog2} \
+  && apk add --no-cache py3-pip bash jq dos2unix
+
+COPY . .
+
+RUN cp -r ${smapp2}/Config/* ${smcfg2} \
+  && rm -rf ${smapp2}/Config \
+  && chmod u+x config-services.sh
+
+RUN pip install -r ${smapp2}/requirements.txt --break-system-packages
+
+ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
+ENV SALTMINER_2_CONFIG_PATH=/etc/saltworks/saltminer-2.5.0
+
+ENTRYPOINT ["python3"]

@@ -29,12 +29,14 @@ class COPClient:
             return
         
         
-    def get_projects_generator(self):
+    def get_projects_generator(self, in_trash = False):
         projects_endpoint = self.base_url + "/api/common/v0/projects"
         params = {
             "page[limit]": 100,
             "page[offset]": 0
         }
+        if in_trash:
+            params["filter[project][in-trash][$eq]"] = True
         try:
             response = requests.get(
                 url=projects_endpoint,
@@ -97,7 +99,7 @@ class COPClient:
     def get_runs_generator(self, project_id = None, recipe= None):
         runs_endpoint = self.base_url +  "/api/common/v0/runs"
         params = {
-            "page[limit]":100
+            "page[limit]":100,
         }
         if project_id:
             params["filter[run][project][id][$eq]"] = project_id
