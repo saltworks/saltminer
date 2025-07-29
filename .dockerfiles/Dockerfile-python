@@ -20,11 +20,11 @@ RUN mkdir -p ${smcfg2} \
 
 COPY . .
 
-#RUN cp -r ${smapp2}/Config/* ${smcfg2} \
-#  && rm -rf ${smapp2}/Config \
-#  && chmod u+x config-services.sh
+RUN cp -r ${smapp2}/Config/* ${smcfg2} \
+  && rm -rf ${smapp2}/Config \
+  && chmod u+x config-services.sh
 
-# RUN pip install -r ${smapp2}/requirements.txt --break-system-packages
+RUN pip install -r ${smapp2}/requirements.txt --break-system-packages
 
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_2_CONFIG_PATH=/etc/saltworks/saltminer-2.5.0
