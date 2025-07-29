@@ -39,7 +39,7 @@ jobs:
 #      with:
 #        dotnet-version: 8.0.x
     - name: Transform Python config file
-      working-directory: ${{ env.WORKING_DIR }}/Config
+      working-directory: ${{ github.workspace }}/Saltworks.SaltMiner.Python/Config
       if: env.EXEC_TRANSFORM == 'true'
       run: |
         echo 'Transforming configuration file'
