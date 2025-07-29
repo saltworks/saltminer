@@ -76,7 +76,7 @@ jobs:
       uses: docker/build-push-action@v6.15.0
       with:
         file: .dockerfiles/Dockerfile-python
-        context: ${{ env.WORKING_DIR }}
+        context: .
         push: false
         provenance: mode=max
         sbom: true
