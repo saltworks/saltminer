@@ -204,6 +204,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
             }
         }
 
+        /// <summary>
+        /// Requests cancellation of all processing
+        /// </summary>
         protected virtual void SetCancelToken()
         {
             CancellationRequested = true;

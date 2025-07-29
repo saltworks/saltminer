@@ -28,7 +28,6 @@ using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.ConsoleApp.Core;
 using System.IO;
 using Saltworks.SaltMiner.SourceAdapters.Core.Helpers;
-using System.Linq;
 using Saltworks.SaltMiner.Core.Common;
 
 namespace Saltworks.SaltMiner.SyncAgent
@@ -50,7 +49,6 @@ namespace Saltworks.SaltMiner.SyncAgent
         private const string AGENT_SETTINGS_LOG_SECTION = "LogConfig";
         private const string LOCATOR_FILE_NAME = "ConfigLocator.json";
         private const string CONFIG_ENV_VARIABLE = "SALTMINER_AGENT_CONFIG_PATH";
-        private static readonly string[] DbFileNames = ["syncagent.db", "syncagent-log.db"];
         private static readonly CancellationTokenSource CancelTokenSource = new();
         private static string _filePath;
         

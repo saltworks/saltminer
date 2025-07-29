@@ -83,6 +83,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             }
             catch (Exception ex)
             {
+                SetCancelToken();
                 Logger.LogCritical(ex, "Error in RunAsync: {Error}", ex.InnerException?.Message ?? ex.Message);
                 throw new SonatypeException($"Sonatype adapter failed: [{ex.GetType().Name}] {ex.InnerException?.Message ?? ex.Message}");
             }
@@ -206,7 +207,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                     // so we itereate thru those here to process using a source Id of app id and version name
                     for (var i = 0; i < sourceMetrics.Count; i++)
                     {
-                        CheckCancel();
+                        CheckCancel(true);
                         totalSourceMetricsCount++;
 
                         var metric = sourceMetrics[i];
@@ -275,7 +276,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 
                             if (NeedsUpdate(metric, localMetric) || RecoveryMode)
                             {
-                                Logger.LogInformation("[Sync] Updating Config.Instance '{Instance}', SourceType {SourceType}, SourceId '{MetricSourceId}', AssetType '{AssetType}'", Config.Instance, Config.SourceType, metric.SourceId, AssetType);
+                                Logger.LogInformation("[Sync] Updating '{SourceType}_{Instance}', SourceId '{MetricSourceId}', AssetType '{AssetType}'", Config.SourceType, Config.Instance, metric.SourceId, AssetType);
 
                                 var noScan = metric.LastScan == null;
                                 QueueScan queueScan = MapScan(application, report, components, historyReports, noScan);
@@ -302,11 +303,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                 await LetSendCatchUpAsync(Config);
                                 RecoveryMode = false;
                             }
+                            else
+                            {
+                                Logger.LogInformation("[Sync] No update needed for '{SourceType}_{Instance}', SourceId '{MetricSourceId}', AssetType '{AssetType}'", Config.SourceType, Config.Instance, metric.SourceId, AssetType);
+                            }
                         }
                         catch (LocalDataException ex)
                         {
                             Logger.LogCritical(ex, "{Msg}", ex.InnerException?.Message ?? ex.Message);
-                            StillLoading = false;
                             SetCancelToken();
                             throw;
                         }
@@ -330,6 +334,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                     break;
                                 }
                             }
+                        }
+                        finally
+                        {
+                            StillLoading = false;
                         }
 
                         CheckCancel();
