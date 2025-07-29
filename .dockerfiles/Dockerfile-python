@@ -12,12 +12,10 @@ ARG smcfg2=${smcfg}/saltminer-2.5.0
 ARG smlog=/var/log/saltworks
 ARG smlog2=${smlog}/saltminer-2.5.0
 
-WORKDIR /usr/share/saltworks/saltminer-2.5.0
+WORKDIR ${smapp2}
 
 RUN mkdir -p ${smcfg2} \
-  && mkdir -p ${smcfg3} \
   && mkdir -p ${smlog2} \
-  && mkdir -p ${smlog3} \
   && apk add --no-cache py3-pip bash jq dos2unix
 
 COPY . .
