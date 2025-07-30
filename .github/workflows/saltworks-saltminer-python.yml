@@ -54,6 +54,7 @@ jobs:
 
     - run: cp ${{ github.workspace }}/.dockerfiles/config-services.sh .
     - run: find . -type f -name '*.sh' -print0 | xargs -0 dos2unix --
+    - run: find . -type f -name '*.sh' -exec chmod u+x \{\} \;;
 
     - name: Login to the container registry
       uses: docker/login-action@v3.4.0
