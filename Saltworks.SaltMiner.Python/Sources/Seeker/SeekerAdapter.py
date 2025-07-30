@@ -19,19 +19,20 @@ class SeekerAdapter:
         self.sm_docs = SnykDocs()
         self._es = ElasticClient(settings)
         self._sm_data_client = SmDataClient(settings, "Seeker")
-        self.project_last_updated = {}
         self.first_load = settings.GetSource("Seeker", 'First_Load')
+        self.project_last_updated = {}
 
-    def run_sync(self, first_load= self.first_load):
+    def run_sync(self):
         logging.info("Run Sync Start")
-        if not first_load:
+        
+        if not self.first_load:
             self.get_sm_prj_last_updated()
             
         for project in self.seeker_client.get_projects_generator():
             project_id = project['key']
             last_updated = None
 
-            if not first_load:
+            if not self.first_load:
                 last_updated = self.project_last_updated.get(project_id)
 
             self.sync_issues(project, last_updated)
@@ -172,8 +173,7 @@ class SeekerAdapter:
             'EDT': gettz('America/New_York'),
         }
         dt_with_tz = parser.parse(date_str, tzinfos=tzinfos)
-        return dt_with_tz.replace(tzinfo=None).isoformat(sep='T')         
-
+        return dt_with_tz.replace(tzinfo=None).isoformat(sep='T')
 
 
     def last_updated_query(self):
