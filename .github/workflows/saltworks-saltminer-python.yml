@@ -53,7 +53,7 @@ jobs:
         mv ${{ env.PY_CONFIG_FILE }}.new ${{ env.PY_CONFIG_FILE }}
 
     - run: cp ${{ github.workspace }}/.dockerfiles/config-services.sh .
-    - run: sudo apt install -y dos2unix
+    - run: apt install -y dos2unix
     - run: dos2unix *.sh
 
     - name: Login to the container registry
