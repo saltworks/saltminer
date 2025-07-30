@@ -1,7 +1,7 @@
 import json
 import logging 
 import time
-import pytz
+
 from datetime import datetime, timezone, timedelta
 from dateutil import parser 
 from dateutil.tz import gettz
@@ -24,7 +24,7 @@ class SeekerAdapter:
 
     def run_sync(self):
         logging.info("Run Sync Start")
-        
+
         if not self.first_load:
             self.get_sm_prj_last_updated()
             
