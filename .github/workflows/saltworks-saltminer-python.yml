@@ -77,7 +77,7 @@ jobs:
       with:
         file: .dockerfiles/Dockerfile-python
         context: ${{ github.workspace }}/Saltworks.SaltMiner.Python
-        push: false
+        push: true
         provenance: mode=max
         sbom: true
         tags: ${{ steps.meta.outputs.tags }}
