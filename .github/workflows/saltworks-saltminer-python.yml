@@ -53,7 +53,7 @@ jobs:
         mv ${{ env.PY_CONFIG_FILE }}.new ${{ env.PY_CONFIG_FILE }}
 
     - run: cp ${{ github.workspace }}/.dockerfiles/config-services.sh .
-    - run: find . -type f -print0 | xargs -0 dos2unix --
+    - run: find . -type f -name '*.sh' -print0 | xargs -0 dos2unix --
 
     - name: Login to the container registry
       uses: docker/login-action@v3.4.0
