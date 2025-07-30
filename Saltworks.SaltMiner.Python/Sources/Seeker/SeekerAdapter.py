@@ -20,8 +20,9 @@ class SeekerAdapter:
         self._es = ElasticClient(settings)
         self._sm_data_client = SmDataClient(settings, "Seeker")
         self.project_last_updated = {}
+        self.first_load = settings.GetSource("Seeker", 'First_Load')
 
-    def run_sync(self, first_load=False):
+    def run_sync(self, first_load= self.first_load):
         logging.info("Run Sync Start")
         if not first_load:
             self.get_sm_prj_last_updated()

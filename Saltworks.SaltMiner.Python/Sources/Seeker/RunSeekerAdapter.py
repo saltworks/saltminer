@@ -20,13 +20,12 @@ def end_timer(key):
         raise ValueError(f"Invalid timer key '{key}'")
 
  
-first_load = True
 app = Application()
 prc_key = "seeker Adapter"
 logging.info("%s starting - %s", prc_key, datetime.now(timezone.utc).isoformat())
 start_timer(prc_key)
 seeker_adapter = SeekerAdapter(app.Settings)
-seeker_adapter.run_sync(first_load=True)
+seeker_adapter.run_sync()
 
 end_timer(prc_key)
 
