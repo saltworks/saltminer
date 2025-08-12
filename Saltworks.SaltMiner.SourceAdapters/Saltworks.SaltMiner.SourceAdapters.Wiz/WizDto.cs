@@ -202,6 +202,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
     public class IssueAsset
     {
         public string Id { get; set; }
+        public string Type { get; set; }
         private AssetInfo _EntitySnapshot = null;
         public AssetInfo EntitySnapshot
         {
@@ -217,6 +218,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
     public class Issue
     {
         public string Id { get; set; }
+        public string Type { get; set; }
         public IssueSourceRule Control => SourceRules?.FirstOrDefault();
         public List<IssueSourceRule> SourceRules { get; set; }
         public DateTime CreatedAt { get; set; }
