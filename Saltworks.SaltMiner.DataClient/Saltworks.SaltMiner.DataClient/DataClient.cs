@@ -766,6 +766,16 @@ namespace Saltworks.SaltMiner.DataClient
         }
 
         /// <summary>
+        /// Search for issues by filtering
+        /// </summary>
+        /// <param name="search">The search request that defines the filters to use</param>
+        /// <returns>Search results and paging info if appropriate</returns>
+        public DataResponse<Issue> IssueSearchV2(SearchRequest search)
+        {
+            return CheckRetry(() => ApiClient.Post<DataResponse<Issue>>($"issue/search", search), true).Content;
+        }
+
+        /// <summary>
         /// Delete an issue by ID
         /// </summary>
         /// <param name="id">The ID of the target entity</param>

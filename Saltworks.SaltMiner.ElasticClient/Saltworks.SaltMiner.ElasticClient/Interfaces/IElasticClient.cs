@@ -279,6 +279,16 @@ namespace Saltworks.SaltMiner.ElasticClient
         /// <returns>A response object containing the requested results and paging info for further results</returns>
         /// <remarks>Not yet clear if supports lucene, but probably does support DSL (json)</remarks>
         IElasticClientResponse<T> UpdateByQuery<T>(UpdateQueryRequest<T> searchRequest, string indexName, bool wait = true) where T : SaltMinerEntity;
+        /// <summary>
+        /// Retrieves the specified (or first) page of data, building the query on the provided SearchRequest.
+        /// </summary>
+        /// <typeparam name="T">SaltMinerEntity type to be returned</typeparam>
+        /// <param name="index">Index to be searched</param>
+        /// <param name="searchRequest">Search request definition</param>
+        /// <returns>The requested page of data (or empty set if no matches)</returns>
+        /// <remarks>This version can handle "cold" searches, having a page > 1, but no AfterKeys in PagingInfo.  For subsequent pages, use the PagingInfo.NextPage() method.</remarks>
+        IElasticClientResponse<T> Search<T>(string index, SearchRequest searchRequest) where T : SaltMinerEntity;
+        [Obsolete("Use the other overload (string, SearchRequest) instead, which only supports the use of PagingInfo for paging.")]
         IElasticClientResponse<T> Search<T>(SearchRequest searchRequest, string indexName) where T : SaltMinerEntity;
         string SearchForJson(SearchRequest searchRequest, string indexName);
         IElasticClientResponse<ElasticClientCompositeAggregate> SearchWithCompositeAgg(IElasticClientRequestAggregation agg, SearchRequest searchRequest, string indexName);

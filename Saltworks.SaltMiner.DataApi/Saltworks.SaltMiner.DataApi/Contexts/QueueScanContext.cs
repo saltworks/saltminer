@@ -147,9 +147,9 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         public DataResponse<string> SearchForIdsByAggregate(bool assetNotIssue = true)
         {
             if (assetNotIssue)
-                return new(DataRepo.SingleGroupAggregation("Saltminer.Internal.QueueScanId", QueueAssetIndex, []).Select(r => r.Result.Key));
+                return new(DataRepo.SingleGroupAggregation("Saltminer.Internal.QueueScanId", QueueAssetIndex, []).Select(r => r.Result.Key), default(UIPagingInfo));
             else
-                return new(DataRepo.SingleGroupAggregation("Saltminer.QueueScanId", QueueIssueIndex, []).Select(r => r.Result.Key));
+                return new(DataRepo.SingleGroupAggregation("Saltminer.QueueScanId", QueueIssueIndex, []).Select(r => r.Result.Key), default(UIPagingInfo));
         }
 
         public DataItemResponse<QueueScan> Get(string id)

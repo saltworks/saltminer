@@ -45,6 +45,7 @@ namespace Saltworks.SaltMiner.UiApiClient.Responses
         /// <summary>
         /// Response constructor
         /// </summary>
+        [Obsolete("Use PagingInfo overload instead.")]
         public UiPager(UIPagingInfo dataPager, List<SearchFilterValue> sortOptions, bool isQueue = false)
         {
             Total = dataPager?.Total;
@@ -64,6 +65,24 @@ namespace Saltworks.SaltMiner.UiApiClient.Responses
             }
         }
 
+        /// <summary>
+        /// Response constructor
+        /// </summary>
+        public UiPager(PagingInfo dataPager, Dictionary<string, bool> sortFilters)
+        {
+            Total = Convert.ToInt32(dataPager?.TotalHits);
+            Size = dataPager.Size;
+            Page = dataPager.Page;
+            SortFilters = sortFilters;
+        }
+
+        public PagingInfo ToPagingInfo() => new()
+        {
+            Page = Page,
+            Size = Size
+        };
+
+        [Obsolete("Use ToPagingInfo() instead.")]
         public UIPagingInfo ToDataPager()
         {
             return new UIPagingInfo

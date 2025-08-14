@@ -75,6 +75,14 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             return CheckForEntity<T>(id, indexName);
         }
 
+        public virtual DataResponse<T> Search<T>(string indexName, SearchRequest request) where T : SaltMinerEntity
+        {
+            Logger.LogInformation("{Msg}", Extensions.LoggerExtensions.SearchPagingLoggerMessage("Search", request));
+
+            return DataRepo.Search<T>(indexName, request);
+        }
+
+        [Obsolete("Use the other overload instead.  Note that it performs the search a bit differently (and better!).")]
         public virtual DataResponse<T> Search<T>(SearchRequest request, string indexName) where T : SaltMinerEntity
         {
             Logger.LogInformation("{Msg}", Extensions.LoggerExtensions.SearchPagingLoggerMessage("Search", request));

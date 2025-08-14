@@ -353,7 +353,7 @@ namespace Saltworks.SaltMiner.DataApi
                             // Pull license doc and delete - workaround for strange error with DeleteByQuery
                             // Attempts to repro DeleteByQuery null reference error with empty search have been unsuccessful
                             // client.DeleteByQuery<License>(new() { }, License.GenerateIndex())
-                            foreach (var dto in client.Search<License>(new() { }, License.GenerateIndex()).Results)
+                            foreach (var dto in client.Search<License>(License.GenerateIndex(), new() { }).Results)
                                 client.Delete<License>(dto.Document.Id, License.GenerateIndex());
                             client.AddUpdate(newLicense, License.GenerateIndex());
                             File.Delete(config.LicenseProcessedFileName);

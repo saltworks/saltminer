@@ -192,7 +192,7 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
             // run search
             var rsp = ElasticClient.Search<QueueSyncItem>(request, QueueSyncItem.GenerateIndex(true));
             if (!(rsp.Results?.Any() ?? false))
-                return new([]);
+                return new([], default(UIPagingInfo));
 
             // reformat results
             var dtos = rsp.Results.Select(r => new DataDto<QueueSyncItem>() { DataItem = r.Document, PrimaryTerm = r.Primary, SequenceNumber = r.Sequence, Index = r.Index }).ToList();
@@ -212,7 +212,7 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
                 else
                     Logger.LogError("{Count} sync item queue removal attempts failed, see earlier log entries for details.", bulkRsp.BulkErrorMessages.Count);
             }
-            return new(dtos.Select(dto => dto.DataItem));
+            return new(dtos.Select(dto => dto.DataItem), default(UIPagingInfo));
         }
     }
 

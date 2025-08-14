@@ -246,6 +246,7 @@ namespace Saltworks.SaltMiner.Ui.Api
                 ]);
             });
 
+
             app.UseSwaggerUI(c => {
                 c.SwaggerEndpoint($"{nr}/swagger/v1/swagger.json", "Saltworks.SaltMiner.Ui.Api v1");
             });

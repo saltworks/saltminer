@@ -121,7 +121,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         {
             Logger.LogInformation("Search action called");
 
-            return Ok(Context.Search<QueueIssue>(search, QueueIssueIndex));
+            return Ok(Context.Search<QueueIssue>(QueueIssueIndex, search));
         }
 
         /// <summary>

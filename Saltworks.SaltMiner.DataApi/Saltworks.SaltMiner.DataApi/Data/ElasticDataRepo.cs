@@ -87,6 +87,24 @@ namespace Saltworks.SaltMiner.DataApi.Data
             return new Tuple<T, ILockingInfo>(response.Result.Document, new ElasticLockingInfo<T> { Primary = response.Result.Primary, Id = id, Sequence = response.Result.Sequence });
         }
 
+        public DataResponse<T> Search<T>(string index, SearchRequest request) where T : SaltMinerEntity
+        {
+            Logger.LogDebug("Search with {request} on index '{index}' initiated.", JsonSerializer.Serialize(request), index ?? "(not passed)");
+            request.PagingInfo ??= new();
+            
+            if (request.PagingInfo.Size < 1)
+                request.PagingInfo.Size = Config.ElasticDefaultResultSize;
+            
+            if (!Config.ElasticEnableDiagnosticInfo)
+                Logger.LogDebug("Search debug messages may be missing information - set ElasticEnableDiagnosticInfo to populate them.");
+
+            var result = ElasticClient.Search<T>(index, request);
+            Logger.LogDebug("Search with {filter} on index '{index}' complete.", JsonSerializer.Serialize(request.Filter), index ?? "(not passed)");
+
+            return result.ToDataResponse();
+        }
+
+        [Obsolete("This overload, which supports older paging types, will be removed soon.  Use the (string, SearchRequest) overload instead.")]
         public DataResponse<T> Search<T>(SearchRequest request, string indexName) where T : SaltMinerEntity
         {
             Logger.LogDebug("Search with {request} on index '{index}' initiated.", JsonSerializer.Serialize(request), indexName ?? "(not passed)");

@@ -59,19 +59,27 @@ namespace Saltworks.SaltMiner.Core.Data
     public class DataDictionaryResponse<T1, T2> : Response
     {
         public Dictionary<T1, T2> Results { get; set; }
-        public PitPagingInfo PitPagingInfo { get; set; }
-        public UIPagingInfo UIPagingInfo { get; set; }
+        [Obsolete("Use PagingInfo instead.")]
+        public PitPagingInfo PitPagingInfo { get; set; } = null;
+        [Obsolete("Use PagingInfo instead.")]
+        public UIPagingInfo UIPagingInfo { get; set; } = null;
+        public PagingInfo PagingInfo { get; set; } = null;
+        public DataDictionaryResponse(Dictionary<T1, T2> results, PagingInfo pagingInfo = null)
+        {
+            Results = results;
+            PagingInfo = pagingInfo;
+        }
+        [Obsolete("Use the overload with PagingInfo instead.")]
         public DataDictionaryResponse(Dictionary<T1, T2> results, PitPagingInfo pagingInfo = null)
         {
             Results = results;
             PitPagingInfo = pagingInfo;
-            UIPagingInfo = null;
         }
+        [Obsolete("Use the overload with PagingInfo instead.")]
         public DataDictionaryResponse(Dictionary<T1, T2> results, UIPagingInfo pagingInfo = null)
         {
             Results = results;
             UIPagingInfo = pagingInfo;
-            PitPagingInfo = null;
         }
         public DataDictionaryResponse() { }
 
@@ -116,17 +124,25 @@ namespace Saltworks.SaltMiner.Core.Data
     {
         public virtual IEnumerable<T> Data { get; set; }
         public IList<object> AfterKeys { get; set; }
+        [Obsolete("Use PagingInfo instead.")]
         public PitPagingInfo PitPagingInfo { get; set; }
+        [Obsolete("Use PagingInfo instead.")]
         public UIPagingInfo UIPagingInfo { get; set; }
+        public PagingInfo PagingInfo { get; set; }
         public DataResponse() { }
 
+        [Obsolete("Use the PagingInfo overload instead.")]
         public DataResponse(IEnumerable<T> data, UIPagingInfo pagingInfo = null)
         {
             Data = data ?? [];
-            PitPagingInfo = null;
             UIPagingInfo = pagingInfo;
         }
 
+        public DataResponse(IEnumerable<T> data, PagingInfo pagingInfo = null)
+        {
+            Data = data ?? [];
+            PagingInfo = pagingInfo;
+        }
         public DataResponse(int statusCode, string errorType, List<string> messages)
         {
             StatusCode = statusCode;

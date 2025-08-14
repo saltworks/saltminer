@@ -1126,6 +1126,50 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return result.Body;
     }
 
+    public IElasticClientResponse<T> Search<T>(string index, Core.Data.SearchRequest searchRequest) where T : SaltMinerEntity
+    {
+        Logger?.LogDebug("Search initiated.");
+        var request = CreateSearchRequest<T>(index, searchRequest);
+        ISearchResponse<T> response = null;
+        try
+        {
+            response = ElasticClient.Search<T>(request);
+            LogElasticsearchClientDebugInfo(response);
+        }
+        catch (ElasticsearchClientException ex)
+        {
+            LogElasticsearchClientDebugInfo(response);
+            throw new NestClientException(ex.Message, ex);
+        }
+
+        Logger?.LogDebug("Search completed.  Search URI: {Uri}", response.ApiCall.Uri);
+        Logger?.LogDebug("Search Request Body: {Body}", Encoding.UTF8.GetString(response.ApiCall?.RequestBodyInBytes ?? []));
+
+        // Set paging info, then do a separate count query if needed for larger sets
+        searchRequest.PagingInfo.TotalHits = response.Total;
+        searchRequest.PagingInfo.TotalHitsWereTruncated = response.HitsMetadata.Total.Relation.Equals(TotalHitsRelation.GreaterThanOrEqualTo);
+        if (searchRequest.PagingInfo.TotalHitsWereTruncated && !searchRequest.PagingInfo.TotalHitsCanBeTruncated)
+        {
+            var countRsp = Count<T>(searchRequest, index);
+
+            if (countRsp.IsSuccessful)
+            {
+                searchRequest.PagingInfo.TotalHits = countRsp.CountAffected;
+                searchRequest.PagingInfo.TotalHitsWereTruncated = false;
+            }
+            else
+            {
+                Logger.LogWarning("Search count operation failed - [{Status}] {Msg}", countRsp.HttpStatus, countRsp.Message);
+            }
+        }
+        // Use next after keys if present and page > 0 (in case someone got it backwards)
+        if (searchRequest.PagingInfo.Page > 1)
+            searchRequest.PagingInfo.CurrentAfterKeys = searchRequest.PagingInfo.CurrentAfterKeys ?? searchRequest.PagingInfo.NextAfterKeys;
+
+        return NestClientResponse<T>.BuildResponse(response, searchRequest.PagingInfo, response.ApiCall.HttpStatusCode == 404);
+    }
+
+    [Obsolete("Use the other overload (string, SearchRequest) instead, which only supports the use of PagingInfo for paging.")]
     public IElasticClientResponse<T> Search<T>(Core.Data.SearchRequest searchRequest, string indexName) where T : SaltMinerEntity
     {
         Logger?.LogDebug("Search initiated.");
@@ -1537,6 +1581,64 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
 
     protected static Indices BuildIndex(string indexName) => Indices.Index(indexName);
 
+    private SearchRequest<T> CreateSearchRequest<T>(string indexName, Core.Data.SearchRequest searchRequest)
+    {
+        var index = Indices.Index(indexName);
+        SearchRequest<T> queryRequest = new(index)
+        {
+            SequenceNumberPrimaryTerm = searchRequest.IncludeConcurrencyInfo
+        };
+
+        // Set defaults
+        searchRequest.PagingInfo ??= new();  // default size is 0
+        if (searchRequest.PagingInfo.Size == 0)
+            searchRequest.PagingInfo.Size = ClientConfig.DefaultPageSize;
+        if ((searchRequest.SortKeys ?? []).Count == 0)
+            searchRequest.SortKeys = [];
+        // Must include ID as a sort field to paginate correctly
+        searchRequest.SortKeys.TryAdd("id", true);
+
+        // Sorting
+        queryRequest.Sort = CreateSort(searchRequest.SortKeys);
+
+        // PIT Paging
+        if (searchRequest.PagingInfo.EnablePit)
+        {
+            var pit = searchRequest.PagingInfo.PitPagingToken;
+            if (string.IsNullOrEmpty(pit))
+                pit = ElasticClient.OpenPointInTime(index, s => s.KeepAlive(ClientConfig.DefaultPagingTimeout)).Id;
+            if (!string.IsNullOrEmpty(pit))
+            {
+                Logger.LogDebug("Point in time included on search of index '{Index}'", indexName);
+                queryRequest = new SearchRequest<T> { PointInTime = new PointInTime(pit) };
+            }
+        }
+
+        // Offset / After keys
+        if (searchRequest.PagingInfo.CurrentAfterKeys != null)
+        {
+            Logger.LogDebug("Paging after keys included on search of index '{Index}'", indexName);
+
+            queryRequest.SearchAfter = ScrubPagingAfterKeys(searchRequest.PagingInfo.CurrentAfterKeys);
+            queryRequest.From = 0;
+        }
+        else
+        {
+            queryRequest.From = searchRequest.PagingInfo.Size * (searchRequest.PagingInfo.Page - 1);
+        }
+
+        // Create query
+        queryRequest.Query = CreateQueryFromRequest(searchRequest.Filter);
+        var filter = searchRequest?.Filter?.SubFilter;
+        while (filter != null)
+        {
+            queryRequest.Query = queryRequest.Query && CreateBoolQueryFromSubFilter(filter);
+            filter = filter.SubFilter;
+        }
+        return queryRequest;
+    }
+
+    [Obsolete("Use the other overload (string, SearchRequest) instead, which only supports the use of PagingInfo for paging.")]
     private SearchRequest<T> CreateSearchRequest<T>(Core.Data.SearchRequest searchRequest, string indexName)
     {
         var index = Indices.Index(indexName);
@@ -1681,7 +1783,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return filter.AnyMatch ? new BoolQuery() { Should = queries } : new BoolQuery() { Must = queries };
     }
 
-    private static IList<object> ScrubPagingAfterKeys(IList<object> keys)
+    private static List<object> ScrubPagingAfterKeys(IList<object> keys)
     {
         var result = new List<object>();
 

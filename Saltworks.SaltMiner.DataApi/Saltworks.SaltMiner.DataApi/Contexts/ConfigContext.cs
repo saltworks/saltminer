@@ -61,12 +61,8 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
         public DataResponse<Config> GetAll()
         {
-            var result = DataRepo.Search<Config>(
-                new SearchRequest(),
-                Core.Entities.Config.GenerateIndex()
-           );
-
-            return new DataResponse<Config>(result.Data);
+            var result = DataRepo.Search<Config>(Core.Entities.Config.GenerateIndex(), new SearchRequest());
+            return new DataResponse<Config>(result.Data, result.PagingInfo);
         }
     }
 }

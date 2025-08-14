@@ -540,6 +540,13 @@
             <returns>The list inside a response object</returns>
             <response code="200">Returns a batch from a search request</response>
         </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.IssueController.SearchOld(Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of Issues
+            </summary>
+            <returns>The list inside a response object</returns>
+            <response code="200">Returns a batch from a search request</response>
+        </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.IssueController.AddUpdateBulk(Saltworks.SaltMiner.Core.Data.DataRequest{Saltworks.SaltMiner.Core.Entities.Issue})">
             <summary>
             Adds/Updates one or more Issue
@@ -1340,6 +1347,16 @@
             <param name="id">The identifier for the entity to be retrieved</param>
             <param name="indexName">The index for the entity to be retrieved</param>
             <returns>Tuple containing the requested entity (or null if not found) and locking information</returns>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.Search``1(System.String,Saltworks.SaltMiner.Core.Data.SearchRequest)">
+            <summary>
+            Returns a list of entities of type T that match the passed filter criteria on specified data index
+            </summary>
+            <typeparam name="T">Type of entity in the datasource</typeparam>
+            <param name="request">The criteria for the search</param>
+            <param name="index">The index for the entity to be retrieved</param>
+            <returns>The list of results</returns>
+            <remarks>Does not support old paging info classes, only PagingInfo.  This version of Search retrieves the requested page even if AfterKeys are empty ("cold" search)</remarks>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.Search``1(Saltworks.SaltMiner.Core.Data.SearchRequest,System.String)">
             <summary>

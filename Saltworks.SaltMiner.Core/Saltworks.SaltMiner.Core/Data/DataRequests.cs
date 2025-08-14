@@ -17,6 +17,7 @@
 ﻿using Org.BouncyCastle.Bcpg;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Extensions;
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
@@ -136,17 +137,29 @@ namespace Saltworks.SaltMiner.Core.Data
         /// <summary>
         /// List of sort values after which the next result set should be produced
         /// </summary>
+        [Obsolete("Use PagingInfo.CurrentAfterKeys instead.")]
         public IList<object> AfterKeys { get; set; }
+        /// <summary>
+        /// Dictionary&gt;column-name, isAscending&lt; of sorting keys.
+        /// </summary>
+        public Dictionary<string, bool> SortKeys { get; set; }
 
         /// <summary>
         /// Pagination information
         /// </summary>
+        [Obsolete("Use PagingInfo instead.")]
         public PitPagingInfo PitPagingInfo { get; set; } = null;
 
         /// <summary>
         /// Pagination information
         /// </summary>
+        [Obsolete("Use PagingInfo instead.")]
         public UIPagingInfo UIPagingInfo { get; set; } = null;
+
+        /// <summary>
+        /// Pagination Information
+        /// </summary>
+        public PagingInfo PagingInfo { get; set; } = null;
 
         /// <summary>
         /// If set, includes concurrency information in results (sequence num, primary term)

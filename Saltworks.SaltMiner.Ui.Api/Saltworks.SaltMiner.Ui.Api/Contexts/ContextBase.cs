@@ -704,7 +704,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 var qResult = QueueIssuesSearch(request);
                 if (qResult.Success && (qResult.Data?.Any() ?? false))
                 {
-                    return new UiDataResponse<IssueFull>(qResult.Data.Select(x => new IssueFull(x, UiApiConfig.AppVersion, fieldInfo)).ToList(), qResult, qResult.Pager);
+                    var rsp = new UiDataResponse<IssueFull>(qResult.Data.Select(x => new IssueFull(x, UiApiConfig.AppVersion, fieldInfo)).ToList(), qResult, qResult.Pager);
+                    return rsp;
                 }
                 response = qResult;
             }
@@ -713,7 +714,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 var result = IssuesSearch(request);
                 if (result.Success && (result.Data?.Any() ?? false))
                 {
-                    return new UiDataResponse<IssueFull>(result.Data.Select(x => new IssueFull(x, UiApiConfig.AppVersion, fieldInfo)).ToList(), result, result.Pager);
+                    var rsp = new UiDataResponse<IssueFull>(result.Data.Select(x => new IssueFull(x, UiApiConfig.AppVersion, fieldInfo)).ToList(), result, result.Pager);
+                    return rsp;
                 }
                 response = result;
             }
@@ -762,10 +764,12 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
             var searchRequest = new SearchRequest()
             {
-                UIPagingInfo = new UIPagingInfo(request.Pager?.Size ?? Config.DefaultPageSize, 1)
+                PagingInfo = new()
                 {
-                    SortFilters = Helpers.SearchFilters.MapSortFilters(request.Pager?.SortFilters, SortFilterValues)
+                    Size = request.Pager?.Size ?? Config.DefaultPageSize,
+                    Page = request.Pager?.Page ?? 1
                 },
+                SortKeys = Helpers.SearchFilters.MapSortFilters(request.Pager?.SortFilters, SortFilterValues),
                 Filter = new()
                 {
                     AnyMatch = false,
@@ -775,23 +779,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             };
 
             var response = DataClient.QueueIssueSearch(searchRequest);
-            var vals = new int[] { 0, 1 };
-            var sort = SearchFilters?.Find(x => x.Type == SearchFilterType.IssueSortFilters.ToString())?.Filters ?? [];
-
-            while (response.Success && response.Data != null && response.Data.Any())
-            {
-                searchRequest.UIPagingInfo = response.UIPagingInfo;
-                if (vals.Contains(request.Pager?.Page ?? 0) || searchRequest.UIPagingInfo.Page == request.Pager.Page)
-                {
-                    Logger.LogInformation("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("QueueIssue", filters?.Count ?? 0, response.UIPagingInfo.Size, response.UIPagingInfo.Page));
-                    break;
-                }
-                searchRequest.UIPagingInfo.Page++;
-                searchRequest.AfterKeys = response.AfterKeys;
-
-                response = DataClient.QueueIssueSearch(searchRequest);
-            }
-            return new UiDataResponse<QueueIssue>(response.Data, sort, response.UIPagingInfo, true);
+            Logger.LogInformation("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("QueueIssue", filters?.Count ?? 0, response.PagingInfo.Size, response.PagingInfo.Page));
+            return new UiDataResponse<QueueIssue>(response, request);
         }
 
         private UiDataResponse<Issue> IssuesSearch(IssueSearch request)
@@ -805,10 +794,12 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
             var searchRequest = new SearchRequest()
             {
-                UIPagingInfo = new UIPagingInfo(request.Pager?.Size ?? Config.DefaultPageSize, 1)
+                PagingInfo = new()
                 {
-                    SortFilters = Helpers.SearchFilters.MapSortFilters(request.Pager?.SortFilters, SortFilterValues)
+                    Size = request.Pager?.Size ?? Config.DefaultPageSize,
+                    Page = request.Pager?.Page ?? 1
                 },
+                SortKeys = Helpers.SearchFilters.MapSortFilters(request.Pager?.SortFilters, SortFilterValues),
                 Filter = new()
                 {
                     FilterMatches = filters,
@@ -820,23 +811,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             };
 
             var response = DataClient.IssueSearch(searchRequest);
-            var sort = SearchFilters?.Find(x => x.Type == SearchFilterType.IssueSortFilters.ToString())?.Filters ?? [];
-            var vals = new int[] { 0, 1 };
-
-            while (response.Success && response.Data != null && response.Data.Any())
-            {
-                searchRequest.UIPagingInfo = response.UIPagingInfo;
-                if (vals.Contains(request.Pager?.Page ?? 0) || searchRequest.UIPagingInfo.Page == request.Pager.Page)
-                {
-                    Logger.LogInformation("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Issue", filters?.Count ?? 0, response.UIPagingInfo.Size, response.UIPagingInfo.Page));
-                    break;
-                }
-                searchRequest.UIPagingInfo.Page++;
-                searchRequest.AfterKeys = response.AfterKeys;
-
-                response = DataClient.IssueSearch(searchRequest);
-            }
-            return new UiDataResponse<Issue>(response.Data, sort, response.UIPagingInfo, false);
+            Logger.LogInformation("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Issue", filters?.Count ?? 0, response.PagingInfo.Size, response.PagingInfo.Page));
+            return new UiDataResponse<Issue>(response, request);
         }
 
         private Dictionary<string, string> BuildEngagementIssueFilters(IssueSearch request)

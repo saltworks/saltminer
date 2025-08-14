@@ -119,8 +119,19 @@ namespace Saltworks.SaltMiner.DataApi.Data
         /// </summary>
         /// <typeparam name="T">Type of entity in the datasource</typeparam>
         /// <param name="request">The criteria for the search</param>
+        /// <param name="index">The index for the entity to be retrieved</param>
+        /// <returns>The list of results</returns>
+        /// <remarks>Does not support old paging info classes, only PagingInfo.  This version of Search retrieves the requested page even if AfterKeys are empty ("cold" search)</remarks>
+        DataResponse<T> Search<T>(string index, SearchRequest request) where T : SaltMinerEntity;
+
+        /// <summary>
+        /// Returns a list of entities of type T that match the passed filter criteria on specified data index
+        /// </summary>
+        /// <typeparam name="T">Type of entity in the datasource</typeparam>
+        /// <param name="request">The criteria for the search</param>
         /// <param name="indexName">The index for the entity to be retrieved</param>
         /// <returns>The list of results</returns>
+        [Obsolete("Use the other overload (string, SearchRequest) instead, which only supports the use of PagingInfo for paging.")]
         DataResponse<T> Search<T>(SearchRequest request, string indexName) where T : SaltMinerEntity;
 
         /// <summary>

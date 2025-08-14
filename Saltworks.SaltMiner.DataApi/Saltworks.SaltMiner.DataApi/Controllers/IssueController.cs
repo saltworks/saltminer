@@ -64,6 +64,21 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         {
             Logger.LogInformation("Search action called");
            
+            return Ok(Context.Search<Issue>(Issue.GenerateIndex(search.AssetType, search.SourceType, search.Instance), search));
+        }
+
+        /// <summary>
+        /// Returns a list of Issues
+        /// </summary>
+        /// <returns>The list inside a response object</returns>
+        /// <response code="200">Returns a batch from a search request</response>
+        [ProducesResponseType(200, Type = typeof(DataResponse<Issue>))]
+        [Auth(Role.Manager, Role.Admin)]
+        [HttpPost("[action]")]
+        public ActionResult<DataResponse<Issue>> SearchOld([FromBody] SearchRequest search)
+        {
+            Logger.LogInformation("Search action called");
+
             return Ok(Context.Search<Issue>(search, Issue.GenerateIndex(search.AssetType, search.SourceType, search.Instance)));
         }
 

@@ -17,6 +17,7 @@
 ﻿using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.UiApiClient.Helpers;
+using Saltworks.SaltMiner.UiApiClient.Requests;
 
 namespace Saltworks.SaltMiner.UiApiClient.Responses
 {
@@ -25,8 +26,18 @@ namespace Saltworks.SaltMiner.UiApiClient.Responses
         public List<FieldFilter> SortOptions { get; set; } = [];
         public UiPager Pager { get; set; } = new();
 
-        public UiDataResponse(IEnumerable<T> data) : base(data) { }
-        public UiDataResponse(IEnumerable<T> data, Response response, UiPager pager) : base(data)
+        public UiDataResponse(IEnumerable<T> data) : base(data, default(PagingInfo)) { }
+        public UiDataResponse(DataResponse<T> response, IssueSearch search) : base(response.Data, default(PagingInfo))
+        {
+            var pi = search.Pager.ToPagingInfo();
+            StatusCode = response.StatusCode;
+            Message = response.Message;
+            Affected = response.Affected;
+            Pager = new(pi, search.Pager.SortFilters);
+        }
+
+        [Obsolete("Use the DataResponse<T>, SearchRequest overload instead.")]
+        public UiDataResponse(IEnumerable<T> data, Response response, UiPager pager) : base(data, default(UIPagingInfo))
         {
             StatusCode = response.StatusCode;
             Message = response.Message;
@@ -34,14 +45,16 @@ namespace Saltworks.SaltMiner.UiApiClient.Responses
             Pager = pager;
             UIPagingInfo = pager.ToDataPager();
         }
-        public UiDataResponse(IEnumerable<T> data, UIPagingInfo dataPager, bool isQueue = false) : base(data)
+        [Obsolete("Use PagingInfo constructor instead.")]
+        public UiDataResponse(IEnumerable<T> data, UIPagingInfo dataPager, bool isQueue = false) : base(data, default(UIPagingInfo))
         {
             StatusCode = 200;
             Affected = data.Count();
             Pager = dataPager != null ? new(dataPager, [], isQueue) : null;
             UIPagingInfo = Pager.ToDataPager();
         }
-        public UiDataResponse(IEnumerable<T> data, List<SearchFilterValue> sortFilters, UIPagingInfo dataPager, bool isQueue = false) : base(data)
+        [Obsolete("Use PagingInfo constructor instead.")]
+        public UiDataResponse(IEnumerable<T> data, List<SearchFilterValue> sortFilters, UIPagingInfo dataPager, bool isQueue = false) : base(data, default(UIPagingInfo))
         {
             StatusCode = 200;
             Affected = data.Count();
@@ -49,6 +62,7 @@ namespace Saltworks.SaltMiner.UiApiClient.Responses
             UIPagingInfo = Pager.ToDataPager();
             SortOptions = sortFilters?.Select(f => new FieldFilter(f))?.ToList();
         }
+        [Obsolete("Use PagingInfo constructor instead.")]
         public UiDataResponse(IEnumerable<T> data, Response response, List<SearchFilterValue> sortFilters, UIPagingInfo dataPager, bool isQueue = false) : base(data, dataPager)
         {
             StatusCode = response.StatusCode;

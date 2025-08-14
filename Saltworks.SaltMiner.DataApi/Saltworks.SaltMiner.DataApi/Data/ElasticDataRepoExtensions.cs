@@ -28,6 +28,7 @@ namespace Saltworks.SaltMiner.DataApi.Data
             Data = result?.Results.Select(r => r.Document) ?? new List<T>(),
             PitPagingInfo = result?.UIPagingInfo == null ? result?.PitPagingInfo : null,
             UIPagingInfo = result?.UIPagingInfo != null ? result.UIPagingInfo : null,
+            PagingInfo = result?.PagingInfo,
             AfterKeys = result?.AfterKeys,
             Affected = result?.CountAffected ?? 0,
             Message = result?.Message,

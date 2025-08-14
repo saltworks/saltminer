@@ -59,39 +59,27 @@ namespace Saltworks.SaltMiner.Ui.Api.Helpers
             {
                 var option = options?.FirstOrDefault(x => x.Field.Equals(filter.Field, StringComparison.OrdinalIgnoreCase));
                 if (option == null)
-                {
                     requestFilters.Add(filter.Field, filter.Value);
-                }
             }
         }
 
         private static void CreateFilter(Dictionary<string, string> requestFilters, string indexFieldName, SearchFilterValue option, FieldFilter filter)
         {
             if (indexFieldName.Contains("date", StringComparison.OrdinalIgnoreCase) || indexFieldName.Contains("timestamp", StringComparison.OrdinalIgnoreCase) || Regex.Match(filter.Value, @"([012]?\d)[\/. -]([0123]?\d)[\/. -]([012]\d{3})\b").Success)
-            {
                 filter.Value = $"{DateTime.Parse(filter.Value):yyyy-MM-dd}";
-            }
 
             if (option.IsTextSearch)
-            {
                 requestFilters.Add(indexFieldName + ".Text", DataClient.Helpers.BuildQueryStringFilterValue(filter.Value));
-            }
             else if (indexFieldName == "")
-            {
                 requestFilters.Add(indexFieldName, DataClient.Helpers.BuildQueryStringFilterValue(filter.Value));
-            }
             else
-            {
                 requestFilters.Add(indexFieldName, filter.Value);
-            }
         }
 
         public static Dictionary<string, bool> MapSortFilters(Dictionary<string, bool> sortFilters, List<SearchFilterValue> sortFilterValues, bool isQueue = false)
         {
             if (sortFilters == null)
-            {
                 return [];
-            }
 
             var result = new Dictionary<string, bool>();
                        
@@ -102,16 +90,12 @@ namespace Saltworks.SaltMiner.Ui.Api.Helpers
                 if (isQueue)
                 {
                     foreach (var indexName in filterValue.QueueIndexFieldNames)
-                    {
                         result.Add(indexName, filter.Value);
-                    }
                 }
                 else
                 {
                     foreach (var indexName in filterValue.IndexFieldNames)
-                    {
                         result.Add(indexName, filter.Value);
-                    }
                 }
             }
 

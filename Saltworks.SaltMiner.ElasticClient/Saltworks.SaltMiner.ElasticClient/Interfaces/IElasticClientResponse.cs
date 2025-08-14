@@ -15,6 +15,7 @@
  */
 
 ﻿using Saltworks.SaltMiner.Core.Data;
+using System;
 using System.Collections.Generic;
 
 namespace Saltworks.SaltMiner.ElasticClient
@@ -56,6 +57,7 @@ namespace Saltworks.SaltMiner.ElasticClient
         /// <summary>
         /// Single result document goes here, not as a loner in the Results field.
         /// </summary>
+        [Obsolete("Use PagingInfo *AfterKeys properties instead.")]
         public IList<object> AfterKeys { get; set; }
         /// <summary>
         /// For multiple result queries, key information needed to return the next (or first) set of results
@@ -65,5 +67,9 @@ namespace Saltworks.SaltMiner.ElasticClient
         /// For multiple result queries, key information needed to return the next (or first) set of results
         /// </summary>
         public UIPagingInfo UIPagingInfo { get; set; }
+        /// <summary>
+        /// For multiple result queries, key information needed to return the next (or first) set of results
+        /// </summary>
+        public PagingInfo PagingInfo { get; set; }
     }
 }

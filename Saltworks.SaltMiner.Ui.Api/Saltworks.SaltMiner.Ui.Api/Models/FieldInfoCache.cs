@@ -27,7 +27,6 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
         private DateTime? FieldTimestamp { get; set; } = null;
         private List<AttributeDefinition> AttributeDefinitions = [];
         private List<ActionDefinition> ActionDefinitions = [];
-        private DateTime? ActionTimestamp { get; set; } = null;
         private DateTime? AttrTimestamp { get; set; } = null;
         private List<AppRole> AppRoles = [];
         private DateTime? ArTimestamp { get; set; } = null;
