@@ -20,6 +20,7 @@ using System.Collections.Generic;
 
 namespace Saltworks.SaltMiner.DataClient
 {
+    [Obsolete("Use Filter helper methods instead")]
     public static class Helpers
     {
         public static SearchRequest SearchRequest(string field, string value)

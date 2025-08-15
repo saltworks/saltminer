@@ -248,17 +248,6 @@ namespace Saltworks.SaltMiner.ElasticClient
         /// <remarks>Not yet clear if supports lucene, but probably does support DSL (json)</remarks>
         IElasticClientResponse<T> SearchByQuery<T>(string query, string indexName, List<object> afterKeys, PitPagingInfo pagingInfo) where T : SaltMinerEntity;
         /// <summary>
-        /// Searches the specified index based on the passed elasticsearch query
-        /// </summary>
-        /// <typeparam name="T">Selects the index and determines the result type</typeparam>
-        /// <param name="query">Elasticsearch query body</param>
-        /// <param name="indexName">Specify the index to query</param>
-        /// <param name="pagingInfo">Pagination settings for the query</param>
-        /// <seealso cref="IDataRepositoryUIPagingInfo"/>
-        /// <returns>A response object containing the requested results and paging info for further results</returns>
-        /// <remarks>Not yet clear if supports lucene, but probably does support DSL (json)</remarks>
-        IElasticClientResponse<T> SearchByQuery<T>(string query, string indexName, List<object> afterKeys, UIPagingInfo pagingInfo) where T : SaltMinerEntity;
-        /// <summary>
         /// Updates the specified index based on the passed elasticsearch query
         /// </summary>
         /// <typeparam name="T">Selects the index and determines the result type</typeparam>
@@ -288,8 +277,6 @@ namespace Saltworks.SaltMiner.ElasticClient
         /// <returns>The requested page of data (or empty set if no matches)</returns>
         /// <remarks>This version can handle "cold" searches, having a page > 1, but no AfterKeys in PagingInfo.  For subsequent pages, use the PagingInfo.NextPage() method.</remarks>
         IElasticClientResponse<T> Search<T>(string index, SearchRequest searchRequest) where T : SaltMinerEntity;
-        [Obsolete("Use the other overload (string, SearchRequest) instead, which only supports the use of PagingInfo for paging.")]
-        IElasticClientResponse<T> Search<T>(SearchRequest searchRequest, string indexName) where T : SaltMinerEntity;
         string SearchForJson(SearchRequest searchRequest, string indexName);
         IElasticClientResponse<ElasticClientCompositeAggregate> SearchWithCompositeAgg(IElasticClientRequestAggregation agg, SearchRequest searchRequest, string indexName);
         /// <summary>

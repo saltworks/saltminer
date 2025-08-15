@@ -540,13 +540,6 @@
             <returns>The list inside a response object</returns>
             <response code="200">Returns a batch from a search request</response>
         </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.IssueController.SearchOld(Saltworks.SaltMiner.Core.Data.SearchRequest)">
-            <summary>
-            Returns a list of Issues
-            </summary>
-            <returns>The list inside a response object</returns>
-            <response code="200">Returns a batch from a search request</response>
-        </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.IssueController.AddUpdateBulk(Saltworks.SaltMiner.Core.Data.DataRequest{Saltworks.SaltMiner.Core.Entities.Issue})">
             <summary>
             Adds/Updates one or more Issue
@@ -691,6 +684,11 @@
             <response code="200">Returns response indicating success</response>
         </member>
         <member name="T:Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController">
+            <summary>
+            Supports operations with QueueAssets
+            </summary>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController.#ctor(Microsoft.Extensions.Logging.ILogger{Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController},Saltworks.SaltMiner.DataApi.Contexts.QueueAssetContext)">
             <summary>
             Supports operations with QueueAssets
             </summary>
@@ -1064,7 +1062,7 @@
             <summary>
             Returns a list of Scans by search
             </summary>
-            <param name="search">Search request payload</param>
+            <param name="request">Search request payload</param>
             <returns>The list inside a response object</returns>
             <response code="200">Returns a batch from a search request</response>
         </member>
@@ -1357,15 +1355,6 @@
             <param name="index">The index for the entity to be retrieved</param>
             <returns>The list of results</returns>
             <remarks>Does not support old paging info classes, only PagingInfo.  This version of Search retrieves the requested page even if AfterKeys are empty ("cold" search)</remarks>
-        </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.Search``1(Saltworks.SaltMiner.Core.Data.SearchRequest,System.String)">
-            <summary>
-            Returns a list of entities of type T that match the passed filter criteria on specified data index
-            </summary>
-            <typeparam name="T">Type of entity in the datasource</typeparam>
-            <param name="request">The criteria for the search</param>
-            <param name="indexName">The index for the entity to be retrieved</param>
-            <returns>The list of results</returns>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.SingleGroupAggregation(System.String,System.String,System.Collections.Generic.Dictionary{System.String,System.String},Saltworks.SaltMiner.Core.Data.SearchRequest)">
             <summary>

@@ -27,14 +27,10 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
     [Produces("application/json")]
     [Auth]
     [ApiController]
-    public class SearchFilterController : ApiControllerBase
+    public class SearchFilterController(SearchFilterContext context, ILogger<SearchFilterController> logger) : ApiControllerBase(context, logger)
     {
         private SearchFilterContext Context => ContextBase as SearchFilterContext;
-        private string SearchFilterIndex = SearchFilter.GenerateIndex();
-
-        public SearchFilterController(SearchFilterContext context, ILogger<SearchFilterController> logger) : base(context, logger)
-        {
-        }
+        private readonly string SearchFilterIndex = SearchFilter.GenerateIndex();
 
         /// <summary>
         /// Updates one or more SearchFilter(s) using update by query
@@ -74,7 +70,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         {
             Logger.LogInformation("Search action called");
 
-            return Ok(Context.Search<SearchFilter>(search, SearchFilterIndex));
+            return Ok(Context.Search<SearchFilter>(SearchFilterIndex, search));
         }
 
         /// <summary>

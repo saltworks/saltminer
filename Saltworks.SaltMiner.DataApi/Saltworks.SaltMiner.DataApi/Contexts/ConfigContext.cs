@@ -23,46 +23,41 @@ using System.Collections.Generic;
 using Saltworks.SaltMiner.ElasticClient;
 using System.Linq;
 
-namespace Saltworks.SaltMiner.DataApi.Contexts
-{
-    public class ConfigContext : ContextBase
-    {
-        public ConfigContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<LookupContext> logger) : base(config, dataRepository, factory, logger)
-        { }
+namespace Saltworks.SaltMiner.DataApi.Contexts;
 
-        public NoDataResponse DeleteByType(string type)
+public class ConfigContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<LookupContext> logger) : ContextBase(config, dataRepository, factory, logger)
+{
+    public NoDataResponse DeleteByType(string type)
+    {
+        var request = new SearchRequest
         {
-            var request = new SearchRequest
+            Filter = new Filter
+            {
+                FilterMatches = new Dictionary<string, string> { { "Type", type } }
+            }
+        };
+
+        return ElasticClient.DeleteByQuery<Config>(request, Core.Entities.Config.GenerateIndex()).ToNoDataResponse();
+    }
+
+    public DataItemResponse<Config> GetByType(string type)
+    {
+        var result = Search<Config>(Core.Entities.Config.GenerateIndex(),
+            new SearchRequest
             {
                 Filter = new Filter
                 {
                     FilterMatches = new Dictionary<string, string> { { "Type", type } }
                 }
-            };
+            }
+       );
 
-            return ElasticClient.DeleteByQuery<Config>(request, Core.Entities.Config.GenerateIndex()).ToNoDataResponse();
-        }
+        return new DataItemResponse<Config>(result.Data.FirstOrDefault());
+    }
 
-        public DataItemResponse<Config> GetByType(string type)
-        {
-            var result = DataRepo.Search<Config>(
-                new SearchRequest
-                {
-                    Filter = new Filter
-                    {
-                        FilterMatches = new Dictionary<string, string> { { "Type", type } }
-                    }
-                },
-                Core.Entities.Config.GenerateIndex()
-           );
-
-            return new DataItemResponse<Config>(result.Data.FirstOrDefault());
-        }
-
-        public DataResponse<Config> GetAll()
-        {
-            var result = DataRepo.Search<Config>(Core.Entities.Config.GenerateIndex(), new SearchRequest());
-            return new DataResponse<Config>(result.Data, result.PagingInfo);
-        }
+    public DataResponse<Config> GetAll()
+    {
+        var result = Search<Config>(Core.Entities.Config.GenerateIndex(), new SearchRequest());
+        return new DataResponse<Config>(result.Data, result.PagingInfo);
     }
 }

@@ -36,7 +36,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                 throw new ApiValidationException($"Invalid role name, can only contain alphanumeric, dash, or underscore.");
             // If new, does it already exist as an AppRole?
             var filter = new Dictionary<string, string>() { { "name", request.Entity.Name } };
-            if (isnew && Search<AppRole>(new() { Filter = new() { FilterMatches = filter } }, idx).Data.Any())
+            if (isnew && Search<AppRole>(idx, new() { Filter = new() { FilterMatches = filter } }).Data.Any())
                 throw new ApiValidationException($"Role name '{request.Entity.Name}' already exists.");
             // If new, does it already exist in elasticsearch?
             if (isnew && ElasticClient.RoleExists(erolename).IsSuccessful)

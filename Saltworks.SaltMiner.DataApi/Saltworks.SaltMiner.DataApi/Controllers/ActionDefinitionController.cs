@@ -47,7 +47,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         {
             Logger.LogInformation("Search action called");
 
-            return Ok(Context.Search<ActionDefinition>(search, ActionDefinitionIndex));
+            return Ok(Context.Search<ActionDefinition>(ActionDefinitionIndex, search));
         }
 
     }

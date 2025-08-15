@@ -104,37 +104,6 @@ namespace Saltworks.SaltMiner.DataApi.Data
             return result.ToDataResponse();
         }
 
-        [Obsolete("This overload, which supports older paging types, will be removed soon.  Use the (string, SearchRequest) overload instead.")]
-        public DataResponse<T> Search<T>(SearchRequest request, string indexName) where T : SaltMinerEntity
-        {
-            Logger.LogDebug("Search with {request} on index '{index}' initiated.", JsonSerializer.Serialize(request), indexName ?? "(not passed)");
-
-            if (request.UIPagingInfo == null && request.PitPagingInfo == null)
-            {
-                request.PitPagingInfo = new PitPagingInfo();
-            }
-
-            if (request.UIPagingInfo != null)
-            {
-                request.UIPagingInfo.Size = (request.UIPagingInfo?.Size ?? 0) >= 1 ? request.UIPagingInfo.Size : Config.ElasticDefaultResultSize;
-                request.UIPagingInfo.Page = request.UIPagingInfo?.Page ?? 1;
-            }
-            else
-            {
-                request.PitPagingInfo.Size = (request.PitPagingInfo?.Size ?? 0) >= 1 ? request.PitPagingInfo.Size : Config.ElasticDefaultResultSize;
-            }
-
-            if (!Config.ElasticEnableDiagnosticInfo)
-            {
-                Logger.LogDebug("Search debug messages may be missing information - set ElasticEnableDiagnosticInfo to populate them.");
-            }
-
-            var result = ElasticClient.Search<T>(request, indexName);
-            Logger.LogDebug("Search with {filter} on index '{index}' complete.", JsonSerializer.Serialize(request), indexName ?? "(not passed)");
-
-            return result.ToDataResponse();
-        }
-
         public IEnumerable<ElasticAggResponse> SingleGroupAggregation(string groupField, string dataIndex, Dictionary<string, string> fieldAggregates, SearchRequest request = null)
         {
             var alist = new List<IElasticClientRequestAggregate>();
@@ -268,16 +237,17 @@ namespace Saltworks.SaltMiner.DataApi.Data
 
             foreach(var name in checkedIndices)
             {
-                var metaData = ElasticClient.Search<IndexMeta>(new SearchRequest
-                {
-                    Filter = new Filter
+                var metaData = ElasticClient.Search<IndexMeta>(IndexMeta.GenerateIndex(), 
+                    new SearchRequest
                     {
-                        FilterMatches = new Dictionary<string, string>
+                        Filter = new Filter
                         {
-                            { "template_name", name }
+                            FilterMatches = new Dictionary<string, string>
+                            {
+                                { "template_name", name }
+                            },
                         },
-                    },
-                }, IndexMeta.GenerateIndex());
+                    });
                 
                 var first = metaData.ToDataResponse()?.Data?.FirstOrDefault();
 
@@ -343,62 +313,6 @@ namespace Saltworks.SaltMiner.DataApi.Data
         internal long? Sequence { get; init; }
     }
 
-    public class ElasticDataFilter : SearchRequest
-    {
-
-        public ElasticDataFilter() { }
-        public ElasticDataFilter(string key, string value)
-        {
-            Filter = new()
-            {
-                FilterMatches = new Dictionary<string, string> { { key, value } }
-            };
-        }
-        public ElasticDataFilter(string key, string value, PitPagingInfo paging, IList<object> afterKeys = null)
-        {
-            Filter = new()
-            {
-                FilterMatches = new Dictionary<string, string> { { key, value } }
-            };
-            PitPagingInfo = paging;
-            AfterKeys = afterKeys;
-        }
-        public ElasticDataFilter(string key, string value, UIPagingInfo paging, IList<object> afterKeys = null)
-        {
-            Filter = new()
-            {
-                FilterMatches = new Dictionary<string, string> { { key, value } }
-            };
-            UIPagingInfo = paging;
-            AfterKeys = afterKeys;
-        }
-        public ElasticDataFilter(Dictionary<string, string> filterMatches)
-        {
-            Filter = new()
-            {
-                FilterMatches = filterMatches
-            };
-        }
-        public ElasticDataFilter(Dictionary<string, string> filterMatches, PitPagingInfo paging, IList<object> afterKeys = null)
-        {
-            PitPagingInfo = paging;
-            Filter = new()
-            {
-                FilterMatches = filterMatches
-            };
-            AfterKeys = afterKeys;
-        }
-        public ElasticDataFilter(Dictionary<string, string> filterMatches, UIPagingInfo paging, IList<object> afterKeys = null)
-        {
-            UIPagingInfo = paging;
-            Filter = new()
-            {
-                FilterMatches = filterMatches
-            };
-            AfterKeys = afterKeys;
-        }
-    }
-
     public class ElasticAggResponse
     {
         public ElasticAggResponse() { }
@@ -409,8 +323,9 @@ namespace Saltworks.SaltMiner.DataApi.Data
 
         public ElasticAggResult Result { get; set; }
         public List<ElasticAggResult> Results { get; set; } = new();
-        public UIPagingInfo UIPagingInfo { get; set; }
+        [Obsolete("Use PagingInfo instead.")]
         public PitPagingInfo PitPagingInfo { get; set; }
+        public PagingInfo PagingInfo { get; set; }
         public IList<object> AfterKeys { get; set; }
     }
 

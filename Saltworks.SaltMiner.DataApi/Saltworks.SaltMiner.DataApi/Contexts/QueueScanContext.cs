@@ -121,37 +121,6 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             }
         }
 
-        public DataResponse<QueueScan> Search(SearchRequest request)
-        {
-            Logger.LogInformation("{Msg}", Extensions.LoggerExtensions.SearchPagingLoggerMessage("Search", request));
-
-            if ((IsInRole(Role.Agent) || IsInRole(Role.Pentester) || IsInRole(Role.PentesterViewer)) && (request.Filter == null || request.Filter.FilterMatches == null))
-            {
-                if (request.Filter == null)
-                {
-                    request.Filter = new Filter()
-                    {
-                        FilterMatches = []
-                    };
-                }
-                else if (request.Filter.FilterMatches == null)
-                {
-                    request.Filter.FilterMatches = [];
-                }
-            }
-
-            return DataRepo.Search<QueueScan>(request, QueueScanIndex);
-        }
-
-        // Aggregates don't seem to support pagination.  Once they do, finish this and wire up for use with Manager Cleanup
-        public DataResponse<string> SearchForIdsByAggregate(bool assetNotIssue = true)
-        {
-            if (assetNotIssue)
-                return new(DataRepo.SingleGroupAggregation("Saltminer.Internal.QueueScanId", QueueAssetIndex, []).Select(r => r.Result.Key), default(UIPagingInfo));
-            else
-                return new(DataRepo.SingleGroupAggregation("Saltminer.QueueScanId", QueueIssueIndex, []).Select(r => r.Result.Key), default(UIPagingInfo));
-        }
-
         public DataItemResponse<QueueScan> Get(string id)
         {
             Logger.LogInformation("Get for id '{Id}'", id);
@@ -163,7 +132,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         {
             Logger.LogInformation("GetByEngagement for id '{Id}'", id);
 
-            var response = Search<QueueScan>(new SearchRequest
+            var response = Search<QueueScan>(GenerateIndex(), new SearchRequest
             {
                 Filter = new Filter
                 {
@@ -172,12 +141,17 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                         { "Saltminer.Engagement.Id", id }
                     }
                 }
-            }, GenerateIndex());
+            });
 
             return new DataItemResponse<QueueScan>(response.Data.FirstOrDefault());
         }
 
-        private static Filter GetListFilter(string field, IEnumerable<string> ids) => new() { FilterMatches = new() { { field, string.Join("||+", ids) } } };
+        private static Filter GetListFilter(string field, IEnumerable<string> ids)
+        {
+            var f = new Filter();
+            f.AddTermsFilterMatch(field, ids.ToList());
+            return f;
+        }
 
         public NoDataResponse DeleteAllQueueByQueueScan(IEnumerable<string> idList)
         {
@@ -195,8 +169,8 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             if (VerifyScanDeleteAll(id))
             {
-                ElasticClient.DeleteByQuery<QueueIssue>(new ElasticDataFilter("Saltminer.QueueScanId", id), QueueIssueIndex);
-                ElasticClient.DeleteByQuery<QueueAsset>(new ElasticDataFilter("Saltminer.Internal.QueueScanId", id), QueueAssetIndex);
+                ElasticClient.DeleteByQuery<QueueIssue>(new SearchRequest("Saltminer.QueueScanId", id), QueueIssueIndex);
+                ElasticClient.DeleteByQuery<QueueAsset>(new SearchRequest("Saltminer.Internal.QueueScanId", id), QueueAssetIndex);
 
                 return ElasticClient.Delete<QueueScan>(id, QueueScanIndex).ToNoDataResponse();
             }
@@ -252,7 +226,12 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         public NoDataResponse Unlock(string lockId, bool resetProcessing=true, bool noFlush = false)
         {
             Logger.LogInformation("Unlock for lock ID '{Id}'", lockId);
-            var request = new ElasticDataFilter("Saltminer.Internal.LockId", lockId, new UIPagingInfo(1000));
+            var pagingInfo = new PagingInfo()
+            {
+                EnablePit = true,
+                Size = 1000
+            };
+            var request = new SearchRequest("Saltminer.Internal.LockId", lockId, pagingInfo);
             var counter = 0;
             List<QueueScan> scans = [];
             if (!noFlush)
@@ -262,7 +241,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             }
             while (true)
             {
-                var response = DataRepo.Search<QueueScan>(request, QueueScanIndex);
+                var response = Search<QueueScan>(QueueScanIndex, request);
                 if (!response.Data.Any())
                     break;
                 foreach (var item in response.Data)
@@ -275,8 +254,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                     counter++;
                 }
                 DataRepo.AddUpdateBulk(scans, QueueScanIndex);
-                request.UIPagingInfo.Page += 1;
-                request.AfterKeys = response.AfterKeys;
+                request.PagingInfo = response.PagingInfo.NextPage();
             }
             return new NoDataResponse(counter);
         }
@@ -374,9 +352,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
         private bool RelatedIssuesExist(string queueScanId)
         {
-            var request = new ElasticDataFilter("Saltminer.QueueScanId", queueScanId, new PitPagingInfo(10));
-
-            return DataRepo.Search<QueueIssue>(request, QueueScanIndex).Data.Any();
+            return Search<QueueIssue>(QueueScanIndex, new SearchRequest("Saltminer.QueueScanId", queueScanId, 10)).Data.Any();
         }
 
 
@@ -386,7 +362,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             if (newStatus == QueueScanStatus.Pending && qScan.Saltminer.Internal.QueueStatus.ToQueueScanStatus() == QueueScanStatus.Loading)
             {
                 // Agent is moving from Loading -> Pending
-                var count = ElasticClient.Count<QueueIssue>(new ElasticDataFilter("Saltminer.QueueScanId", qScan.Id), QueueIssueIndex).ToNoDataResponse().Affected;
+                var count = ElasticClient.Count<QueueIssue>(new SearchRequest("Saltminer.QueueScanId", qScan.Id), QueueIssueIndex).ToNoDataResponse().Affected;
                 if (count != qScan.Saltminer.Internal.IssueCount && qScan.Saltminer.Internal.IssueCount != -1)
                 {
                     throw new ApiValidationException($"Counted {count} issues for scan Id '{qScan.Id}', but scan IssueCount was {qScan.Saltminer.Internal.IssueCount}.");

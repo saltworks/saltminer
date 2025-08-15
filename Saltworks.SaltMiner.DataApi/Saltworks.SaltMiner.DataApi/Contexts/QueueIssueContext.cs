@@ -136,7 +136,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             CheckForEntity<QueueScan>(id, QueueScanIndex);
 
-            return ElasticClient.Count<QueueIssue>(new ElasticDataFilter("Saltminer.QueueScanId", id), QueueIssueIndex).ToNoDataResponse();
+            return ElasticClient.Count<QueueIssue>(new SearchRequest("Saltminer.QueueScanId", id), QueueIssueIndex).ToNoDataResponse();
         }
 
         public DataItemResponse<QueueIssue> GetAndLock(string id, string userName)

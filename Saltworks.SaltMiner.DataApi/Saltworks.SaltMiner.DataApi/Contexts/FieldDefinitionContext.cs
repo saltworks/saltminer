@@ -21,31 +21,27 @@ using Saltworks.SaltMiner.ElasticClient;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using System.Linq;
-using System;
 using System.Collections.Generic;
 
-namespace Saltworks.SaltMiner.DataApi.Contexts
-{
-    public class FieldDefinitionContext : ContextBase
-    {
-        public FieldDefinitionContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<FieldDefinitionContext> logger) : base(config, dataRepository, factory, logger)
-        { }
+namespace Saltworks.SaltMiner.DataApi.Contexts;
 
-        public DataItemResponse<List<FieldDefinition>> GetFieldDefinitionsByType(string entity)
+public class FieldDefinitionContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<FieldDefinitionContext> logger) : ContextBase(config, dataRepository, factory, logger)
+{
+    public DataItemResponse<List<FieldDefinition>> GetFieldDefinitionsByType(string entity)
+    {
+        var search = new SearchRequest
         {
-            var search = new SearchRequest();
-            search.Filter = new()
+            Filter = new()
             {
                 FilterMatches = new()
                 {
                     {"Entity", entity }
                 }
-            };
+            }
+        };
 
-            var result = DataRepo.Search<FieldDefinition>(search, FieldDefinition.GenerateIndex()
-            );
+        var result = Search<FieldDefinition>(FieldDefinition.GenerateIndex(), search);
 
-            return new DataItemResponse<List<FieldDefinition>>(result.Data.ToList());
-        }
+        return new DataItemResponse<List<FieldDefinition>>(result.Data.ToList());
     }
 }

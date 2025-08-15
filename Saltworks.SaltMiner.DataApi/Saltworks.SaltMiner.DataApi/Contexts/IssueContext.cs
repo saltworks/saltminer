@@ -83,7 +83,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             if (IsInRole(Role.Admin) || IsInRole(Role.Manager))
             {
-                return ElasticClient.DeleteByQuery<Issue>(new ElasticDataFilter("Saltminer.Scan.Id", scanId), Issue.GenerateIndex(assetType, sourceType, instance)).ToNoDataResponse();
+                return ElasticClient.DeleteByQuery<Issue>(new SearchRequest("Saltminer.Scan.Id", scanId), Issue.GenerateIndex(assetType, sourceType, instance)).ToNoDataResponse();
             }
             else
             {

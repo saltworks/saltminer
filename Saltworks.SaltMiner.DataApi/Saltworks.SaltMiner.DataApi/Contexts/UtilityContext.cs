@@ -184,15 +184,15 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
             {
                 FilterMatches = new() { { "type", type }, { "state", "new" } }
             },
-            UIPagingInfo = new(Config.WebhookBatchSize)
+            PagingInfo = new(Config.WebhookBatchSize)
         };
 
         lock (LockHelper.QueueSyncSearchLock)
         {
             // run search
-            var rsp = ElasticClient.Search<QueueSyncItem>(request, QueueSyncItem.GenerateIndex(true));
+            var rsp = ElasticClient.Search<QueueSyncItem>(QueueSyncItem.GenerateIndex(true), request);
             if (!(rsp.Results?.Any() ?? false))
-                return new([], default(UIPagingInfo));
+                return new([]);
 
             // reformat results
             var dtos = rsp.Results.Select(r => new DataDto<QueueSyncItem>() { DataItem = r.Document, PrimaryTerm = r.Primary, SequenceNumber = r.Sequence, Index = r.Index }).ToList();
@@ -212,7 +212,7 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
                 else
                     Logger.LogError("{Count} sync item queue removal attempts failed, see earlier log entries for details.", bulkRsp.BulkErrorMessages.Count);
             }
-            return new(dtos.Select(dto => dto.DataItem), default(UIPagingInfo));
+            return new(dtos.Select(dto => dto.DataItem));
         }
     }
 

@@ -90,7 +90,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         {
             Logger.LogInformation("Search action called");
            
-            return Ok(Context.Search<Engagement>(search, EngagementIndex));
+            return Ok(Context.Search<Engagement>(EngagementIndex, search));
         }
 
         /// <summary>

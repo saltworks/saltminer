@@ -61,25 +61,11 @@ namespace Saltworks.SaltMiner.Core.Data
         public Dictionary<T1, T2> Results { get; set; }
         [Obsolete("Use PagingInfo instead.")]
         public PitPagingInfo PitPagingInfo { get; set; } = null;
-        [Obsolete("Use PagingInfo instead.")]
-        public UIPagingInfo UIPagingInfo { get; set; } = null;
         public PagingInfo PagingInfo { get; set; } = null;
         public DataDictionaryResponse(Dictionary<T1, T2> results, PagingInfo pagingInfo = null)
         {
             Results = results;
             PagingInfo = pagingInfo;
-        }
-        [Obsolete("Use the overload with PagingInfo instead.")]
-        public DataDictionaryResponse(Dictionary<T1, T2> results, PitPagingInfo pagingInfo = null)
-        {
-            Results = results;
-            PitPagingInfo = pagingInfo;
-        }
-        [Obsolete("Use the overload with PagingInfo instead.")]
-        public DataDictionaryResponse(Dictionary<T1, T2> results, UIPagingInfo pagingInfo = null)
-        {
-            Results = results;
-            UIPagingInfo = pagingInfo;
         }
         public DataDictionaryResponse() { }
 
@@ -97,21 +83,6 @@ namespace Saltworks.SaltMiner.Core.Data
         }
     }
 
-    public class DataDtoResponse<T>: DataResponse<T> where T: SaltMinerEntity
-    {
-        public DataDtoResponse(IEnumerable<DataDto<T>> data, UIPagingInfo pagingInfo = null)
-        {
-            Data = data ?? [];
-            PitPagingInfo = null;
-            UIPagingInfo = pagingInfo;
-        }
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeQuality", "IDE0079:Remove unnecessary suppression", Justification = "False positive")]
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Disabling base ctor")]
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1806:Do not ignore method results", Justification = "Disabling base ctor")]
-        public DataDtoResponse(IEnumerable<T> data, UIPagingInfo pagingInfo = null) => new NotImplementedException();
-        public new IEnumerable<DataDto<T>> Data { get; set; }
-    }
-
     public class DataDto<T> where T : SaltMinerEntity
     {
         public long? SequenceNumber { get; set; }
@@ -126,18 +97,14 @@ namespace Saltworks.SaltMiner.Core.Data
         public IList<object> AfterKeys { get; set; }
         [Obsolete("Use PagingInfo instead.")]
         public PitPagingInfo PitPagingInfo { get; set; }
-        [Obsolete("Use PagingInfo instead.")]
-        public UIPagingInfo UIPagingInfo { get; set; }
         public PagingInfo PagingInfo { get; set; }
         public DataResponse() { }
 
-        [Obsolete("Use the PagingInfo overload instead.")]
-        public DataResponse(IEnumerable<T> data, UIPagingInfo pagingInfo = null)
+        public DataResponse(IEnumerable<T> data)
         {
             Data = data ?? [];
-            UIPagingInfo = pagingInfo;
+            PagingInfo = new();
         }
-
         public DataResponse(IEnumerable<T> data, PagingInfo pagingInfo = null)
         {
             Data = data ?? [];

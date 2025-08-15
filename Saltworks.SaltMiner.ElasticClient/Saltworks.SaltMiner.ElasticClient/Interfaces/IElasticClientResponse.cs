@@ -66,10 +66,6 @@ namespace Saltworks.SaltMiner.ElasticClient
         /// <summary>
         /// For multiple result queries, key information needed to return the next (or first) set of results
         /// </summary>
-        public UIPagingInfo UIPagingInfo { get; set; }
-        /// <summary>
-        /// For multiple result queries, key information needed to return the next (or first) set of results
-        /// </summary>
         public PagingInfo PagingInfo { get; set; }
     }
 }

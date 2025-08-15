@@ -54,7 +54,6 @@ namespace Saltworks.SaltMiner.ElasticClient
         public PitPagingInfo PitPagingInfo { get; set; } = new PitPagingInfo();
         public IEnumerable<IElasticClientDto<ElasticClientCompositeAggregate>> Results { get; set; }
         public IElasticClientDto<ElasticClientCompositeAggregate> Result { get => throw new NotImplementedException("Use Results instead"); set => throw new NotImplementedException("Use Results instead"); }
-        public UIPagingInfo UIPagingInfo { get; set; } = new UIPagingInfo();
         public PagingInfo PagingInfo { get; set; } = new();
 
         private NestClientBucketResponse() { }
@@ -100,7 +99,6 @@ namespace Saltworks.SaltMiner.ElasticClient
         public IEnumerable<IElasticClientDto<T>> Results { get; set; }
         public IElasticClientDto<T> Result { get; set; }
         public PitPagingInfo PitPagingInfo { get; set; }
-        public UIPagingInfo UIPagingInfo { get; set; }
         public PagingInfo PagingInfo { get; set; }
 
         private NestClientResponse()
@@ -234,41 +232,6 @@ namespace Saltworks.SaltMiner.ElasticClient
         }
 
         [Obsolete("Use the PagingInfo overload instead.")]
-        internal static IElasticClientResponse<T> BuildResponse(ISearchResponse<T> response, UIPagingInfo pagingInfo, int? total, bool skipResponseMessage = false)
-        {
-            var msg = "";
-            var success = response.IsValid;
-
-            if (!response.IsValid)
-            {
-                if (!skipResponseMessage)
-                {
-                    msg = $"Invalid response ({response.ApiCall.HttpStatusCode})";
-                } else {
-                    success = true;
-                }
-            }
-
-            return new NestClientResponse<T>
-            {
-                Message = msg,
-                IsSuccessful = success,
-                CountAffected = success ? response.Hits.Count : 0,
-                HttpStatus = response.ApiCall.HttpStatusCode ?? 0,
-                Results = response.Hits.Select(h => NestClientResult<T>.From(h)),
-                AfterKeys = response.Hits.LastOrDefault()?.Sorts?.ToList(),
-                PitPagingInfo =  null,
-                UIPagingInfo = new UIPagingInfo
-                {
-                    Page = pagingInfo.Page,
-                    Total = total ?? 0,
-                    Size = pagingInfo.Size,
-                    SortFilters = pagingInfo.SortFilters
-                }
-            };
-        }
-
-        [Obsolete("Use the PagingInfo overload instead.")]
         internal static IElasticClientResponse<T> BuildResponse(ISearchResponse<T> response, PitPagingInfo pagingInfo, int? total, bool skipResponseMessage = false)
         {
             var msg = "";
@@ -299,8 +262,7 @@ namespace Saltworks.SaltMiner.ElasticClient
                     PagingToken = pagingInfo.Enabled ? response.PointInTimeId : null,
                     Size = pagingInfo.Size,
                     SortFilters = pagingInfo.SortFilters
-                },
-                UIPagingInfo = null 
+                }
             };
         }
 

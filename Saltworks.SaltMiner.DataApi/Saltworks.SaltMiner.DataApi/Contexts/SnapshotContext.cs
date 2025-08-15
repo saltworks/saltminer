@@ -132,7 +132,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             return new DataDictionaryResponse<string, Dictionary<string, double?>>()
             {
                 Results = resultDict,
-                UIPagingInfo = response.UIPagingInfo,
+                PagingInfo = response.PagingInfo,
                 PitPagingInfo = response.PitPagingInfo
             };
         }

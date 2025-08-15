@@ -16,10 +16,11 @@
 
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Org.BouncyCastle.Asn1.Ocsp;
+using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using Saltworks.SaltMiner.DataApi.Contexts;
-using Saltworks.SaltMiner.Core.Data;
 
 namespace Saltworks.SaltMiner.DataApi.Controllers
 {
@@ -84,17 +85,17 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <summary>
         /// Returns a list of Scans by search
         /// </summary>
-        /// <param name="search">Search request payload</param>
+        /// <param name="request">Search request payload</param>
         /// <returns>The list inside a response object</returns>
         /// <response code="200">Returns a batch from a search request</response>
         [ProducesResponseType(200, Type = typeof(DataResponse<Scan>))]
         [Auth(Role.Manager, Role.Admin, Role.Pentester, Role.PentesterViewer, Role.Agent)]
         [HttpPost("[action]")]
-        public ActionResult<DataResponse<Scan>> Search([FromBody] SearchRequest search)
+        public ActionResult<DataResponse<Scan>> Search([FromBody] SearchRequest request)
         {
             Logger.LogInformation("Search action called");
             
-            return Ok(Context.Search(search));
+            return Ok(Context.Search<Scan>(Scan.GenerateIndex(request.AssetType, request.SourceType, request.Instance), request));
         }
 
         /// <summary>

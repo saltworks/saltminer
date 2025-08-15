@@ -71,23 +71,13 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         public virtual DataItemResponse<T> Get<T>(string id, string indexName) where T : SaltMinerEntity
         {
             Logger.LogInformation("Get: returning item of type {Name} with id '{Id}' on index '{IndexName}'", typeof(T).Name, id, indexName);
-
             return CheckForEntity<T>(id, indexName);
         }
 
         public virtual DataResponse<T> Search<T>(string indexName, SearchRequest request) where T : SaltMinerEntity
         {
             Logger.LogInformation("{Msg}", Extensions.LoggerExtensions.SearchPagingLoggerMessage("Search", request));
-
             return DataRepo.Search<T>(indexName, request);
-        }
-
-        [Obsolete("Use the other overload instead.  Note that it performs the search a bit differently (and better!).")]
-        public virtual DataResponse<T> Search<T>(SearchRequest request, string indexName) where T : SaltMinerEntity
-        {
-            Logger.LogInformation("{Msg}", Extensions.LoggerExtensions.SearchPagingLoggerMessage("Search", request));
-
-            return DataRepo.Search<T>(request, indexName);
         }
 
         public NoDataResponse Delete<T>(string id, string indexName) where T : SaltMinerEntity
@@ -179,20 +169,9 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                     return;
             }
 
-            var entity = ElasticClient.Search<IndexMeta>(new SearchRequest
-            {
-                Filter = new Filter
-                {
-                    FilterMatches = new Dictionary<string, string>
-                    {
-                        { "index", indexName }
-                    }
-                }
-            }, IndexMeta.GenerateIndex()).ToDataResponse();
-            if (entity?.Data != null && entity.Data.Any())
-            {
-                return;
-            }
+            var rsp = ElasticClient.Search<IndexMeta>(IndexMeta.GenerateIndex(), new SearchRequest("index", indexName));
+            if (rsp.Results?.Any() ?? false)
+                return; // valid results
 
             ElasticClient.AddUpdate(new IndexMeta
             {

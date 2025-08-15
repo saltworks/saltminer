@@ -97,20 +97,76 @@ namespace Saltworks.SaltMiner.Core.Data
         /// <summary>
         /// <para>Dictionary of field/value pairs to use for searching with logical AND</para>
         /// <para>Supports DataRange, TermRange, MustNot Exists, and Wildcard Queries</para>
-        /// <para>DateRange - To build query string value needed use the DataClient Helper BuildDateRangeFilterValue(DateTime greaterThanOrEqual, DateTime lessThan)</para>
-        /// <para>TermRange - To build query string value needed use the DataClient Helpers BuildGreaterThanOrEqualFilterValue(string value), BuildLessThanOrEqualFilterValue(string value), BuildGreaterThanFilterValue(string value), BuildLessThanFilterValue(string value)</para>
-        /// <para>MustNot Exists - To build query string value needed use the DataClient Helpers BuildMustNotExistsFilterValue()</para>
-        /// <para>Must Exists - To build query string value needed use the DataClient Helpers BuildMustExistsFilterValue()</para>
-        /// <para>Terms Query - To build query string value needed use the DataClient Helpers BuildTermsFilterValue(List<string> values)</string>)</para>
-        /// <para>QueryString - To build query string value needed use the DataClient Helpers BuildQueryStringFilterValue(string value = "")</para>
+        /// <para>See Add*FilterMatch methods</para>
         /// <para>WildCard - Use '*' where you want to place the wildcard</para>
         /// </summary>
-        public Dictionary<string, string> FilterMatches { get; set; }
+        public Dictionary<string, string> FilterMatches { get; set; } = [];
 
         /// <summary>
-        /// Sub Quweries 
+        /// Sub Queries 
         /// </summary>
         public Filter SubFilter { get; set; }
+
+
+        public void AddSimpleFilterMatch(string field, string value)
+        {
+            FilterMatches.Add(field, value);
+        }
+
+        public void AddDateRangeFilterMatch(string field, DateTime greaterThanOrEqual, DateTime lessThan)
+        {
+            FilterMatches.Add(field, $"{greaterThanOrEqual:yyyy-mm-dd}||{lessThan:yyyy-mm-dd}");
+        }
+
+        public void AddGreaterThanOrEqualFilterMatch(string field, string value)
+        {
+            FilterMatches.Add(field, $"{value}>=||");
+        }
+
+        public void AddLessThanOrEqualFilterMatch(string field, string value)
+        {
+            FilterMatches.Add(field, $"{value}<=||");
+        }
+
+        public void AddGreaterThanFilterMatch(string field, string value)
+        {
+            FilterMatches.Add(field, $"{value}>||");
+        }
+
+        public void AddLessThanFilterMatch(string field, string value)
+        {
+            FilterMatches.Add(field, $"{value}<||");
+        }
+
+        public void AddQueryStringFilterMatch(string field, string value)
+        {
+            FilterMatches.Add(field, $"{value}**");
+        }
+
+        public void AddMustNotExistsFilterMatch(string field)
+        {
+            FilterMatches.Add(field, "!");
+        }
+
+        public void AddMustExistsFilterMatch(string field)
+        {
+            FilterMatches.Add(field, "+!");
+        }
+
+        public void AddTermsFilterMatch(string field, List<string> values)
+        {
+            FilterMatches.Add(field, string.Join("||+", values.ToArray()));
+        }
+
+        public void AddExcludeTermsFilterMatch(string field, List<string> values)
+        {
+            if (values.Count == 1)
+            {
+                FilterMatches.Add(field, $"||~{values[0]}");
+            }
+            FilterMatches.Add(field, string.Join("||~", values.ToArray()));
+        }
+
     }
 
     /// <summary>
@@ -119,6 +175,20 @@ namespace Saltworks.SaltMiner.Core.Data
     public class SearchRequest
     {
         public SearchRequest() { }
+        public SearchRequest(string filterField, string filterValue, int size = 0)
+        {
+            Filter = new();
+            Filter.AddSimpleFilterMatch(filterField, filterValue);
+            if (size > 0)
+                PagingInfo = new() { Size = size };
+        }
+
+        public SearchRequest(string filterField, string filterValue, PagingInfo pagingInfo)
+        {
+            Filter = new();
+            Filter.AddSimpleFilterMatch(filterField, filterValue);
+            PagingInfo = pagingInfo;
+        }
 
         /// <summary>
         /// Possible filter by asset type
@@ -133,14 +203,9 @@ namespace Saltworks.SaltMiner.Core.Data
         /// </summary>
         public string SourceType { get; set; }
 
-        public Filter Filter { get; set; }
+        public Filter Filter { get; set; } = new();
         /// <summary>
         /// List of sort values after which the next result set should be produced
-        /// </summary>
-        [Obsolete("Use PagingInfo.CurrentAfterKeys instead.")]
-        public IList<object> AfterKeys { get; set; }
-        /// <summary>
-        /// Dictionary&gt;column-name, isAscending&lt; of sorting keys.
         /// </summary>
         public Dictionary<string, bool> SortKeys { get; set; }
 
@@ -149,12 +214,6 @@ namespace Saltworks.SaltMiner.Core.Data
         /// </summary>
         [Obsolete("Use PagingInfo instead.")]
         public PitPagingInfo PitPagingInfo { get; set; } = null;
-
-        /// <summary>
-        /// Pagination information
-        /// </summary>
-        [Obsolete("Use PagingInfo instead.")]
-        public UIPagingInfo UIPagingInfo { get; set; } = null;
 
         /// <summary>
         /// Pagination Information

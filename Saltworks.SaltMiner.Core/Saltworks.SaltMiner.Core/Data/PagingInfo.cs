@@ -21,6 +21,11 @@ namespace Saltworks.SaltMiner.Core.Data
 {
     public class PagingInfo
     {
+        public PagingInfo() { }
+        public PagingInfo(int size)
+        {
+            Size = size;
+        }
         /// <summary>
         /// Current page number
         /// </summary>
@@ -120,24 +125,6 @@ namespace Saltworks.SaltMiner.Core.Data
         public bool Enabled { get; set; } = false;
         public string PagingToken { get; set; } = null;
         public Dictionary<string, object> AggregateKeys { get; set; }
-        public Dictionary<string, bool> SortFilters { get; set; }
-    }
-
-    [Obsolete("Use PagingInfo instead.")]
-    public class UIPagingInfo
-    {
-        public UIPagingInfo() { }
-        public UIPagingInfo(int size, int page = 1, Dictionary<string, bool> sortFilters = null)
-        {
-            Size = size;
-            Page = page;
-            SortFilters = sortFilters;
-        }
-
-        public int? Total { get; set; }
-        public int Size { get; set; }
-        public int Page { get; set; }
-        public int? TotalPages => (Size > 0 && Total != null) ? (int) ((Total - 1) / Size) : null;
         public Dictionary<string, bool> SortFilters { get; set; }
     }
 }

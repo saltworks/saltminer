@@ -975,7 +975,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
     }
 
     // NOTE: untested
-    public IElasticClientResponse<T> SearchByQuery<T>(string query, string indexName, List<object> afterKeys, UIPagingInfo pagingInfo) where T : SaltMinerEntity
+    public IElasticClientResponse<T> SearchByQuery<T>(string query, string indexName, Dictionary<string, bool> sortKeys, PagingInfo pagingInfo) where T : SaltMinerEntity
     {
         Logger?.LogDebug("SearchByQuery initiated.");
 
@@ -987,9 +987,9 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
             pagingInfo.Size = ClientConfig.DefaultPageSize;
         }
 
-        if (pagingInfo.SortFilters == null || !pagingInfo.SortFilters.Any())
+        if ((sortKeys?.Count ?? 0) == 0)
         {
-            pagingInfo.SortFilters = new Dictionary<string, bool> { { "id", true } };
+            sortKeys = new Dictionary<string, bool> { { "id", true } };
         }
 
         // Build search request function delegate separately from Search call so can add logic
@@ -1000,13 +1000,13 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
             s.Index(index);
             s.Sort((sort) =>
             {
-                return (IPromise<IList<ISort>>) CreateSort(pagingInfo.SortFilters);
+                return (IPromise<IList<ISort>>) CreateSort(sortKeys);
             });
 
-            if (afterKeys?.Count > 0)
+            if (pagingInfo?.CurrentAfterKeys?.Count > 0)
             {
                 Logger.LogDebug("Search after included on search of index '{Index}'", indexName);
-                s.SearchAfter(ScrubPagingAfterKeys(afterKeys));
+                s.SearchAfter(ScrubPagingAfterKeys(pagingInfo.CurrentAfterKeys));
             }
 
             return s;
@@ -1023,10 +1023,8 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         };
 
         response = ElasticClient.Search<T>(search);
-
         Logger?.LogDebug("SearchByQuery completed.");
-
-        return NestClientResponse<T>.BuildResponse(response, pagingInfo, (int) ElasticClient.Count<T>(count).Count, response.ApiCall.HttpStatusCode == 404);
+        return NestClientResponse<T>.BuildResponse(response, pagingInfo, response.ApiCall.HttpStatusCode == 404);
     }
 
     private UpdateByQueryResponse RunUpdateByQuery<T>(Func<UpdateByQueryDescriptor<T>, IUpdateByQueryRequest> search) where T: SaltMinerEntity
@@ -1117,7 +1115,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
     {
         Logger?.LogDebug("SearchForJson initiated.");
         
-        var request = CreateSearchRequest<string>(searchRequest, indexName);
+        var request = CreateSearchRequest<string>(indexName, searchRequest);
 
         var result = ElasticClient.LowLevel.Search<StringResponse>(indexName, ElasticClient.RequestResponseSerializer.SerializeToString(request));
 
@@ -1167,48 +1165,6 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
             searchRequest.PagingInfo.CurrentAfterKeys = searchRequest.PagingInfo.CurrentAfterKeys ?? searchRequest.PagingInfo.NextAfterKeys;
 
         return NestClientResponse<T>.BuildResponse(response, searchRequest.PagingInfo, response.ApiCall.HttpStatusCode == 404);
-    }
-
-    [Obsolete("Use the other overload (string, SearchRequest) instead, which only supports the use of PagingInfo for paging.")]
-    public IElasticClientResponse<T> Search<T>(Core.Data.SearchRequest searchRequest, string indexName) where T : SaltMinerEntity
-    {
-        Logger?.LogDebug("Search initiated.");
-        var request = CreateSearchRequest<T>(searchRequest, indexName);
-        ISearchResponse<T> response = null;
-        try
-        {
-            response = ElasticClient.Search<T>(request);
-            LogElasticsearchClientDebugInfo(response);
-        }
-        catch (ElasticsearchClientException ex)
-        {
-            LogElasticsearchClientDebugInfo(response);
-            throw new NestClientException(ex.Message, ex);
-        }
-
-        Logger?.LogDebug("Search completed.  Search URI: {Uri}", response.ApiCall.Uri);
-        Logger?.LogDebug("Search Request Body: {Body}", Encoding.UTF8.GetString(response.ApiCall?.RequestBodyInBytes ?? []));
-
-        var total = Count<T>(searchRequest, indexName);
-
-        if (searchRequest.UIPagingInfo != null)
-        {
-            searchRequest.UIPagingInfo.SortFilters = [];
-            foreach (var sort in request.Sort)
-            {
-                searchRequest.UIPagingInfo.SortFilters.Add(sort.SortKey.Name, sort.Order == SortOrder.Ascending);
-            }
-            return NestClientResponse<T>.BuildResponse(response, searchRequest.UIPagingInfo, (int) total.CountAffected, response.ApiCall.HttpStatusCode == 404);
-        }
-
-        searchRequest.PitPagingInfo.SortFilters = [];
-
-        foreach (var sort in request.Sort)
-        {
-            searchRequest.PitPagingInfo.SortFilters.Add(sort.SortKey.Name, sort.Order == SortOrder.Ascending);
-        }
-
-        return NestClientResponse<T>.BuildResponse(response, searchRequest.PitPagingInfo, (int)total.CountAffected, response.ApiCall.HttpStatusCode == 404);
     }
 
     public IElasticClientResponse<T> Get<T>(string id, string indexName) where T : SaltMinerEntity
@@ -1635,78 +1591,6 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
             queryRequest.Query = queryRequest.Query && CreateBoolQueryFromSubFilter(filter);
             filter = filter.SubFilter;
         }
-        return queryRequest;
-    }
-
-    [Obsolete("Use the other overload (string, SearchRequest) instead, which only supports the use of PagingInfo for paging.")]
-    private SearchRequest<T> CreateSearchRequest<T>(Core.Data.SearchRequest searchRequest, string indexName)
-    {
-        var index = Indices.Index(indexName);
-        SearchRequest<T> queryRequest = new(index)
-        {
-            SequenceNumberPrimaryTerm = searchRequest.IncludeConcurrencyInfo
-        };
-
-        if (searchRequest.UIPagingInfo != null)
-        {
-            if (searchRequest.UIPagingInfo.Size < 1)
-            {
-                searchRequest.UIPagingInfo.Size = ClientConfig.DefaultPageSize;
-            }
-            queryRequest.Size = searchRequest.UIPagingInfo.Size;
-            if (searchRequest.UIPagingInfo.SortFilters == null || searchRequest.UIPagingInfo.SortFilters.Count == 0)
-            {
-                searchRequest.UIPagingInfo.SortFilters = new() { { "id", true } };
-            }
-            queryRequest.Sort = CreateSort(searchRequest.UIPagingInfo.SortFilters);
-        }
-        else
-        {
-            searchRequest.PitPagingInfo ??= new();
-            if ((searchRequest?.PitPagingInfo?.Size ?? -1) < 1)
-            {
-                searchRequest.PitPagingInfo.Size = ClientConfig.DefaultPageSize;
-            }
-            if (searchRequest.PitPagingInfo.Enabled)
-            {
-                var pit = searchRequest.PitPagingInfo?.PagingToken;
-                if (string.IsNullOrEmpty(pit))
-                {
-                    pit = ElasticClient.OpenPointInTime(index, s => s.KeepAlive(ClientConfig.DefaultPagingTimeout)).Id;
-                }
-
-                if (!string.IsNullOrEmpty(pit))
-                {
-                    Logger.LogDebug("Point in time included on search of index '{Index}'", indexName);
-                    queryRequest = new SearchRequest<T> { PointInTime = new PointInTime(pit) };
-                }
-            }
-            queryRequest.Size = searchRequest.PitPagingInfo.Size;
-            if (searchRequest.PitPagingInfo.SortFilters == null || searchRequest.PitPagingInfo.SortFilters.Count == 0)
-            {
-                searchRequest.PitPagingInfo.SortFilters = new() { { "id", true } };
-            }
-            queryRequest.Sort = CreateSort(searchRequest.PitPagingInfo.SortFilters);
-        }
-
-        if (searchRequest.AfterKeys != null)
-        {
-            Logger.LogDebug("Paging after keys included on search of index '{Index}'", indexName);
-
-            queryRequest.SearchAfter = ScrubPagingAfterKeys(searchRequest.AfterKeys);
-            queryRequest.From = 0;
-        }
-
-        queryRequest.Query = CreateQueryFromRequest(searchRequest.Filter);
-
-        var filter = searchRequest?.Filter?.SubFilter;
-
-        while (filter != null)
-        {
-            queryRequest.Query = queryRequest.Query && CreateBoolQueryFromSubFilter(filter);
-            filter = filter.SubFilter;
-        }
-
         return queryRequest;
     }
 
