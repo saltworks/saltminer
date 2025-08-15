@@ -75,7 +75,7 @@ namespace Saltworks.SaltMiner.UiApiClient.Requests
         public List<string> MentionAddresses { get; set; }
     }
 
-    public class CommentSearch : UiModelBase
+    public class CommentSearch : GenericSearch
     {
         [Required]
         public string EngagementId { get; set; }
@@ -83,6 +83,5 @@ namespace Saltworks.SaltMiner.UiApiClient.Requests
         public string ScanId { get; set; }
         public string AssetId { get; set; }
         public bool IncludeSystem { get; set; } = true;
-        public UiPager Pager { get; set; }
     }
 }

@@ -205,7 +205,7 @@ namespace Saltworks.SaltMiner.Core.Data
 
         public Filter Filter { get; set; } = new();
         /// <summary>
-        /// List of sort values after which the next result set should be produced
+        /// Dictionary&lt;sort field, is ascending&gt; for sorting
         /// </summary>
         public Dictionary<string, bool> SortKeys { get; set; }
 

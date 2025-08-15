@@ -106,11 +106,9 @@ namespace Saltworks.SaltMiner.UiApiClient.Requests
         }
     }
 
-    public class AssetSearch : UiModelBase
+    public class AssetSearch : GenericSearch
     {
         [Required]
         public string EngagementId { get; set; }
-        public List<FieldFilter> SearchFilters { get; set; }
-        public UiPager Paging { get; set; }
     }
 }

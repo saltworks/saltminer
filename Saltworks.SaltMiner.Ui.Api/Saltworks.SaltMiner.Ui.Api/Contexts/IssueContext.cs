@@ -251,18 +251,19 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             }
 
             // Handles role permissions
-            var qResult = QueueIssuesSearch(new IssueSearch
+            var search = new IssueSearch
             {
                 EngagementId = template.Id,
                 Pager = request.Pager,
                 SearchFilters = request.SearchFilters
-            });
+            };
+            var qResult = QueueIssuesSearch(search);
 
             if (qResult.Success && qResult.Data != null && qResult.Data.Any())
             {
-                qResult.UIPagingInfo.Total = qResult.Pager.Total;
+                qResult.PagingInfo.TotalHits = qResult.Pager.Total;
                 var lst = qResult.Data.Select(x => new IssueFull(x, UiApiConfig.AppVersion, MyFieldInfo));
-                return new UiDataResponse<IssueFull>(lst, qResult, SortFilterValues, qResult.UIPagingInfo, true);
+                return new UiDataResponse<IssueFull>(lst, search, SortFilterValues.Select(x => new FieldFilter(x)));
             }
 
             return new UiDataResponse<IssueFull>(null);

@@ -61,7 +61,7 @@ namespace Saltworks.SaltMiner.Ui.IntegrationTests
             var engagementSearchRequest = new UiApiClient.Requests.EngagementSearch()
             {
                 SearchFilters = [],
-                Pager = new(new UIPagingInfo
+                Pager = new(new PagingInfo
                 {
                     Size = 50,
                     Page = 1

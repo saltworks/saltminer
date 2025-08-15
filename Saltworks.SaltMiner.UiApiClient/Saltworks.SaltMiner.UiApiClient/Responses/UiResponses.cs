@@ -15,7 +15,6 @@
  */
 
 ﻿using Saltworks.SaltMiner.Core.Data;
-using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.UiApiClient.Helpers;
 using Saltworks.SaltMiner.UiApiClient.Requests;
 
@@ -23,53 +22,30 @@ namespace Saltworks.SaltMiner.UiApiClient.Responses
 {
     public class UiDataResponse<T> : DataResponse<T> where T : class
     {
+        /// <summary>
+        /// All possible sort options go here, not just the selected one(s)
+        /// </summary>
         public List<FieldFilter> SortOptions { get; set; } = [];
         public UiPager Pager { get; set; } = new();
-
-        public UiDataResponse(IEnumerable<T> data) : base(data, default(PagingInfo)) { }
-        public UiDataResponse(DataResponse<T> response, IssueSearch search) : base(response.Data, default(PagingInfo))
+        public UiDataResponse(IEnumerable<T> data) : base(data) { }
+        public UiDataResponse(IEnumerable<T> data, PagingInfo pagingInfo, IEnumerable<FieldFilter> sortOptions = null) : base(data, pagingInfo) 
+        {
+            Pager = new(pagingInfo.Size, pagingInfo.Page);
+            SortOptions = sortOptions?.ToList() ?? [];
+        }
+        public UiDataResponse(IEnumerable<T> data, GenericSearch search, IEnumerable<FieldFilter> sortOptions = null) : base(data) 
+        {
+            var pi = search.Pager.ToPagingInfo();
+            Pager = new(pi, search.Pager.SortFilters);
+            SortOptions = sortOptions?.ToList() ?? [];
+        }
+        public UiDataResponse(DataResponse<T> response, GenericSearch search, IEnumerable<FieldFilter> sortOptions = null) : base(response?.Data)
         {
             var pi = search.Pager.ToPagingInfo();
             StatusCode = response.StatusCode;
             Message = response.Message;
             Affected = response.Affected;
             Pager = new(pi, search.Pager.SortFilters);
-        }
-
-        [Obsolete("Use the DataResponse<T>, SearchRequest overload instead.")]
-        public UiDataResponse(IEnumerable<T> data, Response response, UiPager pager) : base(data, default(UIPagingInfo))
-        {
-            StatusCode = response.StatusCode;
-            Message = response.Message;
-            Affected = response.Affected;
-            Pager = pager;
-            UIPagingInfo = pager.ToDataPager();
-        }
-        [Obsolete("Use PagingInfo constructor instead.")]
-        public UiDataResponse(IEnumerable<T> data, UIPagingInfo dataPager, bool isQueue = false) : base(data, default(UIPagingInfo))
-        {
-            StatusCode = 200;
-            Affected = data.Count();
-            Pager = dataPager != null ? new(dataPager, [], isQueue) : null;
-            UIPagingInfo = Pager.ToDataPager();
-        }
-        [Obsolete("Use PagingInfo constructor instead.")]
-        public UiDataResponse(IEnumerable<T> data, List<SearchFilterValue> sortFilters, UIPagingInfo dataPager, bool isQueue = false) : base(data, default(UIPagingInfo))
-        {
-            StatusCode = 200;
-            Affected = data.Count();
-            Pager = dataPager != null ? new(dataPager, sortFilters, isQueue) : null;
-            UIPagingInfo = Pager.ToDataPager();
-            SortOptions = sortFilters?.Select(f => new FieldFilter(f))?.ToList();
-        }
-        [Obsolete("Use PagingInfo constructor instead.")]
-        public UiDataResponse(IEnumerable<T> data, Response response, List<SearchFilterValue> sortFilters, UIPagingInfo dataPager, bool isQueue = false) : base(data, dataPager)
-        {
-            StatusCode = response.StatusCode;
-            Message = response.Message;
-            Affected = response.Affected;
-            Pager = dataPager != null ? new(dataPager, sortFilters, isQueue) : null;
-            SortOptions = sortFilters?.Select(f => new FieldFilter(f))?.ToList();
         }
     }
 

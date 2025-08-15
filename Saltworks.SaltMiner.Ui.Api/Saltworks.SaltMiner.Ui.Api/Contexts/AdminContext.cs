@@ -439,15 +439,12 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
             var request = new SearchRequest
             {
-                UIPagingInfo = searchRequest.Pager != null ? searchRequest.Pager.ToDataPager() : new UIPagingInfo
+                PagingInfo = searchRequest.Pager?.ToPagingInfo() ?? new(10)
                 {
                     Page = 1,
                     Size = 10,
-                    SortFilters = new Dictionary<string, bool>
-                    {
-                        { "Label", true }
-                    }
                 },
+                SortKeys = new Dictionary<string, bool> { { "Label", true } },
                 Filter = new Filter
                 {
                     AnyMatch = true,
@@ -455,28 +452,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 }
             };
 
-            request.UIPagingInfo.Page = 1;
-
-            request.UIPagingInfo.SortFilters = new Dictionary<string, bool> { { "Label", true } };
-
-            //loop until page found
             var response = DataClient.FieldDefinitionSearch(request);
-
-            while (response.Success && response.Data != null && response.Data.Any())
-            {
-                request.UIPagingInfo = response.UIPagingInfo;
-                if ((searchRequest?.Pager?.Page == null || searchRequest.Pager.Page == 1 || searchRequest.Pager.Page == 0) || request.UIPagingInfo.Page == searchRequest.Pager.Page)
-                {
-                    return new UiDataResponse<FieldDefinition>(response.Data, response, SortFilterValues, response.UIPagingInfo, false);
-                }
-
-                request.UIPagingInfo.Page++;
-                request.AfterKeys = response.AfterKeys;
-
-                response = DataClient.FieldDefinitionSearch(request);
-            }
-
-            return new UiDataResponse<FieldDefinition>([]);
+            return new UiDataResponse<FieldDefinition>(response.Data, response.PagingInfo, SortFilterValues.Select(x => new FieldFilter(x)));
         }
 
         #endregion
@@ -594,15 +571,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
             var request = new SearchRequest
             {
-                UIPagingInfo = searchRequest.Pager != null ? searchRequest.Pager.ToDataPager() : new UIPagingInfo
-                {
-                    Page = 1,
-                    Size = 10,
-                    SortFilters = new Dictionary<string, bool>
-                    {
-                        { "Name", true }
-                    }
-                },
+                PagingInfo = searchRequest.Pager?.ToPagingInfo() ?? new(10),
+                SortKeys = new Dictionary<string, bool> { { "Name", true } },
                 Filter = new Filter
                 {
                     AnyMatch = true,
@@ -610,28 +580,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 }
             };
 
-            request.UIPagingInfo.Page = 1;
-
-            request.UIPagingInfo.SortFilters = new Dictionary<string, bool> { { "Name", true } };
-
-            //loop until page found
             var response = DataClient.RoleSearch(request);
-
-            while (response.Success && response.Data != null && response.Data.Any())
-            {
-                request.UIPagingInfo = response.UIPagingInfo;
-                if ((searchRequest.Pager?.Page == null || searchRequest.Pager.Page == 1 || searchRequest.Pager.Page == 0) || request.UIPagingInfo.Page == searchRequest.Pager.Page)
-                {
-                    return new UiDataResponse<AppRole>(response.Data, response, SortFilterValues, response.UIPagingInfo, false);
-                }
-
-                request.UIPagingInfo.Page++;
-                request.AfterKeys = response.AfterKeys;
-
-                response = DataClient.RoleSearch(request);
-            }
-
-            return new UiDataResponse<AppRole>([]);
+            return new UiDataResponse<AppRole>(response.Data, response.PagingInfo, SortFilterValues.Select(x => new FieldFilter(x)));
         }
 
 
@@ -712,15 +662,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             var request = new SearchRequest
             {
                 // Paging info should default if request pager null
-                UIPagingInfo = searchRequest.Pager?.ToDataPager() ?? new UIPagingInfo
-                {
-                    Page = 1,
-                    Size = 10,
-                    SortFilters = new Dictionary<string, bool>
-                    {
-                        { "Name", true }
-                    }
-                },
+                PagingInfo = searchRequest.Pager?.ToPagingInfo() ?? new(10),
+                SortKeys = new Dictionary<string, bool> { { "Name", true } },
                 Filter = new Filter 
                 {
                     AnyMatch = true,
@@ -728,29 +671,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 }
             };
 
-            // Start at page 1 then repeat calls until page found because this method of paging is baaaaad.
-            request.UIPagingInfo.Page = 1;
-
-            request.UIPagingInfo.SortFilters = new Dictionary<string, bool> { { "Name", true } };
-
-            //loop until page found
             var response = DataClient.ServiceJobSearch(request);
-
-            while (response.Success && response.Data != null && response.Data.Any())
-            {
-                request.UIPagingInfo = response.UIPagingInfo;
-                if ((searchRequest?.Pager?.Page == null || searchRequest.Pager.Page == 1 || searchRequest.Pager.Page == 0) || request.UIPagingInfo.Page == searchRequest.Pager.Page)
-                {
-                    return new UiDataResponse<ServiceJob>(response.Data, response, SortFilterValues, response.UIPagingInfo, false);
-                }
-
-                request.UIPagingInfo.Page++;
-                request.AfterKeys = response.AfterKeys;
-
-                response = DataClient.ServiceJobSearch(request);
-            }
-
-            return new UiDataResponse<ServiceJob>([]);
+            return new UiDataResponse<ServiceJob>(response.Data, response.PagingInfo, SortFilterValues.Select(x => new FieldFilter(x)));
         }
 
         #endregion

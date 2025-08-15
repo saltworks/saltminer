@@ -306,28 +306,11 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 {
                     FilterMatches = filters
                 },
-                UIPagingInfo = new UIPagingInfo(request.Pager?.Size ?? Config.DefaultPageSize, 1)
+                PagingInfo = new(request.Pager?.Size ?? Config.DefaultPageSize)
             };
 
-            //search until page is found
             var response = DataClient.CommentSearch(searchRequest);
-
-            while (response.Success && response.Data != null && response.Data.Any())
-            {
-                searchRequest.UIPagingInfo = response.UIPagingInfo;
-                if ((request.Pager?.Page == null || request.Pager.Page == 1 || request.Pager.Page == 0) || searchRequest.UIPagingInfo.Page == request.Pager.Page)
-                {
-                    Logger.LogInformation("{Msg}", Extensions.GeneralExtensions.SearchUIPagingLoggerMessage("Comment", filters.Count, response.UIPagingInfo.Size, response.UIPagingInfo.Page));
-                    return new UiDataResponse<UiComment>(response.Data.Select(x => new UiComment(x, UiApiConfig.AppVersion)).ToList(), response, SortFilterValues, response.UIPagingInfo, false);
-                }
-
-                searchRequest.UIPagingInfo.Page++;
-                searchRequest.AfterKeys = response.AfterKeys;
-
-                response = DataClient.CommentSearch(searchRequest);
-            }
-
-            return new UiDataResponse<UiComment>([]);
+            return new UiDataResponse<UiComment>(response.Data.Select(x => new UiComment(x, UiApiConfig.AppVersion)), response.PagingInfo, SortFilterValues.Select(x => new FieldFilter(x)));
         }
 
         public UiDataItemResponse<UiComment> Get(string id)

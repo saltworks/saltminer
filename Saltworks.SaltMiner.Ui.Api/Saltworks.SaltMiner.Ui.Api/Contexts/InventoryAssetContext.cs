@@ -76,10 +76,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
             var searchRequest = new SearchRequest()
             {
-                UIPagingInfo = new UIPagingInfo(request?.Pager?.Size ?? Config.DefaultPageSize, 1)
-                {
-                    SortFilters = Helpers.SearchFilters.MapSortFilters(request?.Pager?.SortFilters, SortFilterValues)
-                },
+                PagingInfo = new(request?.Pager?.Size ?? Config.DefaultPageSize),
+                SortKeys = Helpers.SearchFilters.MapSortFilters(request?.Pager?.SortFilters, SortFilterValues),
                 Filter = new()
                 {
                     AnyMatch = true,
@@ -87,25 +85,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 }
             };
 
-            //loop until page found
             var response = DataClient.InventoryAssetSearch(searchRequest);
-
-            while (response.Success && response.Data != null && response.Data.Any())
-            {
-                searchRequest.UIPagingInfo = response.UIPagingInfo;
-                if ((request?.Pager?.Page == null || request.Pager.Page == 1 || request.Pager.Page == 0) || searchRequest.UIPagingInfo.Page == request.Pager.Page)
-                {
-                    Logger.LogInformation("{Msg}", Extensions.GeneralExtensions.SearchUIPagingLoggerMessage("Inventory Asset", filters?.Count ?? 0, response.UIPagingInfo.Size, response.UIPagingInfo.Page));
-                    return new UiDataResponse<InventoryAssetFull>(response?.Data?.Select(x => new InventoryAssetFull(x, MyFieldInfo))?.ToList(), response, SortFilterValues, response.UIPagingInfo, false);
-                }
-
-                searchRequest.UIPagingInfo.Page++;
-                searchRequest.AfterKeys = response.AfterKeys;
-
-                response = DataClient.InventoryAssetSearch(searchRequest);
-            }
-
-            return new UiDataResponse<InventoryAssetFull>([]);
+            return new UiDataResponse<InventoryAssetFull>(response?.Data?.Select(x => new InventoryAssetFull(x, MyFieldInfo)), response.PagingInfo, SortFilterValues.Select(x => new FieldFilter(x)));
         }
 
         public UiDataItemResponse<InventoryAssetPrimer> Primer()

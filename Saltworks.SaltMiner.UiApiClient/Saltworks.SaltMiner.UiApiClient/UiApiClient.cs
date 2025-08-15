@@ -101,17 +101,8 @@ namespace Saltworks.SaltMiner.UiApiClient
         {
             var url = "job/pending";
             if (!string.IsNullOrEmpty(type))
-            {
                 url = $"{url}?type={type}";
-            }
-
-            var pagingInfo = new UIPagingInfo 
-            { 
-                Size = 1,
-                SortFilters = new Dictionary<string, bool> { { "Timestamp", true } }
-            };
-
-            return new DataItemResponse<Job>(CheckRetry(() => UiApi.Post<DataResponse<Job>>(url, pagingInfo)).Content.Data.FirstOrDefault());
+            return new DataItemResponse<Job>(CheckRetry(() => UiApi.Post<DataResponse<Job>>(url, new PagingInfo(1))).Content.Data.FirstOrDefault());
         }
 
         public DataResponse<Job> PendingJobCount(string type = null)
@@ -122,7 +113,7 @@ namespace Saltworks.SaltMiner.UiApiClient
                 url = $"{url}?type={type}";
             }
 
-            return CheckRetry(() => UiApi.Get<DataResponse<Job>>(url, new UIPagingInfo { Size = 100 })).Content;
+            return CheckRetry(() => UiApi.Get<DataResponse<Job>>(url, new PagingInfo(100))).Content;
         }
 
         public DataItemResponse<Job> UpdateJobQueue(Job queue)

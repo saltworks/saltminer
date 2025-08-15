@@ -30,6 +30,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
     public class AssetContext : ContextBase
     {
         protected override List<SearchFilterValue> SortFilterValues => SearchFilters?.Find(x => x.Type == SearchFilterType.AssetSortFilters.ToString())?.Filters ?? [];
+        protected override List<FieldFilter> SortDisplays => SortFilterValues.Select(x => new FieldFilter(x)).ToList();
         protected readonly EngagementHelper EngagementHelper;
 
         public AssetContext(IServiceProvider services, ILogger<AssetContext> logger) : base(services, logger)

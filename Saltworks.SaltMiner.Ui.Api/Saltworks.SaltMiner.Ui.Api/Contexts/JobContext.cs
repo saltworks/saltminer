@@ -36,28 +36,22 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
         {
             var request = new SearchRequest
             {
-                UIPagingInfo = paging != null ? paging.ToDataPager() : new UIPagingInfo
-                {
-                    Page = 1,
-                    Size = 10
-                },
+                PagingInfo = paging != null ? paging.ToPagingInfo() : new(10),
                 Filter = new Filter
                 {
                     FilterMatches = new Dictionary<string, string>
                     {
                         { "Status", Job.JobStatus.Pending.ToString("g") }
                     }
-                }
+                },
+                SortKeys = new() { { "Timestamp", false } }
             };
 
             if (!string.IsNullOrEmpty(type))
-            {
                 request.Filter.FilterMatches.Add("Type", type);
-            }
-
+            
             var result = DataClient.JobSearch(request);
-
-            return new UiDataResponse<Job>(result.Data, result, SortFilterValues, result.UIPagingInfo, false);
+            return new UiDataResponse<Job>(result.Data, result.PagingInfo);
         }
 
         public UiDataItemResponse<Job> UpdateQueue(Job queue, KibanaUser user)
@@ -76,55 +70,20 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
         {
             var request = new SearchRequest
             {
-                UIPagingInfo = searchRequest.Pager != null ? searchRequest.Pager.ToDataPager() : new UIPagingInfo
-                {
-                    Page = 1,
-                    Size = 10,
-                    SortFilters = new Dictionary<string, bool>
-                    {
-                        { "timestamp", false }
-                    }
-                },
-                Filter = new Filter
-                {
-                    AnyMatch = true,
-                    FilterMatches = new Dictionary<string, string>
-                    {
-                        { "Status", isFinished ?
-                            SaltMiner.DataClient.Helpers.BuildTermsFilterValue([Job.JobStatus.Complete.ToString("g"), Job.JobStatus.Error.ToString("g")]) : 
-                            SaltMiner.DataClient.Helpers.BuildTermsFilterValue([Job.JobStatus.Pending.ToString("g"), Job.JobStatus.Processing.ToString("g")])
-                        }
-                    }
-                }
+                PagingInfo = searchRequest.Pager?.ToPagingInfo() ?? new(10),
+                SortKeys = new() { { "timestamp", false } },
+                Filter = new Filter { AnyMatch = true }
             };
-
-            request.UIPagingInfo.Page = 1;
+            List<string> terms = isFinished ? 
+                [Job.JobStatus.Complete.ToString("g"), Job.JobStatus.Error.ToString("g")] :
+                [Job.JobStatus.Pending.ToString("g"), Job.JobStatus.Processing.ToString("g")];
+            request.Filter.AddTermsFilterMatch("Status", terms);
 
             if (!string.IsNullOrEmpty(searchRequest.Type))
-            {
                 request.Filter.FilterMatches.Add("Type", searchRequest.Type);
-            }
 
-            request.UIPagingInfo.SortFilters = new Dictionary<string, bool> { { "timestamp", false } };
-
-            //loop until page found
             var response = DataClient.JobSearch(request);
-
-            while (response.Success && response.Data != null && response.Data.Any())
-            {
-                request.UIPagingInfo = response.UIPagingInfo;
-                if ((searchRequest?.Pager?.Page == null || searchRequest.Pager.Page == 1 || searchRequest.Pager.Page == 0) || request.UIPagingInfo.Page == searchRequest.Pager.Page)
-                {
-                    return new UiDataResponse<Job>(response.Data, response, SortFilterValues, response.UIPagingInfo, false);
-                }
-
-                request.UIPagingInfo.Page++;
-                request.AfterKeys = response.AfterKeys;
-
-                response = DataClient.JobSearch(request);
-            }
-
-            return new UiDataResponse<Job>([]);
+            return new UiDataResponse<Job>(response.Data, request.PagingInfo);
         }
     }
 }

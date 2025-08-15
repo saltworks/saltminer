@@ -147,59 +147,34 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
             var searchRequest = new SearchRequest()
             {
-                UIPagingInfo = new UIPagingInfo(request.Pager?.Size ?? Config.DefaultPageSize, 1)
-                {
-                    SortFilters = Helpers.SearchFilters.MapSortFilters(request.Pager?.SortFilters, SortFilterValues) ?? []
-                },
+                PagingInfo = new(request.Pager?.Size ?? Config.DefaultPageSize),
+                SortKeys = Helpers.SearchFilters.MapSortFilters(request.Pager?.SortFilters, SortFilterValues) ?? [],
                 Filter = new()
                 {
                     AnyMatch = true,
                     FilterMatches = filters,
-                    SubFilter = new()
-                    {
-                        AnyMatch = false,
-                        FilterMatches = new Dictionary<string, string> { 
-                            { "Saltminer.Engagement.Subtype", SaltMiner.DataClient.Helpers.BuildExcludeTermsFilterValue([ "Template" ]) },
-                        }
-                    }
+                    SubFilter = new() { AnyMatch = false }
                 }
             };
+            searchRequest.Filter.SubFilter.AddExcludeTermsFilterMatch("Saltminer.Engagement.Subtype", ["Template"]);
 
             if (!request.ShowHistorical)
+                searchRequest.Filter.SubFilter.AddExcludeTermsFilterMatch("Saltminer.Engagement.Status", ["Historical"]);
+
+            if (searchRequest.SortKeys.Count == 0)
             {
-                searchRequest.Filter.SubFilter.FilterMatches.Add("Saltminer.Engagement.Status", SaltMiner.DataClient.Helpers.BuildExcludeTermsFilterValue([ "Historical" ]));
+
+                searchRequest.SortKeys.Add("Saltminer.Engagement.Status", true);
+                searchRequest.SortKeys.Add("LastUpdated", false);
             }
 
-            if (searchRequest.UIPagingInfo.SortFilters.Count == 0)
-            {
-                searchRequest.UIPagingInfo.SortFilters.Add("Saltminer.Engagement.Status", true);
-                searchRequest.UIPagingInfo.SortFilters.Add("LastUpdated", false);
-            }
-
-            //loop until page found
             var response = DataClient.EngagementSearch(searchRequest);
-
-            while (response.Success && response.Data != null && response.Data.Any())
+            var engagements = response.Data.Select(x => new EngagementSummary(x, MyFieldInfo)).ToList();
+            foreach (var engagement in engagements)
             {
-                searchRequest.UIPagingInfo = response.UIPagingInfo;
-                if ((request.Pager?.Page == null || request.Pager.Page == 1 || request.Pager.Page == 0) || searchRequest.UIPagingInfo.Page == request.Pager.Page)
-                {
-                    Logger.LogInformation("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Engagement", filters.Count, response.UIPagingInfo.Size, response.UIPagingInfo.Page));
-                    var engagements = response.Data.Select(x => new EngagementSummary(x, MyFieldInfo)).ToList();
-                    foreach (var engagement in engagements)
-                    {
-                        engagement.IssueCount = GetEngagementIssueCount(engagement.Id).Data;
-                    }
-                    return new UiDataResponse<EngagementSummary>(engagements, response, SortFilterValues, response.UIPagingInfo, false);
-                }
-
-                searchRequest.UIPagingInfo.Page++;
-                searchRequest.AfterKeys = response.AfterKeys;
-
-                response = DataClient.EngagementSearch(searchRequest);
+                engagement.IssueCount = GetEngagementIssueCount(engagement.Id).Data;
             }
-
-            return new UiDataResponse<EngagementSummary>([]);
+            return new UiDataResponse<EngagementSummary>(engagements, response.PagingInfo, SortFilterValues.Select(x => new FieldFilter(x)));
         }
 
         public UiDataItemResponse<EngagementSummary> SummaryEdit(EngagementSummaryEdit request, KibanaUser user)
@@ -387,20 +362,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             // if setting present, check for asset attribute key to add to inventory asset
             if (!string.IsNullOrEmpty(Config.InventoryAssetKeyAttribute))
             {
-                var assetRequest = new SearchRequest()
-                {
-                    Filter = new Filter
-                    {
-                        FilterMatches = new Dictionary<string, string>
-                        {
-                            {
-                                "Saltminer.Internal.QueueScanId", queueScan.Id
-                            }
-                        }
-                    },
-                    UIPagingInfo = new UIPagingInfo(300)
-                };
-
+                var assetRequest = new SearchRequest("Saltminer.Internal.QueueScanId", queueScan.Id) { PagingInfo = new(300) };
                 var queueAssets = new List<QueueAsset>();
                 var queueAssetsResponse = DataClient.QueueAssetSearch(assetRequest);
 
@@ -412,14 +374,9 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                         asset.InventoryAsset = inventoryAssetKeyAttribute;
                     }
                     queueAssets.AddRange(queueAssetsResponse.Data);
-
                     DataClient.QueueAssetAddUpdateBulk(queueAssets);
                     queueAssets.Clear();
-
-                    assetRequest.UIPagingInfo = queueAssetsResponse.UIPagingInfo;
-                    assetRequest.UIPagingInfo.Page++;
-                    assetRequest.AfterKeys = queueAssetsResponse.AfterKeys;
-
+                    assetRequest.PagingInfo = queueAssetsResponse.PagingInfo.NextPage();
                     queueAssetsResponse = DataClient.QueueAssetSearch(assetRequest);
                 }
             }
@@ -496,7 +453,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 engagementComments = fullEngagement.Comments.Where(x => x.Type == "User" && x.ScanId == fullEngagement.Scan.ScanId).ToList();
             }
 
-            var newSummaryRequest = new UiApiClient.Requests.EngagementNew()
+            var newSummaryRequest = new EngagementNew()
             {
                 Customer = fullEngagement.Customer,
                 Name = EngagementHelper.CreateUniqueEngagementName(fullEngagement.Name, UiApiConfig.AssetType),
@@ -642,25 +599,12 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             }
             else
             {
-                var parentEngagement = DataClient.EngagementSearch(new SearchRequest
-                {
-                    Filter = new Filter
+                var parentEngagement = DataClient.EngagementSearch(new
+                    SearchRequest("Saltminer.Engagement.GroupId", engagement.Data.Saltminer.Engagement.GroupId)
                     {
-                        FilterMatches = new Dictionary<string, string> {
-                        { 
-                                "Saltminer.Engagement.GroupId", engagement.Data.Saltminer.Engagement.GroupId }
-                        }
-                    },
-                    UIPagingInfo = new UIPagingInfo
-                    {
-                        Page = 1,
-                        Size = 1,
-                        SortFilters = new Dictionary<string, bool>
-                        {
-                            { "Saltminer.Engagement.PublishDate", false }
-                        }
-                    }
-                });
+                        PagingInfo = new(1),
+                        SortKeys = new() { { "Saltminer.Engagement.PublishDate", false } },
+                    });
 
                 var parent = parentEngagement.Data.FirstOrDefault();
 
@@ -938,32 +882,17 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 throw new UiApiNotFoundException($"Engagement {id} does not exist.");
             }
 
-            var commentRequest = new SearchRequest
-            {
-                Filter = new()
-                {
-                    FilterMatches = new Dictionary<string, string>
-                    {
-                        { "saltminer.engagement.id", id }
-                    }
-                },
-                UIPagingInfo = new UIPagingInfo(100)
-            };
-
+            var commentRequest = new SearchRequest("saltminer.engagement.id", id) {  PagingInfo = new(100) };
             var comments = new List<Comment>();
             
-            Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Comment", commentRequest?.Filter?.FilterMatches?.Count ?? 0, commentRequest.UIPagingInfo.Size, commentRequest.UIPagingInfo.Page));
+            Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Comment", commentRequest?.Filter?.FilterMatches?.Count ?? 0, commentRequest.PagingInfo.Size, commentRequest.PagingInfo.Page));
             var commentResponse = DataClient.CommentSearch(commentRequest);
 
             while (commentResponse.Success && commentResponse.Data != null && commentResponse.Data.Any())
             {
                 comments.AddRange(commentResponse.Data.ToList());
-                
-                commentRequest.UIPagingInfo = commentResponse.UIPagingInfo;
-                commentRequest.UIPagingInfo.Page++;
-                commentRequest.AfterKeys = commentResponse.AfterKeys;
-
-                Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Comment", commentRequest?.Filter?.FilterMatches?.Count ?? 0, commentRequest.UIPagingInfo.Size, commentRequest.UIPagingInfo.Page));
+                commentRequest.PagingInfo = commentResponse.PagingInfo.NextPage();
+                Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Comment", commentRequest?.Filter?.FilterMatches?.Count ?? 0, commentRequest.PagingInfo.Size, commentRequest.PagingInfo.Page));
                 commentResponse = DataClient.CommentSearch(commentRequest);
             }
 
@@ -978,65 +907,42 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                     throw new UiApiNotFoundException($"QueueScan for engagement {engagement.Data.Id} does not exist.");
                 }
 
-                var assetRequest = new SearchRequest() { 
-                    Filter = new() { FilterMatches = new() { { "Saltminer.Internal.QueueScanId", queueScan.Data.Id } } },
-                    UIPagingInfo = new UIPagingInfo(300) 
-                };
-
+                var assetRequest = new SearchRequest("Saltminer.Internal.QueueScanId", queueScan.Data.Id) {  PagingInfo = new(300)  };
                 var queueAssets = new List<QueueAsset>();
 
-                Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("QueueAsset", assetRequest?.Filter?.FilterMatches?.Count ?? 0, assetRequest.UIPagingInfo.Size, assetRequest.UIPagingInfo.Page));
+                Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("QueueAsset", assetRequest?.Filter?.FilterMatches?.Count ?? 0, assetRequest.PagingInfo.Size, assetRequest.PagingInfo.Page));
                 var queueAssetsResponse = DataClient.QueueAssetSearch(assetRequest);
 
                 while (queueAssetsResponse.Success && queueAssetsResponse.Data != null && queueAssetsResponse.Data.Any())
                 {
                     queueAssets.AddRange(queueAssetsResponse.Data);
 
-                    assetRequest.UIPagingInfo = queueAssetsResponse.UIPagingInfo;
-                    assetRequest.UIPagingInfo.Page++;
-                    assetRequest.AfterKeys = queueAssetsResponse.AfterKeys;
-
-                    Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("QueueAsset", assetRequest?.Filter?.FilterMatches?.Count ?? 0, assetRequest.UIPagingInfo.Size, assetRequest.UIPagingInfo.Page));
+                    assetRequest.PagingInfo = queueAssetsResponse.PagingInfo.NextPage();
+                    Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("QueueAsset", assetRequest?.Filter?.FilterMatches?.Count ?? 0, assetRequest.PagingInfo.Size, assetRequest.PagingInfo.Page));
                     queueAssetsResponse = DataClient.QueueAssetSearch(assetRequest);
                 }
 
-                var issueRequest = new SearchRequest()
+                var issueRequest = new SearchRequest("Saltminer.QueueScanId", queueScan.Data.Id)
                 {
-                    Filter = new Filter()
+                    PagingInfo = new(300),
+                    SortKeys = new Dictionary<string, bool>
                     {
-                        AnyMatch = true,
-                        FilterMatches = new Dictionary<string, string>
-                        {
-                            { "Saltminer.QueueScanId", queueScan.Data.Id }
-                        }
-                    },
-                    UIPagingInfo = new UIPagingInfo
-                    {
-                        Page = 1,
-                        Size = 300,
-                        SortFilters = new Dictionary<string, bool>
-                        {
-                            { "Vulnerability.SeverityLevel", true },
-                            { "Vulnerability.Name", true },
-                            { "Vulnerability.Id", true }
-                        }
-                    },
+                        { "Vulnerability.SeverityLevel", true },
+                        { "Vulnerability.Name", true },
+                        { "Vulnerability.Id", true }
+                    }
                 };
 
                 var queueIssues = new List<QueueIssue>();
 
-                Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("QueueIssue", issueRequest?.Filter?.FilterMatches?.Count ?? 0, issueRequest.UIPagingInfo.Size, issueRequest.UIPagingInfo.Page));
+                Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("QueueIssue", issueRequest?.Filter?.FilterMatches?.Count ?? 0, issueRequest.PagingInfo.Size, issueRequest.PagingInfo.Page));
                 var queueIssuesResponse = DataClient.QueueIssueSearch(issueRequest);
 
                 while (queueIssuesResponse.Success && queueIssuesResponse.Data != null && queueIssuesResponse.Data.Any())
                 {
                     queueIssues.AddRange(queueIssuesResponse.Data);
-
-                    issueRequest.UIPagingInfo = queueIssuesResponse.UIPagingInfo;
-                    issueRequest.UIPagingInfo.Page++;
-                    issueRequest.AfterKeys = queueIssuesResponse.AfterKeys;
-
-                    Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("QueueIssue", issueRequest?.Filter?.FilterMatches?.Count ?? 0, issueRequest.UIPagingInfo.Size, issueRequest.UIPagingInfo.Page));
+                    issueRequest.PagingInfo = queueIssuesResponse.PagingInfo.NextPage();
+                    Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("QueueIssue", issueRequest?.Filter?.FilterMatches?.Count ?? 0, issueRequest.PagingInfo.Size, issueRequest.PagingInfo.Page));
                     queueIssuesResponse = DataClient.QueueIssueSearch(issueRequest);
                 }
 
@@ -1066,23 +972,19 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                     AssetType = UiApiConfig.AssetType, 
                     SourceType = UiApiConfig.SourceType,
                     Instance = UiApiConfig.Instance,
-                    UIPagingInfo = new UIPagingInfo(300)
+                    PagingInfo = new(300)
                 };
 
                 var assets = new List<Asset>();
                 
-                Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Asset", assetRequest?.Filter?.FilterMatches?.Count ?? 0, assetRequest.UIPagingInfo.Size, assetRequest.UIPagingInfo.Page));
+                Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Asset", assetRequest?.Filter?.FilterMatches?.Count ?? 0, assetRequest.PagingInfo.Size, assetRequest.PagingInfo.Page));
                 var assetsResponse = DataClient.AssetSearch(assetRequest);
                 
                 while (assetsResponse.Success && assetsResponse.Data != null && assetsResponse.Data.Any())
                 {
                     assets.AddRange(assetsResponse.Data);
-
-                    assetRequest.UIPagingInfo = assetsResponse.UIPagingInfo;
-                    assetRequest.UIPagingInfo.Page++;
-                    assetRequest.AfterKeys = assetsResponse.AfterKeys;
-
-                    Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Asset", assetRequest?.Filter?.FilterMatches?.Count ?? 0, assetRequest.UIPagingInfo.Size, assetRequest.UIPagingInfo.Page));
+                    assetRequest.PagingInfo = assetsResponse.PagingInfo.NextPage();
+                    Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Asset", assetRequest?.Filter?.FilterMatches?.Count ?? 0, assetRequest.PagingInfo.Size, assetRequest.PagingInfo.Page));
                     assetsResponse = DataClient.AssetSearch(assetRequest);
                 }
 
@@ -1095,33 +997,25 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                     AssetType = UiApiConfig.AssetType,
                     SourceType = UiApiConfig.SourceType,
                     Instance = UiApiConfig.Instance,
-                    UIPagingInfo = new UIPagingInfo
+                    PagingInfo = new(300),
+                    SortKeys = new Dictionary<string, bool>
                     {
-                        Page = 1,
-                        Size = 300,
-                        SortFilters = new Dictionary<string, bool>
-                        {
-                            { "Vulnerability.SeverityLevel", true },
-                            { "Vulnerability.Name", true },
-                            { "Vulnerability.Id", true }
-                        }
-                    },
+                        { "Vulnerability.SeverityLevel", true },
+                        { "Vulnerability.Name", true },
+                        { "Vulnerability.Id", true }
+                    }
                 };
 
                 var issues = new List<Issue>();
 
-                Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Issue", issueRequest?.Filter?.FilterMatches?.Count ?? 0, issueRequest.UIPagingInfo.Size, issueRequest.UIPagingInfo.Page));
+                Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Issue", issueRequest?.Filter?.FilterMatches?.Count ?? 0, issueRequest.PagingInfo.Size, issueRequest.PagingInfo.Page));
                 var issuesResponse = DataClient.IssueSearch(issueRequest);
                 
                 while (issuesResponse.Success && issuesResponse.Data != null && issuesResponse.Data.Any())
                 {
                     issues.AddRange(issuesResponse.Data);
-
-                    issueRequest.UIPagingInfo = issuesResponse.UIPagingInfo;
-                    issueRequest.UIPagingInfo.Page++;
-                    issueRequest.AfterKeys = issuesResponse.AfterKeys;
-
-                    Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Issue", issueRequest?.Filter?.FilterMatches?.Count ?? 0, issueRequest.UIPagingInfo.Size, issueRequest.UIPagingInfo.Page));
+                    issueRequest.PagingInfo = issuesResponse.PagingInfo.NextPage();
+                    Logger.LogDebug("{Msg}", GeneralExtensions.SearchUIPagingLoggerMessage("Issue", issueRequest?.Filter?.FilterMatches?.Count ?? 0, issueRequest.PagingInfo.Size, issueRequest.PagingInfo.Page));
                     issuesResponse = DataClient.IssueSearch(issueRequest);
                 }
 
