@@ -1,6 +1,6 @@
 FROM python:3.13.5-alpine3.22
 
-LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.18-alpine3.22-amd64"
+LABEL base-image="python:3.13.5-alpine3.22"
 LABEL vendor="Saltworks Security, LLC"
 
 ARG smapp=/usr/share/saltworks

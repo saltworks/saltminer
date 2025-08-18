@@ -1,7 +1,7 @@
 import json
 import logging 
 import time
-import pytz
+
 from datetime import datetime, timezone, timedelta
 from dateutil import parser 
 from dateutil.tz import gettz
@@ -17,20 +17,23 @@ class SeekerAdapter:
     def __init__(self, settings):
         self.seeker_client = SeekerClient(settings)
         self.sm_docs = SnykDocs()
-        self._es = ElasticClient(settings)
+        
         self._sm_data_client = SmDataClient(settings, "Seeker")
+        self._es = ElasticClient(settings)
+        self.first_load = settings.GetSource("Seeker", 'First_Load')
         self.project_last_updated = {}
 
-    def run_sync(self, first_load=False):
+    def run_sync(self):
         logging.info("Run Sync Start")
-        if not first_load:
+
+        if not self.first_load:
             self.get_sm_prj_last_updated()
             
         for project in self.seeker_client.get_projects_generator():
             project_id = project['key']
             last_updated = None
 
-            if not first_load:
+            if not self.first_load:
                 last_updated = self.project_last_updated.get(project_id)
 
             self.sync_issues(project, last_updated)
@@ -84,6 +87,11 @@ class SeekerAdapter:
         vulnerability['Scanner']['Vendor']= "Black Duck"
 
         issue_attributes = q_issue_doc['Saltminer']['Attributes']
+        issue_attributes['VerificationProof'] = issue.get('VerificationProof')
+        issue_attributes['Status'] = issue.get('Status')
+        issue_attributes['VerificationTag'] = issue.get('VerificationTag')
+        issue_attributes['LastDetectionTime'] = issue.get('LastDetectionTime')
+        issue_attributes['LatestVersion'] = issue.get('LatestVersion')
         issue_attributes['IssueType'] = 'IAST'
         issue_attributes['OWASP2013'] = issue.get('OWASP2013') or 'None'
         issue_attributes['OWASP2017'] = issue.get('OWASP2017') or 'None'
@@ -98,6 +106,7 @@ class SeekerAdapter:
         issue_attributes['LastDetectionURL'] = issue.get('LastDetectionURL') or 'None'
         issue_attributes['LastDetectionSourceName'] = issue.get('LastDetectionSourceName') or 'None'
         issue_attributes['LastDetectionSourceType'] = issue.get('LastDetectionSourceType') or 'None'
+        
         issue_attributes['Owner'] = issue.get('Owner') or "None"
         return MapIssueDocDTO(**q_issue_doc)
 
@@ -171,8 +180,7 @@ class SeekerAdapter:
             'EDT': gettz('America/New_York'),
         }
         dt_with_tz = parser.parse(date_str, tzinfos=tzinfos)
-        return dt_with_tz.replace(tzinfo=None).isoformat(sep='T')         
-
+        return dt_with_tz.replace(tzinfo=None).isoformat(sep='T')
 
 
     def last_updated_query(self):

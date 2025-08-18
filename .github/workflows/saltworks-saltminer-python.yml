@@ -53,6 +53,8 @@ jobs:
         mv ${{ env.PY_CONFIG_FILE }}.new ${{ env.PY_CONFIG_FILE }}
 
     - run: cp ${{ github.workspace }}/.dockerfiles/config-services.sh .
+    - run: find . -type f -name '*.sh' -print0 | xargs -0 dos2unix --
+    - run: find . -type f -name '*.sh' -exec chmod u+x \{\} \;;
 
     - name: Login to the container registry
       uses: docker/login-action@v3.4.0
@@ -77,7 +79,7 @@ jobs:
       with:
         file: .dockerfiles/Dockerfile-python
         context: ${{ github.workspace }}/Saltworks.SaltMiner.Python
-        push: false
+        push: true
         provenance: mode=max
         sbom: true
         tags: ${{ steps.meta.outputs.tags }}

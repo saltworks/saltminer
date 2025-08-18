@@ -744,7 +744,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
                 { "ResourcePlatform", issue.EntitySnapshot.CloudPlatform },
                 { "SubscriptionName", issue.EntitySnapshot.SubscriptionName },
                 { "SubscriptionExternalId", issue.EntitySnapshot.SubscriptionExternalId },
-                { "ExternalId", issue.EntitySnapshot.ExternalId }
+                { "ExternalId", issue.EntitySnapshot.ExternalId },
+                { "IssueType", issue.Type }
             };
             return MapAsset(qScan, sourceId, issue.EntitySnapshot.Name, issue.EntitySnapshot.NativeType, attributes, isRetired);
         }
