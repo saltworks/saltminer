@@ -14,7 +14,8 @@
  * ----
  */
 
-﻿using Saltworks.SaltMiner.Core.Entities;
+using Saltworks.SaltMiner.Core.Data;
+using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.DataClient;
 using Saltworks.SaltMiner.UiApiClient;
@@ -81,7 +82,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
             try
             {
                 if (data != null && (FieldDefinitions.Count == 0 || FieldTimestamp == null || DateTime.UtcNow.Subtract(FieldTimestamp.Value).Seconds > RandomSecs))
-                    FieldDefinitions = data.FieldDefinitionSearch(new()).Data?.ToList() ?? [];
+                    FieldDefinitions = data.FieldDefinitionSearch(new(new PagingInfo(1000))).Data?.ToList() ?? [];
             }
             catch (DataClientResponseException ex)
             {
@@ -94,7 +95,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
             try
             {
                 if (data != null && (AttributeDefinitions.Count == 0 || AttrTimestamp == null || DateTime.UtcNow.Subtract(AttrTimestamp.Value).Minutes > RandomSecs))
-                    AttributeDefinitions = data.AttributeDefinitionSearch(new()).Data?.ToList() ?? [];
+                    AttributeDefinitions = data.AttributeDefinitionSearch(new(new PagingInfo(1000))).Data?.ToList() ?? [];
             }
             catch (DataClientResponseException ex)
             {
@@ -107,7 +108,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
             try
             {
                 if (data != null && (AppRoles.Count == 0 || ArTimestamp == null || DateTime.UtcNow.Subtract(ArTimestamp.Value).Minutes > RandomSecs))
-                    AppRoles = data.RoleSearch(new()).Data?.ToList() ?? [];
+                    AppRoles = data.RoleSearch(new(new PagingInfo(1000))).Data?.ToList() ?? [];
             }
             catch (DataClientResponseException ex)
             {
@@ -120,7 +121,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
             try
             {
                 if (data != null && (ActionDefinitions.Count == 0 || AcTimestamp == null || DateTime.UtcNow.Subtract(AcTimestamp.Value).Minutes > RandomSecs))
-                    ActionDefinitions = data.ActionDefinitionSearch(new()).Data?.ToList() ?? [];
+                    ActionDefinitions = data.ActionDefinitionSearch(new(new PagingInfo(1000))).Data?.ToList() ?? [];
             }
             catch (DataClientResponseException ex)
             {

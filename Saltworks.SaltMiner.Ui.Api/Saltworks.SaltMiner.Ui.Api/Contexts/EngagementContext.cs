@@ -174,7 +174,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             {
                 engagement.IssueCount = GetEngagementIssueCount(engagement.Id).Data;
             }
-            return new UiDataResponse<EngagementSummary>(engagements, response.PagingInfo, SortFilterValues.Select(x => new FieldFilter(x)));
+            return new UiDataResponse<EngagementSummary>(engagements, response.PagingInfo, SortFilterValues?.Select(x => new FieldFilter(x)));
         }
 
         public UiDataItemResponse<EngagementSummary> SummaryEdit(EngagementSummaryEdit request, KibanaUser user)

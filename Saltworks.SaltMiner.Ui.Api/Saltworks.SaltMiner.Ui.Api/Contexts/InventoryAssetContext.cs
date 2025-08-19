@@ -86,7 +86,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             };
 
             var response = DataClient.InventoryAssetSearch(searchRequest);
-            return new UiDataResponse<InventoryAssetFull>(response?.Data?.Select(x => new InventoryAssetFull(x, MyFieldInfo)), response.PagingInfo, SortFilterValues.Select(x => new FieldFilter(x)));
+            return new UiDataResponse<InventoryAssetFull>(response?.Data?.Select(x => new InventoryAssetFull(x, MyFieldInfo)), response.PagingInfo, SortFilterValues?.Select(x => new FieldFilter(x)));
         }
 
         public UiDataItemResponse<InventoryAssetPrimer> Primer()

@@ -453,7 +453,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             };
 
             var response = DataClient.FieldDefinitionSearch(request);
-            return new UiDataResponse<FieldDefinition>(response.Data, response.PagingInfo, SortFilterValues.Select(x => new FieldFilter(x)));
+            return new UiDataResponse<FieldDefinition>(response.Data, response.PagingInfo, SortFilterValues?.Select(x => new FieldFilter(x)));
         }
 
         #endregion
@@ -581,7 +581,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             };
 
             var response = DataClient.RoleSearch(request);
-            return new UiDataResponse<AppRole>(response.Data, response.PagingInfo, SortFilterValues.Select(x => new FieldFilter(x)));
+            return new UiDataResponse<AppRole>(response.Data, response.PagingInfo, SortFilterValues?.Select(x => new FieldFilter(x)));
         }
 
 
@@ -672,7 +672,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             };
 
             var response = DataClient.ServiceJobSearch(request);
-            return new UiDataResponse<ServiceJob>(response.Data, response.PagingInfo, SortFilterValues.Select(x => new FieldFilter(x)));
+            return new UiDataResponse<ServiceJob>(response.Data, response.PagingInfo, SortFilterValues?.Select(x => new FieldFilter(x)));
         }
 
         #endregion

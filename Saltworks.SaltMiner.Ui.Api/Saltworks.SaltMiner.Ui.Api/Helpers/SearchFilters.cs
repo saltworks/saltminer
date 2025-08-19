@@ -14,7 +14,8 @@
  * ----
  */
 
-﻿using Saltworks.SaltMiner.Core.Entities;
+using Saltworks.SaltMiner.Core.Data;
+using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.UiApiClient;
 using Saltworks.SaltMiner.UiApiClient.Helpers;
 using System.Text.RegularExpressions;
@@ -68,12 +69,14 @@ namespace Saltworks.SaltMiner.Ui.Api.Helpers
             if (indexFieldName.Contains("date", StringComparison.OrdinalIgnoreCase) || indexFieldName.Contains("timestamp", StringComparison.OrdinalIgnoreCase) || Regex.Match(filter.Value, @"([012]?\d)[\/. -]([0123]?\d)[\/. -]([012]\d{3})\b").Success)
                 filter.Value = $"{DateTime.Parse(filter.Value):yyyy-MM-dd}";
 
+            var f = new Filter();
             if (option.IsTextSearch)
-                requestFilters.Add(indexFieldName + ".Text", DataClient.Helpers.BuildQueryStringFilterValue(filter.Value));
+                f.AddQueryStringFilterMatch(indexFieldName + ".Text", filter.Value);
             else if (indexFieldName == "")
-                requestFilters.Add(indexFieldName, DataClient.Helpers.BuildQueryStringFilterValue(filter.Value));
+                f.AddQueryStringFilterMatch(indexFieldName, filter.Value);
             else
-                requestFilters.Add(indexFieldName, filter.Value);
+                f.AddSimpleFilterMatch(indexFieldName, filter.Value);
+            requestFilters.Add(f.FilterMatches.First().Key, f.FilterMatches.First().Value);
         }
 
         public static Dictionary<string, bool> MapSortFilters(Dictionary<string, bool> sortFilters, List<SearchFilterValue> sortFilterValues, bool isQueue = false)

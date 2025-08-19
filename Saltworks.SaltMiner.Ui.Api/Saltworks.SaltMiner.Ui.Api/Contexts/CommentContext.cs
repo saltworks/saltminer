@@ -310,7 +310,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             };
 
             var response = DataClient.CommentSearch(searchRequest);
-            return new UiDataResponse<UiComment>(response.Data.Select(x => new UiComment(x, UiApiConfig.AppVersion)), response.PagingInfo, SortFilterValues.Select(x => new FieldFilter(x)));
+            return new UiDataResponse<UiComment>(response.Data.Select(x => new UiComment(x, UiApiConfig.AppVersion)), response.PagingInfo, SortFilterValues?.Select(x => new FieldFilter(x)));
         }
 
         public UiDataItemResponse<UiComment> Get(string id)

@@ -16,30 +16,25 @@
 
 ﻿using System;
 
-namespace Saltworks.SaltMiner.Core.Common
+namespace Saltworks.SaltMiner.Core.Common;
+
+public class SaltminerException : Exception
 {
+    public SaltminerException() { }
+    public SaltminerException(string message) : base(message) { }
+    public SaltminerException(string message, Exception inner) : base(message, inner) { }
+}
 
-    [Serializable]
-    public class SaltminerException : Exception
-    {
-        public SaltminerException() { }
-        public SaltminerException(string message) : base(message) { }
-        public SaltminerException(string message, Exception inner) : base(message, inner) { }
-        protected SaltminerException(
-          System.Runtime.Serialization.SerializationInfo info,
-          System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
-    }
+public class SaltMinerValidationException : SaltminerException
+{
+    public SaltMinerValidationException() { }
+    public SaltMinerValidationException(string message) : base(message) { }
+    public SaltMinerValidationException(string message, Exception inner) : base(message, inner) { }
+}
 
-
-    [Serializable]
-    
-    public class SaltminerDataException : SaltminerException
-    {
-        public SaltminerDataException() { }
-        public SaltminerDataException(string message) : base(message) { }
-        public SaltminerDataException(string message, Exception inner) : base(message, inner) { }
-        protected SaltminerDataException(
-          System.Runtime.Serialization.SerializationInfo info,
-          System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
-    }
+public class SaltminerDataException : SaltminerException
+{
+    public SaltminerDataException() { }
+    public SaltminerDataException(string message) : base(message) { }
+    public SaltminerDataException(string message, Exception inner) : base(message, inner) { }
 }

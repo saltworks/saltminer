@@ -15,6 +15,7 @@
  */
 
 ﻿using Org.BouncyCastle.Bcpg;
+using Saltworks.SaltMiner.Core.Common;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Extensions;
 using System;
@@ -108,63 +109,84 @@ namespace Saltworks.SaltMiner.Core.Data
         public Filter SubFilter { get; set; }
 
 
-        public void AddSimpleFilterMatch(string field, string value)
+        public void AddSimpleFilterMatch(string field, string value, bool exceptionOnTryFail = false)
         {
-            FilterMatches.Add(field, value);
+            var didIt = FilterMatches.TryAdd(field, value);
         }
 
-        public void AddDateRangeFilterMatch(string field, DateTime greaterThanOrEqual, DateTime lessThan)
+        public void AddDateRangeFilterMatch(string field, DateTime greaterThanOrEqual, DateTime lessThan, bool exceptionOnTryFail = false)
         {
-            FilterMatches.Add(field, $"{greaterThanOrEqual:yyyy-mm-dd}||{lessThan:yyyy-mm-dd}");
+            var didIt = FilterMatches.TryAdd(field, $"{greaterThanOrEqual:yyyy-mm-dd}||{lessThan:yyyy-mm-dd}");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
         }
 
-        public void AddGreaterThanOrEqualFilterMatch(string field, string value)
+        public void AddGreaterThanOrEqualFilterMatch(string field, string value, bool exceptionOnTryFail = false)
         {
-            FilterMatches.Add(field, $"{value}>=||");
+            var didIt = FilterMatches.TryAdd(field, $"{value}>=||");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
         }
 
-        public void AddLessThanOrEqualFilterMatch(string field, string value)
+        public void AddLessThanOrEqualFilterMatch(string field, string value, bool exceptionOnTryFail = false)
         {
-            FilterMatches.Add(field, $"{value}<=||");
+            var didIt = FilterMatches.TryAdd(field, $"{value}<=||");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
         }
 
-        public void AddGreaterThanFilterMatch(string field, string value)
+        public void AddGreaterThanFilterMatch(string field, string value, bool exceptionOnTryFail = false)
         {
-            FilterMatches.Add(field, $"{value}>||");
+            var didIt = FilterMatches.TryAdd(field, $"{value}>||");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
         }
 
-        public void AddLessThanFilterMatch(string field, string value)
+        public void AddLessThanFilterMatch(string field, string value, bool exceptionOnTryFail = false)
         {
-            FilterMatches.Add(field, $"{value}<||");
+            var didIt = FilterMatches.TryAdd(field, $"{value}<||");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
         }
 
-        public void AddQueryStringFilterMatch(string field, string value)
+        public void AddQueryStringFilterMatch(string field, string value, bool exceptionOnTryFail = false)
         {
-            FilterMatches.Add(field, $"{value}**");
+            var didIt = FilterMatches.TryAdd(field, $"{value}**");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
         }
 
-        public void AddMustNotExistsFilterMatch(string field)
+        public void AddMustNotExistsFilterMatch(string field, bool exceptionOnTryFail = false)
         {
-            FilterMatches.Add(field, "!");
+            var didIt = FilterMatches.TryAdd(field, "!");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
         }
 
-        public void AddMustExistsFilterMatch(string field)
+        public void AddMustExistsFilterMatch(string field, bool exceptionOnTryFail = false)
         {
-            FilterMatches.Add(field, "+!");
+            var didIt = FilterMatches.TryAdd(field, "+!");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
         }
 
-        public void AddTermsFilterMatch(string field, List<string> values)
+        public void AddTermsFilterMatch(string field, List<string> values, bool exceptionOnTryFail = false)
         {
-            FilterMatches.Add(field, string.Join("||+", values.ToArray()));
+            var didIt = FilterMatches.TryAdd(field, string.Join("||+", values.ToArray()));
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
         }
 
-        public void AddExcludeTermsFilterMatch(string field, List<string> values)
+        public void AddExcludeTermsFilterMatch(string field, List<string> values, bool exceptionOnTryFail=false)
         {
+            bool didIt;
             if (values.Count == 1)
             {
-                FilterMatches.Add(field, $"||~{values[0]}");
+                didIt = FilterMatches.TryAdd(field, $"||~{values[0]}");
             }
-            FilterMatches.Add(field, string.Join("||~", values.ToArray()));
+            didIt = FilterMatches.TryAdd(field, string.Join("||~", values.ToArray()));
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
         }
 
     }
@@ -175,6 +197,10 @@ namespace Saltworks.SaltMiner.Core.Data
     public class SearchRequest
     {
         public SearchRequest() { }
+        public SearchRequest(PagingInfo paging)
+        {
+            PagingInfo = paging;
+        }
         public SearchRequest(string filterField, string filterValue, int size = 0)
         {
             Filter = new();
