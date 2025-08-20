@@ -37,7 +37,7 @@ class AppVulsProcessor(object):
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
         if not smv3ConfigName or not smv3ConfigName in appSettings.GetConfigNames():
-            raise AppVulsSSCException(f"Invalid or missing configuration for name '{smv3ConfigName}'")
+            raise AppVulsSSCException(f"Invalid or missing configuration for name '{smv3ConfigName}'")_
         if not mainConfigName or not mainConfigName in appSettings.GetConfigNames():
             raise AppVulsSSCException(f"Invalid or missing configuration for name '{mainConfigName}'")
         
@@ -618,6 +618,7 @@ class AppVulsProcessor(object):
                                     "hidden": Issue["hidden"],
                                     "engine_type": scanType,
                                     "engine_category": Issue['engineCategory'],
+                                    "engine_version": Issue['engineVersion'],
                                     "issue_status": Issue['issueStatus'],
                                     "location": Issue["primaryLocation"],
                                     "analyzer": Issue['analyzer'],
@@ -773,6 +774,7 @@ class AppVulsProcessor(object):
                     "hidden": False,
                     "engine_type": assessmentTypeStatuses[assessment_type]['orgType'],
                     "engine_category": "",
+                    "engine_version": "",
                     "issue_status": "Zero",
                     "location": "",
                     "analyzer": "",

@@ -497,6 +497,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                 {
                     foreach (var violation in component.Violations)
                     {
+                        // Only import selected types if configured
                         if (Config.VulnerabilityImportTypes.Count > 0 && !Config.VulnerabilityImportTypes.Contains(violation.PolicyThreatCategory))
                         {
                             continue;

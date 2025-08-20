@@ -651,6 +651,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                             Id = queueScan.Saltminer.Scan.ReportId,
                             Vendor = queueScan.Saltminer.Scan.Vendor,
                             Product = queueScan.Saltminer.Scan.Product,
+                            ProductType = queueScan.Saltminer.Scan.ProductType,
+                            ProductVersion = queueScan.Saltminer.Scan.ProductVersion,
                             AssessmentType = queueScan.Saltminer.Scan.AssessmentType
                         }
                     }

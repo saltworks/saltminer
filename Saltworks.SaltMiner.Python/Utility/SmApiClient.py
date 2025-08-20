@@ -544,6 +544,7 @@ class SmApiClient(object):
                         "Scan": {
                             "AssessmentType": atype,
                             "ProductType": ptype,
+                            "ProductVersion": "",
                             "Product": "Fortify",
                             "Vendor": "Fortify",
                             "ReportId": reportId,
@@ -659,6 +660,7 @@ class SmApiClient(object):
                     "AssessmentType": atype,
                     "ProductType": ptype,
                     "Product": "Fortify" if not issue else issue['engine_type'],
+                    "ProductVersion": issue['engine_version'],
                     "Vendor": "Fortify",
                     "ReportId": scanId,
                     "ScanDate": scanDate,
