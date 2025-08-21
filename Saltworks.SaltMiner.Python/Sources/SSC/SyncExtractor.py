@@ -28,15 +28,6 @@ from .SscUtilities import SscUtilities
 from .SscEsUtils import SscEsUtils
 from Utility.SyncQueueHelper import *
 
-
-def initBlankAttrObject():
-    return {
-        'projectVersionId': 0,
-        'attributeId': 0,
-        'attributeName': '',
-        'attributeValue': ''
-    }
-
 def initZeroIssueObject():
     return {
         'projectVersionId': 0,
@@ -79,14 +70,6 @@ def initZeroIssueObject():
         'projectName': '',
         'fullFileName': '',
         'primaryTagValueAutoApplied': False
-    }
-
-def initBlankQueueObject():
-    return {
-        'processedDateTime' : '',
-        'projectVersionId': 0,
-        'updateType': '',
-        'completedDateTime' : ''
     }
 
 class SyncExtractor(object):
@@ -291,18 +274,23 @@ class SyncExtractor(object):
 
         return result['aggregations']['primaryTag']['buckets']
 
-    def __GetSSCProjectAttr2ByProjectId(self, projid, attrid):
-        # declare a filter query dict object
+    def __GetSSCProjectAttr2ByProjectId(self, projid, attrid=None):
+        '''
+        Get SSC attributes from datastore
+
+        :projid: Project Version ID
+        :attrid: Attribute ID (if None, pull all for the projid)
+        '''
         match = {
             "query": {
                 "bool": {
-                    "must": [{"term": {"projectVersionId": projid,}},
-                            {"term": {"attributeId": attrid}}]
+                    "must": [{ "term": { "projectVersionId": projid }}]
                 }
             }
         }
-
-        return self.__ElasticClient.SearchWithCursor('projectVersionId', 'sscprojattr2', match)
+        if attrid:
+            match['query']['bool']['must'].append({"term": {"attributeId": attrid}})
+        return self.__ElasticClient.Search('sscprojattr2', match, 10000)
 
     def __DeleteById(self, index, field, id):
         DeleteQuery = { "query": { "term": { field: { "value": id } } } }
@@ -520,14 +508,12 @@ class SyncExtractor(object):
                 projid = holdprojectId
                 self.__ClearProject(projid)
 
-                queueInfo = self.__initBlankQueueObject()
-                holdnow = datetime.datetime.now()
-                formatnow = holdnow.strftime("%Y-%m-%dT%H:%M:%S")
-                queueInfo['processedDateTime'] = formatnow
-                queueInfo['updateReason'] = 'CheckDrop did not find this app version in SSC'
-                queueInfo['projectVersionId'] = projid
-                queueInfo['updateType'] = 'D'
-                queueInfo['completedDateTime'] = '1900-01-01T00:00:00.000-0000'
+                queueInfo = {
+                    'processedDateTime' : datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+                    'projectVersionId': projid,
+                    'updateType': 'D',
+                    'completedDateTime' : '1900-01-01T00:00:00.000-0000'
+                }
                 logging.info(queueInfo)
                 self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
 
@@ -688,7 +674,14 @@ class SyncExtractor(object):
     def __ProcessOne(self, projectVersion, projectAttrDefs, seenIdList, pvMessage, forceSync=False):
         needsReset = False
         needsAttrReset = False
+        attributesUpdated = False
         updateReason = ""
+
+        # Consolidate passed SSC attribute definitions, skipping those not in use
+        paDefs = {}
+        for pad in projectAttrDefs['data']:
+            if pad['id'] != None and pad['inUse'] == True:
+                paDefs[str(pad['id'])] = pad
     
         projid = projectVersion['id']
 
@@ -815,119 +808,47 @@ class SyncExtractor(object):
         # Check to see if attributes need to be updated
         if needsReset == False:
 
-            paDefs = {}
-            for pad in projectAttrDefs['data']:
-                if pad['id'] != None and pad['inUse'] == True:
-                    paDefs[pad['id']] = pad
-
-            projectAttrs = self.__SscUtils.getProjectVersionAttributes(projid)
-            
-            for projectAttr in projectAttrs['data']:
-                #print(projectAttr)
-                projectAttrDef = paDefs[projectAttr['attributeDefinitionId']]
-                holdsscattrvalue = []
-
-                if projectAttrDef['name'] in self.__Attributes:
-                    holdattrid = projectAttr['attributeDefinitionId']
-                    if projectAttr['values'] == None:
-                        if projectAttr['value'] != None:
-                            #holdsscattrvalue = projectAttr['value']
-                            if projectAttrDef['type']  == 'DATE':
-                                tempsscattrvalue = projectAttr['value']
-                                #logging.info(tempsscattrvalue)
-                                holdsscattrvalue = format(tempsscattrvalue).replace(" 00:00:00.0","T00:00:00.0")
-                                #logging.info(holdsscattrvalue)
-                            elif projectAttrDef['type']  == 'BOOLEAN':
-                                holdsscattrvalue = projectAttr['value']
-                            else:
-                                holdsscattrvalue.append(projectAttr['value'])
-                    else:
-                        for val in projectAttr['values']:
-                            holdsscattrvalue.append(val['name'])
-        
-                    #if exists see if it is in elastic table
-            
-                    if len(holdsscattrvalue) > 0:
-                                
-                        elattribute = self.__GetSSCProjectAttr2ByProjectId(projid,holdattrid)
-                        #logging.info(elattribute)
-                        if len(elattribute) > 0:
-                            compareattrvalue = elattribute[projid]['attributeValue']
-                            if projectAttrDef['type']  == 'DATE':
-                                datecomparevalue = json.dumps(compareattrvalue)
-                                missingt = datecomparevalue.find(" 00:00:00.0")
-                                if missingt > 0:
-                                    needsAttrReset = True
-                    
-                            if holdsscattrvalue != compareattrvalue:
-                                logging.info(f"{pvMessage}, no matched attribute value: {projectAttrDef['name']}" )
-                                #logging.info('ssc attribute value {}'.format(holdsscattrvalue))
-                                #logging.info('elastic table value {}'.format(compareattrvalue))
-                                #logging.info('no matched value')
-                                needsAttrReset = True
-                        else:
-                            logging.info(f"{pvMessage}, no matching es attribute: {projectAttrDef['name']}" )
-                            #logging.info('ssc attribute value {}'.format(holdsscattrvalue))
-                            needsAttrReset = True
-                else: # projectAttrDef['name'] not in self.__Attributes
-                    logging.info(f"{pvMessage}, no matching es attribute: {projectAttrDef['name']}" )
+            # Get attributes from SSC API
+            sscAttributes = {}
+            sscRawAttributes = self.Nvl(self.__SscUtils.getProjectVersionAttributes(projid), 'data', [])
+            for sscAttr in sscRawAttributes:
+                if not self.__ConvertSscAttribute(paDefs, sscAttr, sscAttributes):
+                    logging.info(f"{pvMessage}, attribute definition load failure (id {sscAttr['guid']}), will reset" )
                     needsAttrReset = True
+                    break
 
-               
+            # Get attributes from datastore
+            esAttributes = {}
+            holdAttrs = [] if needsAttrReset else self.__GetSSCProjectAttr2ByProjectId(projid)  # short circuit if we already need reset
+            if not holdAttrs:
+                holdAttrs = []
+            for esAttr in holdAttrs:
+                if not self.__ConvertEsAttribute(esAttr['_source'], esAttributes):
+                    logging.info(f"{pvMessage}, datasource attribute load failure ('{esAttr['_source']['attributeName']}'), will reset" )
+                    needsAttrReset = True
+                    break
+
+            # Compare datastore to API attributes
+            for esAttr in esAttributes if not needsAttrReset else []:  # short circuit if we already need reset
+                if not esAttr in sscAttributes or esAttributes[esAttr] != sscAttributes[esAttr]:
+                    if not esAttr in sscAttributes:
+                        logging.info(f"{pvMessage}, attribute '{esAttr}' removed in SSC" )
+                    else:
+                        logging.info(f"{pvMessage}, attribute '{esAttr}' has changed" )
+                    needsAttrReset = True
+                    break
+            for sscAttr in sscAttributes if not needsAttrReset else []:  # short circuit if we already need reset
+                if not sscAttr in esAttributes:
+                    logging.info(f"{pvMessage}, new attribute '{sscAttr}' in SSC" )
+                    needsAttrReset = True
+                    break
+
+            # Reset attributes if needed
             if needsAttrReset == True:
-                logging.info('%s, syncing SSC attributes', pvMessage)
-                # Clear out records to do refresh
-                self.__DeleteById('sscprojattrs', 'projectVersionId', projid)
-                self.__DeleteById('sscprojattr2', 'projectVersionId', projid)
-
-                attCount = 0
-                for projectAttr in projectAttrs['data']:
-
-                    attCount = attCount + 1
-
-                    #post Project Attribute records
-                    holddata = {'projectVersionId': projid,
-                                'attributerec': projectAttr}
-                    self.__ElasticClient.Index('sscprojattrs', json.dumps(holddata))
-                    
-
-                for projectAttr in projectAttrs['data']:
-                    for projectAttrDef in projectAttrDefs['data']:
-                        if projectAttr['attributeDefinitionId'] == projectAttrDef['id']:
-                            holdsscattrvalue = []
-                            if projectAttr['values'] == None:
-                                if projectAttr['value'] != None:
-                                    if projectAttrDef['type']  == 'DATE':
-                                        tempsscattrvalue = projectAttr['value']
-                                        holdsscattrvalue = format(tempsscattrvalue).replace(" 00:00:00.0","T00:00:00.0")
-                                    elif projectAttrDef['type']  == 'BOOLEAN':
-                                        holdsscattrvalue = projectAttr['value']
-                                    else:
-                                        holdsscattrvalue.append(projectAttr['value'])
-                            else:
-
-                                holdsscattrvalue = []
-                                for val in projectAttr['values']:
-                                    holdsscattrvalue.append(val['name'])
-
-                            attrInfo = initBlankAttrObject()
-                            attrInfo['projectVersionId'] = projid
-                            attrInfo['attributeId'] = projectAttr['attributeDefinitionId']
-                            attrInfo['attributeName'] = projectAttrDef['name']
-                            attrInfo['attributeValue'] = holdsscattrvalue
-                            self.__ElasticClient.Index('sscprojattr2', json.dumps(attrInfo))
-
-                queueInfo = initBlankQueueObject()
-                holdnow = datetime.datetime.now()
-                formatnow = holdnow.strftime("%Y-%m-%dT%H:%M:%S.%f")
-                queueInfo['processedDateTime'] = formatnow
-                queueInfo['projectVersionId'] = projid
-                queueInfo['updateType'] = 'A'
-                queueInfo['updateReason'] = updateReason
-                queueInfo['completedDateTime'] = '1900-01-01T00:00:00.000-0000'
-                logging.info(f"{pvMessage}, Creating Queue record")
-                logging.info(queueInfo)
-                self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
+                self.__UpdateAttributes(projid, pvMessage, paDefs, sscRawAttributes)
+                attributesUpdated = True
+            else:
+                logging.info(f"{pvMessage}, attributes all match" )
 
         if needsReset == False and forceSync:
             logging.info("%s, force sync requested", pvMessage)
@@ -955,49 +876,17 @@ class SyncExtractor(object):
             self.__ElasticClient.Index('sscprojects', jproject)
                 
             # STEP 3 - Refresh project version attributes
-            projectAttrs = self.__SscUtils.getProjectVersionAttributes(projid)
-            attCount = 0
-            for projectAttr in projectAttrs['data']:
-                attCount += 1
+            if not attributesUpdated:
+                # Get attributes from SSC API
+                sscAttributes = {}
+                sscRawAttributes = self.Nvl(self.__SscUtils.getProjectVersionAttributes(projid), 'data', [])
+                for sscAttr in sscRawAttributes:
+                    if not self.__ConvertSscAttribute(paDefs, sscAttr, sscAttributes):
+                        logging.info(f"{pvMessage}, attribute definition load failure (id {sscAttr['guid']}), will reset" )
+                        needsAttrReset = True
+                        break
 
-                #post Project Attribute records
-                holddata = {'projectVersionId': projid,
-                            'attributerec': projectAttr}
-                self.__ElasticClient.Index('sscprojattrs', json.dumps(holddata))
-
-            pvAttrs = []    
-            for projectAttr in projectAttrs['data']:
-                #print(projectAttr)
-                for projectAttrDef in projectAttrDefs['data']:
-                    if projectAttr['attributeDefinitionId'] == projectAttrDef['id']:
-                        holdsscattrvalue = []
-                        if projectAttr['values'] == None:
-                            if projectAttr['value'] != None:
-                                #holdsscattrvalue = projectAttr['value']
-                                if projectAttrDef['type']  == 'DATE':
-                                    tempsscattrvalue = projectAttr['value']
-                                    logging.debug(tempsscattrvalue)
-                                    holdsscattrvalue = format(tempsscattrvalue).replace(" 00:00:00.0","T00:00:00.0")
-                                    logging.debug(holdsscattrvalue)
-                                elif projectAttrDef['type']  == 'BOOLEAN':
-                                    holdsscattrvalue = projectAttr['value']
-                                else:
-                                    holdsscattrvalue.append(projectAttr['value'])
-                                                              
-                        else:
-
-                            holdsscattrvalue = []
-                            for val in projectAttr['values']:
-                                holdsscattrvalue.append(val['name'])
-
-                        attrInfo = initBlankAttrObject()
-                        attrInfo['projectVersionId'] = projid
-                        attrInfo['attributeId'] = projectAttr['attributeDefinitionId']
-                        attrInfo['attributeName'] = projectAttrDef['name']
-                        attrInfo['attributeValue'] = holdsscattrvalue
-                        pvAttrs.append(attrInfo)
-                        self.__ElasticClient.Index('sscprojattr2', json.dumps(attrInfo))
-            self.UpdateSidecarAttributes(pvAttrs) # adds to bulk queue, sending when full
+                self.__UpdateAttributes(projid, pvMessage, paDefs, sscRawAttributes)
                                 
             # STEP 4 - Refresh project scans
             projectScans = self.__SscUtils.SscClient.GetProjectVersionScans(projid)
@@ -1040,9 +929,6 @@ class SyncExtractor(object):
             # STEP 6 - Update summary counts for matching
             novuls = False
             issues_count = self.__SscUtils.getProjectVersionIssueCounts(projid, projectDefFilter)
-
-            #logging.info(issues_count)
-
             jprojcounts = json.dumps(issues_count)
             self.__ElasticClient.Index('sscprojcounts', jprojcounts)
                 
@@ -1055,16 +941,108 @@ class SyncExtractor(object):
                 for key in pvAssessmentTypes.keys():
                     self.__WriteZeroIssue(projid, key, pvAssessmentTypes[key])
 
-            # STEP 8 - Add to update queue
-            queueInfo = initBlankQueueObject()
-            queueInfo['processedDateTime'] = formatnow
-            queueInfo['projectVersionId'] = projid
-            queueInfo['updateType'] = 'U'
-            queueInfo['updateReason'] = updateReason
-            queueInfo['completedDateTime'] = '1900-01-01T00:00:00.000-0000'
-            logging.info("%s, creating queue record for project version", pvMessage)
-            #logging.info(queueInfo)
-            self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
+            # STEP 8 - Add to refresh queue
+            if not attributesUpdated:  # attributes update will have already queued a refresh
+                queueInfo = {
+                    'processedDateTime' : datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+                    'projectVersionId': projid,
+                    'updateType': 'U',
+                    'updateReason': updateReason,
+                    'completedDateTime' : '1900-01-01T00:00:00.000-0000'
+                }
+                self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
+
+    def __UpdateAttributes(self, projid:int, pvMessage:str, attributeDefs:dict, sscRawAttributes:dict):
+        logging.info('%s, syncing SSC attributes', pvMessage)
+        # Clear out records to do refresh
+        self.__DeleteById('sscprojattrs', 'projectVersionId', projid)
+        self.__DeleteById('sscprojattr2', 'projectVersionId', projid)
+
+        attCount = 0
+        for sscAttr in sscRawAttributes:
+            attCount = attCount + 1
+            # Write Project Attribute records
+            holddata = { 'projectVersionId': projid, 'attributerec': sscAttr }
+            self.__ElasticClient.Index('sscprojattrs', json.dumps(holddata))
+            
+        sidecarAttributes = []
+        for sscAttr in sscRawAttributes:
+            adef = attributeDefs[str(sscAttr['attributeDefinitionId'])]
+            attrInfo = {
+                "projectVersionId": projid,
+                "attributeId": sscAttr['attributeDefinitionId'],
+                "attributeName": adef['name'],
+                "attributeValue": [x['name'] for x in sscAttr['values']] if sscAttr['values'] != None else [sscAttr['value']]
+            }
+            # attributeValue: default to 'values'(.name) if present, or a single item array containing 'value'
+            # if bool, change to just value (string)
+            if adef['type']  == 'BOOLEAN':
+                attrInfo['attributeValue'] = sscAttr['value']
+            # if date, change to just value and format the string
+            if adef['type']  == 'DATE':
+                attrInfo['attributeValue'] = format(sscAttr['value']).replace(" 00:00:00.0","T00:00:00.0")
+            self.__ElasticClient.Index('sscprojattr2', json.dumps(attrInfo))
+            sidecarAttributes.append(attrInfo)
+        self.UpdateSidecarAttributes(sidecarAttributes) # adds to bulk queue, sending when full
+
+        queueInfo = {
+            'processedDateTime' : datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+            'projectVersionId': projid,
+            'updateType': 'U',
+            'updateReason': "attributes updated",
+            'completedDateTime' : '1900-01-01T00:00:00.000-0000'
+        }
+        logging.info(f"{pvMessage}, Creating Queue record")
+        logging.info(queueInfo)
+        self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
+
+    def __ConvertSscAttribute(self, attributeDefs:dict, sscAttribute:dict, addToObject:dict):
+        '''
+        Reads a raw attribute from SSC API and appends to passed attribute object.
+
+        :attributeDefs: Attribute definitions, pulled from SSC
+        :sscAttribute: SSC attribute to convert
+        :addToObject: Attribute object ({}) to which to add the attribute
+
+        :returns:
+        True if successful, False if not (attribute definiton not found or duplicate attribute)
+        '''
+        if str(sscAttribute['attributeDefinitionId']) in attributeDefs:
+            attrDef = attributeDefs[str(sscAttribute['attributeDefinitionId'])]
+            attrName = attrDef['name']
+            attrValues = []
+            if sscAttribute['values'] == None:
+                if sscAttribute['value'] != None:
+                    if attrDef['type']  == 'DATE':
+                        attrValues = format(sscAttribute['value']).replace(" 00:00:00.0","T00:00:00.0")
+                    elif attrDef['type']  == 'BOOLEAN':
+                        attrValues = sscAttribute['value']
+                    else:
+                        attrValues.append(sscAttribute['value'])
+            else:
+                for val in sscAttribute['values']:
+                    attrValues.append(val['name'])
+            if attrName in addToObject:
+                return False # duplicate attribute (shouldn't happen)
+            addToObject[attrName] = attrValues
+            return True
+        return False # didn't find attr definition (also shouldn't happen)
+    
+    def __ConvertEsAttribute(self, esAttribute:dict, addToObject:dict):
+        '''
+        Reads raw attribute from datastore, adding to passed attribute object
+        
+        :esAttribute: raw attribute from datastore to read
+        :addToObject: Attribute object ({}) to which to add the attribute
+
+        :returns:
+        True if successful, False if not (invalid or duplicate attribute)
+        '''
+        if esAttribute and "attributeName" in esAttribute and "attributeValue" in esAttribute and esAttribute['attributeName'] not in addToObject:
+            addToObject[esAttribute['attributeName']] = esAttribute['attributeValue']
+            return True
+        return False
+
 
 class SyncExtractorException(Exception):
     pass
