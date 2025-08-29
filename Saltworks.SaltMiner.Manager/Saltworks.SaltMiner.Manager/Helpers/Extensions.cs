@@ -109,25 +109,12 @@ namespace Saltworks.SaltMiner.Manager.Helpers
         /// </remarks>
         public static SearchRequest NextRequest<T>(this SearchRequest request, DataResponse<T> response) where T: class
         {
-            request.UIPagingInfo = response.UIPagingInfo;
-            request.AfterKeys = response.AfterKeys;
+            request.PagingInfo = response.PagingInfo.NextPage();
 
             if (!string.IsNullOrEmpty(request.PitPagingInfo?.PagingToken))
             {
                 request.PitPagingInfo = response.PitPagingInfo;
             }
-
-            // If no paging method is valid, then setup UI Paging to page 1 (will be incremented)
-            if (string.IsNullOrEmpty(request.PitPagingInfo?.PagingToken) && (request.UIPagingInfo?.Page ?? 0) == 0 && (request.AfterKeys?.Count ?? 0) == 0)
-            {
-                request.UIPagingInfo = new() { Page = 1, Size = 10 };
-            }
-
-            if ((request.UIPagingInfo?.Page ?? 0) > 0)
-            {
-                request.UIPagingInfo.Page++;
-            }
-
             return request;
         }
 

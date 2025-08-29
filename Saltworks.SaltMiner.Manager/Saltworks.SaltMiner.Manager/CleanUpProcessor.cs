@@ -130,17 +130,8 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
         var counter = 0;
         if (idList.Count > 10000)
             throw new ArgumentOutOfRangeException(nameof(idList), "Must be less than 10000 IDs in list");
-        var srch = new SearchRequest()
-        {
-            Filter = new()
-            {
-                FilterMatches = new()
-                {
-                    { "Id", SaltMiner.DataClient.Helpers.BuildTermsFilterValue(idList) }
-                }
-            },
-            UIPagingInfo = new(10000)
-        };
+        var srch = new SearchRequest(new(10000));
+        srch.Filter.AddTermsFilterMatch("Id", idList);
         var rsp = await DataClient.QueueScanSearchAsync(srch);
         if (!rsp.Success)
             throw new ManagerException("Failed to search for orphan queue assets (queue scan lookup): " + rsp.Message);
@@ -166,16 +157,9 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
             var counter = 0;
             var acounter = 0;
             var size = 10000;
-            var asrch = new SearchRequest()
+            var asrch = new SearchRequest(new(size))
             {
-                Filter = new()
-                {
-                    FilterMatches = []
-                },
-                UIPagingInfo = new(size)
-                {
-                    SortFilters = new() { { "Saltminer.Internal.QueueScanId", true } }
-                }
+                SortKeys = new() { { "Saltminer.Internal.QueueScanId", true } }
             };
             // Filter to passed source type if appropriate
             if (!string.IsNullOrEmpty(RunConfig.SourceType))
@@ -194,17 +178,16 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
                         continue;
                     qsIds.Add(qs.Saltminer.Internal.QueueScanId);
                 }
-                asrch.UIPagingInfo.Page++;
-                asrch.AfterKeys = rsp.AfterKeys;
+                asrch.PagingInfo = rsp.PagingInfo.NextPage();
                 counter += await FindOrphansAsync(qsIds);
-                if (rsp.UIPagingInfo.TotalPages == 0 || asrch.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
+                if (rsp.PagingInfo.TotalPages == 0 || asrch.PagingInfo.Page > rsp.PagingInfo.TotalPages)
                     break;
                 if (acounter >= Config.CleanupProcessorMaxOrphanSearch)
                 {
                     Logger.LogInformation("Max orphan search count of {Max} reached (CleanupProcessorMaxOrphanSearch), stopping search for queue asset orphans", Config.CleanupProcessorMaxOrphanSearch);
                     break;
                 }
-                Logger.LogInformation("Looking for orphans in assets, {Count}/{Total} so far...", acounter, rsp.UIPagingInfo.Total);
+                Logger.LogInformation("Looking for orphans in assets, {Count}/{Total} so far...", acounter, rsp.PagingInfo.TotalHits);
             }
             if (curloops >= maxloops)
                 throw new ManagerException($"Max loops exceeded when searching for queue asset orphans - possible hang bug detected.");
@@ -228,16 +211,9 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
             var size = 10000;
             var curloops = 0;
             var counter = 0;
-            var asrch = new SearchRequest()
+            var asrch = new SearchRequest(new(size))
             {
-                Filter = new()
-                {
-                    FilterMatches = []
-                },
-                UIPagingInfo = new(size)
-                {
-                    SortFilters = new() { { "Saltminer.QueueScanId", true } }
-                }
+                SortKeys = new() { { "Saltminer.QueueScanId", true } }
             };
             // Filter to passed source type if appropriate - this will cause issue orphan search to find no matches, which is fine
             if (!string.IsNullOrEmpty(RunConfig.SourceType))
@@ -257,17 +233,16 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
                         continue;
                     qsIds.Add(qs.Saltminer.QueueScanId);
                 }
-                asrch.UIPagingInfo.Page++;
-                asrch.AfterKeys = rsp.AfterKeys;
+                asrch.PagingInfo = rsp.PagingInfo.NextPage();
                 counter += await FindOrphansAsync(qsIds);
-                if (rsp.UIPagingInfo.TotalPages == 0 || asrch.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
+                if (rsp.PagingInfo.TotalPages == 0 || asrch.PagingInfo.Page > rsp.PagingInfo.TotalPages)
                     break;
                 if (counter >= Config.CleanupProcessorMaxOrphanSearch)
                 {
                     Logger.LogInformation("Max orphan search count of {Max} reached (CleanupProcessorMaxOrphanSearch), stopping search for queue issue orphans", Config.CleanupProcessorMaxOrphanSearch);
                     break;
                 }
-                Logger.LogInformation("Looking for orphans in issues, {Count}/{Total} so far...", issCounter, rsp.UIPagingInfo.Total);
+                Logger.LogInformation("Looking for orphans in issues, {Count}/{Total} so far...", issCounter, rsp.PagingInfo.TotalHits);
             }
             if (curloops >= maxloops)
                 throw new ManagerException($"Max loops exceeded when searching for queue issue orphans - possible hang bug detected.");
@@ -302,28 +277,17 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
             _ => throw new NotImplementedException($"Status {status:g} not supported"),
         };
         // Left out Saltminer.Internal.CurrentQueueScanId on purpose - include history scans in results
-        var srch = new SearchRequest()
-        {
-            Filter = new()
-            {
-                FilterMatches = new()
-                {
-                    { "Saltminer.Internal.QueueStatus", status.ToString("g") },
-                    { "LastUpdated", SaltMiner.DataClient.Helpers.BuildLessThanFilterValue(now.AddHours(-hrs).ToString("o")) }
-                },
-                AnyMatch = false
-            },
-            UIPagingInfo = new(Config.CleanupProcessorBatchSize)
-        };
+        var srch = new SearchRequest("Saltminer.Internal.QueueStatus", status.ToString("g"), Config.CleanupProcessorBatchSize);
+        srch.Filter.AddLessThanFilterMatch("LastUpdated", now.AddHours(-hrs).ToString("o"));
         // Don't remove PenTest unless complete or cancel
         if (status != QueueScan.QueueScanStatus.Complete && status != QueueScan.QueueScanStatus.Cancel)
         {
-            srch.Filter.FilterMatches.Add("Saltminer.Engagment.Id", SaltMiner.DataClient.Helpers.BuildMustNotExistsFilterValue());
-            srch.Filter.FilterMatches.Add("Saltminer.Scan.SourceType", SaltMiner.DataClient.Helpers.BuildExcludeTermsFilterValue(["Saltworks.PenTest"]));
+            srch.Filter.AddMustNotExistsFilterMatch("Saltminer.Engagment.Id");
+            srch.Filter.AddExcludeTermsFilterMatch("Saltminer.Scan.SourceType", ["Saltworks.PenTest"]);
         }
         // Filter to passed source type if appropriate
         if (!string.IsNullOrEmpty(RunConfig.SourceType))
-            srch.Filter.FilterMatches.Add("Saltminer.Scan.SourceType", RunConfig.SourceType);
+            srch.Filter.AddSimpleFilterMatch("Saltminer.Scan.SourceType", RunConfig.SourceType);
 
         while (curloops < maxloops)
         {
@@ -342,9 +306,8 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
                 DeleteQueue.Enqueue(qs.Id);
                 counter++;
             }
-            srch.AfterKeys = rsp.AfterKeys;
-            srch.UIPagingInfo.Page++;
-            if (rsp.UIPagingInfo.TotalPages == 0 || srch.UIPagingInfo.Page > rsp.UIPagingInfo.TotalPages)
+            srch.PagingInfo = rsp.PagingInfo.NextPage();
+            if (rsp.PagingInfo.TotalPages == 0 || srch.PagingInfo.Page > rsp.PagingInfo.TotalPages)
                 break;
         }
         if (curloops >= maxloops)

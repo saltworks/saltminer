@@ -149,10 +149,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             {
                 FilterMatches = new() { { "Saltminer.Internal.QueueStatus", QueueScan.QueueScanStatus.Pending.ToString("g") } }
             }, 
-            UIPagingInfo = new(Config.QueueProcessorQueueBatchSize)
-            {
-                SortFilters = new() { { "Timestamp", false } }
-            }
+            PagingInfo = new(Config.QueueProcessorQueueBatchSize),
+            SortKeys = new() { { "Timestamp", false } }
         };
 
         var irSpecific = false;  // controls whether we will continue to run as a "second" instance with low matching queue scan counts
@@ -168,7 +166,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             irSpecific = true;
         }
 
-        queueScanSearch.Filter.FilterMatches.Add("Saltminer.Internal.CurrentQueueScanId", SaltMiner.DataClient.Helpers.BuildMustNotExistsFilterValue());
+        queueScanSearch.Filter.AddMustNotExistsFilterMatch("Saltminer.Internal.CurrentQueueScanId");
 
         var breakOut = false;
         while (!breakOut)
@@ -176,10 +174,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             // If needed, add subfilter to exclude sources from the sources removed list
             if (!QueueControl.SourcesRemoved.IsEmpty)
             {
-                queueScanSearch.Filter.SubFilter = new()
-                {
-                    FilterMatches = new Dictionary<string, string>() { { "Saltminer.Scan.SourceType", SaltMiner.DataClient.Helpers.BuildExcludeTermsFilterValue(QueueControl.SourcesRemoved.ToList()) } }
-                };
+                queueScanSearch.Filter.SubFilter = new();
+                queueScanSearch.Filter.AddExcludeTermsFilterMatch("Saltminer.Scan.SourceType", QueueControl.SourcesRemoved.ToList());
             }
 
             // Call the API to get queue scans
@@ -195,7 +191,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 Logger.LogInformation("[Q-Get] No more pending queue scans found.");
                 break;
             }
-            QueueControl.TotalCount = queueScans.UIPagingInfo.Total ?? 0;
+            QueueControl.TotalCount = Convert.ToInt32(queueScans.PagingInfo.TotalHits ?? 0);
             Logger.LogInformation("[Q-Get] {Count} pending queue scans found in current batch.", QueueControl.TotalCount);
 
             var alone = false;
@@ -516,29 +512,13 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         if (!string.IsNullOrEmpty(queueScan.Saltminer.Engagement?.Id))
         {
             // get engagement comments
-            var commentRequest = new SearchRequest
-            {
-                Filter = new()
-                {
-                    FilterMatches = new Dictionary<string, string>
-                    {
-                        { "saltminer.engagement.id", queueScan.Saltminer.Engagement.Id }
-                    }
-                },
-                UIPagingInfo = new UIPagingInfo(100)
-            };
-
+            var commentRequest = new SearchRequest("saltminer.engagement.id", queueScan.Saltminer.Engagement.Id, 100);
             var commentResponse = DataClient.CommentSearch(commentRequest);
             while (commentResponse.Success && commentResponse.Data != null && commentResponse.Data.Any())
             {
                 EngagementComments.AddRange(commentResponse.Data.ToList());
-
-                commentRequest.UIPagingInfo = commentResponse.UIPagingInfo;
-                commentRequest.UIPagingInfo.Page++;
-                commentRequest.AfterKeys = commentResponse.AfterKeys;
-
-                Logger.LogDebug("{Count} Comments found in this batch of size {Size} and page {Page}", commentRequest?.Filter?.FilterMatches?.Count ?? 0, commentRequest.UIPagingInfo.Size, commentRequest.UIPagingInfo.Page);
-
+                commentRequest.PagingInfo = commentResponse.PagingInfo.NextPage();
+                Logger.LogDebug("{Count} Comments found in this batch of size {Size} and page {Page}", commentRequest?.Filter?.FilterMatches?.Count ?? 0, commentRequest.PagingInfo.Size, commentRequest.PagingInfo.Page);
                 commentResponse = DataClient.CommentSearch(commentRequest);
             }
         }
@@ -618,7 +598,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                             { "Saltminer.Asset.Instance", result.Item2.Saltminer.Asset.Instance }
                         }
                     },
-                    PitPagingInfo = new PitPagingInfo(1)
+                    PagingInfo = new(10)
                 };
                 foreach (var pi in DataClient.IssueSearch(issueSearchRequest).Data)
                 {
@@ -809,7 +789,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                         { "Saltminer.Asset.SourceType", queueAsset.Saltminer.Asset.SourceType }
                     }
                 },
-                PitPagingInfo = new PitPagingInfo(1)
+                PagingInfo = new(1)
             };
 
             if (!skipExisting)
@@ -1069,7 +1049,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
 
             WriteIssue();
 
-            queueScanIssuesResponse = GetQueueScanIssues(queueScan.Id, queueScanIssuesResponse.PitPagingInfo, queueScanIssuesResponse.AfterKeys);
+            queueScanIssuesResponse = GetQueueScanIssues(queueScan.Id, queueScanIssuesResponse.PagingInfo);
             firstBatch = false;
             queueScanIssues = queueScanIssuesResponse.Data;
             lastQueueScanIssue = queueScanIssues.LastOrDefault();
@@ -1101,7 +1081,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             },
             AssetType = queueAsset.Saltminer.Asset.AssetType,
             SourceType = queueAsset.Saltminer.Asset.SourceType,
-            PitPagingInfo = new PitPagingInfo(1)
+            PagingInfo = new(1)
         }).Data.FirstOrDefault();
 
         if (asset != null)
@@ -1155,7 +1135,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             },
             AssetType = assetType,
             SourceType = sourceType,
-            PitPagingInfo = new PitPagingInfo { Size = 2 } // only want 1, but if more than 1 then error later
+            PagingInfo = new(2) // only want 1, but if more than 1 then error later
         };
 
         var result = DataClient.ScanSearch(request);
@@ -1178,22 +1158,15 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     /// <summary>
     /// Gets all queue issues for a queue scan ID
     /// </summary>
-    private DataResponse<QueueIssue> GetQueueScanIssues(string queueScanId, PitPagingInfo paging = null, IList<object> afterKeys = null)
+    private DataResponse<QueueIssue> GetQueueScanIssues(string queueScanId, PagingInfo paging = null)
     {
-        var queueIssueRequest = new SearchRequest()
+        var queueIssueRequest = new SearchRequest("Saltminer.QueueScanId", queueScanId)
         {
-            Filter = new()
+            PagingInfo = paging?.NextPage() ?? new(Config.QueueProcessorIssueBatchSize),
+            SortKeys = new Dictionary<string, bool>
             {
-                FilterMatches = new Dictionary<string, string>() { { "Saltminer.QueueScanId", queueScanId } }
-            },
-            PitPagingInfo = paging ?? new PitPagingInfo(Config.QueueProcessorIssueBatchSize, true)
-            {
-                SortFilters = new Dictionary<string, bool>
-                {
-                    { "Vulnerability.Scanner.Id", true },
-                }
-            },
-            AfterKeys = afterKeys
+                { "Vulnerability.Scanner.Id", true }
+            }
         };
 
         return DataClient.QueueIssueSearch(queueIssueRequest);
@@ -1205,14 +1178,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     private List<QueueAsset> GetQueueAssets(string scanId)
     {
         var queueAssets = new List<QueueAsset>();
-        var searchRequest = new SearchRequest()
-        {
-            Filter = new()
-            {
-                FilterMatches = new Dictionary<string, string> { { "Saltminer.Internal.QueueScanId", scanId } }
-            },
-            PitPagingInfo = new PitPagingInfo(null, true)
-        };
+        var searchRequest = new SearchRequest("Saltminer.Internal.QueueScanId", scanId);
         var results = DataClient.QueueAssetSearch(searchRequest);
 
         while (results.Data.Any())
@@ -1245,7 +1211,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                     { "Saltminer.Internal.CurrentQueueScanId", queueScanId }
                 }
             },
-            UIPagingInfo = new UIPagingInfo(200, 1)
+            PagingInfo = new(200)
         };
         var response = DataClient.QueueScanSearch(request);
         while (response.Success && response.Data != null && response.Data.Any())
@@ -1282,13 +1248,11 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             },
             AssetType = assetType,
             SourceType = sourceType,
-            PitPagingInfo = new PitPagingInfo(Config.IssueProcessingBatchSize + (Config.IssueProcessingBatchSize / 2), false)
+            SortKeys = new Dictionary<string, bool>
             {
-                SortFilters = new Dictionary<string, bool>
-                {
-                    { "Vulnerability.Scanner.Id", true }
-                }
-            }
+                { "Vulnerability.Scanner.Id", true }
+            },
+            PagingInfo = new(Config.IssueProcessingBatchSize + (Config.IssueProcessingBatchSize / 2))
         };
 
         // if both scanner ids are not null, use in a range. batching the issue data for efficiency
@@ -1300,12 +1264,12 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             {
                 if (!onlyBatch)
                 {
-                    request.Filter.FilterMatches.Add("Vulnerability.Scanner.Id", $"{SaltMiner.DataClient.Helpers.BuildLessThanOrEqualFilterValue(lastScannerId)}");
+                    request.Filter.AddLessThanOrEqualFilterMatch("Vulnerability.Scanner.Id", lastScannerId);
                 }
             }
             else
             {
-                request.Filter.FilterMatches.Add("Vulnerability.Scanner.Id", $"{SaltMiner.DataClient.Helpers.BuildGreaterThanOrEqualFilterValue(firstScannerId)}{SaltMiner.DataClient.Helpers.BuildLessThanOrEqualFilterValue(lastScannerId)}");
+                request.Filter.AddRangeOrEqualFilterMatch("Vulnerability.Scanner.Id", firstScannerId, lastScannerId);
             }
         }
 
@@ -1313,22 +1277,22 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         // Use: If issue count is less than the issue batching number, get all instead of filtering a range.
         if (!nulls[0] && nulls[1])
         {
-            request.Filter.FilterMatches.Add("Vulnerability.Scanner.Id", $"{SaltMiner.DataClient.Helpers.BuildGreaterThanOrEqualFilterValue(firstScannerId)}");
+            request.Filter.AddGreaterThanFilterMatch("Vulnerability.Scanner.Id", firstScannerId);
         }
 
         var response = DataClient.IssueSearch(request);
 
         // Use case: we intend to return a range of issues based on the first and last scanner id as passed.  Size should be a lot larger than the range passed.  If this
         // exception is thrown, something is wrong with the data and it should be re-loaded, possibly from scratch.
-        if (response.PitPagingInfo.Total > response.PitPagingInfo.Size)
+        if (response.PagingInfo.TotalHits > response.PagingInfo.Size)
         {
             if (Config.QueueProcessorDisableExistingIssuesCountChecking)
             {
-                Logger.LogWarning("Overly large number of existing issues returned that match the comparison set (issue IDs from {FirstId} to {LastId}). Expected max returned {Size}, Total actually returned {Total}.  Unmatched issues will be removed.", firstScannerId, lastScannerId, response.PitPagingInfo.Size, response.PitPagingInfo.Total);
+                Logger.LogWarning("Overly large number of existing issues returned that match the comparison set (issue IDs from {FirstId} to {LastId}). Expected max returned {Size}, Total actually returned {Total}.  Unmatched issues will be removed.", firstScannerId, lastScannerId, response.PagingInfo.Size, response.PagingInfo.TotalHits);
             }
             else
             {
-                throw new ManagerValidationException($"Overly large number of existing issues returned that match the comparison set (issue IDs from {firstScannerId} to {lastScannerId}). Expected max returned {response.PitPagingInfo.Size}, Total actually returned {response.PitPagingInfo.Total}.  This may indicate the data for the source needs to be reloaded.");
+                throw new ManagerValidationException($"Overly large number of existing issues returned that match the comparison set (issue IDs from {firstScannerId} to {lastScannerId}). Expected max returned {response.PagingInfo.Size}, Total actually returned {response.PagingInfo.TotalHits}.  This may indicate the data for the source needs to be reloaded.");
             }
         }
 

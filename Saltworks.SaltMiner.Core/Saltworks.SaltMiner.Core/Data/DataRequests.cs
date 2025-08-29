@@ -128,6 +128,20 @@ namespace Saltworks.SaltMiner.Core.Data
                 throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
         }
 
+        public void AddRangeOrEqualFilterMatch(string field, string gteValue, string lteValue, bool exceptionOnTryFail = false)
+        {
+            var didIt = FilterMatches.TryAdd(field, $"{gteValue}>=||{lteValue}<=||");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
+        public void AddRangeFilterMatch(string field, string gtValue, string ltValue, bool exceptionOnTryFail = false)
+        {
+            var didIt = FilterMatches.TryAdd(field, $"{gtValue}>||{ltValue}<||");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
         public void AddLessThanOrEqualFilterMatch(string field, string value, bool exceptionOnTryFail = false)
         {
             var didIt = FilterMatches.TryAdd(field, $"{value}<=||");
