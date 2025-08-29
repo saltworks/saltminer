@@ -50,13 +50,14 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
             UpdateAttributeDefinitions(data);
             UpdateAppRoles(data);
             UpdateActionDefinitions(data);
-            return new() { 
+            FieldInfo rsp = new() { 
                 FieldDefinitions = FieldDefinitions.Where(ad => ad.Entity.Equals(t, StringComparison.OrdinalIgnoreCase)), 
                 AttributeDefinitions = AttributeDefinitions.FirstOrDefault(ad => ad.Type.Equals(t, StringComparison.OrdinalIgnoreCase))?.Values ?? [], 
                 ActionDefinitions = ActionDefinitions,
                 CurrentAppRoles = AppRoles.Where(r => userRoles.Contains(r.Name, StringComparer.OrdinalIgnoreCase)),
                 EntityType = type.ToString("g")
             };
+            return rsp;
         }
 
         internal List<AttributeDefinition> GetAttributeDefinitions(DataClient.DataClient data = null)

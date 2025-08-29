@@ -1553,6 +1553,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
             searchRequest.SortKeys = [];
         // Must include ID as a sort field to paginate correctly
         searchRequest.SortKeys.TryAdd("id", true);
+        queryRequest.Size = searchRequest.PagingInfo.Size;
 
         // Sorting
         queryRequest.Sort = CreateSort(searchRequest.SortKeys);
@@ -1566,7 +1567,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
             if (!string.IsNullOrEmpty(pit))
             {
                 Logger.LogDebug("Point in time included on search of index '{Index}'", indexName);
-                queryRequest = new SearchRequest<T> { PointInTime = new PointInTime(pit) };
+                queryRequest.PointInTime = new PointInTime(pit);
             }
         }
 

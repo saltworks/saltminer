@@ -16,7 +16,6 @@
 
 ﻿using Saltworks.SaltMiner.Core.Common;
 using Saltworks.SaltMiner.Core.Extensions;
-using System.Configuration;
 
 namespace Saltworks.SaltMiner.Ui.Api.Models
 {
@@ -133,5 +132,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
         public string AppRolePrefix { get; set; } = "smapp_";
         public bool DisableDataClientInitializationCall { get; set; } = false;
         public int MinimumPublishProcessingMinutes { get; set; } = 10;
+        public List<string> CloneEngagementClearAttributes { get; set; } = [];
+        public List<string> CloneIssueClearAttributes { get; set; } = [];
     }
 }

@@ -279,7 +279,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                 Logger.LogInformation("[Sync] Updating '{SourceType}_{Instance}', SourceId '{MetricSourceId}', AssetType '{AssetType}'", Config.SourceType, Config.Instance, metric.SourceId, AssetType);
 
                                 var noScan = metric.LastScan == null;
-                                QueueScan queueScan = MapScan(application, report, components, historyReports, noScan);
+                                QueueScan queueScan = MapScan(report, components, noScan);
                                 newLocalScans++;
 
                                 QueueAsset queueAsset = MapAsset(application, Organization, report, queueScan, localMetric == null && localMetrics.Count > 0 && !Config.DisableRetire);
@@ -392,10 +392,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             }
         }
 
-        private QueueScan MapScan(ApplicationDto application, Report appReport, List<ComponentDto> components, List<Report> historyReports, bool noScan = false)
+        private QueueScan MapScan(Report appReport, List<ComponentDto> components, bool noScan = false)
         {
-            var stage = appReport?.Stage;
-            var sourceId = $"{application.Id}|{stage}";
             var now = DateTime.UtcNow;
             var queueScan = new QueueScan
             {
@@ -499,9 +497,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                     {
                         // Only import selected types if configured
                         if (Config.VulnerabilityImportTypes.Count > 0 && !Config.VulnerabilityImportTypes.Contains(violation.PolicyThreatCategory))
-                        {
                             continue;
-                        }
 
                         var vulReportLink = $"{Config.AppReportBaseUrl}{application.Name}/{appReport.ReportId}/componentDetails/{component.Hash}/overview";
                         var location = (component.PackageUrl == "" || component.PackageUrl == null) ? "N/A" : component.PackageUrl;
@@ -516,11 +512,11 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                    {
                                        Audited = true,
                                    },
-                                   Category = new string[1] { "Application" },
+                                   Category = [ "Application" ],
                                    FoundDate = appReport.EvaluationDate.ToUniversalTime(),
                                    LocationFull = location,
                                    Location = location,
-                                   Name = violation.Constraints[0]?.Conditions[0]?.ConditionReason ?? "N/A",
+                                   Name = violation.GetViolationName(),
                                    ReportId = appReport.ReportId,
                                    Scanner = new()
                                    {
@@ -539,11 +535,13 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                    IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
                                    Attributes = new Dictionary<string, string>
                                    {
-                                       {"waived", violation.Waived.ToString() },
-                                       {"waivedWithAutoWaiver", violation.WaivedWithAutoWaiver.ToString() },
-                                       {"grandfathered", violation.Grandfathered.ToString() },
-                                       {"policyType", violation.PolicyThreatCategory.ToString() }
-
+                                       { "waived", violation.Waived.ToString() },
+                                       { "waivedWithAutoWaiver", violation.WaivedWithAutoWaiver.ToString() },
+                                       { "grandfathered", violation.Grandfathered.ToString() },
+                                       { "policyType", violation.PolicyThreatCategory },
+                                       { "policyThreatLevel", violation.PolicyThreatLevel.ToString() },
+                                       { "policyThreatCategory", violation.PolicyThreatCategory },
+                                       { "policyName", violation.PolicyName }
                                    },
                                    QueueScanId = queueScan.Id,
                                    QueueAssetId = queueAsset.Id,
@@ -552,14 +550,13 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                        Analyzer = "Sonatype",
                                    }
                                },
-                               Tags = Array.Empty<string>(),
+                               Tags = [],
                                Timestamp = DateTime.UtcNow
                            }
                         });
                     }
                 }
             }
-
 
             foreach (var queueIssue in queueIssues)
             {

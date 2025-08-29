@@ -44,12 +44,12 @@ namespace Saltworks.SaltMiner.UiApiClient.Responses
         /// <summary>
         /// Response constructor
         /// </summary>
-        public UiPager(PagingInfo dataPager, Dictionary<string, bool> sortFilters)
+        public UiPager(PagingInfo dataPager, Dictionary<string, bool> sortFilters = null)
         {
             Total = Convert.ToInt32(dataPager?.TotalHits);
             Size = dataPager.Size;
             Page = dataPager.Page;
-            SortFilters = sortFilters;
+            SortFilters = sortFilters ?? [];
         }
 
         public PagingInfo ToPagingInfo() => new()

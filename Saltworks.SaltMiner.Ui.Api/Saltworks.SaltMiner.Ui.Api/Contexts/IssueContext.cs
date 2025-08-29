@@ -263,7 +263,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             {
                 qResult.PagingInfo.TotalHits = qResult.Pager.Total;
                 var lst = qResult.Data.Select(x => new IssueFull(x, UiApiConfig.AppVersion, MyFieldInfo));
-                return new UiDataResponse<IssueFull>(lst, search, SortFilterValues?.Select(x => new FieldFilter(x)));
+                return new UiDataResponse<IssueFull>(lst, qResult.PagingInfo, SortFilterValues?.Select(x => new FieldFilter(x)));
             }
 
             return new UiDataResponse<IssueFull>(null);

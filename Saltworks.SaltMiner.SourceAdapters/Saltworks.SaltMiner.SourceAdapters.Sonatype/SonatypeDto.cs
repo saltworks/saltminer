@@ -17,6 +17,7 @@
 ﻿using Saltworks.SaltMiner.SourceAdapters.Core.Data;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 {
@@ -29,6 +30,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
     {
         public string Id { get; set; }
         public string Name { get; set; }
+        public string ParentOrganizationId { get; set; }
     }
 
     public class ApplicationDto
@@ -62,7 +64,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             return ReportHtmlUrl.Substring(index);
         }
 
-        public SourceMetric GetSourceMetric(ApplicationDto application, SonatypeConfig config)
+        public SourceMetric ToSourceMetric(ApplicationDto application, SonatypeConfig config)
         {
             return new SourceMetric
             {
@@ -112,6 +114,19 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
         public bool Grandfathered { get; set; }
         public List<ConstraintDto> Constraints { get; set; }
         public string CompositeId => $"{PolicyId}~{PolicyName}~{PolicyThreatCategory}~{PolicyViolationId}";
+        public string GetViolationName()
+        {
+            if ((Constraints?.Count ?? 0) == 0)
+                return "Unknown";
+            if (Constraints.Count > 1)
+                return string.Join(',', Constraints.Select(x => x.ConstraintName));
+            var c = Constraints.First();
+            if ((c.Conditions?.Count ?? 0) == 0)
+                return c.ConstraintName;
+            if (c.Conditions.Count > 1)
+                return c.ConstraintName;
+            return c.Conditions.First().ConditionReason;
+        }
     }
 
     public class ConstraintDto

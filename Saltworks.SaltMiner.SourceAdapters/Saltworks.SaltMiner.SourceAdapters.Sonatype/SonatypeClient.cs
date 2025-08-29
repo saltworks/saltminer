@@ -110,14 +110,12 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
         public async Task<IEnumerable<ComponentDto>> GetAppReportComponentsAsync(string appId, string reportId)
         {
             var result = await RequestAsync<ComponentCollectionsDto>($"applications/{appId}/reports/{reportId}/policy");
-
             return result.Content.Components;
         }
 
         public async Task<OrganizationDto> GetOrganizationByOrgIdAsync(string orgId)
         {
             var result = await RequestAsync<OrganizationDto>($"organizations/{orgId}");
-
             return result.Content;
         }
 
@@ -125,12 +123,11 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
         {
                 var results = new List<SourceMetric>();
                 var reports = await RequestAsync<IEnumerable<Report>>($"reports/applications/{app.Id}");
-
                 var groupedReports = reports.Content.OrderByDescending(x => x.EvaluationDate.ToUniversalTime()).GroupBy(x => x.Stage).Select(x => x.First());
 
                 if (groupedReports != null && groupedReports.Any())
                 {
-                    results.AddRange(groupedReports.Select(x => x.GetSourceMetric(app, config)));
+                    results.AddRange(groupedReports.Select(x => x.ToSourceMetric(app, config)));
                 }
                 else
                 {

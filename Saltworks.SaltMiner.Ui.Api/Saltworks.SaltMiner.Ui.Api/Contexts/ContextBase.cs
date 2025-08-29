@@ -463,7 +463,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 var result = AssetsSearch(request);
                 if (result.Success && (result.Data?.Any() ?? false))
                 {
-                    return new UiDataResponse<AssetFull>(result.Data.Select(x => new AssetFull(x, UiApiConfig.AppVersion, fi)), request);
+                    return new UiDataResponse<AssetFull>(result.Data.Select(x => new AssetFull(x, UiApiConfig.AppVersion, fi)), result.PagingInfo);
                 }
                 response = result;
             } 
@@ -472,7 +472,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 var qResult = QueueAssetsSearch(request);
                 if (qResult.Success && (qResult.Data?.Any() ?? false))
                 {
-                    return new UiDataResponse<AssetFull>(qResult.Data.Select(x => new AssetFull(x, UiApiConfig.AppVersion, fi)), request);
+                    return new UiDataResponse<AssetFull>(qResult.Data.Select(x => new AssetFull(x, UiApiConfig.AppVersion, fi)), qResult.PagingInfo);
                 }
                 response = qResult;
             }
@@ -618,7 +618,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 var qResult = QueueIssuesSearch(request);
                 if (qResult.Success && (qResult.Data?.Any() ?? false))
                 {
-                    var rsp = new UiDataResponse<IssueFull>(qResult.Data.Select(x => new IssueFull(x, UiApiConfig.AppVersion, fieldInfo)), request, sortFields);
+                    var rsp = new UiDataResponse<IssueFull>(qResult.Data.Select(x => new IssueFull(x, UiApiConfig.AppVersion, fieldInfo)), qResult.PagingInfo, sortFields);
+                    rsp.PagingInfo = qResult.PagingInfo;
                     return rsp;
                 }
                 response = qResult;
@@ -628,7 +629,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 var result = IssuesSearch(request);
                 if (result.Success && (result.Data?.Any() ?? false))
                 {
-                    var rsp = new UiDataResponse<IssueFull>(result.Data.Select(x => new IssueFull(x, UiApiConfig.AppVersion, fieldInfo)), request, sortFields);
+                    var rsp = new UiDataResponse<IssueFull>(result.Data.Select(x => new IssueFull(x, UiApiConfig.AppVersion, fieldInfo)), result.PagingInfo, sortFields);
                     return rsp;
                 }
                 response = result;

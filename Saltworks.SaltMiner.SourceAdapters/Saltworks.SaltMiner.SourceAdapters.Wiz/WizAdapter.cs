@@ -455,11 +455,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
             var srch = new SearchRequest()
             {
                 Filter = new()
-                { FilterMatches = new() {
-                    { "Saltminer.Asset.SourceType", Config.SourceTypeVulns },
-                    { "Saltminer.Asset.Instance", Config.Instance }
-                } },
-                UIPagingInfo = new() { Size = 1, SortFilters = new() { { "Timestamp", false } } }
+                { 
+                    FilterMatches = new() {
+                        { "Saltminer.Asset.SourceType", Config.SourceTypeVulns },
+                        { "Saltminer.Asset.Instance", Config.Instance }
+                    }
+                },
+                SortKeys = new() { { "Timestamp", false } },
+                PagingInfo = new(1)
             };
             var srsp = DataClient.IssueSearch(srch);
             if (srsp?.Data?.Any() ?? false)

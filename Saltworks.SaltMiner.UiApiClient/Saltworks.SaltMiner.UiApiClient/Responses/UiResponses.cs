@@ -30,22 +30,22 @@ namespace Saltworks.SaltMiner.UiApiClient.Responses
         public UiDataResponse(IEnumerable<T> data) : base(data) { }
         public UiDataResponse(IEnumerable<T> data, PagingInfo pagingInfo, IEnumerable<FieldFilter> sortOptions = null) : base(data, pagingInfo) 
         {
-            Pager = new(pagingInfo.Size, pagingInfo.Page);
+            Pager = new(pagingInfo.Size, pagingInfo.Page)
+            {
+                Total = Convert.ToInt32(pagingInfo.TotalHits)
+            };
             SortOptions = sortOptions?.ToList() ?? [];
-        }
-        public UiDataResponse(IEnumerable<T> data, GenericSearch search, IEnumerable<FieldFilter> sortOptions = null) : base(data) 
-        {
-            var pi = search.Pager.ToPagingInfo();
-            Pager = new(pi, search.Pager.SortFilters);
-            SortOptions = sortOptions?.ToList() ?? [];
+            PagingInfo = pagingInfo;
         }
         public UiDataResponse(DataResponse<T> response, GenericSearch search, IEnumerable<FieldFilter> sortOptions = null) : base(response?.Data)
         {
-            var pi = search.Pager.ToPagingInfo();
+            var pi = response?.PagingInfo ?? search.Pager.ToPagingInfo();
             StatusCode = response.StatusCode;
             Message = response.Message;
             Affected = response.Affected;
             Pager = new(pi, search.Pager.SortFilters);
+            SortOptions = sortOptions?.ToList() ?? [];
+            PagingInfo = pi;
         }
     }
 

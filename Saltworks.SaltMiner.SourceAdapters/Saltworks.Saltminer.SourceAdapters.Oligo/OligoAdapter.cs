@@ -585,27 +585,24 @@ namespace Saltworks.SaltMiner.SourceAdapters.Oligo
                 Filter = new()
                 {
                     FilterMatches = new() {
-                { "Saltminer.Asset.SourceId", sourceId },
-                { "Saltminer.Asset.SourceType", Config.SourceType },
-                { "Saltminer.Asset.Instance", Config.Instance }
-            }
+                        { "Saltminer.Asset.SourceId", sourceId },
+                        { "Saltminer.Asset.SourceType", Config.SourceType },
+                        { "Saltminer.Asset.Instance", Config.Instance }
+                    }
                 },
-                UIPagingInfo = new() { Size = 500, SortFilters = new() { { "Vulnerability.Scanner.Id", true } } }
+                SortKeys = new() { { "Vulnerability.Scanner.Id", true } },
+                PagingInfo = new() { Size = 500 }
             };
 
             var srsp = DataClient.IssueSearch(srch);
-            var curPage = 1;
 
-            while (srsp.Success && curPage <= srsp.UIPagingInfo.TotalPages)
+            while (srsp.Success && srsp.Data.Any())
             {
                 foreach (var issue in srsp.Data)
                     yield return issue;
 
-                curPage++;
-                srch.UIPagingInfo.Page = curPage;
-
-                if (curPage <= srsp.UIPagingInfo.TotalPages)
-                    srsp = DataClient.IssueSearch(srch);
+                srch.PagingInfo = srsp.PagingInfo.NextPage();
+                srsp = DataClient.IssueSearch(srch);
             }
         }
 

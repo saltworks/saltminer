@@ -475,7 +475,9 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
             var newScan = DataClient.QueueScanGetByEngagement(engagement.Id).Data;
 
-            engagement.Saltminer.Engagement.Attributes = fullEngagement.Attributes.ToDictionary(k => k.Name, v => v.Value);
+            // Copy attributes from previous engagement, defaulting those configured to be cleared when copied
+            engagement.Saltminer.Engagement.Attributes = fullEngagement.Attributes
+                .ToDictionary(k => k.Name, v => Config.CloneEngagementClearAttributes.Contains(v.Name) ? v.DefaultValue : v.Value);
 
             var queueScan = DataClient.QueueScanGetByEngagement(engagement.Id).Data;
 
@@ -507,6 +509,9 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                     var attachmentList = GetAllIssueAttachments(issue.Id).Data.ToList();
                     issue.TestStatus.Value = EngagementHelper.ValidateTestStatus(issue.TestStatus.Value, TestedDropdowns);
                     var cloneIssue = issue.CloneRequest(engagement, queueScan.Id, newAsset.Id, UiBaseUrl);
+                    // Set default values for attributes that are configured to be cleared on clone
+                    foreach (var attr in issue.Attributes.Where(x => Config.CloneIssueClearAttributes.Contains(x.Name)))
+                        attr.Value = attr.DefaultValue;
 
                     //copy issue comments
                     foreach (var pubComment in engagementComments.Where(x => x.IssueId == issue.Id))
@@ -655,7 +660,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             // search for a draft engagement in the group of a published and set its Id to summary model 
             if (summary.Status == EngagementStatus.Published.ToString("g"))
             {
-                var searchReqeust = new SearchRequest()
+                var searchRequest = new SearchRequest()
                 {
                     Filter = new()
                     {
@@ -668,7 +673,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                     }
                 };
 
-                var draftEngagement = DataClient.EngagementSearch(searchReqeust)?.Data?.FirstOrDefault();
+                var draftEngagement = DataClient.EngagementSearch(searchRequest)?.Data?.FirstOrDefault();
                 if (draftEngagement != null)
                 {
                     summary.DraftEngagementId = draftEngagement.Id;

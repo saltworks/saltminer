@@ -908,7 +908,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
             // Asset Search Request Set Up
             var assetsRequest = new SearchRequest()
             {
-                PitPagingInfo = new PitPagingInfo(config.FirstLoadBatchSize, true),
+                PagingInfo = new(config.FirstLoadBatchSize),
                 Filter = new()
                 {
                     FilterMatches = new Dictionary<string, string>()
@@ -923,7 +923,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
 
             // Priming read
             var assetsResults = DataClient.AssetSearch(assetsRequest);
-            var totalAssets = assetsResults.PitPagingInfo.Total;
+            var totalAssets = assetsResults.PagingInfo.TotalHits;
             Logger.LogInformation("[First Load] {Total} Assets Found", totalAssets);
 
             if (!assetsResults.Data.Any())
@@ -962,8 +962,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
                 Logger.LogInformation("[First Load] Adding {Count} metrics of {Total} ", sourceMetricList.Count, totalAssets);
                 sourceMetricList = [];
 
-                assetsRequest.PitPagingInfo = assetsResults.PitPagingInfo;
-                assetsRequest.AfterKeys = assetsResults.AfterKeys;
+                assetsRequest.PagingInfo = assetsResults.PagingInfo.NextPage();
                 assetsResults = DataClient.AssetSearch(assetsRequest);
             } while (assetsResults.Data.Any());
 
