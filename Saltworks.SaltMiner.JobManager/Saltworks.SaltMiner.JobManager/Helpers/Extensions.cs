@@ -142,7 +142,7 @@ namespace Saltworks.SaltMiner.JobManager.Helpers
             foreach (var kv in first)
                 try
                 {
-                    if (!second.ContainsKey(kv.Key) || !kv.Value.Equals(second[kv.Key]))
+                    if (!second.TryGetValue(kv.Key, out TValue value) || !kv.Value.Equals(value))
                     {
                         return false;
                     }
@@ -160,17 +160,15 @@ namespace Saltworks.SaltMiner.JobManager.Helpers
 
         public static SearchRequest NextRequest<T>(this SearchRequest request, DataResponse<T> response) where T: class
         {
-            request.UIPagingInfo = response.UIPagingInfo;
-            request.AfterKeys = response.AfterKeys;
-
+            request.PagingInfo = response.PagingInfo;
             if (!string.IsNullOrEmpty(request.PitPagingInfo?.PagingToken))
             {
                 request.PitPagingInfo = response.PitPagingInfo;
             }
             
-            if ((request.UIPagingInfo?.Page ?? 0) > 0)
+            if ((request.PagingInfo?.Page ?? 0) > 0)
             {
-                request.UIPagingInfo.Page++;
+                request.PagingInfo = response.PagingInfo.NextPage();
             }
 
             return request;
