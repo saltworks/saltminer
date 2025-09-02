@@ -1145,7 +1145,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
 
         // Set paging info, then do a separate count query if needed for larger sets
         searchRequest.PagingInfo.TotalHits = response.Total;
-        searchRequest.PagingInfo.TotalHitsWereTruncated = response.HitsMetadata.Total.Relation.Equals(TotalHitsRelation.GreaterThanOrEqualTo);
+        searchRequest.PagingInfo.TotalHitsWereTruncated = response.HitsMetadata?.Total?.Relation.Equals(TotalHitsRelation.GreaterThanOrEqualTo) ?? false;
         if (searchRequest.PagingInfo.TotalHitsWereTruncated && !searchRequest.PagingInfo.TotalHitsCanBeTruncated)
         {
             var countRsp = Count<T>(searchRequest, index);
