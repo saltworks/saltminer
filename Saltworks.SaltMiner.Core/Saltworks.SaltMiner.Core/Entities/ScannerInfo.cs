@@ -55,7 +55,6 @@ namespace Saltworks.SaltMiner.Core.Entities
         /// <summary>
         /// Gets or sets Type. This is the type of scan run. EG) SCA, could be mobile or static for FoD for example.
         /// </summary>
-        [Required]
         public string ProductType { get; set; }
         
         /// <summary>
