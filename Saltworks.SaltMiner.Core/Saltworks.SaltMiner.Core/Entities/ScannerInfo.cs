@@ -59,9 +59,8 @@ namespace Saltworks.SaltMiner.Core.Entities
         public string ProductType { get; set; }
         
         /// <summary>
-        /// Gets or sets Product Version. Product used to run the scan.
+        /// Gets or sets Product Version of the product used to run the scan, if available.
         /// </summary>
-        [Required]
         public string ProductVersion { get; set; }
 
         /// <summary>

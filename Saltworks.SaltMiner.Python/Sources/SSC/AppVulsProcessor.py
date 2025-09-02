@@ -240,7 +240,6 @@ class AppVulsProcessor(object):
         if cleanupAfter:
             self.Cleanup()
 
-
     def PopulateVulsOne(self, pvid, cleanupAfter=True):
         '''
         Process one project version (doesn't have to be in the update queue)
@@ -272,6 +271,9 @@ class AppVulsProcessor(object):
     def Cleanup(self):
         if self.__AppVulsSscCustom.Cleanup:
             self.__AppVulsSscCustom.Cleanup()
+
+    def Nvl(self, obj:dict, prop:str, replace=None):
+        return replace if not prop in obj.keys() else obj[prop]
 
     def __GetAssessmentType(self, engineType):
         if not engineType:
@@ -425,10 +427,13 @@ class AppVulsProcessor(object):
                 # NOTE: if there are ever multiple SSC scan types that map to the same assessment type then the last scan information here may be inaccurate
                 if assessment_type not in lastScans:
                     # Haven't seen this assessment type yet, so create it in the list
-                    lastScans[assessment_type] = { "lastscan": datetime.datetime(1900, 1, 1).isoformat(), "orgType": scanType }
+                    lastScans[assessment_type] = { "lastscan": datetime.datetime(1900, 1, 1).isoformat(), "orgType": scanType, "engineVersion": None }
                 if scanDate > lastScans[assessment_type]['lastscan'] and not cancel:
                     # Update last scan date if newer for this assessement type
-                    lastScans[assessment_type] = { "lastscan": scanDate, "orgType": scanType }
+                    lastScans[assessment_type] = { "lastscan": scanDate, "orgType": scanType, "engineVersion": None }
+                if lastScans[assessment_type]['engineVersion'] == None and 'engineVersion' in scan:
+                    # Set engine version if not already set and available
+                    lastScans[assessment_type]['engineVersion'] = scan['engineVersion']
 
                 if not self.__DisableSM2Indices and not cancel:
                     #
@@ -515,7 +520,7 @@ class AppVulsProcessor(object):
             if assessment_type not in assessmentTypeStatuses.keys():
                 if assessment_type in lastScans.keys():
                     # Start each assessment type as not present, then set present when encountered while processing issues
-                    assessmentTypeStatuses[assessment_type] = { "lastscan": lastScans[assessment_type]['lastscan'], "present": False, "orgType": lastScans[assessment_type]['orgType'] }
+                    assessmentTypeStatuses[assessment_type] = { "lastscan": lastScans[assessment_type]['lastscan'], "present": False, "orgType": lastScans[assessment_type]['orgType'], "engineVersion": lastScans[assessment_type]['engineVersion'] }
                 else:
                     logging.debug("App version %s appears to have no assessments of type '%s'", appVerId, assessment_type)
 
@@ -589,9 +594,12 @@ class AppVulsProcessor(object):
                                 pass
                     
                             lastAssessmentDate = projectVersion['currentState']['lastFprUploadDate']
+                            engineVersion = None
                             if assessment_type in assessmentTypeStatuses.keys():
                                 # Set to last scan date for the assessment type if we know it
                                 lastAssessmentDate = assessmentTypeStatuses[assessment_type]['lastscan']
+                                # Set engineVersion if available
+                                engineVersion = assessmentTypeStatuses[assessment_type]['engineVersion']
                             if Issue['foundDate'] == None:
                                 Issue['foundDate'] = lastAssessmentDate
                             _app_vul = {
@@ -618,7 +626,7 @@ class AppVulsProcessor(object):
                                     "hidden": Issue["hidden"],
                                     "engine_type": scanType,
                                     "engine_category": Issue['engineCategory'],
-                                    "engine_version": Issue['engineVersion'],
+                                    "engine_version": engineVersion,
                                     "issue_status": Issue['issueStatus'],
                                     "location": Issue["primaryLocation"],
                                     "analyzer": Issue['analyzer'],
