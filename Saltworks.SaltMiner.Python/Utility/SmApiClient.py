@@ -417,6 +417,9 @@ class SmApiClient(object):
                 raise SmApiClientNotFoundException(msg)
             raise SmApiClientException(msg)
 
+    def __Nvl(self, obj:dict, prop:str, replace=None):
+        return replace if not prop in obj.keys() else obj[prop]
+    
     def __BatchIssue(self, qIssue):
         if qIssue:
             self.__IssueBatch['Documents'].append(qIssue)
@@ -622,6 +625,8 @@ class SmApiClient(object):
                             "Id": reportId,                     # duplicate scan reportId, as noscan will always be one issue
                             "AssessmentType": atype,
                             "Product": ptype,
+                            "ProductType": ptype,
+                            "ProductVersion": "",
                             "Vendor": "Fortify"
                         }
                     },
@@ -630,7 +635,7 @@ class SmApiClient(object):
                 self.AddQueueIssue(qissue)
                 key = f"{avid}|{atype}"
                 if not key in self.__KeyMap.keys():
-                    self.__KeyMap[key] = { 'sid': qscan['id'], 'aid': qasset['id'] }
+                    self.__KeyMap[key] = { 'sid': qscan['id'], 'aid': qasset['id'], 'prd': None, 'ptyp': None, 'pver': None }
                 else:
                     logging.error("Unexpected app version ID %s and assessement type %s already found in v3 integration keymap.")
             except Exception as ex:
@@ -749,7 +754,7 @@ class SmApiClient(object):
         
             # add keys to keymap so can map queue issues to correct queue scan and asset ids
             if not key in self.__KeyMap.keys():
-                self.__KeyMap[key] = { 'sid': qsid, 'aid': qasset['id'] }
+                self.__KeyMap[key] = { 'sid': qsid, 'aid': qasset['id'], 'prd': qscan['saltminer']['scan']['product'], 'ptyp': qscan['saltminer']['scan']['productType'], 'pver': qscan['saltminer']['scan']['productVersion'] }
 
         except KeyError as e:
             msg = f"[SMAPI] Error mapping queue {'asset' if qscan else 'scan'} - [KeyError] for field {e} (section {section}, local id {avid})."
@@ -768,6 +773,9 @@ class SmApiClient(object):
     def MapAndAddIssue(self, issue, issueKeys):
         qscanId = ''
         qassetId = ''
+        prd = ''
+        ptyp = ''
+        pver = ''
         source = self.__GetSource(issue)
         isSsc = "ssc" in source.lower()
         sscInstanceId = issue['issue_instance_id'] if isSsc and 'issue_instance_id' in issue.keys() else "instance_id_missing"
@@ -788,6 +796,9 @@ class SmApiClient(object):
                 raise SmApiClientException(f"Failure to map issue, KeyMap does not contain App Release id '{avid}' and assessment type '{atype}'.")
             qscanId = self.__KeyMap[key]['sid']
             qassetId = self.__KeyMap[key]['aid']
+            prd = self.__KeyMap[key]['prd']
+            ptyp = self.__KeyMap[key]['ptyp']
+            pver = self.__KeyMap[key]['pver']
 
             if not issue['severity']:
                 logging.warning("Issue '{}' is missing a severity", issue['scanner_id'])
@@ -860,7 +871,9 @@ class SmApiClient(object):
                         "GuiUrl": gui_url,
                         "Id": str(issue['scanner_id']),
                         "AssessmentType": atype,
-                        "Product": SmApiClient.__GetProduct(source, atype),
+                        "Product": prd,
+                        "ProductType": ptyp,
+                        "ProductVersion": pver,
                         "Vendor": "Fortify"
                     },
                     "Score": {
