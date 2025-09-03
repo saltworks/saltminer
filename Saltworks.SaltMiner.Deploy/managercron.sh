@@ -11,8 +11,8 @@ if [ -z "$1" ]; then
   echo "You can call this script with parameters to pass to the Manager and fire it off all in one step."
   echo "Use the -h parameter for help.  If no parameters are passed, then a default Manager run will start (queue processor)."
   echo ""
-  echo "No parameters detected, starting default Manager, processing a max of 100 queued scans..."
-  flock -n /tmp/sm-manager.lock dotnet Saltworks.SaltMiner.Manager.dll queue -n 100
+  echo "No parameters detected, starting default Manager, processing all Pending queued scans..."
+  flock -n /tmp/sm-manager.lock dotnet Saltworks.SaltMiner.Manager.dll queue
 else
   echo ""
   echo "Parameter(s) detected, starting Manager with passed parameters..."
