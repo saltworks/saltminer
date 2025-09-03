@@ -664,8 +664,8 @@ class SmApiClient(object):
                 "Scan": {
                     "AssessmentType": atype,
                     "ProductType": ptype,
-                    "Product": "Fortify" if not issue else issue['engine_type'],
-                    "ProductVersion": None if not issue else issue['engine_version'],
+                    "Product": "Fortify" if not issue else self.__Nvl(issue, 'engine_type'),
+                    "ProductVersion": None if not issue else self.__Nvl(issue, 'engine_version'),
                     "Vendor": "Fortify",
                     "ReportId": scanId,
                     "ScanDate": scanDate,
