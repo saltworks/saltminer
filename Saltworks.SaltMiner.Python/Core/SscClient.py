@@ -48,6 +48,7 @@ class SscClient(object):
         self.__SourceName = sourceName
         self.__GroupingTypeId = appSettings.GetSource(sourceName, 'GroupingTypeId')
         self.__FiltersetId = appSettings.GetSource(sourceName, 'FiltersetId')
+        self.__OverrideProtocol = appSettings.GetSource(sourceName, 'OverrideProtocol', None)
         self.__CacheKeys = []
         self.__Id = uuid.uuid4()
         self.__DateForFile = datetime.datetime.now().strftime('%Y.%m.%d')
@@ -113,7 +114,7 @@ class SscClient(object):
             'Content-Type':'application/json;charset=UTF-8',
             'Authorization': 'FortifyToken {}'.format(self.__AuthToken)
         }
-        self.__Client = RestClient(appSettings.GetSource(sourceName, 'BaseUrl'), sslVerify=appSettings.GetSource(sourceName, 'SslVerify'), defaultHeaders= headers)
+        self.__Client = RestClient(appSettings.GetSource(sourceName, 'BaseUrl'), sslVerify=appSettings.GetSource(sourceName, 'SslVerify'), defaultHeaders= headers, retryConnectionErrors=False, overrideProtocol=self.__OverrideProtocol)
         self.__Client.SessionEnabled = True
 
     def Cleanup(self):

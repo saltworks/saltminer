@@ -22,9 +22,14 @@ import requests
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import ConnectionError as RequestsConnectionError, ReadTimeout as RequestsReadTimeout
 
+class RestClientException(Exception):
+    pass
+class RestClientConfigurationException(RestClientException):
+    pass
+
 class RestClient:
     
-    def __init__(self, baseUrl=None, authUser=None, authPass=None, sslVerify=None, defaultHeaders=None, enableSession=True, timeout=240, retryConnectionErrors=False, retryDelaySec=3, proxy=None, proxyUser=None, proxyPass=None):
+    def __init__(self, baseUrl=None, authUser=None, authPass=None, sslVerify=None, defaultHeaders=None, enableSession=True, timeout=240, retryConnectionErrors=False, retryDelaySec=3, proxy=None, proxyUser=None, proxyPass=None, overrideProtocol=None):
         if sslVerify is None:
             self.__SslVerify = True
         elif sslVerify == "False":
@@ -49,6 +54,9 @@ class RestClient:
         self.__Session = requests.Session()
         self.SessionEnabled = enableSession
         self.__Warnings = { "request": 0, "get": 0, "put": 0, "post": 0, "delete": 0 }
+        if overrideProtocol != None and overrideProtocol not in ["https://", "http://"]:
+            raise RestClientConfigurationException(f"Invalid overrideProtocol '{overrideProtocol}', expected 'https://' or 'http://'")
+        self.__OverrideProtocol = overrideProtocol
         self.__Timeout = timeout
         self.__Proxy = None
         if proxy:
@@ -243,6 +251,8 @@ class RestClient:
             _url = self.__BaseUrl + url
         else:
             _url = url
+        if self.__OverrideProtocol != None:
+            url = url.replace("https://", self.__OverrideProtocol).replace("http://", self.__OverrideProtocol)
         if headers is not None:
             _headers = headers
         else:
@@ -263,7 +273,10 @@ class RestClient:
             if self.__Retry and self.__RetryConnectionErrors:
                 self.__Retry = False
                 raise RestClientException("Failed request on retry.") from e
-            logging.error(f"API error encountered ({type(e).__name__}), retrying in {self.__RetryDelaySec} secs.")
+            if not self.__RetryConnectionErrors:
+                logging.error(f"API error encountered ({type(e).__name__}).  Last url: '{url}'")
+                raise
+            logging.error(f"API error encountered ({type(e).__name__}) when calling url '{url}', retrying in {self.__RetryDelaySec} secs.")
             self.__Retry = True
             time.sleep(self.__RetryDelaySec)
             st = time.perf_counter()
@@ -287,6 +300,3 @@ class RestClient:
     @staticmethod
     def disableRequestWarnings():
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-class RestClientException(Exception):
-    pass
