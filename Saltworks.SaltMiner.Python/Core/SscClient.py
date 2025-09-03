@@ -48,7 +48,9 @@ class SscClient(object):
         self.__SourceName = sourceName
         self.__GroupingTypeId = appSettings.GetSource(sourceName, 'GroupingTypeId')
         self.__FiltersetId = appSettings.GetSource(sourceName, 'FiltersetId')
-        self.__OverrideProtocol = appSettings.GetSource(sourceName, 'OverrideProtocol', None)
+        self.__OverrideProtocol = appSettings.GetSource(sourceName, 'OverrideProtocol', "")
+        if self.__OverrideProtocol == "":
+            self.__OverrideProtocol = None
         self.__CacheKeys = []
         self.__Id = uuid.uuid4()
         self.__DateForFile = datetime.datetime.now().strftime('%Y.%m.%d')
