@@ -28,39 +28,61 @@ namespace Saltworks.SaltMiner.UiApiClient.Import.Upgrade
         private readonly static JsonSerializerOptions MySerializerOptions = new() { PropertyNameCaseInsensitive = true };
         private readonly ILogger Logger = logger;
 
-        public List<IssueImportSummary> UpgradeEngagementIssuesImport(string json)
-        { 
-            Logger.LogInformation("Import Upgrade Tool - Starting Upgrade Tool");
+        private string GetIssueAppVersion(JsonNode doc)
+        {
+            if (doc.GetValueKind() != JsonValueKind.Array)
+            {
+                var msg = $"Invalid input json, expected array but found {doc.GetValueKind():g}.";
+                Logger.LogError("{Msg}", msg);
+                throw new UiApiClientImportException(msg);
+            }
+            var node0 = doc.AsArray()[0];
+            if (node0.GetValueKind() != JsonValueKind.Object || !node0.AsObject().TryGetPropertyValue("Issue", out var issNode) || issNode.GetValueKind() != JsonValueKind.Object)
+            {
+                var msg = "Invalid input json, expected first array element to be an object containing an 'issue' object.";
+                Logger.LogError("{Msg}", msg);
+                throw new UiApiClientImportException(msg);
+            }
+            if (!issNode.AsObject().TryGetPropertyValue("AppVersion", out var appver) || appver.GetValueKind() != JsonValueKind.String || string.IsNullOrEmpty(appver.ToString()))
+            {
+                var msg = "Invalid input json, first issue object should contain a non-empty 'appVersion' string property.";
+                Logger.LogError("{Msg}", msg);
+                throw new UiApiClientImportException(msg);
+            }
+            return appver.ToString();
+        }
 
+        private JsonNode ApplyIssueUpgradeSteps(string json, bool isTemplateIssue)
+        {
+            Logger.LogDebug("Import Upgrade Tool - Starting Upgrade Tool");
+
+            var doc = JsonNode.Parse(json);
             var steps = InitializeSteps();
-                
-            Logger.LogInformation("Import Upgrade Tool - Total Steps Declared: {Count}", steps.Count());
+
+            Logger.LogDebug("Import Upgrade Tool - Total Steps Declared: {Count}", steps.Count());
 
             if (steps.Any())
             {
-                Logger.LogInformation("Import Upgrade Tool - No Steps Defined");
-                return JsonSerializer.Deserialize<List<IssueImportSummary>>(json, MySerializerOptions);
+                Logger.LogInformation("Import Upgrade Tool - No steps defined");
+                return doc;
             }
 
             List<IUpgradeStep> stepsToApply = [];
             var etl = false;
             var moreSteps = true;
-            var doc = JsonNode.Parse(json);
-            var issue = doc.AsArray()[0].AsObject()["Issue"].AsObject();
-
-            if (issue["AppVersion"] == null || string.IsNullOrEmpty(issue["AppVersion"].ToString()))
-            {
-                throw new UiApiClientImportException("AppVersion must be declared.");
-            }
+            string importAppVersion = GetIssueAppVersion(doc);
 
             while (moreSteps)
             {
                 // Find a step that applies to this version (issue["AppVersion"]) or to the CompletedVersion of the last step added to the steps list
-                var step = steps.FirstOrDefault(s => s.AppliesToVersion == (stepsToApply.Count == 0 ? issue["AppVersion"].ToString() : stepsToApply[^1].CompletedVersion));
+                var step = steps.FirstOrDefault(s => s.AppliesToVersion == (stepsToApply.Count == 0 ? importAppVersion : stepsToApply[^1].CompletedVersion));
                 if (step != null)
                 {
                     stepsToApply.Add(step);
-                    etl = etl || step.RequiresEngagementIssueTransform;
+                    if (isTemplateIssue)
+                        etl = etl || step.RequiresIssueTemplateTransform;
+                    else
+                        etl = etl || step.RequiresEngagementIssueTransform;
                 }
                 else
                 {
@@ -68,73 +90,37 @@ namespace Saltworks.SaltMiner.UiApiClient.Import.Upgrade
                 }
             }
 
-            Logger.LogInformation("Import Upgrade Tool - Found {Count} steps", stepsToApply.Count);
+            Logger.LogDebug("Import Upgrade Tool - Found {Count} steps that apply", stepsToApply.Count);
 
             if (etl)
             {
-                Logger.LogInformation($"Import Upgrade Tool - Requires a ETL");
-                TransformEngagementIssues(doc, stepsToApply);
+                Logger.LogInformation("Import Upgrade Tool - Applying {Count} upgrade steps", stepsToApply.Count);
+                foreach (var step in steps)
+                {
+                    if (isTemplateIssue)
+                        step.TransformIssueTemplates(doc);
+                    else
+                        step.TransformEngagementIssues(doc);
+                }
             }
             else
             {
-                Logger.LogInformation($"Import Upgrade Tool - Does Not Requires a ETL");
+                Logger.LogInformation("Import Upgrade Tool - No upgrade needed");
             }
+            return doc;
+        }
 
-            Logger.LogInformation("Deserialize JSON issues");
+        public List<IssueImportSummary> UpgradeEngagementIssuesImport(string json)
+        {
+            var doc = ApplyIssueUpgradeSteps(json, false);
+            Logger.LogDebug("Deserialize import issues");
             return JsonSerializer.Deserialize<List<IssueImportSummary>>(doc, MySerializerOptions);
         }
 
         public List<TemplateIssueImport> UpgradeIssueTemplatesImport(string json)
         {
-            Logger.LogInformation("Import Upgrade Tool - Starting Upgrade Tool");
-
-            var steps = InitializeSteps();
-
-            Logger.LogInformation("Import Upgrade Tool - Total Steps Declared: {Count}", steps.Count());
-
-            if (!steps.Any())
-            {
-                Logger.LogInformation("Import Upgrade Tool - No Steps Defined");
-                return JsonSerializer.Deserialize<List<TemplateIssueImport>>(json, MySerializerOptions);
-            }
-
-            List<IUpgradeStep> stepsToApply = [];
-            var etl = false;
-            var moreSteps = true;
-            var doc = JsonNode.Parse(json);
-            string importAppVersion = doc.AsArray()[0].AsObject()["Issue"]["AppVersion"].ToString();
-
-            if (string.IsNullOrEmpty(importAppVersion))
-            {
-                throw new UiApiClientImportException("AppVersion must be declared.");
-            }
-
-            while (moreSteps)
-            {
-                var step = steps.FirstOrDefault(s => s.AppliesToVersion == (stepsToApply.Count == 0 ? importAppVersion : stepsToApply[^1].CompletedVersion));
-                if (step != null)
-                {
-                    stepsToApply.Add(step);
-                    etl = etl || step.RequiresIssueTemplateTransform;
-                }
-                else
-                {
-                    moreSteps = false;
-                }
-            }
-
-            Logger.LogInformation("Import Upgrade Tool - Found {Count} steps", stepsToApply.Count);
-
-            if (etl)
-            {
-                Logger.LogInformation($"Import Upgrade Tool - Requires a ETL");
-                TransformIssueTemplates(doc, stepsToApply);
-            }
-            else
-            {
-                Logger.LogInformation($"Import Upgrade Tool - Does Not Requires a ETL");
-            }
-
+            var doc = ApplyIssueUpgradeSteps(json, true);
+            Logger.LogDebug("Deserialize import template issues");
             return JsonSerializer.Deserialize<List<TemplateIssueImport>>(doc, MySerializerOptions);
         }
 
@@ -182,7 +168,10 @@ namespace Saltworks.SaltMiner.UiApiClient.Import.Upgrade
             if (etl)
             {
                 Logger.LogInformation($"Import Upgrade Tool - Requires a ETL");
-                TransformEngagement(doc, stepsToApply);
+                foreach (var step in steps)
+                {
+                    step.TransformEngagement(doc);
+                }
             }
             else
             {
@@ -191,30 +180,6 @@ namespace Saltworks.SaltMiner.UiApiClient.Import.Upgrade
 
 
             return JsonSerializer.Deserialize<EngagementExport>(doc);
-        }
-
-        private static void TransformIssueTemplates(JsonNode issueTemplatesJson, IEnumerable<IUpgradeStep> steps)
-        {
-            foreach(var step in steps)
-            {
-                step.TransformIssueTemplates(issueTemplatesJson);
-            }
-        }
-
-        private static void TransformEngagementIssues(JsonNode engagementIssuesJson, IEnumerable<IUpgradeStep> steps)
-        {
-            foreach (var step in steps)
-            {
-                step.TransformEngagementIssues(engagementIssuesJson);
-            }
-        }
-
-        private static void TransformEngagement(JsonNode engagementJson, IEnumerable<IUpgradeStep> steps)
-        {
-            foreach (var step in steps)
-            {
-                step.TransformEngagement(engagementJson);
-            }
         }
 
         private static IEnumerable<IUpgradeStep> InitializeSteps()

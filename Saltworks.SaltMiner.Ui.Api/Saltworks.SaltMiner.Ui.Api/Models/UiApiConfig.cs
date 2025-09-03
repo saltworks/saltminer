@@ -27,18 +27,12 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
         {
             var replaceDefaultFileExt = config.GetSection("UiApiConfig").GetValue<bool>("ValidFileExtensionsReplaceDefault");
             if (replaceDefaultFileExt)
-            {
-                ValidFileExtensions = new();
-            }
+                ValidFileExtensions = [];
 
             if (isConsoleApp)
-            {
                 config.Bind(this);
-            }
             else
-            {
                 config.Bind("UiApiConfig", this);
-            }
 
             Validate(filePath);
         }
@@ -46,7 +40,6 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
         public void Validate(string filePath)
         {
             CheckEncryption(this, filePath, "UiApiConfig");
-
             DecryptProperties(this);
         }
 
@@ -66,9 +59,9 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
         public bool TestingEnableCors { get; set; } = false;
         public string[] TestingCorsAllowedOrigins { get; set; } = null;
         public string VersionFileName { get; set; } = "version.txt";
-        public static string AppVersion => "3.0.1";
-        public bool KestrelAllowRemote { get; set; } = false; // file loaded and referenced manually not refereneced by model
-        public int KestrelPort { get; set; } = 5001; // file loaded and referenced manually not refereneced by model
+        public static string AppVersion => "3.2.0";
+        public bool KestrelAllowRemote { get; set; } = false; // file loaded and referenced manually not referenced by model
+        public int KestrelPort { get; set; } = 5001; // file loaded and referenced manually not referenced by model
         /// <summary>
         /// Don't reference this directly, use BaseContext.KibanaBaseUrl instead.
         /// </summary>
@@ -103,8 +96,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
         public string GuiFieldRegex { get; set; } = "[^a-zA-Z\\x20\\d\\.\\-,:/();\\[\\]%_\\n\\?'\\\"]";
         public string FailedRegexSplat { get; set; } = "[?]";
         public string MarkdownUrlRegex { get; set; } = @"!\[([^]\n]*)\]\((.*?)\)";
-        public static string SourceType => EnumExtensions.GetDescription(SaltMiner.Core.Util.SourceType.Pentest);
-        public static string AssetType => SaltMiner.Core.Util.AssessmentType.Pen.ToString();
+        public static string SourceType => EnumExtensions.GetDescription(Core.Util.SourceType.Pentest);
+        public static string AssetType => Core.Util.AssessmentType.Pen.ToString();
         public static string Instance => "PenTest";
         public string LastScanDaysPolicy { get; set; } = "60";
         public string EngagementCustomerHeader { get; set; } = "Customer";
