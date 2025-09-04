@@ -84,6 +84,6 @@ for dataItm in data:
 
 if len(sscIds) > 0:
     logging.info("[Webhook Pull] %s total SSC IDs to queue for updates.", len(sscIds))
-    sqh.InsertQueueBatch(sscIds)
+    sqh.InsertQueueBatch(sscIds, force=True)
 
 logging.info("[Webhook Pull] Processing complete.")

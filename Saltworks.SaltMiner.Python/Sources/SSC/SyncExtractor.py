@@ -672,10 +672,12 @@ class SyncExtractor(object):
         p.Finish(iTotal, "Complete")
 
     def __ProcessOne(self, projectVersion, projectAttrDefs, seenIdList, pvMessage, forceSync=False):
-        needsReset = False
+        needsReset = forceSync
         needsAttrReset = False
         attributesUpdated = False
-        updateReason = ""
+        updateReason = "Force sync requested" if forceSync else ""
+        if forceSync:
+            logging.info("%s, force sync requested", pvMessage)
 
         # Consolidate passed SSC attribute definitions, skipping those not in use
         paDefs = {}
@@ -711,7 +713,7 @@ class SyncExtractor(object):
         foundproject = self.__GetSSCProjectByProjectId(projid)
         #logging.info(foundproject)
     
-        if len(foundproject) == 1:
+        if needsReset == False and len(foundproject) == 1:
             lastFPRdate = json.dumps(foundproject[projid]['currentState']['lastFprUploadDate'])
             lastAttnRequired = foundproject[projid]['currentState']['attentionRequired']
             compname = foundproject[projid]['name']
@@ -761,12 +763,12 @@ class SyncExtractor(object):
                     logging.info(f"{pvMessage}, found project but different lastFPRUploadDate")
                     updateReason = f"{updateReason}, found project but different lastFPRUploadDate"
                 needsReset = True
-        else:
+        elif needsReset == False:
             logging.info(f"{pvMessage}, did not find project at all")
             needsReset = True
             updateReason = f"{updateReason}, did not find project at all"
 
-        if (len(foundproject) == 1 and (holdname != compname or holdprojectname != compprojectname)):
+        if needsReset == False and len(foundproject) == 1 and (holdname != compname or holdprojectname != compprojectname):
             logging.info (f"{pvMessage}, name changed - force refresh")
             needsReset = True
             updateReason = f"{updateReason}, name changed - force refresh"
@@ -849,12 +851,7 @@ class SyncExtractor(object):
                 attributesUpdated = True
             else:
                 logging.info(f"{pvMessage}, attributes all match" )
-
-        if needsReset == False and forceSync:
-            logging.info("%s, force sync requested", pvMessage)
-            updateReason = "Force sync requested"
-            needsReset = True                    
-        
+       
         # MAIN refresh processing
         #needsReset = False
         if needsReset == True:
