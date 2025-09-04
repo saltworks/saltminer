@@ -83,7 +83,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 request.Filter.FilterMatches.Add("Type", searchRequest.Type);
 
             var response = DataClient.JobSearch(request);
-            return new UiDataResponse<Job>(response.Data, request.PagingInfo);
+            return new UiDataResponse<Job>(response.Data, response.PagingInfo);
         }
     }
 }
