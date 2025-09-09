@@ -147,7 +147,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
             var searchRequest = new SearchRequest()
             {
-                PagingInfo = new(request.Pager?.Size ?? Config.DefaultPageSize),
+                PagingInfo = request.Pager.ToPagingInfo(),
                 SortKeys = Helpers.SearchFilters.MapSortFilters(request.Pager?.SortFilters, SortFilterValues) ?? [],
                 Filter = new()
                 {
