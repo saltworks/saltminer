@@ -1551,6 +1551,8 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
             searchRequest.PagingInfo.Size = ClientConfig.DefaultPageSize;
         if ((searchRequest.SortKeys ?? []).Count == 0)
             searchRequest.SortKeys = [];
+        if (searchRequest.PagingInfo.Page <= 0)
+            searchRequest.PagingInfo.Page = 1;
         // Must include ID as a sort field to paginate correctly
         searchRequest.SortKeys.TryAdd("id", true);
         queryRequest.Size = searchRequest.PagingInfo.Size;
