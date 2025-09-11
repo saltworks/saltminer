@@ -477,7 +477,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
             // Copy attributes from previous engagement, defaulting those configured to be cleared when copied
             engagement.Saltminer.Engagement.Attributes = fullEngagement.Attributes
-                .ToDictionary(k => k.Name, v => Config.CloneEngagementClearAttributes.Contains(v.Name) ? v.DefaultValue : v.Value);
+                .ToDictionary(k => k.Name, v => Config.CloneEngagementClearAttributes.Contains(v.Label) ? v.DefaultValue : v.Value);
 
             var queueScan = DataClient.QueueScanGetByEngagement(engagement.Id).Data;
 
@@ -510,7 +510,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                     issue.TestStatus.Value = EngagementHelper.ValidateTestStatus(issue.TestStatus.Value, TestedDropdowns);
                     var cloneIssue = issue.CloneRequest(engagement, queueScan.Id, newAsset.Id, UiBaseUrl);
                     // Set default values for attributes that are configured to be cleared on clone
-                    foreach (var attr in issue.Attributes.Where(x => Config.CloneIssueClearAttributes.Contains(x.Name)))
+                    foreach (var attr in issue.Attributes.Where(x => Config.CloneIssueClearAttributes.Contains(x.Label)))
                         attr.Value = attr.DefaultValue;
 
                     //copy issue comments
