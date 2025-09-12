@@ -101,7 +101,6 @@ public class ScanInfo : IScanInfoBase, IIssueCounts
     /// <summary>
     /// Gets or sets Type. This is the type of scan run. EG) SCA, could be mobile or static for FoD for example.
     /// </summary>
-    [Required]
     public string ProductType { get; set; }
 
     /// <summary>
@@ -161,7 +160,6 @@ public class IssueScanInfo : IScanInfoBase
     /// <summary>
     /// Gets or sets Type. This is the type of scan run. EG) SCA, could be mobile or static for FoD for example.
     /// </summary>
-    [Required]
     public string ProductType { get; set; }
 
     /// <summary>

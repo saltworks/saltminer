@@ -670,7 +670,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
 
         private void MapIssue(ProjectNodeDto project, IssueNodeDto issue, QueueScan queueScan, QueueAsset queueAsset, bool zeroRecord = false)
         {
-            var sourceId = $"{project.FullPath}";
             List<QueueIssue> queueIssues = new();
             var assessmentType = queueScan.Entity.Saltminer.Scan.AssessmentType;
 
@@ -706,6 +705,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                                 Id = issue.Id,
                                 AssessmentType = assessmentType,
                                 Product = issue.Scanner.Name ?? string.Empty,
+                                ProductType = queueScan.Entity?.Saltminer.Scan.ProductType ?? string.Empty,
                                 Vendor = Vendor,
                                 ApiUrl = issue.VulnerabilityPath,
                                 GuiUrl = issue.WebUrl
