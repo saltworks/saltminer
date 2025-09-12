@@ -105,16 +105,16 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S1854:Unused assignments should be removed", Justification = "False positives herein, where variable is assigned based on location in code")]
         private async Task SyncAsync(GitLabClient client)
         {
-            CheckCancel();
-
-            if (Config.SourceType != SourceType.GitLab.GetDescription())
-            {
-                Logger.LogCritical("[Sync] Invalid configuration - SourceType expected to be 'Saltworks.{Etype}' but was found to be '{Atype}'", SourceType.GitLab.GetDescription(), Config.SourceType);
-                throw new GitLabValidationException("Invalid configuration - source type");
-            }
-
             try
             {
+                CheckCancel(true);
+
+                if (Config.SourceType != SourceType.GitLab.GetDescription())
+                {
+                    Logger.LogCritical("[Sync] Invalid configuration - SourceType expected to be 'Saltworks.{Etype}' but was found to be '{Atype}'", SourceType.GitLab.GetDescription(), Config.SourceType);
+                    throw new GitLabValidationException("Invalid configuration - source type");
+                }
+
                 Logger.LogInformation($"[Sync] Starting GitLab sync...");
 
                 if (Config.TestingAssetLimit > 0)
@@ -398,18 +398,19 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                 LocalData.SaveAllBatches();
                 Logger.LogInformation("[Sync] Exiting sync loading phase in 5 sec...");
                 await Task.Delay(5000);
-                //Include: Set this to indiciate your done syncing
-                StillLoading = false;
             }
             catch (CancelTokenException ex)
             {
                 Logger.LogWarning(ex, "[Sync] Cancellation requested, aborting processing.");
-                StillLoading = false;
             }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "[Sync] Aborting GitLab sync due to exception: [{Type}] {Msg}", ex.GetType().Name, ex.Message);
                 DumpException("GitLabSyncOuter", ex);
+            }
+            finally
+            {
+                // Tells SendAsync we are finished with Sync
                 StillLoading = false;
             }
         }
