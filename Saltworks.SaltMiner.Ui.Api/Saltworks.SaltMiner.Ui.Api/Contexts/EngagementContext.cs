@@ -497,7 +497,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                     assetBatch = [];
                 }
 
-                var engagementIssues = fullEngagement.Issues.Where(x => x.AssetId == asset.AssetId && !x.IsRemoved);
+                var engagementIssues = fullEngagement.Issues.Where(x => x.AssetId == asset.AssetId && x.IsActive);
 
                 if (Config.EngagementCheckoutWithClosedIssues)
                 {
