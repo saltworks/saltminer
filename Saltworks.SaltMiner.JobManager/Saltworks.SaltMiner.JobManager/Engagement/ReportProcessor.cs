@@ -87,7 +87,8 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             //Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("Mgo+DSMBMAY9C3t2VlhhQlJCfV5AQmBIYVp/TGpJfl96cVxMZVVBJAtUQF1hSn9TdkdiX35ecHJcQ2Vb"); // 23.x
             //Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("Mgo+DSMBMAY9C3t2UFhhQlJBfV5AQmBIYVp/TGpJfl96cVxMZVVBJAtUQF1hTX5WdkxiWntZcXRWRGBY"); // 25.x
             //Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("Ngo9BigBOggjHTQxAR8/V1NCaF5cXmZCf1FpRmJGdld5fUVHYVZUTXxaS00DNHVRdkdnWXdecnVRRmlZVkB2WUs="); //26.x
-            Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("Mgo+DSMBMAY9C3t2UlhhQlVMfV5AQmBIYVp/TGpJfl96cVxMZVVBJAtUQF1hTX5ad0xiXnpfcXBXQWlc"); // 27.x
+            //Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("Mgo+DSMBMAY9C3t2UlhhQlVMfV5AQmBIYVp/TGpJfl96cVxMZVVBJAtUQF1hTX5ad0xiXnpfcXBXQWlc"); // 27.x
+            Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("Ngo9BigBOggjHTQxAR8/V1JFaF5cXGRCf1FpRmJGdld5fUVHYVZUTXxaS00DNHVRdkdmWXZfcnVVRGVZWUV3WEZWYEA="); // 31.x
             try
             {
                 if (Config.ListOnly)
@@ -212,7 +213,6 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
                 Logger.LogInformation($"Generating Report DTO");
                 var reportEngagement = CreateReportEngagementDto(engagementSummary, engagementAssets, engagementIssues, engagementIssuesRemoved, engagementComments);
 
-                //This is not using but wanted to save the code
                 document.MailMerge.MergeImageField += new MergeImageFieldEventHandler(MergeField_ImageEvent);
                 document.MailMerge.MergeField += new MergeFieldEventHandler(MergeMarkdownFieldEvent);
 
@@ -228,7 +228,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
                 }
 
                 // Find/convert markdown values to html in the merged document
-                InsertMardownToHtml();
+                InsertMarkdownToHtml();
 
                 // Find and style any hyperlinks
                 // only find paragraphs that have hyperlinks to style
@@ -898,7 +898,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             }
         }
 
-        private void InsertMardownToHtml()
+        private void InsertMarkdownToHtml()
         {
             Logger.LogInformation($"Merging Markdown");
 
@@ -940,14 +940,14 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             markdownDoc.MdImportSettings.ImageNodeVisited += MdImportSettings_ImageNodeVisited;
             markdownDoc.Open(memoryStream, type);
 
-            TextBodyPart bodyPart = new(paragraph.OwnerTextBody.Document);
-            BodyItemCollection m_bodyItems = bodyPart.BodyItems;
+            var bodyPart = new TextBodyPart(paragraph.OwnerTextBody.Document);
+            var m_bodyItems = bodyPart.BodyItems;
 
             foreach (Entity entity in markdownDoc.LastSection.Body.ChildEntities)
             {
                 if (entity is WParagraph para)
                 {
-                    WParagraph currentPara = new WParagraph(paragraph.Document);
+                    var currentPara = new WParagraph(paragraph.Document);
 
                     foreach (Entity child in para.ChildEntities)
                     {
