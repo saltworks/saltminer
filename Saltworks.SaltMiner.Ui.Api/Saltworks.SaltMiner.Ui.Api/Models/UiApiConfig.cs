@@ -75,7 +75,8 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
         public string CsvTemplateFileName { get; set; } = "csv_import_template.csv";
         public string EngagementIssueImportTemplateFileName { get; set; } = "engagement_issue_import.json";
         public string EngagementImportTemplateFileName { get; set; } = "engagement_import.json";
-        public bool EngagementCheckoutWithClosedIssues { get; set; } = false;
+        public bool EngagementCheckoutIncludesClosedIssues { get; set; } = false;
+        public bool EngagementCheckoutOnlyActiveIssues { get; set; } = false;
         public bool EngagementCheckoutWithSystemComments { get; set; } = false;
         public string TemplateImportTemplateFileName { get; set; } = "template_issue_import.json";
         public int ImportBatchSize { get; set; } = 100;
