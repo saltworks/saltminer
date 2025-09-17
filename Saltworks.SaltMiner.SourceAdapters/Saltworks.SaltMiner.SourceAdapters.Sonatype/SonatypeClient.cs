@@ -9,14 +9,13 @@
  *
  * On the date above, in accordance with the Business Source License, use
  * of this software will be governed by version 2 or later of the General
- * Public License.
+ * internal License.
  *
  * ----
  */
 
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.SourceAdapters.Core;
-using Saltworks.SaltMiner.SourceAdapters.Core.Data;
 using Saltworks.Utility.ApiHelper;
 using System;
 using System.Collections.Generic;
@@ -25,10 +24,11 @@ using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 {
-    public class SonatypeClient : SourceClient
+    internal class SonatypeClient : SourceClient
     {
         private readonly SonatypeConfig Config;
-        public SonatypeClient(ApiClient client, SonatypeConfig config, ILogger logger) : base(client, logger)
+        private List<OrganizationDto> Organizations { get; set; } = [];
+        internal SonatypeClient(ApiClient client, SonatypeConfig config, ILogger logger) : base(client, logger)
         {
             Config = config;
             SetApiClientDefaults(config.BaseAddress, config.Timeout, ApiClientHeaders.AuthorizationBasicHeader(config.UserName, config.Password), true);
@@ -47,13 +47,13 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
         private async Task<ApiClientResponse<T>> RequestAsync<T>(string url, string jsonRequestBody=null, int retries = 0, bool suppressError = true) where T : class
         {
             ApiClientResponse<T> r;
-            ApiClient.Options.ExceptionOnFailure = suppressError;
+            ApiClient.Options.ExceptionOnFailure = !suppressError;
             try
             {
                 if (string.IsNullOrEmpty(jsonRequestBody)) 
-                    r = await ApiClient.PostAsync<T>(url, jsonRequestBody);
-                else
                     r = await ApiClient.GetAsync<T>(url, jsonRequestBody);
+                else
+                    r = await ApiClient.PostAsync<T>(url, jsonRequestBody);
 
                 if (r.StatusCode == System.Net.HttpStatusCode.InternalServerError || r.StatusCode == System.Net.HttpStatusCode.BadGateway)
                 {
@@ -89,61 +89,30 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             return r;
         }
 
-        public async Task<ApplicationCollectionDto> GetAppsAsync()
+        internal async Task<ApplicationCollectionDto> GetAppsAsync()
         {
             var result = await RequestAsync<ApplicationCollectionDto>("applications");
-
             if (Config.TestingAssetLimit > 0)
-            {
                 result.Content.Applications = result.Content.Applications.Take(Config.TestingAssetLimit).ToList();
-            }
-
             return result.Content;
         }
 
-        public async Task<IEnumerable<Report>> GetAppReportsAsync(string appId, string stage)
+        internal async Task<IEnumerable<ComponentDto>> GetAppReportComponentsAsync(string appId, string reportId)
         {
-            var reports = (await RequestAsync<IEnumerable<Report>>($"reports/applications/{appId}")).Content;
-            return reports.OrderByDescending(x => x.EvaluationDate.ToUniversalTime()).GroupBy(x => x.Stage).SelectMany(g => g).Where(x => x.Stage == stage);
+            return (await RequestAsync<ComponentCollectionsDto>($"applications/{appId}/reports/{reportId}/policy")).Content.Components;
         }
 
-        public async Task<IEnumerable<ComponentDto>> GetAppReportComponentsAsync(string appId, string reportId)
+        internal async Task<OrganizationDto> GetOrganizationByOrgIdAsync(string orgId)
         {
-            var result = await RequestAsync<ComponentCollectionsDto>($"applications/{appId}/reports/{reportId}/policy");
-            return result.Content.Components;
+            // Total organizations shouldn't be huge, so cache them to avoid an API call for org info with each application processed
+            if (Organizations.Count == 0)
+                Organizations = (await RequestAsync<OrganizationCollectionDto>($"organizations")).Content.Organizations;
+            return Organizations.FirstOrDefault(x => x.Id == orgId);
         }
 
-        public async Task<OrganizationDto> GetOrganizationByOrgIdAsync(string orgId)
+        internal async Task<IEnumerable<Report>> GetReportsAsync(ApplicationDto app)
         {
-            var result = await RequestAsync<OrganizationDto>($"organizations/{orgId}");
-            return result.Content;
-        }
-
-        public async Task<SourceClientResult<SourceMetric>> SourceMetricsAsync(ApplicationDto app, SonatypeConfig config)
-        {
-                var results = new List<SourceMetric>();
-                var reports = await RequestAsync<IEnumerable<Report>>($"reports/applications/{app.Id}");
-                var groupedReports = reports.Content.OrderByDescending(x => x.EvaluationDate.ToUniversalTime()).GroupBy(x => x.Stage).Select(x => x.First());
-
-                if (groupedReports != null && groupedReports.Any())
-                {
-                    results.AddRange(groupedReports.Select(x => x.ToSourceMetric(app, config)));
-                }
-                else
-                {
-                    results.Add(new SourceMetric
-                    {
-                        LastScan = null,
-                        Instance = Config.Instance,
-                        IsSaltminerSource = SonatypeConfig.IsSaltminerSource,
-                        SourceType = config.SourceType,
-                        SourceId = $"{app.Id}|",
-                        VersionId = null,
-                        Attributes = []
-                    });
-                }
-
-                return new SourceClientResult<SourceMetric>() { Results = results };
+            return (await RequestAsync<IEnumerable<Report>>($"reports/applications/{app.Id}")).Content;            
         }
     }
 }

@@ -9,7 +9,7 @@
  *
  * On the date above, in accordance with the Business Source License, use
  * of this software will be governed by version 2 or later of the General
- * Public License.
+ * internal License.
  *
  * ----
  */
@@ -21,50 +21,56 @@ using System.Linq;
 
 namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 {
-    public class ApplicationCollectionDto
+    internal class ApplicationCollectionDto
     {
-        public List<ApplicationDto> Applications { get; set; }
+        internal List<ApplicationDto> Applications { get; set; }
     }
 
-    public class OrganizationDto
+    internal class OrganizationCollectionDto
     {
-        public string Id { get; set; }
-        public string Name { get; set; }
-        public string ParentOrganizationId { get; set; }
+        internal List<OrganizationDto> Organizations { get; set; }
     }
 
-    public class ApplicationDto
+    internal class OrganizationDto
     {
-        public string Id { get; set; }
-        public string PublicId { get; set; }
-        public string Name { get; set; }
-        public string OrganizationId { get; set; }
-        public string ContactUserName { get; set; }
-        public List<ApplicationTagsDto> ApplicationTags { get; set; }
+        internal string Id { get; set; }
+        internal string Name { get; set; }
+        internal string ParentOrganizationId { get; set; }
+        internal string[] Tags { get; set; }
     }
 
-    public class ApplicationTagsDto
+    internal class ApplicationDto
     {
-        public string Id { get; set; }
-        public string TagId { get; set; }
-        public string ApplicationId { get; set; }
+        internal string Id { get; set; }
+        internal string PublicId { get; set; }
+        internal string Name { get; set; }
+        internal string OrganizationId { get; set; }
+        internal string ContactUserName { get; set; }
+        internal List<ApplicationTagsDto> ApplicationTags { get; set; }
     }
 
-    public class Report
+    internal class ApplicationTagsDto
     {
-        public string Stage { get; set; }
-        public DateTime EvaluationDate { get; set; }
-        public string ReportHtmlUrl { get; set; }
-        public string ReportId => GetReportId();
+        internal string Id { get; set; }
+        internal string TagId { get; set; }
+        internal string ApplicationId { get; set; }
+    }
 
-        public string GetReportId()
+    internal class Report
+    {
+        internal string Stage { get; set; }
+        internal DateTime EvaluationDate { get; set; }
+        internal string ReportHtmlUrl { get; set; }
+        internal string ReportId => GetReportId();
+
+        internal string GetReportId()
         {
             var index = ReportHtmlUrl.IndexOf("report/") + 7;
 
             return ReportHtmlUrl.Substring(index);
         }
 
-        public SourceMetric ToSourceMetric(ApplicationDto application, SonatypeConfig config)
+        internal SourceMetric ToSourceMetric(ApplicationDto application, SonatypeConfig config)
         {
             return new SourceMetric
             {
@@ -79,42 +85,42 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
         }
     }
 
-    public class ComponentCollectionsDto
+    internal class ComponentCollectionsDto
     {
-        public List<ComponentDto> Components { get; set; }
+        internal List<ComponentDto> Components { get; set; }
     }
 
-    public class ComponentDto
+    internal class ComponentDto
     {
-        public string PackageUrl { get; set; }
-        public string Hash { get; set; }
-        public ComponentIdentifierDto ComponentIdentifier { get; set; }
-        public string DisplayName { get; set; }
-        public bool Proprietary { get; set; }
-        public string MatchState { get; set; }
-        public List<string> Pathnames { get; set; }
-        public SecurityDataDto SecurityData { get; set; }
-        public List<ViolationDto> Violations { get; set; }
+        internal string PackageUrl { get; set; }
+        internal string Hash { get; set; }
+        internal ComponentIdentifierDto ComponentIdentifier { get; set; }
+        internal string DisplayName { get; set; }
+        internal bool Proprietary { get; set; }
+        internal string MatchState { get; set; }
+        internal List<string> Pathnames { get; set; }
+        internal SecurityDataDto SecurityData { get; set; }
+        internal List<ViolationDto> Violations { get; set; }
     }
 
-    public class SecurityDataDto
+    internal class SecurityDataDto
     {
-        public List<IssueDto> SecurityIssues { get; set; }
+        internal List<IssueDto> SecurityIssues { get; set; }
     }
 
-    public class ViolationDto
+    internal class ViolationDto
     {
-        public string PolicyId { get; set; }
-        public string PolicyName { get; set; }
-        public string PolicyThreatCategory { get; set; }
-        public int PolicyThreatLevel { get; set; }
-        public string PolicyViolationId { get; set; }
-        public bool Waived { get; set; }
-        public bool WaivedWithAutoWaiver { get; set; }
-        public bool Grandfathered { get; set; }
-        public List<ConstraintDto> Constraints { get; set; }
-        public string CompositeId => $"{PolicyId}~{PolicyName}~{PolicyThreatCategory}~{PolicyViolationId}";
-        public string GetViolationName()
+        internal string PolicyId { get; set; }
+        internal string PolicyName { get; set; }
+        internal string PolicyThreatCategory { get; set; }
+        internal int PolicyThreatLevel { get; set; }
+        internal string PolicyViolationId { get; set; }
+        internal bool Waived { get; set; }
+        internal bool WaivedWithAutoWaiver { get; set; }
+        internal bool Grandfathered { get; set; }
+        internal List<ConstraintDto> Constraints { get; set; }
+        internal string CompositeId => $"{PolicyId}~{PolicyName}~{PolicyThreatCategory}~{PolicyViolationId}";
+        internal string GetViolationName()
         {
             if ((Constraints?.Count ?? 0) == 0)
                 return "Unknown";
@@ -129,75 +135,75 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
         }
     }
 
-    public class ConstraintDto
+    internal class ConstraintDto
     {
-        public string ConstraintId { get; set; }
-        public string ConstraintName { get; set; }
-        public List<ConditionDto> Conditions { get; set; }
+        internal string ConstraintId { get; set; }
+        internal string ConstraintName { get; set; }
+        internal List<ConditionDto> Conditions { get; set; }
     }
 
-    public class ConditionDto
+    internal class ConditionDto
     {
-        public string ConditionSummary { get; set; }
-        public string ConditionReason { get; set; }
+        internal string ConditionSummary { get; set; }
+        internal string ConditionReason { get; set; }
     }
 
-    public class ComponentIdentifierDto
+    internal class ComponentIdentifierDto
     {
-        public string Format { get; set; }
-        public ComponentIdentifierCoordinatesDto Coordinates { get; set; }
+        internal string Format { get; set; }
+        internal ComponentIdentifierCoordinatesDto Coordinates { get; set; }
     }
 
-    public class ComponentIdentifierCoordinatesDto
+    internal class ComponentIdentifierCoordinatesDto
     {
-        public string ArtifactId { get; set; }
-        public string Classifier { get; set; }
-        public string Extension { get; set; }
-        public string GroupId { get; set; }
-        public string Version { get; set; }
+        internal string ArtifactId { get; set; }
+        internal string Classifier { get; set; }
+        internal string Extension { get; set; }
+        internal string GroupId { get; set; }
+        internal string Version { get; set; }
     }
 
-    public class IssueDto
+    internal class IssueDto
     {
-        public string Source { get; set; }
-        public string Reference { get; set; }
-        public double Severity { get; set; }
-        public string Status { get; set; }
-        public string Url { get; set; }
-        public string ThreatCategory { get; set; }
+        internal string Source { get; set; }
+        internal string Reference { get; set; }
+        internal double Severity { get; set; }
+        internal string Status { get; set; }
+        internal string Url { get; set; }
+        internal string ThreatCategory { get; set; }
     }
 
-    public static class StagesDto
+    internal static class StagesDto
     {
-        public const string Build = "build";
-        public const string Release = "release";
-        public const string StageRelease = "stage-release";
-        public const string Operate = "operate";
+        internal const string Build = "build";
+        internal const string Release = "release";
+        internal const string StageRelease = "stage-release";
+        internal const string Operate = "operate";
     }
 
-    public class ExtraIssueDataDto
+    internal class ExtraIssueDataDto
     {
-        public string PolicyId { get; set; }
-        public int PolicyThreatLevel { get; set; }
-        public bool Waived { get; set; }
-        public bool Grandfathered { get; set; }
-        public List<ConstraintDto> Constraints { get; set; }
-        public string Hash { get; set; }
-        public ComponentIdentifierDto ComponentIdentifier { get; set; }
-        public string DisplayName { get; set; }
-        public bool Proprietary { get; set; }
-        public string MatchState { get; set; }
-        public List<string> Pathnames { get; set; }
-        public SecurityDataDto SecurityData { get; set; }
+        internal string PolicyId { get; set; }
+        internal int PolicyThreatLevel { get; set; }
+        internal bool Waived { get; set; }
+        internal bool Grandfathered { get; set; }
+        internal List<ConstraintDto> Constraints { get; set; }
+        internal string Hash { get; set; }
+        internal ComponentIdentifierDto ComponentIdentifier { get; set; }
+        internal string DisplayName { get; set; }
+        internal bool Proprietary { get; set; }
+        internal string MatchState { get; set; }
+        internal List<string> Pathnames { get; set; }
+        internal SecurityDataDto SecurityData { get; set; }
     }
 
-    public class ExtraAssetDataDto
+    internal class ExtraAssetDataDto
     {
-        public List<ApplicationTagsDto> ApplicationTags { get; set; }
+        internal List<ApplicationTagsDto> ApplicationTags { get; set; }
     }
 
-    public class ExtraScanDataDto
+    internal class ExtraScanDataDto
     {
-        public string ContactUserName { get; set; }
+        internal string ContactUserName { get; set; }
     }
 }

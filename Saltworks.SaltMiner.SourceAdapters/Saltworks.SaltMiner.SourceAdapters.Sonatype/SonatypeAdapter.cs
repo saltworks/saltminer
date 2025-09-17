@@ -21,9 +21,9 @@ using Saltworks.SaltMiner.SourceAdapters.Core;
 using Saltworks.SaltMiner.SourceAdapters.Core.Data;
 using Saltworks.SaltMiner.SourceAdapters.Core.Helpers;
 using Saltworks.SaltMiner.SourceAdapters.Core.Interfaces;
-using Saltworks.Utility.ApiHelper;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -34,7 +34,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 {
     public class SonatypeAdapter : SourceAdapter
     {
-        private SyncRecord SyncRecord;
         private ISourceAdapterCustom CustomAssembly;
         private bool RecoveryMode = false;
         private SonatypeConfig Config;
@@ -89,8 +88,69 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             }
         }
 
+        private async IAsyncEnumerable<SonatypeWorkItem> GetAsync(SonatypeClient client, IEnumerable<SourceMetric> localMetrics)
+        {
+            string[] sourceFilters = [];
+            string fileName = "debugSourceFilters.txt";
+            if (File.Exists(fileName))
+            {
+                sourceFilters = await File.ReadAllLinesAsync(fileName);
+                Logger.LogWarning("Using {FileName} to process specific source applications only. {Count} applications found in file.", fileName, sourceFilters.Length);
+            }
+
+            // API doesn't currently support paging, so have to get all applications in one call
+            Logger.LogInformation($"[Get] Getting Applications...");
+            var assets = (await client.GetAppsAsync());
+
+            if (sourceFilters.Length > 0)
+            {
+                var filters = new HashSet<string>(sourceFilters);
+                assets.Applications = assets.Applications.Where(x => filters.Contains(x.Id) || filters.Contains(x.PublicId) || filters.Contains(x.Name)).ToList();
+                Logger.LogWarning("[Get] Filter file will limit the processing to only {Count} apps", assets.Applications.Count);
+            }
+            if (Config.TestingAssetLimit > 0)
+            {
+                assets.Applications = assets.Applications.Take(Config.TestingAssetLimit).ToList();
+            }
+
+            var appTotal = assets.Applications.Count;
+            Logger.LogInformation("[Get] {AppTotal} applications", appTotal);
+            var counter = 0;
+
+            // We define asset as being application + stage.  Stage must be obtained from a report, so it's possible
+            // reports returned for a Sonatype application will end up being multiple assets.  Group by stage and process accordingly.
+            foreach (var asset in assets.Applications)
+            {
+                var reportGroups = (await client.GetReportsAsync(asset))
+                    .OrderByDescending(x => x.EvaluationDate.ToUniversalTime())
+                    .GroupBy(x => x.Stage);
+
+                if (reportGroups == null || !reportGroups.Any())
+                    Logger.LogInformation("No reports found for application name '{Name}'.", asset.Name);
+
+                foreach (var grp in reportGroups ?? [])
+                {
+                    var sourceId = MapSourceId(asset, grp.Key);
+                    var localMetric = localMetrics.FirstOrDefault(x => x.SourceId == sourceId) ?? new()
+                    {
+                        SourceId = sourceId,
+                        SourceType = Config.SourceType,
+                        LastScan = null,
+                        IsSaltminerSource = SonatypeConfig.IsSaltminerSource,
+                        VersionId = grp.Key, // Sonatype stage
+                        Attributes = []
+                    };
+                    yield return new SonatypeWorkItem(asset, grp.Where(x => MapScanDate(x, false) > (localMetric.LastScan ?? DateTime.MinValue)).ToList(), localMetric);
+                }
+                counter++;
+                if (counter % 100 == 0)
+                    Logger.LogInformation("[Get] {Current}/{Total} applications processed", counter, appTotal);
+            }
+        }
+
         private async Task SyncAsync(SonatypeClient client)
         {
+            IEnumerable<SourceMetric> localMetrics;
             try
             {
                 CheckCancel();
@@ -102,256 +162,144 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                 }
 
                 var exceptionCounter = 0;
-                SyncRecord = LocalData.CheckSyncRecordSourceForFailure(Config.Instance, Config.SourceType);
-                if (SyncRecord != null)
+                var syncRecord = LocalData.CheckSyncRecordSourceForFailure(Config.Instance, Config.SourceType);
+                if (syncRecord != null)
                 {
                     RecoveryMode = true;
                 }
                 else
                 {
                     RecoveryMode = false;
-                    SyncRecord = LocalData.GetSyncRecord(Config.Instance, Config.SourceType);
+                    syncRecord = LocalData.GetSyncRecord(Config.Instance, Config.SourceType);
                     ClearQueues();
                 }
 
-                OrganizationDto Organization = new();
-
-                string[] sourceFilters = [];
-                string fileName = "debugSourceFilters.txt";
-                if (File.Exists(fileName))
-                {
-                    sourceFilters = await File.ReadAllLinesAsync(fileName);
-                    Logger.LogWarning("Using {FileName} to process specific source applications only. {Count} applications found in file.", fileName, sourceFilters.Length);
-                }
-
-                //Design decision: expectations to handle 10k applications
-                Logger.LogInformation($"[Sync] Getting Applications...");
-                var assets = (await client.GetAppsAsync());
-
-                if (sourceFilters.Length > 0)
-                {
-                    var filters = new HashSet<string>(sourceFilters);
-                    assets.Applications = assets.Applications.Where(x => filters.Contains(x.Id) || filters.Contains(x.PublicId) || filters.Contains(x.Name)).ToList();
-                    Logger.LogWarning("Filter file will limit the processing to only {Count} apps", assets.Applications.Count);
-                }
-                if (Config.TestingAssetLimit > 0)
-                {
-                    assets.Applications = assets.Applications.Take(Config.TestingAssetLimit).ToList();
-                }
-                
-                var appTotal = assets.Applications.Count;
-
-                Logger.LogInformation("[Sync] Received {AppTotal} applications, starting SourceMetrics", appTotal);
-
-                var localMetrics = LocalData.GetSourceMetrics(Config.Instance, Config.SourceType).ToList();
-                var sourceMetrics = new List<SourceMetric>();
                 var totalSourceMetricsCount = 0;
-                var appCount = 1;
                 var newLocalIssues = 0;
                 var newLocalScans = 0;
                 var newLocalAssets = 0;
+                Logger.LogInformation("Getting local source metrics...");
+                var sw = Stopwatch.StartNew();
+                localMetrics = LocalData.GetSourceMetrics(Config.Instance, Config.SourceType);
+                sw.Stop();
+                Logger.LogInformation("Loaded {Count} local source metrics in {Sec} ms", localMetrics.Count(), sw.ElapsedMilliseconds);
 
-                foreach (var app in GetAssetApplications(assets.Applications))
+
+                await foreach (var wrk in GetAsync(client, localMetrics))
                 {
                     try
                     {
-                        sourceMetrics = new List<SourceMetric>();
+                        CheckCancel(true);
+                        await LetSendCatchUpAsync(Config);
+                        var organization = await client.GetOrganizationByOrgIdAsync(wrk.Application.OrganizationId);
+                        var latestReport = wrk.NewReports.OrderByDescending(x => x.EvaluationDate).FirstOrDefault();
+                        totalSourceMetricsCount++;
 
-                        var appMetrics = await client.SourceMetricsAsync(app, Config);
-                        var metricList = appMetrics.Results.ToList();
-                        if (string.IsNullOrEmpty(metricList?.FirstOrDefault()?.VersionId))
+                        var sourceMetric = latestReport?.ToSourceMetric(wrk.Application, Config);
+
+                        if (RecoveryMode)
                         {
-                            Logger.LogInformation("[Sync] No Source Metric(s) for application {AppId}, creating NULL record. {AppCount} of {AppTotal}.", app.Id, appCount, appTotal);
+                            if (syncRecord.CurrentSourceId != sourceMetric.SourceId)
+                            {
+                                Logger.LogDebug("[Sync] Skipping source ID {Id} due to recovery mode", sourceMetric.SourceId);
+                                continue;
+                            }
+                            else
+                            {
+                                RecoveryMode = false;
+                            }
                         }
-                        else
+
+
+                        var localMetric = wrk.LocalMetric;  // created new if not found as part of GetAsync
+                        localMetric.IsProcessed = true;
+
+                        syncRecord.CurrentSourceId = localMetric.SourceId;
+                        syncRecord.State = SyncState.InProgress;
+                        LocalData.AddUpdate(syncRecord, true);
+
+                        var appReports = wrk.NewReports;
+                        var historyReports = appReports.Where(x => x != latestReport).ToList();
+                        var application = wrk.Application;
+                        List<ComponentDto> components = null;
+                        components = (await client.GetAppReportComponentsAsync(application.PublicId, latestReport.ReportId)).ToList();
+
+                        sourceMetric.IssueCount = GetTotalIssueCount(components);
+                        sourceMetric.IssueCountSev1 = GetIssueSeverityCount("high", components);
+                        sourceMetric.IssueCountSev2 = GetIssueSeverityCount("medium", components);
+                        sourceMetric.IssueCountSev3 = GetIssueSeverityCount("low", components);
+
+                        // Removed full sync maintenance for now, may revisit later.  Currently no benefit due to diff sync taking as long as full sync
+
+                        // Bail out on this one if doesn't need update (and not force flag set)
+                        if (!NeedsUpdate(sourceMetric, localMetric) && !ForceUpdate)
                         {
-                            Logger.LogInformation("[Sync] Found {MetricListCount} Source Metric(s) for application {AppId}. {AppCount} of {AppTotal}", metricList.Count, app.Id, appCount, appTotal);
+                            Logger.LogInformation("[Sync] Source ID {Id} - no update needed, {Count} application/stages processed so far.", sourceMetric.SourceId, totalSourceMetricsCount);
+                            continue;
                         }
-                        sourceMetrics.AddRange(metricList);
-                        Organization = await client.GetOrganizationByOrgIdAsync(app.OrganizationId);
-                        appCount++;
-                        CheckCancel();
+                        Logger.LogInformation("[Sync] Processing Source ID {SourceId}, {RptCount} new report(s), {Count} application/stages processed so far.", sourceMetric.SourceId, historyReports.Count, totalSourceMetricsCount);
+
+                        var noScan = sourceMetric.LastScan == null;  // This shouldn't be possible since we require a report to build a source metric, but handle it anyway
+                        QueueScan queueScan = MapScan(latestReport, components, noScan);
+                        newLocalScans++;
+                        QueueAsset queueAsset = MapAsset(application, organization, latestReport, queueScan, localMetric == null && !Config.DisableRetire);
+                        newLocalAssets++;
+
+                        if (queueScan.Entity.Saltminer.Internal.QueueStatus == QueueScanStatus.Cancel.ToString())
+                        {
+                            continue;
+                        }
+
+                        if (!noScan)
+                        {
+                            MapIssues(application, latestReport, components, queueScan, queueAsset);
+                        }
+
+                        newLocalIssues += queueScan.Entity.Saltminer.Internal.IssueCount;
+                        UpdateLocalMetric(sourceMetric, localMetric);
+                        queueScan.Loading = false;
+                        LocalData.AddUpdate(queueScan);
+                        RecoveryMode = false;
                     }
-                    catch (ApiClientException apiEx)
+                    catch (LocalDataException ex)
                     {
-                        exceptionCounter++;
-
-                        Logger.LogError(apiEx, "[Sync] Api Error for {Uri}. Message: {ErrorMessage}. Response: {ResponseContent}", apiEx.RequestUri, apiEx.InnerException?.Message ?? apiEx.Message, apiEx.ResponseContent);
-
-                        if (exceptionCounter == Config.SourceAbortErrorCount)
-                        {
-                            Logger.LogCritical(apiEx, "[Sync] {Instance} for {SourceType} Exceeded {AbortErrorCount} Sync Processing Errors: {Message}", Config.Instance, Config.SourceType, Config.SourceAbortErrorCount, apiEx.InnerException?.Message ?? apiEx.Message);
-                            StillLoading = false;
-                            SetCancelToken();
-                            break;
-                        }
+                        var msg = ex.InnerException?.Message ?? ex.Message;
+                        Logger.LogCritical(ex, "{Msg}", msg);
+                        SetCancelToken();
+                        throw new SonatypeException($"Local data exception: {msg}");
                     }
                     catch (Exception ex)
                     {
-                        exceptionCounter++;
-
-                        Logger.LogError(ex, "[Sync] {Instance} for {SourceType} Sync Processing Error {Counter}: {Message}", Config.Instance, Config.SourceType, exceptionCounter, ex.InnerException?.Message ?? ex.Message);
-
-                        if (exceptionCounter == Config.SourceAbortErrorCount)
+                        if (ex.Message == "Not Found")
                         {
-                            Logger.LogCritical(ex, "[Sync] {Instance} for {SourceType} Exceeded {AbortErrorCount} Sync Processing Errors: {Message}", Config.Instance, Config.SourceType, Config.SourceAbortErrorCount, ex.InnerException?.Message ?? ex.Message);
-                            StillLoading = false;
-                            SetCancelToken();
-                            break;
+                            Logger.LogWarning(ex, "[Sync] {Instance} for {SourceType} Sync Processing Error: {ErrorMessage}", Config.Instance, Config.SourceType, ex.InnerException?.Message ?? ex.Message);
+                        }
+                        else
+                        {
+                            exceptionCounter++;
+                            Logger.LogError(ex, "[Sync] {Instance} for {SourceType} Sync Processing Error {ExceptionCounter}: {ErrorMessage}", Config.Instance, Config.SourceType, exceptionCounter, ex.InnerException?.Message ?? ex.Message);
+                            if (exceptionCounter == Config.SourceAbortErrorCount)
+                            {
+                                Logger.LogCritical(ex, "[Sync] {Instance} for {SourceType} Exceeded {SourceAbortErrorCount} Sync Processing Errors: {ErrorMessage}", Config.Instance, Config.SourceType, Config.SourceAbortErrorCount, ex.InnerException?.Message ?? ex.Message);
+                                SetCancelToken();
+                                break;
+                            }
                         }
                     }
-
-                    var sourceCount = 1;
-
-                    // each asset application metric can have 1 or more versions
-                    // so we itereate thru those here to process using a source Id of app id and version name
-                    for (var i = 0; i < sourceMetrics.Count; i++)
+                    finally
                     {
-                        CheckCancel(true);
-                        totalSourceMetricsCount++;
-
-                        var metric = sourceMetrics[i];
-                        Logger.LogInformation("[Sync] Processing Source Metric(s) for Source ID {SourceId}. {SourceCount} of {SourceMetricsCount}", metric.SourceId, sourceCount, sourceMetrics.Count);
-
-                        try
-                        {
-                            if (RecoveryMode)
-                            {
-                                if (SyncRecord.CurrentSourceId != metric.SourceId)
-                                {
-                                    continue;
-                                }
-                                else
-                                {
-                                    RecoveryMode = false;
-                                }
-                            }
-
-                            SyncRecord.CurrentSourceId = metric.SourceId;
-                            SyncRecord.State = SyncState.InProgress;
-                            LocalData.AddUpdate(SyncRecord, true);
-
-                            var localMetric = localMetrics.FirstOrDefault(x => x.SourceId == metric.SourceId);
-                            if (localMetric != null)
-                            {
-                                localMetric.IsProcessed = true;
-                            }
-
-                            var indexSplit = metric.SourceId.IndexOf("|");
-                            var appId = metric.SourceId.Substring(0, indexSplit);
-                            var stage = metric.SourceId.Substring(indexSplit + 1);
-
-                            var appReports = (await client.GetAppReportsAsync(appId, stage)).ToList();
-                            var historyReports = appReports.Where(x => (SyncRecord.LastSync == null || x.EvaluationDate.ToUniversalTime() > SyncRecord.LastSync) && x.EvaluationDate.ToUniversalTime() < appReports.FirstOrDefault().EvaluationDate.ToUniversalTime()).ToList();
-
-                            Logger.LogInformation("[Sync] Received {AppReportsCount} Reports and {HistoryReportsCount} History Reports", appReports.Count, historyReports.Count);
-
-                            var appResult = await ApiClient.GetAsync<ApplicationDto>($"applications/{appId}");
-                            var application = appResult.Content;
-                            var report = appReports.FirstOrDefault();
-                            List<ComponentDto> components = null;
-
-                            if (stage != string.Empty)
-                            {
-                                components = (await client.GetAppReportComponentsAsync(application.PublicId, report.ReportId)).ToList();
-
-                                metric.IssueCount = GetTotalIssueCount(components);
-                                metric.IssueCountSev1 = GetIssueSeverityCount("high", components);
-                                metric.IssueCountSev2 = GetIssueSeverityCount("medium", components);
-                                metric.IssueCountSev3 = GetIssueSeverityCount("low", components);
-                            }
-
-                            if (Config.FullSyncMaintEnabled)
-                            {
-                                FullSyncBatchProcess(SyncRecord, Config.FullSyncBatchSize);
-                                // End of metrics and full sync processing is still true,
-                                // means last batch did not meet batch size... reset source ID to cycle through again
-                                // End of metrics and batch count is zero,
-                                // means nothing was found to process (ie. maybe a source metric doesn't exist anymore)...reset source ID
-                                if (i + 1 == sourceMetrics.Count && (FullSyncProcessing || FullSyncBatchCount == 0))
-                                {
-                                    SyncRecord.FullSyncSourceId = "";
-                                }
-                            }
-
-                            if (NeedsUpdate(metric, localMetric) || RecoveryMode)
-                            {
-                                Logger.LogInformation("[Sync] Updating '{SourceType}_{Instance}', SourceId '{MetricSourceId}', AssetType '{AssetType}'", Config.SourceType, Config.Instance, metric.SourceId, AssetType);
-
-                                var noScan = metric.LastScan == null;
-                                QueueScan queueScan = MapScan(report, components, noScan);
-                                newLocalScans++;
-
-                                QueueAsset queueAsset = MapAsset(application, Organization, report, queueScan, localMetric == null && localMetrics.Count > 0 && !Config.DisableRetire);
-                                newLocalAssets++;
-
-                                if (queueScan.Entity.Saltminer.Internal.QueueStatus == QueueScanStatus.Cancel.ToString())
-                                {
-                                    continue;
-                                }
-
-                                if (!noScan)
-                                {
-                                    MapIssues(application, report, components, queueScan, queueAsset);
-                                }
-
-                                newLocalIssues = newLocalIssues + queueScan.Entity.Saltminer.Internal.IssueCount;
-                                UpdateLocalMetric(metric, localMetric);
-                                queueScan.Loading = false;
-                                LocalData.AddUpdate(queueScan);
-                                CheckCancel(true);
-                                await LetSendCatchUpAsync(Config);
-                                RecoveryMode = false;
-                            }
-                            else
-                            {
-                                Logger.LogInformation("[Sync] No update needed for '{SourceType}_{Instance}', SourceId '{MetricSourceId}', AssetType '{AssetType}'", Config.SourceType, Config.Instance, metric.SourceId, AssetType);
-                            }
-                        }
-                        catch (LocalDataException ex)
-                        {
-                            Logger.LogCritical(ex, "{Msg}", ex.InnerException?.Message ?? ex.Message);
-                            SetCancelToken();
-                            throw;
-                        }
-                        catch (Exception ex)
-                        {
-                            if (ex.Message == "Not Found")
-                            {
-                                Logger.LogWarning(ex, "[Sync] {Instance} for {SourceType} Sync Processing Error: {ErrorMessage}", Config.Instance, Config.SourceType, ex.InnerException?.Message ?? ex.Message);
-                            }
-                            else
-                            {
-                                exceptionCounter++;
-
-                                Logger.LogError(ex, "[Sync] {Instance} for {SourceType} Sync Processing Error {ExceptionCounter}: {ErrorMessage}", Config.Instance, Config.SourceType, exceptionCounter, ex.InnerException?.Message ?? ex.Message);
-
-                                if (exceptionCounter == Config.SourceAbortErrorCount)
-                                {
-                                    Logger.LogCritical(ex, "[Sync] {Instance} for {SourceType} Exceeded {SourceAbortErrorCount} Sync Processing Errors: {ErrorMessage}", Config.Instance, Config.SourceType, Config.SourceAbortErrorCount, ex.InnerException?.Message ?? ex.Message);
-                                    StillLoading = false;
-                                    SetCancelToken();
-                                    break;
-                                }
-                            }
-                        }
-                        finally
-                        {
-                            StillLoading = false;
-                        }
-
-                        CheckCancel();
-                        sourceCount++;
-                        await LetSendCatchUpAsync(Config);
+                        StillLoading = false;
                     }
+
+                    CheckCancel();
                 }
 
                 if (!Config.DisableRetire)
                 {
                     try
                     {
-                        RetireLocalMetrics(localMetrics);
-                        RetireQueueAssets(localMetrics, AssetType, Config);
+                        RetireLocalMetrics(localMetrics.Where(x => !x.IsProcessed).ToList());
+                        RetireQueueAssets(localMetrics.Where(x => !x.IsProcessed).ToList(), AssetType, Config);
                     }
                     catch (Exception ex)
                     {
@@ -363,10 +311,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                     Logger.LogInformation("Asset retirement processing disabled by configuration, skipping.");
                 }
 
-                SyncRecord.LastSync = (DateTime.UtcNow);
-                SyncRecord.CurrentSourceId = null;
-                SyncRecord.State = SyncState.Completed;
-                LocalData.AddUpdate(SyncRecord, true);
+                syncRecord.LastSync = (DateTime.UtcNow);
+                syncRecord.CurrentSourceId = null;
+                syncRecord.State = SyncState.Completed;
+                LocalData.AddUpdate(syncRecord, true);
                 LocalData.SaveAllBatches();
                 await Task.Delay(5000); // make sure send notices the final save
                 Logger.LogInformation("[Sync] Processing complete: SourceMetrics (Total: {Count})", totalSourceMetricsCount);
@@ -383,14 +331,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             }
         }
 
-        static IEnumerable<ApplicationDto> GetAssetApplications(List<ApplicationDto> applications)
-        {
-            foreach (var app in applications)
-            {
-                if (app != null)
-                    yield return app;
-            }
-        }
+        private static string MapSourceId(ApplicationDto app, string stage) => $"{app.Id}|{stage}";
+        private static DateTime MapScanDate(Report report, bool isNoScan) => isNoScan ? DateTime.UtcNow : report.EvaluationDate.ToUniversalTime();
 
         private QueueScan MapScan(Report appReport, List<ComponentDto> components, bool noScan = false)
         {
@@ -408,7 +350,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                             AssessmentType = AssessmentType.Open.ToString("g"),
                             Product = "Lifecycle",
                             ReportId = noScan ? GetNoScanReportId(AssessmentType.Open.ToString("g")) : appReport?.ReportId,
-                            ScanDate = noScan ? now : appReport.EvaluationDate.ToUniversalTime(),
+                            ScanDate = MapScanDate(appReport, noScan),
                             ProductType = "Open",
                             Vendor = "Sonatype",
                             AssetType = AssetType,
@@ -443,7 +385,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
         private QueueAsset MapAsset(ApplicationDto application, OrganizationDto organization, Report appReport, QueueScan queueScan, bool isRetired = false)
         {
             var stage = appReport?.Stage;
-            var sourceId = $"{application.Id}|{stage}";
+            var sourceId = MapSourceId(application, stage);
             var queueAsset = new QueueAsset
             {
                 Entity = new()
@@ -570,7 +512,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             int total = 0;
             if (Config.VulnerabilityImportTypes.Count > 0)
             {
-                total = components?.SelectMany(c => c?.Violations).Count(v => Config.VulnerabilityImportTypes.Contains(v.PolicyThreatCategory)) ?? 0; ;
+                total = components?.SelectMany(c => c?.Violations).Count(v => Config.VulnerabilityImportTypes.Contains(v.PolicyThreatCategory)) ?? 0;
             }
             else
             {
@@ -581,9 +523,17 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 
         private static int GetIssueSeverityCount(string severity, List<ComponentDto> components)
         {
-            var issueCount = components?.SelectMany(c => c?.Violations).Count(v => v.PolicyName.ToLower().Contains(severity)) ?? 0;
+            var issueCount = components?
+                .SelectMany(c => c?.Violations)
+                .Count(v => v.PolicyName.Contains(severity, StringComparison.OrdinalIgnoreCase)) ?? 0;
             return issueCount;
         }
+    }
+    internal class SonatypeWorkItem(ApplicationDto app, List<Report> newReports, SourceMetric localMetric)
+    {
+        internal ApplicationDto Application { get; set; } = app;
+        internal List<Report> NewReports { get; set; } = newReports;
+        internal SourceMetric LocalMetric { get; set; } = localMetric;
     }
 }
 

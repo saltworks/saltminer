@@ -110,7 +110,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
                     if (sourceMetric != null)
                         Logger.LogDebug("[Sqlite] GetSourceMetric succeeded for instance '{Instance}', sourceType '{SourceType}', and sourceId '{SourceId}'", instance, sourceType, sourceId);
                     else
-                        Logger.LogDebug("[Sqlite] GetSourceMetric failed (not dataFound) for instance '{Instance}', sourceType '{SourceType}', and sourceId '{SourceId}'", instance, sourceType, sourceId);
+                        Logger.LogDebug("[Sqlite] GetSourceMetric not found for instance '{Instance}', sourceType '{SourceType}', and sourceId '{SourceId}'", instance, sourceType, sourceId);
                     return sourceMetric;
                 }
             }
