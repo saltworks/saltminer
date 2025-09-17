@@ -51,9 +51,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             try
             {
                 if (string.IsNullOrEmpty(jsonRequestBody)) 
-                    r = await ApiClient.PostAsync<T>(url, jsonRequestBody);
-                else
                     r = await ApiClient.GetAsync<T>(url, jsonRequestBody);
+                else
+                    r = await ApiClient.PostAsync<T>(url, jsonRequestBody);
 
                 if (r.StatusCode == System.Net.HttpStatusCode.InternalServerError || r.StatusCode == System.Net.HttpStatusCode.BadGateway)
                 {
