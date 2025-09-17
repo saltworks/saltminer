@@ -866,29 +866,25 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
         /// Sets sync record in progress, saving sync progress information in case of processing failure later.
         /// </summary>
         /// <param name="syncRecord">Sync record for the current source ID</param>
+        /// <param name="currentSourceId">Current source ID being processed</param>
         /// <remarks>Sync records are no longer saved immediately (outside of buffering) for performance reasons.  
         /// Even if we have to repeat processing on a few source IDs due to buffering the performance boost is worth it.</remarks>
-        protected virtual void SyncInProgress(SyncRecord syncRecord)
+        protected virtual void SyncInProgress(SyncRecord syncRecord, string currentSourceId)
         {
             syncRecord = syncRecord ?? throw new ArgumentNullException(nameof(syncRecord));
+            syncRecord.CurrentSourceId = currentSourceId;
             syncRecord.State = SyncState.InProgress;
             LocalData.AddUpdate(syncRecord);
         }
 
         /// <summary>
-        /// Sets sync record to complete and updates the local source metric's information from the latest source metric, saving both
+        /// Finalizes sync record at end of processing, saving sync progress.
         /// </summary>
-        /// <param name="syncRecord">Sync record for the current source ID to be set to complete and then saved</param>
-        /// <param name="sourceMetric">Source metric data, latest source info about the asset</param>
-        /// <param name="localMetric">Local metric data to be updated and then saved</param>
+        /// <param name="syncRecord">Sync record</param>
         /// <remarks>Sync records are no longer saved immediately (outside of buffering) for performance reasons.  
         /// Even if we have to repeat processing on a few source IDs due to buffering the performance boost is worth it.</remarks>
-        protected virtual void SyncComplete(SyncRecord syncRecord, SourceMetric sourceMetric, SourceMetric localMetric)
+        protected virtual void SyncComplete(SyncRecord syncRecord)
         {
-            sourceMetric = sourceMetric ?? throw new ArgumentNullException(nameof(sourceMetric));
-            localMetric = localMetric ?? throw new ArgumentNullException(nameof(localMetric));
-            UpdateLocalMetric(sourceMetric, localMetric);
-            LocalData.AddUpdate(localMetric);
             syncRecord = syncRecord ?? throw new ArgumentNullException(nameof(syncRecord));
             syncRecord.LastSync = DateTime.UtcNow;
             syncRecord.CurrentSourceId = "";
@@ -897,12 +893,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
         }
 
         /// <summary>
-        /// Updates local metric using latest source metric information.  Consider calling <see cref="SyncComplete(SyncRecord, SourceMetric, SourceMetric)"/> instead of this method.
+        /// Updates local metric using latest source metric information.  Call at end of processing for current source ID.
         /// </summary>
         /// <param name="sourceMetric">Source metric data, latest source info about the asset</param>
         /// <param name="localMetric">Local metric data to be updated and then saved</param>
-        /// <remarks>This was originally designed to be called directly by source adapters, but now the preferred method is to use 
-        /// <see cref="SyncComplete(SyncRecord, SourceMetric, SourceMetric)"/> to reduce complexity and increase consistency in handling of sync records and local metrics.</remarks>
         protected virtual void UpdateLocalMetric(SourceMetric sourceMetric, SourceMetric localMetric)
         {
             if (localMetric == null)

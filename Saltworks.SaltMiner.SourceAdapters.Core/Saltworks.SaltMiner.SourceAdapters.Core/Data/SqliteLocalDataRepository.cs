@@ -73,10 +73,11 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
 
                     return AddUpdate(new SyncRecord()
                     {
+                        CurrentSourceId = "",
                         Instance = instance,
                         SourceType = sourceType,
                         State = SyncState.InProgress
-                    }, true);
+                    });
                 }
             }
             catch (Exception ex)
@@ -91,11 +92,16 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
             {
                 lock (DataContextLock)
                 {
-                    return DataContext.SyncRecords.FirstOrDefault(x => x.Instance == instance && x.SourceType == sourceType && x.State == SyncState.InProgress);
+                    var rec = DataContext.SyncRecords.FirstOrDefault(x => x.Instance == instance && x.SourceType == sourceType && x.State == SyncState.InProgress);
+                    if (rec != null && string.IsNullOrEmpty(rec.CurrentSourceId))
+                        throw new LocalDataException("In progress sync record found, but no CurrentSourceId was set.");
+                    return rec;
                 }
             }
             catch (Exception ex)
             {
+                if (ex is LocalDataException)
+                    throw;
                 throw new LocalDataException(ex.InnerException?.Message ?? ex.Message, ex);
             }
         }
@@ -261,6 +267,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
             SaveBatch<QueueScan>();  // scan should go last in case loading = false
             SaveBatch<SourceMetric>();
             SaveBatch<DataDict>();
+            SaveBatch<SyncRecord>();
             Logger.LogDebug("[LocalData] Save complete.");
         }
 

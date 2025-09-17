@@ -133,6 +133,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                     var sourceId = Application.GetSourceId(asset, grp.Key);
                     var localMetric = localMetrics.FirstOrDefault(x => x.SourceId == sourceId);
                     var reports = grp.Where(x => MapScanDate(x, false) > (localMetric?.LastScan ?? DateTime.MinValue)).ToList();
+                    if (reports.Count == 0)
+                        reports.Add(grp.First()); // must include latest report even if no reports are new
                     localMetric ??= reports[0].ToSourceMetric(asset, Config);
                     yield return new SonatypeWorkItem(asset, reports, localMetric);
                 }
@@ -209,7 +211,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                         localMetric.IsProcessed = true;
 
                         // Set sync record to show this source ID in progress
-                        SyncInProgress(syncRecord);
+                        SyncInProgress(syncRecord, sourceMetric.SourceId);
 
                         var appReports = wrk.NewReports;
                         var historyReports = appReports.Where(x => x != latestReport).ToList();
@@ -249,7 +251,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                         }
 
                         newLocalIssues += queueScan.Entity.Saltminer.Internal.IssueCount;
-                        SyncComplete(syncRecord, sourceMetric, localMetric);
+                        UpdateLocalMetric(sourceMetric, localMetric);
                         queueScan.Loading = false;
                         LocalData.AddUpdate(queueScan);
                         RecoveryMode = false;
@@ -302,7 +304,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                 ResetFailures(Config);
                 // This deletes any queuescans that hit that configurable failure count
                 DeleteFailures(Config);
-
+                SyncComplete(syncRecord);
                 LocalData.SaveAllBatches();
                 await Task.Delay(5000); // make sure send notices the final save
                 Logger.LogInformation("[Sync] Processing complete: SourceMetrics (Total: {Count})", totalSourceMetricsCount);
