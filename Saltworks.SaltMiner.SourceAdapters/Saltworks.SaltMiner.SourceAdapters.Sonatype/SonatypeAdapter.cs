@@ -100,26 +100,26 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 
             // API doesn't currently support paging, so have to get all applications in one call
             Logger.LogInformation($"[Get] Getting Applications...");
-            var assets = (await client.GetAppsAsync());
+            var apps = (await client.GetAllApplicationsAsync());
 
             if (sourceFilters.Length > 0)
             {
                 var filters = new HashSet<string>(sourceFilters);
-                assets.Applications = assets.Applications.Where(x => filters.Contains(x.Id) || filters.Contains(x.PublicId) || filters.Contains(x.Name)).ToList();
-                Logger.LogWarning("[Get] Filter file will limit the processing to only {Count} apps", assets.Applications.Count);
+                apps = apps.Where(x => filters.Contains(x.Id) || filters.Contains(x.PublicId) || filters.Contains(x.Name)).ToList();
+                Logger.LogWarning("[Get] Filter file will limit apps processed to a max of {Count}", filters.Count);
             }
             if (Config.TestingAssetLimit > 0)
             {
-                assets.Applications = assets.Applications.Take(Config.TestingAssetLimit).ToList();
+                apps = apps.Take(Config.TestingAssetLimit).ToList();
             }
 
-            var appTotal = assets.Applications.Count;
+            var appTotal = apps.Count();
             Logger.LogInformation("[Get] {AppTotal} applications", appTotal);
             var counter = 0;
 
             // We define asset as being application + stage.  Stage must be obtained from a report, so it's possible
-            // reports returned for a Sonatype application will end up being multiple assets.  Group by stage and process accordingly.
-            foreach (var asset in assets.Applications)
+            // reports returned for a Sonatype application will end up being multiple apps.  Group by stage and process accordingly.
+            foreach (var asset in apps)
             {
                 var reportGroups = (await client.GetReportsAsync(asset))
                     .OrderByDescending(x => x.EvaluationDate.ToUniversalTime())
@@ -130,17 +130,11 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 
                 foreach (var grp in reportGroups ?? [])
                 {
-                    var sourceId = MapSourceId(asset, grp.Key);
-                    var localMetric = localMetrics.FirstOrDefault(x => x.SourceId == sourceId) ?? new()
-                    {
-                        SourceId = sourceId,
-                        SourceType = Config.SourceType,
-                        LastScan = null,
-                        IsSaltminerSource = SonatypeConfig.IsSaltminerSource,
-                        VersionId = grp.Key, // Sonatype stage
-                        Attributes = []
-                    };
-                    yield return new SonatypeWorkItem(asset, grp.Where(x => MapScanDate(x, false) > (localMetric.LastScan ?? DateTime.MinValue)).ToList(), localMetric);
+                    var sourceId = Application.GetSourceId(asset, grp.Key);
+                    var localMetric = localMetrics.FirstOrDefault(x => x.SourceId == sourceId);
+                    var reports = grp.Where(x => MapScanDate(x, false) > (localMetric?.LastScan ?? DateTime.MinValue)).ToList();
+                    localMetric ??= reports[0].ToSourceMetric(asset, Config);
+                    yield return new SonatypeWorkItem(asset, reports, localMetric);
                 }
                 counter++;
                 if (counter % 100 == 0)
@@ -214,14 +208,13 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                         var localMetric = wrk.LocalMetric;  // created new if not found as part of GetAsync
                         localMetric.IsProcessed = true;
 
-                        syncRecord.CurrentSourceId = localMetric.SourceId;
-                        syncRecord.State = SyncState.InProgress;
-                        LocalData.AddUpdate(syncRecord, true);
+                        // Set sync record to show this source ID in progress
+                        SyncInProgress(syncRecord);
 
                         var appReports = wrk.NewReports;
                         var historyReports = appReports.Where(x => x != latestReport).ToList();
                         var application = wrk.Application;
-                        List<ComponentDto> components = null;
+                        List<Component> components = null;
                         components = (await client.GetAppReportComponentsAsync(application.PublicId, latestReport.ReportId)).ToList();
 
                         sourceMetric.IssueCount = GetTotalIssueCount(components);
@@ -234,10 +227,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                         // Bail out on this one if doesn't need update (and not force flag set)
                         if (!NeedsUpdate(sourceMetric, localMetric) && !ForceUpdate)
                         {
-                            Logger.LogInformation("[Sync] Source ID {Id} - no update needed, {Count} application/stages processed so far.", sourceMetric.SourceId, totalSourceMetricsCount);
+                            Logger.LogInformation("[Sync] App {App}, stage {Stage} - no update needed, {Count} application/stages processed so far.", application.Name, latestReport.Stage, totalSourceMetricsCount);
                             continue;
                         }
-                        Logger.LogInformation("[Sync] Processing Source ID {SourceId}, {RptCount} new report(s), {Count} application/stages processed so far.", sourceMetric.SourceId, historyReports.Count, totalSourceMetricsCount);
+                        Logger.LogInformation("[Sync] Processing app {App}, stage {Stage}, {RptCount} new report(s), {Count} application/stages processed so far.", application.Name, latestReport.Stage, historyReports.Count + 1, totalSourceMetricsCount);
 
                         var noScan = sourceMetric.LastScan == null;  // This shouldn't be possible since we require a report to build a source metric, but handle it anyway
                         QueueScan queueScan = MapScan(latestReport, components, noScan);
@@ -256,7 +249,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                         }
 
                         newLocalIssues += queueScan.Entity.Saltminer.Internal.IssueCount;
-                        UpdateLocalMetric(sourceMetric, localMetric);
+                        SyncComplete(syncRecord, sourceMetric, localMetric);
                         queueScan.Loading = false;
                         LocalData.AddUpdate(queueScan);
                         RecoveryMode = false;
@@ -286,12 +279,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                             }
                         }
                     }
-                    finally
-                    {
-                        StillLoading = false;
-                    }
-
-                    CheckCancel();
                 }
 
                 if (!Config.DisableRetire)
@@ -311,10 +298,11 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                     Logger.LogInformation("Asset retirement processing disabled by configuration, skipping.");
                 }
 
-                syncRecord.LastSync = (DateTime.UtcNow);
-                syncRecord.CurrentSourceId = null;
-                syncRecord.State = SyncState.Completed;
-                LocalData.AddUpdate(syncRecord, true);
+                // This allows us to track the failure on trying to load any queuescan and reset to load agin until a configureable failure count is hit
+                ResetFailures(Config);
+                // This deletes any queuescans that hit that configurable failure count
+                DeleteFailures(Config);
+
                 LocalData.SaveAllBatches();
                 await Task.Delay(5000); // make sure send notices the final save
                 Logger.LogInformation("[Sync] Processing complete: SourceMetrics (Total: {Count})", totalSourceMetricsCount);
@@ -331,10 +319,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             }
         }
 
-        private static string MapSourceId(ApplicationDto app, string stage) => $"{app.Id}|{stage}";
         private static DateTime MapScanDate(Report report, bool isNoScan) => isNoScan ? DateTime.UtcNow : report.EvaluationDate.ToUniversalTime();
 
-        private QueueScan MapScan(Report appReport, List<ComponentDto> components, bool noScan = false)
+        private QueueScan MapScan(Report appReport, List<Component> components, bool noScan = false)
         {
             var now = DateTime.UtcNow;
             var queueScan = new QueueScan
@@ -382,10 +369,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             return LocalData.AddUpdate(queueScan);
         }
 
-        private QueueAsset MapAsset(ApplicationDto application, OrganizationDto organization, Report appReport, QueueScan queueScan, bool isRetired = false)
+        private QueueAsset MapAsset(Application application, Organization organization, Report appReport, QueueScan queueScan, bool isRetired = false)
         {
             var stage = appReport?.Stage;
-            var sourceId = MapSourceId(application, stage);
+            var sourceId = Application.GetSourceId(application, stage);
             var queueAsset = new QueueAsset
             {
                 Entity = new()
@@ -406,7 +393,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                 { "organization", organization.Name },
                                 { "stage", stage }
                             },
-                            IsProduction = true,
+                            IsProduction = stage == Stages.Release,
                             Instance = Config.Instance,
                             IsSaltminerSource = SonatypeConfig.IsSaltminerSource,
                             SourceType = Config.SourceType,
@@ -424,8 +411,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             return result;
         }
 
-        private void MapIssues(ApplicationDto application, Report appReport, List<ComponentDto> components, QueueScan queueScan, QueueAsset queueAsset)
+        private void MapIssues(Application application, Report appReport, List<Component> components, QueueScan queueScan, QueueAsset queueAsset)
         {
+            CheckCancel();
             List<QueueIssue> queueIssues = [];
             if (queueScan.Entity.Saltminer.Internal.IssueCount == 0)
             {
@@ -507,7 +495,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             }
         }
 
-        private int GetTotalIssueCount(List<ComponentDto> components)
+        private int GetTotalIssueCount(List<Component> components)
         {
             int total = 0;
             if (Config.VulnerabilityImportTypes.Count > 0)
@@ -521,7 +509,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             return total;
         }
 
-        private static int GetIssueSeverityCount(string severity, List<ComponentDto> components)
+        private static int GetIssueSeverityCount(string severity, List<Component> components)
         {
             var issueCount = components?
                 .SelectMany(c => c?.Violations)
@@ -529,9 +517,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             return issueCount;
         }
     }
-    internal class SonatypeWorkItem(ApplicationDto app, List<Report> newReports, SourceMetric localMetric)
+    internal class SonatypeWorkItem(Application app, List<Report> newReports, SourceMetric localMetric)
     {
-        internal ApplicationDto Application { get; set; } = app;
+        internal Application Application { get; set; } = app;
         internal List<Report> NewReports { get; set; } = newReports;
         internal SourceMetric LocalMetric { get; set; } = localMetric;
     }

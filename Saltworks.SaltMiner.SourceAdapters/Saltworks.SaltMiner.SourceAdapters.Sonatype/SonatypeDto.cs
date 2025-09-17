@@ -9,7 +9,7 @@
  *
  * On the date above, in accordance with the Business Source License, use
  * of this software will be governed by version 2 or later of the General
- * internal License.
+ * Public License.
  *
  * ----
  */
@@ -21,56 +21,65 @@ using System.Linq;
 
 namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 {
-    internal class ApplicationCollectionDto
+    public class ApplicationCollection
     {
-        internal List<ApplicationDto> Applications { get; set; }
+        public List<Application> Applications { get; set; }
     }
 
-    internal class OrganizationCollectionDto
+    public class OrganizationCollection
     {
-        internal List<OrganizationDto> Organizations { get; set; }
+        public List<Organization> Organizations { get; set; }
     }
 
-    internal class OrganizationDto
+    public class OrganizationTag
     {
-        internal string Id { get; set; }
-        internal string Name { get; set; }
-        internal string ParentOrganizationId { get; set; }
-        internal string[] Tags { get; set; }
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public string Description { get; set; }
+        public string Color { get; set; }
     }
 
-    internal class ApplicationDto
+    public class Organization
     {
-        internal string Id { get; set; }
-        internal string PublicId { get; set; }
-        internal string Name { get; set; }
-        internal string OrganizationId { get; set; }
-        internal string ContactUserName { get; set; }
-        internal List<ApplicationTagsDto> ApplicationTags { get; set; }
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public string ParentOrganizationId { get; set; }
+        public List<OrganizationTag> Tags { get; set; }
     }
 
-    internal class ApplicationTagsDto
+    public class Application
     {
-        internal string Id { get; set; }
-        internal string TagId { get; set; }
-        internal string ApplicationId { get; set; }
+        public string Id { get; set; }
+        public string PublicId { get; set; }
+        public string Name { get; set; }
+        public string OrganizationId { get; set; }
+        public string ContactUserName { get; set; }
+        public List<ApplicationTags> ApplicationTags { get; set; }
+        internal static string GetSourceId(Application app, string stage) => $"{app.Id}|{stage}";
     }
 
-    internal class Report
+    public class ApplicationTags
     {
-        internal string Stage { get; set; }
-        internal DateTime EvaluationDate { get; set; }
-        internal string ReportHtmlUrl { get; set; }
-        internal string ReportId => GetReportId();
+        public string Id { get; set; }
+        public string TagId { get; set; }
+        public string ApplicationId { get; set; }
+    }
 
-        internal string GetReportId()
+    public class Report
+    {
+        public string Stage { get; set; }
+        public DateTime EvaluationDate { get; set; }
+        public string ReportHtmlUrl { get; set; }
+        public string ReportId => GetReportId();
+
+        public string GetReportId()
         {
-            var index = ReportHtmlUrl.IndexOf("report/") + 7;
-
-            return ReportHtmlUrl.Substring(index);
+            var find = "report/";
+            return ReportHtmlUrl[(ReportHtmlUrl.IndexOf(find) + find.Length)..];
         }
 
-        internal SourceMetric ToSourceMetric(ApplicationDto application, SonatypeConfig config)
+        internal string GetSourceId(Application app) => Application.GetSourceId(app, Stage);
+        internal SourceMetric ToSourceMetric(Application application, SonatypeConfig config)
         {
             return new SourceMetric
             {
@@ -78,132 +87,132 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                 Instance = config.Instance,
                 IsSaltminerSource = SonatypeConfig.IsSaltminerSource,
                 SourceType = config.SourceType,
-                SourceId = $"{application.Id}|{Stage}",
-                VersionId = string.Empty,
-                Attributes = new Dictionary<string, string>()
+                SourceId = GetSourceId(application),
+                VersionId = Stage,
+                Attributes = []
             };
         }
     }
 
-    internal class ComponentCollectionsDto
+    public class ComponentCollections
     {
-        internal List<ComponentDto> Components { get; set; }
+        public List<Component> Components { get; set; }
     }
 
-    internal class ComponentDto
+    public class Component
     {
-        internal string PackageUrl { get; set; }
-        internal string Hash { get; set; }
-        internal ComponentIdentifierDto ComponentIdentifier { get; set; }
-        internal string DisplayName { get; set; }
-        internal bool Proprietary { get; set; }
-        internal string MatchState { get; set; }
-        internal List<string> Pathnames { get; set; }
-        internal SecurityDataDto SecurityData { get; set; }
-        internal List<ViolationDto> Violations { get; set; }
+        public string PackageUrl { get; set; }
+        public string Hash { get; set; }
+        public ComponentIdentifier ComponentIdentifier { get; set; }
+        public string DisplayName { get; set; }
+        public bool Proprietary { get; set; }
+        public string MatchState { get; set; }
+        public List<string> Pathnames { get; set; }
+        public SecurityData SecurityData { get; set; }
+        public List<Violation> Violations { get; set; }
     }
 
-    internal class SecurityDataDto
+    public class SecurityData
     {
-        internal List<IssueDto> SecurityIssues { get; set; }
+        public List<Issue> SecurityIssues { get; set; }
     }
 
-    internal class ViolationDto
+    public class Violation
     {
-        internal string PolicyId { get; set; }
-        internal string PolicyName { get; set; }
-        internal string PolicyThreatCategory { get; set; }
-        internal int PolicyThreatLevel { get; set; }
-        internal string PolicyViolationId { get; set; }
-        internal bool Waived { get; set; }
-        internal bool WaivedWithAutoWaiver { get; set; }
-        internal bool Grandfathered { get; set; }
-        internal List<ConstraintDto> Constraints { get; set; }
-        internal string CompositeId => $"{PolicyId}~{PolicyName}~{PolicyThreatCategory}~{PolicyViolationId}";
-        internal string GetViolationName()
+        public string PolicyId { get; set; }
+        public string PolicyName { get; set; }
+        public string PolicyThreatCategory { get; set; }
+        public int PolicyThreatLevel { get; set; }
+        public string PolicyViolationId { get; set; }
+        public bool Waived { get; set; }
+        public bool WaivedWithAutoWaiver { get; set; }
+        public bool Grandfathered { get; set; }
+        public List<Constraint> Constraints { get; set; }
+        public string CompositeId => $"{PolicyId}~{PolicyName}~{PolicyThreatCategory}~{PolicyViolationId}";
+        public string GetViolationName()
         {
             if ((Constraints?.Count ?? 0) == 0)
                 return "Unknown";
             if (Constraints.Count > 1)
                 return string.Join(',', Constraints.Select(x => x.ConstraintName));
-            var c = Constraints.First();
+            var c = Constraints[0];
             if ((c.Conditions?.Count ?? 0) == 0)
                 return c.ConstraintName;
             if (c.Conditions.Count > 1)
                 return c.ConstraintName;
-            return c.Conditions.First().ConditionReason;
+            return c.Conditions[0].ConditionReason;
         }
     }
 
-    internal class ConstraintDto
+    public class Constraint
     {
-        internal string ConstraintId { get; set; }
-        internal string ConstraintName { get; set; }
-        internal List<ConditionDto> Conditions { get; set; }
+        public string ConstraintId { get; set; }
+        public string ConstraintName { get; set; }
+        public List<Condition> Conditions { get; set; }
     }
 
-    internal class ConditionDto
+    public class Condition
     {
-        internal string ConditionSummary { get; set; }
-        internal string ConditionReason { get; set; }
+        public string ConditionSummary { get; set; }
+        public string ConditionReason { get; set; }
     }
 
-    internal class ComponentIdentifierDto
+    public class ComponentIdentifier
     {
-        internal string Format { get; set; }
-        internal ComponentIdentifierCoordinatesDto Coordinates { get; set; }
+        public string Format { get; set; }
+        public ComponentIdentifierCoordinates Coordinates { get; set; }
     }
 
-    internal class ComponentIdentifierCoordinatesDto
+    public class ComponentIdentifierCoordinates
     {
-        internal string ArtifactId { get; set; }
-        internal string Classifier { get; set; }
-        internal string Extension { get; set; }
-        internal string GroupId { get; set; }
-        internal string Version { get; set; }
+        public string ArtifactId { get; set; }
+        public string Classifier { get; set; }
+        public string Extension { get; set; }
+        public string GroupId { get; set; }
+        public string Version { get; set; }
     }
 
-    internal class IssueDto
+    public class Issue
     {
-        internal string Source { get; set; }
-        internal string Reference { get; set; }
-        internal double Severity { get; set; }
-        internal string Status { get; set; }
-        internal string Url { get; set; }
-        internal string ThreatCategory { get; set; }
+        public string Source { get; set; }
+        public string Reference { get; set; }
+        public double Severity { get; set; }
+        public string Status { get; set; }
+        public string Url { get; set; }
+        public string ThreatCategory { get; set; }
     }
 
-    internal static class StagesDto
+    public class ExtraIssueData
     {
-        internal const string Build = "build";
-        internal const string Release = "release";
-        internal const string StageRelease = "stage-release";
-        internal const string Operate = "operate";
+        public string PolicyId { get; set; }
+        public int PolicyThreatLevel { get; set; }
+        public bool Waived { get; set; }
+        public bool Grandfathered { get; set; }
+        public List<Constraint> Constraints { get; set; }
+        public string Hash { get; set; }
+        public ComponentIdentifier ComponentIdentifier { get; set; }
+        public string DisplayName { get; set; }
+        public bool Proprietary { get; set; }
+        public string MatchState { get; set; }
+        public List<string> Pathnames { get; set; }
+        public SecurityData SecurityData { get; set; }
     }
 
-    internal class ExtraIssueDataDto
+    public class ExtraAssetData
     {
-        internal string PolicyId { get; set; }
-        internal int PolicyThreatLevel { get; set; }
-        internal bool Waived { get; set; }
-        internal bool Grandfathered { get; set; }
-        internal List<ConstraintDto> Constraints { get; set; }
-        internal string Hash { get; set; }
-        internal ComponentIdentifierDto ComponentIdentifier { get; set; }
-        internal string DisplayName { get; set; }
-        internal bool Proprietary { get; set; }
-        internal string MatchState { get; set; }
-        internal List<string> Pathnames { get; set; }
-        internal SecurityDataDto SecurityData { get; set; }
+        public List<ApplicationTags> ApplicationTags { get; set; }
     }
 
-    internal class ExtraAssetDataDto
+    public class ExtraScanData
     {
-        internal List<ApplicationTagsDto> ApplicationTags { get; set; }
+        public string ContactUserName { get; set; }
     }
 
-    internal class ExtraScanDataDto
+    public static class Stages
     {
-        internal string ContactUserName { get; set; }
+        public const string Build = "build";
+        public const string Release = "release";
+        public const string StageRelease = "stage-release";
+        public const string Operate = "operate";
     }
 }

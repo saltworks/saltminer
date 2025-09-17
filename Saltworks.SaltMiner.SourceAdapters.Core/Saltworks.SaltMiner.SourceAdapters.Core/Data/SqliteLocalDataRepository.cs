@@ -322,7 +322,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
                 {
                     // suppress the inner exception, avoid filling the log from one error message
                     #pragma warning disable S6667 // Logging in a catch clause should pass the caught exception as a parameter, but we want to suppress the inner exception here.
-                    Logger.LogError("During data context save operation, {ExName} was thrown.  Inner exception will be suppressed to protect logging overflow.", nameof(DbUpdateConcurrencyException));
+                    if (ex.InnerException != null)
+                        Logger.LogError("During data context save operation, {ExName} was thrown.  Inner exception will be suppressed to protect logging overflow.", nameof(DbUpdateConcurrencyException));
                     #pragma warning restore S6667 // Logging in a catch clause should pass the caught exception as a parameter.
                     throw new LocalDataConcurrencyException(ex.Message);
                 }

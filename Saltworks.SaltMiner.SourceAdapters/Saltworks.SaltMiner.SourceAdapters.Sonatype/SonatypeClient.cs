@@ -27,7 +27,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
     internal class SonatypeClient : SourceClient
     {
         private readonly SonatypeConfig Config;
-        private List<OrganizationDto> Organizations { get; set; } = [];
+        private List<Organization> Organizations { get; set; } = [];
         internal SonatypeClient(ApiClient client, SonatypeConfig config, ILogger logger) : base(client, logger)
         {
             Config = config;
@@ -89,28 +89,34 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             return r;
         }
 
-        internal async Task<ApplicationCollectionDto> GetAppsAsync()
+        internal async Task<IEnumerable<Application>> GetAllApplicationsAsync()
         {
-            var result = await RequestAsync<ApplicationCollectionDto>("applications");
-            if (Config.TestingAssetLimit > 0)
-                result.Content.Applications = result.Content.Applications.Take(Config.TestingAssetLimit).ToList();
-            return result.Content;
+            var result = await RequestAsync<ApplicationCollection>("applications");
+            if ((result?.Content?.Applications?.Count ?? 0) == 0)
+            {
+                Logger.LogWarning("No applications found for configured Sonatype instance.");
+                return [];
+            }
+            return result.Content.Applications;
         }
 
-        internal async Task<IEnumerable<ComponentDto>> GetAppReportComponentsAsync(string appId, string reportId)
+        internal async Task<IEnumerable<Component>> GetAppReportComponentsAsync(string appId, string reportId)
         {
-            return (await RequestAsync<ComponentCollectionsDto>($"applications/{appId}/reports/{reportId}/policy")).Content.Components;
+            return (await RequestAsync<ComponentCollections>($"applications/{appId}/reports/{reportId}/policy")).Content.Components;
         }
 
-        internal async Task<OrganizationDto> GetOrganizationByOrgIdAsync(string orgId)
+        internal async Task<Organization> GetOrganizationByOrgIdAsync(string orgId)
         {
             // Total organizations shouldn't be huge, so cache them to avoid an API call for org info with each application processed
             if (Organizations.Count == 0)
-                Organizations = (await RequestAsync<OrganizationCollectionDto>($"organizations")).Content.Organizations;
+            {
+                var result = await RequestAsync<OrganizationCollection>($"organizations");
+                Organizations = result.Content.Organizations;
+            }
             return Organizations.FirstOrDefault(x => x.Id == orgId);
         }
 
-        internal async Task<IEnumerable<Report>> GetReportsAsync(ApplicationDto app)
+        internal async Task<IEnumerable<Report>> GetReportsAsync(Application app)
         {
             return (await RequestAsync<IEnumerable<Report>>($"reports/applications/{app.Id}")).Content;            
         }
