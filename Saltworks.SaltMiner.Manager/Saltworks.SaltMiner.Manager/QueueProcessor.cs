@@ -85,6 +85,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                     drawDownNope = true;
                     nopeCount = 200;
                     Logger.LogWarning("[Q-Get] Too many collisions detected, skipping forward up to {Count} queue scans", nopeCount);
+                    DataClient.RefreshIndex(QueueScan.GenerateIndex());
+                    await Task.Delay(3000);
                 }
                 if (nopeCount == 0)
                     drawDownNope = false;
