@@ -105,6 +105,21 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
             await Task.Delay(1, token); // keep it async so children can have it that way
         }
 
+        /// <summary>
+        /// Return a DateTime that has the appropriate timezone set for this source adapter.
+        /// </summary>
+        /// <param name="dateTime">DateTime to be adjusted</param>
+        /// <remarks></remarks>
+        protected virtual DateTime? FixTimezone(DateTime? dateTime)
+        {
+            if (!dateTime.HasValue)
+                return null;
+            var dt = dateTime.Value;
+            if (dt.Kind == DateTimeKind.Unspecified)
+                dt = DateTime.SpecifyKind(dt, Config.DateTimeZoneIsUtc ? DateTimeKind.Utc : DateTimeKind.Local);
+            return dt.ToUniversalTime();
+        }
+
         protected virtual string GetZeroScannerId(string source, string sourceId) => $"{source}|{sourceId}|zero";
         protected virtual string GetNoScanReportId(string assessmentType) => $"noscan|{assessmentType}";
 

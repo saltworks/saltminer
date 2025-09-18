@@ -41,6 +41,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
         public int SyncHoldForSendThreshold { get; set; } = 400;
         public int SyncResumeWhenSendThreshold { get; set; } = 50;
         public int TestingAssetLimit { get; set; } = 0;
+        public bool DateTimeZoneIsUtc { get; set; } = true;
         /// <summary>
         /// The number of metrics to pull in a batch from the server when running the "first load" feature
         /// </summary>

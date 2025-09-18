@@ -122,7 +122,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             foreach (var asset in apps)
             {
                 var reportGroups = (await client.GetReportsAsync(asset))
-                    .OrderByDescending(x => x.EvaluationDate.ToUniversalTime())
+                    .OrderByDescending(x => x.EvaluationDate)
                     .GroupBy(x => x.Stage);
 
                 if (reportGroups == null || !reportGroups.Any())
@@ -321,7 +321,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             }
         }
 
-        private static DateTime MapScanDate(Report report, bool isNoScan) => isNoScan ? DateTime.UtcNow : report.EvaluationDate.ToUniversalTime();
+        private DateTime? MapScanDate(Report report, bool isNoScan) => isNoScan ? DateTime.UtcNow : FixTimezone(report.EvaluationDate);
 
         private QueueScan MapScan(Report appReport, List<Component> components, bool noScan = false)
         {
@@ -339,7 +339,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                             AssessmentType = AssessmentType.Open.ToString("g"),
                             Product = "Lifecycle",
                             ReportId = noScan ? GetNoScanReportId(AssessmentType.Open.ToString("g")) : appReport?.ReportId,
-                            ScanDate = MapScanDate(appReport, noScan),
+                            ScanDate = MapScanDate(appReport, noScan).Value,
                             ProductType = "Open",
                             Vendor = "Sonatype",
                             AssetType = AssetType,
@@ -445,7 +445,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                        Audited = true,
                                    },
                                    Category = [ "Application" ],
-                                   FoundDate = appReport.EvaluationDate.ToUniversalTime(),
+                                   FoundDate = FixTimezone(appReport.EvaluationDate).Value,
                                    LocationFull = location,
                                    Location = location,
                                    Name = violation.GetViolationName(),
