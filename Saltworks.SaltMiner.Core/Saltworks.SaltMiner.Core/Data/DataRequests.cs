@@ -108,10 +108,16 @@ namespace Saltworks.SaltMiner.Core.Data
         /// </summary>
         public Filter SubFilter { get; set; }
 
+        public void RemoveFilterMatchByField(string field)
+        {
+            if (FilterMatches.TryGetValue(field, out _))
+                FilterMatches.Remove(field);
+        }
+
 
         public void AddSimpleFilterMatch(string field, string value, bool exceptionOnTryFail = false)
         {
-            var didIt = FilterMatches.TryAdd(field, value);
+            FilterMatches.TryAdd(field, value);
         }
 
         public void AddDateRangeFilterMatch(string field, DateTime greaterThanOrEqual, DateTime lessThan, bool exceptionOnTryFail = false)

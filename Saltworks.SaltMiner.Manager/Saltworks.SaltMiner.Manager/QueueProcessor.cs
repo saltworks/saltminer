@@ -1313,7 +1313,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         // Use: If issue count is less than the issue batching number, get all instead of filtering a range.
         if (!nulls[0] && nulls[1])
         {
-            request.Filter = new();
+            request.Filter.RemoveFilterMatchByField("Vulnerability.Scanner.Id");
             request.Filter.AddGreaterThanFilterMatch("Vulnerability.Scanner.Id", firstScannerId);
         }
 
