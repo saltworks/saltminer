@@ -210,7 +210,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 break;
             }
             prevCount = QueueControl.TotalCount;
-            prevFirst = queueScans.Data.First().Id;
+            prevFirst = first?.Id;
 
             Logger.LogInformation("[Q-Get] {Count} pending queue scans found in current batch.", QueueControl.TotalCount);
 
