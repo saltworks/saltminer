@@ -89,7 +89,7 @@ namespace Saltworks.SaltMiner.DataApi.Data
 
         public DataResponse<T> Search<T>(string index, SearchRequest request) where T : SaltMinerEntity
         {
-            Logger.LogDebug("Search with {request} on index '{index}' initiated.", JsonSerializer.Serialize(request), index ?? "(not passed)");
+            Logger.LogDebug("Search with {Request} on index '{Index}' initiated.", JsonSerializer.Serialize(request), index ?? "(not passed)");
             request.PagingInfo ??= new();
             
             if (request.PagingInfo.Size < 1)
@@ -99,7 +99,7 @@ namespace Saltworks.SaltMiner.DataApi.Data
                 Logger.LogDebug("Search debug messages may be missing information - set ElasticEnableDiagnosticInfo to populate them.");
 
             var result = ElasticClient.Search<T>(index, request);
-            Logger.LogDebug("Search with {filter} on index '{index}' complete.", JsonSerializer.Serialize(request.Filter), index ?? "(not passed)");
+            Logger.LogDebug("Search with {Filter} on index '{Index}' complete.", JsonSerializer.Serialize(request.Filter), index ?? "(not passed)");
 
             return result.ToDataResponse();
         }
