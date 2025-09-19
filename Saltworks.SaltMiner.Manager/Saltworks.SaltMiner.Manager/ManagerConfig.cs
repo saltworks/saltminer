@@ -17,7 +17,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Saltworks.SaltMiner.Core.Common;
 using Saltworks.SaltMiner.Core.Entities;
-using System.Collections.Generic;
 
 namespace Saltworks.SaltMiner.Manager
 {
@@ -65,7 +64,6 @@ namespace Saltworks.SaltMiner.Manager
         public int CleanupProcessorMaxTaskCount { get; set; } = 200;
         public int CleanupProcessorMaxOrphanSearch { get; set; } = 500000;
         public string[] CleanupProcessorDisableForStatus { get; set; } = [ QueueScan.QueueScanStatus.Loading.ToString("g") ];
-        public int IssueProcessingBatchSize { get; set; } = 500;
         public string WebUiBaseUrl { get; set; }
         public bool ProcessNoScan { get; set; } = true;
         public string IssuesActiveIndexTemplate { get; set; } = "issues_[assetType]_[sourceType]_[instance]";

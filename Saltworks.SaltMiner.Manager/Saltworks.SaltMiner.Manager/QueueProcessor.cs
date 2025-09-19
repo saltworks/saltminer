@@ -103,6 +103,11 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                         Logger.LogInformation("[Q-Get] Process queue is not running, stopping Get.");
                         break;
                     }
+                    if (QueueControl.ProcessQueue.Any(x => x.Id == qscan.Id))
+                    {
+                        Logger.LogDebug("[Q-Get] Skipping duplicate queue scan ID {Id}.", qscan.Id);
+                        continue;
+                    }
                     QueueControl.CurrentSourceType = qscan.Saltminer.Scan.SourceType;
                     if (!await UpdateStatusAsync(qscan, QueueScan.QueueScanStatus.Pending, QueueScan.QueueScanStatus.Processing, EngagementStatus.Processing, false))
                     {
@@ -123,7 +128,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogError(ex, "[Q-Get] Error updating status or queueing next pending scan (ID '{Id}'): [{Type}] {Msg}", qscan.Id, ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
+                    Logger.LogError(ex, "[Q-Get] Error updating status or queuing next pending scan (ID '{Id}'): [{Type}] {Msg}", qscan.Id, ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
                     QueueControl.ProcessQueue.Enqueue(null);
                 }
                 while (QueueControl.ProcessQueue.Count >= QueueControl.PreloadCount && QueueControl.ProcessStillRunning)
@@ -171,6 +176,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         queueScanSearch.Filter.AddMustNotExistsFilterMatch("Saltminer.Internal.CurrentQueueScanId");
 
         var breakOut = false;
+        var prevCount = 0;
+        var prevFirst = "";
         while (!breakOut)
         {
             // If needed, add subfilter to exclude sources from the sources removed list
@@ -194,6 +201,17 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 break;
             }
             QueueControl.TotalCount = Convert.ToInt32(queueScans.PagingInfo.TotalHits ?? 0);
+
+            // Break if found the same result set as last time
+            var first = queueScans.Data.FirstOrDefault();
+            if (QueueControl.TotalCount == prevCount && first?.Id == prevFirst)
+            {
+                Logger.LogDebug("[Q-Get] Found same set of {Count} pending queue scans as last query.", QueueControl.TotalCount);
+                break;
+            }
+            prevCount = QueueControl.TotalCount;
+            prevFirst = queueScans.Data.First().Id;
+
             Logger.LogInformation("[Q-Get] {Count} pending queue scans found in current batch.", QueueControl.TotalCount);
 
             var alone = false;
@@ -213,7 +231,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             var processedOne = false;
             foreach (var qs in queueScans.Data)
             {
-                const string message = "[Q-Get] Processed {Count}/{Total} in batch, source '{SourceType}', instance '{Instance}', report ID '{ReportId}', queue scan ID '{QueueScanId}'";
+                const string message = "[Q-Get] Processed {Count}/{Total} in batch, {SourceType}.{Instance}, report ID '{ReportId}', queue scan ID '{QueueScanId}'";
                 // don't process sources removed because of too many errors
                 if (QueueControl.SourcesRemoved.Contains(qs.Saltminer.Scan.SourceType))
                 {
@@ -694,7 +712,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     }
 
     /// <summary>
-    /// Write data updates for Scan and Issues for the given queue entities
+    /// Write data updates for Scan and Asset for the given queue entities
     /// Called by <see cref="ProcessQueueScan(QueueScan)"/>
     /// </summary>
     private Tuple<Scan, Asset> ProcessScan(QueueScan queueScan, QueueAsset queueAsset, bool isNoScan = false)
@@ -867,9 +885,9 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         // delete existing issues so that all incoming queue issues will be loaded in place of
         if (queueScan.Saltminer.Internal.ReplaceIssues)
         {
-            var qAsset = queueAsset.Saltminer.Asset;
-            var qScan = queueScan.Saltminer.Scan;
-            DataClient.IssuesDeleteBySourceId(qAsset.SourceId, qScan.AssetType, qAsset.SourceType, qAsset.Instance, qScan.AssessmentType);
+            var qAssetInfo = queueAsset.Saltminer.Asset;
+            var qScanInfo = queueScan.Saltminer.Scan;
+            DataClient.IssuesDeleteBySourceId(qAssetInfo.SourceId, qScanInfo.AssetType, qAssetInfo.SourceType, qAssetInfo.Instance, qScanInfo.AssessmentType);
             getExistingIssues = false;
         }
         if (queueScan.Saltminer.Scan.AssessmentType == AssessmentType.Pen.ToString("g"))
@@ -877,59 +895,32 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             getExistingIssues = false;
         }
 
-        var queueScanIssuesResponse = GetQueueScanIssues(queueScan.Id);
-        var queueScanIssues = queueScanIssuesResponse.Data;
-        var lastQueueScanIssue = queueScanIssues.LastOrDefault();
-        var queueIssueCount = DataClient.QueueIssueCountByScan(queueScan.Id).Affected;
-
-        // "Temp" handling of multiple issues -> zero record use case
-        // Regular code could be tested to handle this scenario without this shortcut
-        if (queueIssueCount == 1 && queueScanIssues.First().Vulnerability.Severity == Severity.Zero.ToString("g") && getExistingIssues)
-        {
-            Logger.LogInformation("Zero record found, marking any existing issues as removed.");
-            var zeroIssue = queueScanIssues.First();
-            var zWritten = false;
-
-            // Design decision: assume that getting to zero issues only happens from a relatively small number (get all issues to remove)
-            foreach (var issue in GetExistingIssues(queueScan.Saltminer.Scan.AssetType, queueScan.Saltminer.Scan.SourceType, queueAsset.Saltminer.Asset.SourceId, queueScan.Saltminer.Scan.AssessmentType))
-            {
-                // Only drop/update issues related to this zero by assessment type unless flag set to consider all issues at once
-                if (issue.Vulnerability.Severity == Severity.Zero.ToString("g"))
-                {
-                    UpdateIssue(scan, zeroIssue, issue);
-                    zWritten = true;
-                }
-                else
-                {
-                    RemoveIssue(issue, scan.Saltminer.Scan.ScanDate);
-                }
-            }
-
-            if (!zWritten)
-            {
-                UpdateIssue(scan, queueScanIssues.First(), null);
-            }
-
-            WriteIssue();
-
-            queueScanIssues = []; // skip the upcoming while block
-        }
-
         var firstBatch = true;
-        var myType = queueScanIssues.FirstOrDefault()?.Vulnerability.Scanner.AssessmentType;
-        while (queueScanIssues.Any())
+        var myType = "?";
+        foreach (var batchCarrier in QueueScanIssueBatchGenerator(queueScan.Id))
         {
-            Logger.LogDebug("{Count} Queue Issues found in this batch", queueScanIssues.Count());
+            var queueScanIssues = batchCarrier.Value;
+            var queueIssueCount = batchCarrier.TotalHits ?? -1;
+            if (firstBatch)
+                myType = queueScanIssues.FirstOrDefault()?.Vulnerability.Scanner.AssessmentType;
+            
+            Logger.LogDebug("Processing {Count}/{Total} queue issues", queueScanIssues.Count(), batchCarrier.TotalHits);
+
+            // Zero record use case
+            if (queueIssueCount == 1 && queueScanIssues.First().Vulnerability.Severity == Severity.Zero.ToString("g") && getExistingIssues)
+            {
+                ProcessZeroIssue(queueScanIssues.First(), queueScan, queueAsset, scan);
+                break;
+
+            }
 
             var validationErrors = CheckForValidationErrors(queueScan, queueIssueCount, queueScanIssues);
-
             if (validationErrors.Count > 0)
             {
                 foreach (var ve in validationErrors.Take(5))
                 {
                     Logger.LogWarning("Validation error for an issue in queue scan {ScanId}: {Msg}", queueScan.Id, ve.ErrorMessage);
                 }
-
                 throw new ManagerValidationException($"{validationErrors.Count} validation error(s) were thrown for the issues in queue scan ID '{queueScan.Id}'.  Up to 5 were logged.");
             }
 
@@ -940,20 +931,23 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             }
 
             IEnumerable<Issue> existingScanIssues = null;
+            var qFirstIssueId = queueScanIssues.Min(x => x.Vulnerability.Scanner.Id);
+            var qLastIssueId = queueScanIssues.Max(x => x.Vulnerability.Scanner.Id);
+            var lastBatch = queueScanIssues.Count() < Config.QueueProcessorIssueBatchSize && !firstBatch;
             // Design decision (hotfix-3.0.0.6394): don't add assessment type to existing issues query (more complex), but check assessment type for update / delete if flag set on each issue (possibly poorer performance)
             // Check to see if it is the first batch of issues. If it is not, then it is at the end of all the batches and you get >= the first scanner id
             if (getExistingIssues)
             {
-                if (queueScanIssues.Count() < Config.QueueProcessorIssueBatchSize && !firstBatch)
+                if (lastBatch)
                 {
-                    existingScanIssues = GetExistingIssues(queueScan.Saltminer.Scan.AssetType, queueScan.Saltminer.Scan.SourceType, queueAsset.Saltminer.Asset.SourceId, queueScan.Saltminer.Scan.AssessmentType, queueScanIssues.First().Vulnerability.Scanner.Id, null);
+                    existingScanIssues = GetExistingIssues(queueScan.Saltminer.Scan.AssetType, queueScan.Saltminer.Scan.SourceType, queueAsset.Saltminer.Asset.SourceId, queueScan.Saltminer.Scan.AssessmentType, qFirstIssueId, null);
                 }
                 else
                 {
                     // if it is first batch and issues less than batch size, it is the only batch to be processed
                     // with it being only batch, do not filter when getting existing issues. GetPendingQueueScans everything (which may include previous zero issues that need to be removed)
-                    bool onlyBatch = (queueScanIssues.Count() < Config.QueueProcessorIssueBatchSize && firstBatch);
-                    existingScanIssues = GetExistingIssues(queueScan.Saltminer.Scan.AssetType, queueScan.Saltminer.Scan.SourceType, queueAsset.Saltminer.Asset.SourceId, queueScan.Saltminer.Scan.AssessmentType, queueScanIssues.First().Vulnerability.Scanner.Id, lastQueueScanIssue.Vulnerability.Scanner.Id, firstBatch, onlyBatch);
+                    var onlyBatch = (queueScanIssues.Count() < Config.QueueProcessorIssueBatchSize && firstBatch);
+                    existingScanIssues = GetExistingIssues(queueScan.Saltminer.Scan.AssetType, queueScan.Saltminer.Scan.SourceType, queueAsset.Saltminer.Asset.SourceId, queueScan.Saltminer.Scan.AssessmentType, qFirstIssueId, qLastIssueId, firstBatch, onlyBatch);
                 }
             }
 
@@ -979,13 +973,15 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
 
                     DataClient.RefreshIndex(Issue.GenerateIndex(queueScan.Saltminer.Scan.AssetType, queueScan.Saltminer.Scan.SourceType, queueScan.Saltminer.Scan.Instance));
 
-                    if (queueScanIssues.Count() < Config.QueueProcessorIssueBatchSize && !firstBatch)
+                    // Reload existing issues after removing duplicates
+                    if (lastBatch)
                     {
-                        existingScanIssues = GetExistingIssues(queueScan.Saltminer.Scan.AssetType, queueScan.Saltminer.Scan.SourceType, queueAsset.Saltminer.Asset.SourceId, queueScan.Saltminer.Scan.AssessmentType, queueScanIssues.First().Vulnerability.Scanner.Id, null);
+                        existingScanIssues = GetExistingIssues(queueScan.Saltminer.Scan.AssetType, queueScan.Saltminer.Scan.SourceType, queueAsset.Saltminer.Asset.SourceId, queueScan.Saltminer.Scan.AssessmentType, qFirstIssueId, null);
                     }
                     else
                     {
-                        existingScanIssues = GetExistingIssues(queueScan.Saltminer.Scan.AssetType, queueScan.Saltminer.Scan.SourceType, queueAsset.Saltminer.Asset.SourceId, queueScan.Saltminer.Scan.AssessmentType, queueScanIssues.First().Vulnerability.Scanner.Id, lastQueueScanIssue.Vulnerability.Scanner.Id, firstBatch);
+                        var onlyBatch = (queueScanIssues.Count() < Config.QueueProcessorIssueBatchSize && firstBatch);
+                        existingScanIssues = GetExistingIssues(queueScan.Saltminer.Scan.AssetType, queueScan.Saltminer.Scan.SourceType, queueAsset.Saltminer.Asset.SourceId, queueScan.Saltminer.Scan.AssessmentType, qFirstIssueId, qLastIssueId, firstBatch, onlyBatch);
                     }
                 }
             }
@@ -1050,12 +1046,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             }
 
             WriteIssue();
-
-            queueScanIssuesResponse = GetQueueScanIssues(queueScan.Id, queueScanIssuesResponse.PagingInfo);
             firstBatch = false;
-            queueScanIssues = queueScanIssuesResponse.Data;
-            lastQueueScanIssue = queueScanIssues.LastOrDefault();
-            queueScanIssues = queueScanIssues.Take(Config.QueueProcessorIssueBatchSize);
         }
 
         counter.SetCounts(scan.Saltminer);
@@ -1064,6 +1055,34 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         DataClient.AssetAddUpdate(asset);
 
         Logger.LogInformation("Imported {Total} issue(s) for scan '{ReportId}'", counter.Total, scan.Saltminer.Scan.ReportId);
+    }
+
+    private void ProcessZeroIssue(QueueIssue zeroIssue, QueueScan queueScan, QueueAsset queueAsset, Scan scan)
+    {
+        Logger.LogInformation("Zero record found, marking any existing issues as removed.");
+        var zWritten = false;
+
+        // Design decision: assume that getting to zero issues only happens from a relatively small number (get all issues to remove)
+        foreach (var issue in GetExistingIssues(queueScan.Saltminer.Scan.AssetType, queueScan.Saltminer.Scan.SourceType, queueAsset.Saltminer.Asset.SourceId, queueScan.Saltminer.Scan.AssessmentType))
+        {
+            // Only drop/update issues related to this zero by assessment type unless flag set to consider all issues at once
+            if (issue.Vulnerability.Severity == Severity.Zero.ToString("g"))
+            {
+                UpdateIssue(scan, zeroIssue, issue);
+                zWritten = true;
+            }
+            else
+            {
+                RemoveIssue(issue, scan.Saltminer.Scan.ScanDate);
+            }
+        }
+
+        if (!zWritten)
+        {
+            UpdateIssue(scan, zeroIssue, null);
+        }
+
+        WriteIssue();
     }
 
     private void RetireAsset(QueueAsset queueAsset)
@@ -1090,7 +1109,6 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         {
             asset.Saltminer.Asset.IsRetired = true;
 
-            // TODO: resolve inventory key
             DataClient.AssetAddUpdate(asset);
 
             // Retire associated asset issues
@@ -1160,18 +1178,33 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     /// <summary>
     /// Gets all queue issues for a queue scan ID
     /// </summary>
-    private DataResponse<QueueIssue> GetQueueScanIssues(string queueScanId, PagingInfo paging = null)
+    private IEnumerable<EnumerableCarrier<IEnumerable<QueueIssue>>> QueueScanIssueBatchGenerator(string queueScanId)
     {
-        var queueIssueRequest = new SearchRequest("Saltminer.QueueScanId", queueScanId)
+        var queueIssueRequest = new SearchRequest("Saltminer.QueueScanId", queueScanId, Config.QueueProcessorIssueBatchSize)
         {
-            PagingInfo = paging?.NextPage() ?? new(Config.QueueProcessorIssueBatchSize),
             SortKeys = new Dictionary<string, bool>
             {
                 { "Vulnerability.Scanner.Id", true }
             }
         };
-
-        return DataClient.QueueIssueSearch(queueIssueRequest);
+        queueIssueRequest.PagingInfo.TotalHitsCanBeTruncated = false;
+        long totalHits = 0;
+        while (true)
+        {
+            var rsp = DataClient.QueueIssueSearch(queueIssueRequest);
+            if (totalHits == 0)
+            {
+                // only want to run the count query once if over 10k results
+                totalHits = rsp.PagingInfo.TotalHits ?? -1;
+                queueIssueRequest.PagingInfo.TotalHitsCanBeTruncated = true;
+            }
+            if (!rsp.Success)
+                throw new ManagerException($"Failed to pull queue scan issues for ID {queueScanId}");
+            if (!rsp.Data.Any())
+                break;
+            yield return new(rsp.Data, totalHits);
+            queueIssueRequest.PagingInfo = rsp.PagingInfo.NextPage();
+        }
     }
 
     /// <summary>
@@ -1254,14 +1287,15 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             {
                 { "Vulnerability.Scanner.Id", true }
             },
-            PagingInfo = new(Config.IssueProcessingBatchSize + (Config.IssueProcessingBatchSize / 2))
+            PagingInfo = new(Config.QueueProcessorIssueBatchSize + (Config.QueueProcessorIssueBatchSize / 2))
         };
 
         // if both scanner ids are not null, use in a range. batching the issue data for efficiency
         if (!nulls[0] && !nulls[1])
         {
-            // this indicates the first pass of the batched data. Need to grab everything before the filtered range as well.
-            //if first batch and not only batch filter, otherwise, do not create a scanner Id filter
+            // Need to grab everything before the filtered range as well if it's the first batch to make sure
+            // we include any issues found before the first range as sorted.
+            // If it is the first batch and not the only batch add scanner ID filter, if only batch then no filter needed.
             if (firstBatch)
             {
                 if (!onlyBatch)
@@ -1275,10 +1309,11 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             }
         }
 
-        // first scanner id is not null, but second scanner id IS null, only get >= first scanner id
+        // First scanner id is not null, but second scanner id IS null, only get >= first scanner id
         // Use: If issue count is less than the issue batching number, get all instead of filtering a range.
         if (!nulls[0] && nulls[1])
         {
+            request.Filter = new();
             request.Filter.AddGreaterThanFilterMatch("Vulnerability.Scanner.Id", firstScannerId);
         }
 
