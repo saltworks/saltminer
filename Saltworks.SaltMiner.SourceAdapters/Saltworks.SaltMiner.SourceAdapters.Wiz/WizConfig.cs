@@ -72,7 +72,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         /// How long to delay when rate limit reached.
         /// </summary>
         public int WizRateLimitDelaySeconds { get; set; } = 3;
-        public override string CurrentCompatibleApiVersion => "3.1.0";
+        public override string CurrentCompatibleApiVersion => "3.2.0";
         public override string MinimumCompatibleApiVersion => "3.0.8";
 
         public override string Serialize()

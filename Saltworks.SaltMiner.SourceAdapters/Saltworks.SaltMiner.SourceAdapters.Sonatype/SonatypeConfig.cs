@@ -35,7 +35,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
         public new static bool IsSaltminerSource { get => true; }
         public string AppReportBaseUrl { get; set; }
         public int ApiRetryCount { get; set; } = 3;
-        public override string CurrentCompatibleApiVersion => "3.1.0";
+        public override string CurrentCompatibleApiVersion => "3.2.0";
         public override string MinimumCompatibleApiVersion => "3.0.8";
 
         public override string Serialize()
