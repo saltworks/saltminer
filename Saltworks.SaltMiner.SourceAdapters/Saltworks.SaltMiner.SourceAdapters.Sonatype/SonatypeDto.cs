@@ -128,7 +128,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
         public bool WaivedWithAutoWaiver { get; set; }
         public bool Grandfathered { get; set; }
         public List<Constraint> Constraints { get; set; }
-        public string CompositeId => $"{PolicyId}~{PolicyName}~{PolicyThreatCategory}~{PolicyViolationId}";
+        public string CompositeId => $"{PolicyId}~{PolicyViolationId}";
         public string GetViolationName()
         {
             if ((Constraints?.Count ?? 0) == 0)

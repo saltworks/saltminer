@@ -452,7 +452,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                    ReportId = appReport.ReportId,
                                    Scanner = new()
                                    {
-                                       Id = $"{violation.CompositeId}~{application.Id}~{location}",
+                                       Id = $"{application.Id}~{violation.PolicyViolationId}",
                                        AssessmentType = AssessmentType.Open.ToString("g"),
                                        Product = "Lifecycle",
                                        Vendor = "Sonatype",
