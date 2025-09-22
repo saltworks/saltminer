@@ -1753,10 +1753,6 @@ export default {
         value: this.search.query,
       }
 
-      if(JSON.stringify(this.sortFilters) === "{}") {
-        this.sortFilters.name = true
-      }
-
       const body = {
         searchFilters: [searchFilter],
         engagementId: `${this.id}`,
