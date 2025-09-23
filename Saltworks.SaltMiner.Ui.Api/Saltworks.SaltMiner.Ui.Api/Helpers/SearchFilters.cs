@@ -81,8 +81,13 @@ namespace Saltworks.SaltMiner.Ui.Api.Helpers
 
         public static Dictionary<string, bool> MapSortFilters(Dictionary<string, bool> sortFilters, List<SearchFilterValue> sortFilterValues, bool isQueue = false)
         {
-            if (sortFilters == null)
-                return [];
+            sortFilters ??= [];
+
+            // Include defaults (severity, name)
+            if (!sortFilters.Any(x => x.Key.Equals("severity", StringComparison.OrdinalIgnoreCase)))
+                sortFilters.Add("severity", true);
+            if (!sortFilters.Any(x => x.Key.Equals("name", StringComparison.OrdinalIgnoreCase)))
+                sortFilters.Add("name", true);
 
             var result = new Dictionary<string, bool>();
                        
