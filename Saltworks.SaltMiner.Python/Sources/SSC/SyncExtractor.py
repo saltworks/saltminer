@@ -710,7 +710,7 @@ class SyncExtractor(object):
 
         logging.debug(f"{pvMessage}, Checking to see if we need to refresh")
 
-        foundproject = self.__GetSSCProjectByProjectId(projid)
+        foundproject = None if needsReset == False else self.__GetSSCProjectByProjectId(projid)
         #logging.info(foundproject)
     
         if needsReset == False and len(foundproject) == 1:
