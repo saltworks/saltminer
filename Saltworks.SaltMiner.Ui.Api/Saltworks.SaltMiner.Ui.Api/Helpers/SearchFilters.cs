@@ -79,7 +79,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Helpers
             requestFilters.Add(f.FilterMatches.First().Key, f.FilterMatches.First().Value);
         }
 
-        public static Dictionary<string, bool> MapSortFilters(Dictionary<string, bool> sortFilters, List<SearchFilterValue> sortFilterValues, bool isQueue = false)
+        public static void AddIssueDefaultSortFilters(Dictionary<string, bool> sortFilters)
         {
             sortFilters ??= [];
 
@@ -88,7 +88,11 @@ namespace Saltworks.SaltMiner.Ui.Api.Helpers
                 sortFilters.Add("severity", true);
             if (!sortFilters.Any(x => x.Key.Equals("name", StringComparison.OrdinalIgnoreCase)))
                 sortFilters.Add("name", true);
+        }
 
+        public static Dictionary<string, bool> MapSortFilters(Dictionary<string, bool> sortFilters, List<SearchFilterValue> sortFilterValues, bool isQueue = false)
+        {
+            sortFilters ??= [];
             var result = new Dictionary<string, bool>();
                        
             foreach (var filter in sortFilters)

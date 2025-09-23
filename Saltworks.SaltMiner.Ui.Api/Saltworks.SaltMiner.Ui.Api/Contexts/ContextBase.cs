@@ -673,10 +673,12 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             var searchRequest = BuildSearchRequest(request);
             if (request.AssetFilters != null && request.AssetFilters.Count != 0)
                 searchRequest.Filter.AddTermsFilterMatch("Saltminer.QueueAssetId", request.AssetFilters);
+            request.Pager ??= new(Config.DefaultPageSize, 1);
+            Helpers.SearchFilters.AddIssueDefaultSortFilters(request.Pager.SortFilters);
             searchRequest.PagingInfo = new()
             {
-                Size = request.Pager?.Size ?? Config.DefaultPageSize,
-                Page = request.Pager?.Page ?? 1
+                Size = request.Pager.Size,
+                Page = request.Pager.Page
             };
             searchRequest.SortKeys = Helpers.SearchFilters.MapSortFilters(request.Pager?.SortFilters, SortFilterValues);
             searchRequest.Filter.AnyMatch = false;
@@ -692,10 +694,12 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             var searchRequest = BuildSearchRequest(request);
             if (request.AssetFilters != null && request.AssetFilters.Count != 0)
                 searchRequest.Filter.AddTermsFilterMatch("Saltminer.Asset.Id", request.AssetFilters);
+            request.Pager ??= new(Config.DefaultPageSize, 1);
+            Helpers.SearchFilters.AddIssueDefaultSortFilters(request.Pager.SortFilters);
             searchRequest.PagingInfo = new()
             {
-                Size = request.Pager?.Size ?? Config.DefaultPageSize,
-                Page = request.Pager?.Page ?? 1
+                Size = request.Pager.Size,
+                Page = request.Pager.Page
             };
             searchRequest.SortKeys = Helpers.SearchFilters.MapSortFilters(request.Pager?.SortFilters, SortFilterValues);
             searchRequest.Filter.AnyMatch = false;
