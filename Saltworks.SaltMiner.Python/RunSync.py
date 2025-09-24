@@ -40,7 +40,7 @@ if len(sys.argv) > 2:
 if len(sys.argv) > 3:
     prmLogInstance = sys.argv[3]        # Custom logging instance
 
-msg = "Usage:\n\npython3 RunSync.py src [action] [lognum]\n\n:src: Source name, i.e. SSC1\n:action: sync, loadqueue, or all, defaults to all\n:lognum: logging instance number, defaults to none"
+msg = "Usage:\n\npython3 RunSync.py src [action] [lognum]\n\n:src: Source name, i.e. SSC1\n:action: sync, loadqueue, checkdrop, or all, defaults to all\n:lognum: logging instance number, defaults to none"
 if len(sys.argv) == 0:
     logging.warning(msg)
     exit(1)
@@ -94,3 +94,4 @@ for sourceName in sourceNames:
         logging.critical(error_msg)
         raise Exception(f"[{prog}] Exception: [{type(e).__name__}] {e}")
     logging.info(f"[{prog}] Completed processing source '{sourceName}'")
+

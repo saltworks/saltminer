@@ -126,7 +126,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                     .GroupBy(x => x.Stage);
 
                 if (reportGroups == null || !reportGroups.Any())
-                    Logger.LogInformation("No reports found for application name '{Name}'.", asset.Name);
+                    Logger.LogInformation("[Get] No reports found for application name '{Name}'.", asset.Name);
 
                 foreach (var grp in reportGroups ?? [])
                 {
@@ -135,6 +135,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                     var reports = grp.Where(x => MapScanDate(x, false) > (localMetric?.LastScan ?? DateTime.MinValue)).ToList();
                     if (reports.Count == 0)
                         reports.Add(grp.First()); // must include latest report even if no reports are new
+                    Logger.LogDebug("[Get] Mapping source metric from report for application '{Name}',", asset.Name);
                     localMetric ??= reports[0].ToSourceMetric(asset, Config);
                     yield return new SonatypeWorkItem(asset, reports, localMetric);
                 }
@@ -217,7 +218,13 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                         var historyReports = appReports.Where(x => x != latestReport).ToList();
                         var application = wrk.Application;
                         List<Component> components = null;
-                        components = (await client.GetAppReportComponentsAsync(application.PublicId, latestReport.ReportId)).ToList();
+                        components = (await client.GetAppReportComponentsAsync(application.PublicId, latestReport.ReportId))?.ToList();
+                        if (components == null)
+                        {
+                            // We assume if latest report is unavailable then earlier ones will also be unavailable
+                            Logger.LogWarning("[Sync] Report not found - application '{App}', report ID '{Id}'.  This application sync will be skipped.", application.Name, latestReport.ReportId);
+                            continue;
+                        }
 
                         sourceMetric.IssueCount = GetTotalIssueCount(components);
                         sourceMetric.IssueCountSev1 = GetIssueSeverityCount("high", components);

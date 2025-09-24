@@ -20,6 +20,7 @@ using Saltworks.Utility.ApiHelper;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
@@ -102,7 +103,12 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 
         internal async Task<IEnumerable<Component>> GetAppReportComponentsAsync(string appId, string reportId)
         {
-            return (await RequestAsync<ComponentCollections>($"applications/{appId}/reports/{reportId}/policy")).Content.Components;
+            var rsp = await RequestAsync<ComponentCollections>($"applications/{appId}/reports/{reportId}/policy");
+            if (rsp.IsSuccessStatusCode)
+                return rsp.Content.Components;
+            if (rsp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return null;
+            throw new ApiClientException($"Failed to retrieve reports for application - API response was {rsp.StatusCode:g}.");
         }
 
         internal async Task<Organization> GetOrganizationByOrgIdAsync(string orgId)
@@ -118,7 +124,12 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 
         internal async Task<IEnumerable<Report>> GetReportsAsync(Application app)
         {
-            return (await RequestAsync<IEnumerable<Report>>($"reports/applications/{app.Id}")).Content;            
+            var rsp = await RequestAsync<IEnumerable<Report>>($"reports/applications/{app.Id}");
+            if (rsp.IsSuccessStatusCode)
+                return rsp.Content;
+            if (rsp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return [];
+            throw new ApiClientException($"Failed to retrieve reports for application - API response was {rsp.StatusCode:g}.");
         }
     }
 }
