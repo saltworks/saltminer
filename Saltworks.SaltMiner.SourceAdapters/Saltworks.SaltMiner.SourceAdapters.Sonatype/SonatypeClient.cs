@@ -20,7 +20,7 @@ using Saltworks.Utility.ApiHelper;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Cryptography;
+using System.Net;
 using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
@@ -51,22 +51,23 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             ApiClient.Options.ExceptionOnFailure = !suppressError;
             try
             {
-                if (string.IsNullOrEmpty(jsonRequestBody)) 
+                if (string.IsNullOrEmpty(jsonRequestBody))
                     r = await ApiClient.GetAsync<T>(url);
                 else
                     r = await ApiClient.PostAsync<T>(url, jsonRequestBody);
 
-                if (r.StatusCode == System.Net.HttpStatusCode.InternalServerError || r.StatusCode == System.Net.HttpStatusCode.BadGateway)
+                HttpStatusCode[] retryStatuses = [HttpStatusCode.InternalServerError, HttpStatusCode.BadGateway, HttpStatusCode.Forbidden];
+                if (retryStatuses.Contains(r.StatusCode))
                 {
                     var rc = r.RawContent.Length > 1000 ? r.RawContent[..999] : r.RawContent;
                     if (retries > Config.ApiRetryCount)
                     {
                         Logger.LogError("API call failure (http {Status} response) - first 1000 chars of raw content: {Rc}", r.StatusCode.GetHashCode(), rc);
-                        throw new SonatypeClientException($"API call failed with 500 server error, max retries of {retries} reached.");
+                        throw new SonatypeClientException($"API call failed with error '{r.StatusCode.GetHashCode()}', max retries of {retries} reached.");
                     }
                     else
                     {
-                        Logger.LogWarning("API call failure (http 500 response), will retry in 90 sec - first 1000 chars of raw content: {Rc}", rc);
+                        Logger.LogWarning("API call failure (http {Status} response), will retry in 90 sec - first 1000 chars of raw content: {Rc}", r.StatusCode.GetHashCode(), rc);
                         await Task.Delay(90000);
                         return await RequestAsync<T>(url, jsonRequestBody, retries + 1);
                     }
@@ -93,6 +94,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
         internal async Task<IEnumerable<Application>> GetAllApplicationsAsync()
         {
             var result = await RequestAsync<ApplicationCollection>("applications");
+            if (!result.IsSuccessStatusCode)
+                throw new ApiClientException($"Failed to retrieve application list - API response was {result.StatusCode:g}.");
             if ((result?.Content?.Applications?.Count ?? 0) == 0)
             {
                 Logger.LogWarning("No applications found for configured Sonatype instance.");
@@ -106,9 +109,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             var rsp = await RequestAsync<ComponentCollections>($"applications/{appId}/reports/{reportId}/policy");
             if (rsp.IsSuccessStatusCode)
                 return rsp.Content.Components;
-            if (rsp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            if (rsp.StatusCode == HttpStatusCode.NotFound)
                 return null;
-            throw new ApiClientException($"Failed to retrieve reports for application - API response was {rsp.StatusCode:g}.");
+            throw new ApiClientException($"Failed to retrieve report details for application (app ID {appId}, rpt ID {reportId}) - API response was {rsp.StatusCode:g}.");
         }
 
         internal async Task<Organization> GetOrganizationByOrgIdAsync(string orgId)
@@ -117,6 +120,12 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             if (Organizations.Count == 0)
             {
                 var result = await RequestAsync<OrganizationCollection>($"organizations");
+                if (!result.IsSuccessStatusCode)
+                {
+                    if (result.StatusCode == HttpStatusCode.NotFound)
+                        return null;
+                    throw new ApiClientException($"Failed to retrieve organization ID {orgId} - API response was {result.StatusCode:g}.");
+                }
                 Organizations = result.Content.Organizations;
             }
             return Organizations.FirstOrDefault(x => x.Id == orgId);
@@ -127,9 +136,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             var rsp = await RequestAsync<IEnumerable<Report>>($"reports/applications/{app.Id}");
             if (rsp.IsSuccessStatusCode)
                 return rsp.Content;
-            if (rsp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            if (rsp.StatusCode == HttpStatusCode.NotFound)
                 return [];
-            throw new ApiClientException($"Failed to retrieve reports for application - API response was {rsp.StatusCode:g}.");
+            throw new ApiClientException($"Failed to retrieve reports for application '{app.Name}' (ID {app.Id}) - API response was {rsp.StatusCode:g}.");
         }
     }
 }
