@@ -35,7 +35,7 @@ class ApplicationSettings(object):
         self.__Sources = {}
         self.__SourceConfigFiles = {}
         self.Load(configFiles, sourceConfigFiles)
-        self.__KeyFile = keyFile
+        self.__EncryptSuffixes = self.Get("Main", "EncryptedPropertySuffixes", [ "password", "secret", "apikey", "token" ])
         self.__Eh = EncryptionHelper(keyFile)
         self.Application = None
         if autoEncryptCreds:
@@ -78,8 +78,9 @@ class ApplicationSettings(object):
             self.Set(section, key, val, save)
 
     def __ShouldBeEncrypted(self, key, value):
-        k = key.lower()
-        return (k.endswith("password") or k.endswith("secret") or k.endswith("apikey")) and not self.__IsEncrypted(value) and value
+        for k in self.__EncryptSuffixes:
+            return key.lower().endswith(k.lower()) and not self.__IsEncrypted(value) and value
+        return False
 
     def __MakeItDirty(self, section, isSource):
         if isSource:
