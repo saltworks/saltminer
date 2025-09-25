@@ -225,9 +225,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                             }
 
                             //Include: Update sync record to reflect the metric currently processed
-                            SyncRecord.CurrentSourceId = metric.SourceId;
-                            SyncRecord.State = SyncState.InProgress;
-                            LocalData.AddUpdate(SyncRecord, true);
+                            SyncInProgress(SyncRecord, metric.SourceId);
 
                             //Include: Get matching local metric to current metric
                             var localMetric = LocalData.GetSourceMetric(Config.Instance, Config.SourceType, metric.SourceId);
@@ -390,11 +388,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                 //    Logger.LogInformation("Asset retirement processing disabled by configuration, skipping.");
                 //}
 
-                //Include: indicate your done with this source metric
-                SyncRecord.LastSync = (DateTime.UtcNow);
-                SyncRecord.CurrentSourceId = null;
-                SyncRecord.State = SyncState.Completed;
-                LocalData.AddUpdate(SyncRecord, true);
+                //Include: indicate you are finished with sync
+                SyncComplete(SyncRecord);
                 LocalData.SaveAllBatches();
                 Logger.LogInformation("[Sync] Exiting sync loading phase in 5 sec...");
                 await Task.Delay(5000);

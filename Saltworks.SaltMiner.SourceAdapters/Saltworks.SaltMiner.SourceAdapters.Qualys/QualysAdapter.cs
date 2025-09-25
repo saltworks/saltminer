@@ -156,14 +156,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
                 throw new QualysValidationException("Invalid configuration - source type");
             }
 
+            // We don't currently track where we are in processing, just start and complete.  Would be good to add it
             SyncRecord.State = SyncState.InProgress;
             SyncRecord.Data = DateToString(DateTime.UtcNow);
             LocalData.AddUpdate(SyncRecord, true);
             try
             {
                 await Task.WhenAll(SyncHostsAsync(startDate), SyncScansAsync(startDate));
-                SyncRecord.State = SyncState.Completed;
-                LocalData.AddUpdate(SyncRecord);
+                SyncComplete(SyncRecord);
                 Logger.LogInformation("[Sync] Sync complete.");
             }
             catch (TaskCanceledException)

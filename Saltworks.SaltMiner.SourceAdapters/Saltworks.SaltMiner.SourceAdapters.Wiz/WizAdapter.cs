@@ -408,7 +408,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
                 syncRecord.LastSync = DateTime.UtcNow;
                 syncRecord.State = SyncState.Completed;
                 syncRecord.SetData(nextRunFromDate); // take defaults on id and vOri
-                LocalData.AddUpdate(syncRecord, true);
+                LocalData.AddUpdate(syncRecord);
                 LocalData.SaveAllBatches(); // send remaining queued entities to db
                 Logger.LogInformation("[Sync] Exiting sync loading phase in 5 sec...");
                 await Task.Delay(5000); // make sure on short runs to avoid race condition of finishing in the gap...

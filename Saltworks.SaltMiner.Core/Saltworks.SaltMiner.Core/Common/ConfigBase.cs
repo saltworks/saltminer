@@ -30,6 +30,7 @@ namespace Saltworks.SaltMiner.Core.Common
         public string EncryptionIv { get; set; }
         public string EncryptionTag { get; set; } = "ENC";
         public string[] EncryptedPropertySuffixes { get; set; } = Array.Empty<string>();
+        protected virtual string[] NoEncryptProperties { get; set; } = [nameof(EncryptionKey), nameof(EncryptionIv), nameof(EncryptionTag), nameof(EncryptedPropertySuffixes)];
         private bool DecryptedStuffAlready = false;
 
 
@@ -41,7 +42,7 @@ namespace Saltworks.SaltMiner.Core.Common
         {
             if (EncryptedPropertySuffixes == null || EncryptedPropertySuffixes.Length == 0)
             {
-                EncryptedPropertySuffixes = new string[] { "password", "secret", "apikey" };
+                EncryptedPropertySuffixes = new string[] { "password", "secret", "apikey", "token" };
             }
 
             if (obj is not ConfigBase)
@@ -94,7 +95,7 @@ namespace Saltworks.SaltMiner.Core.Common
 
                 var lst = configSection.GetType()
                     .GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-                    .Where(p => EncryptedPropertySuffixes.Any(s => p.Name.ToLower().EndsWith(s.ToLower())) && p.PropertyType.Name.ToLower() == "string");
+                    .Where(p => EncryptedPropertySuffixes.Any(s => p.Name.ToLower().EndsWith(s, StringComparison.OrdinalIgnoreCase)) && p.PropertyType.Name.Equals("string", StringComparison.OrdinalIgnoreCase) && !NoEncryptProperties.Contains(p.Name));
 
                 if (!lst.Any())
                 {

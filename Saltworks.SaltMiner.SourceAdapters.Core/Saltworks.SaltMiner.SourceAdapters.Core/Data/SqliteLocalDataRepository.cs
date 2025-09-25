@@ -206,11 +206,11 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
                     lock (DataContextLock)
                     {
                         foreach (var e in DataContext.QueueAssets.Where(x => x.QueueScanId == id))
-                            AddToSaveBatch(e, EntityState.Deleted, true);
+                            SaveBatchAdd(e, EntityState.Deleted, true);
                         foreach (var e in DataContext.QueueIssues.Where(x => x.QueueScanId == id))
-                            AddToSaveBatch(e, EntityState.Deleted, true);
+                            SaveBatchAdd(e, EntityState.Deleted, true);
                     }
-                    AddToSaveBatch<QueueAsset>(null, EntityState.Unchanged); // unpause
+                    SaveBatchAdd<QueueAsset>(null, EntityState.Unchanged); // unpause
                 }
             }
             catch (Exception ex)
@@ -272,13 +272,27 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
         }
 
 
-        private void AddToSaveBatch<T>(T entity, EntityState state, bool pauseFlush = false) where T : ILocalDataEntity
+        private SqliteDbChangeEntry SaveBatchGet<T>(T entity) where T: ILocalDataEntity
+        {
+            if (string.IsNullOrEmpty(entity?.Id))
+                throw new ArgumentException("Entity cannot be null and must include a valid ID.", nameof(entity));
+            return AddUpdateQueue.Find(e => e.Entity.Id == entity.Id && e.Type == entity.GetType());
+        }
+
+        private void SaveBatchRemove<T>(T entity) where T: ILocalDataEntity
+        {
+            var entry = SaveBatchGet(entity);
+            if (entry != null)
+                AddUpdateQueue.Remove(entry);
+        }
+        
+        private void SaveBatchAdd<T>(T entity, EntityState state, bool pauseFlush = false) where T : ILocalDataEntity
         {
             if (!object.Equals(entity, default(T)))
             {
                 lock (AddUpdateQueueLock)
                 {
-                    var entry = AddUpdateQueue.Find(e => e.Entity.Id == entity.Id && e.Type == entity.GetType());
+                    var entry = SaveBatchGet(entity);
                     if (entry != null)
                     {
                         entry.Entity = entity;
@@ -369,14 +383,20 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
         /// </remarks>
         public T AddUpdate<T>(T entity, bool immediate = false) where T : class, ILocalDataEntity
         {
-            var isNew = string.IsNullOrEmpty(entity.Id);
-            entity.Id = isNew ? Guid.NewGuid().ToString() : entity.Id;
+            var isNew = false;
+            if (string.IsNullOrEmpty(entity.Id))
+            {
+                entity.Id = Guid.NewGuid().ToString();
+                isNew = true;
+            }
             entity.UpdateDtoFields();
+            var unsaved = SaveBatchGet(entity);  // Get entry if we have this queued already
+
             try
             {
                 if (!immediate)
                 {
-                    AddToSaveBatch(entity, isNew ? EntityState.Added : EntityState.Modified);
+                    SaveBatchAdd(entity, unsaved?.State ?? EntityState.Added);
                 }
                 else
                 {
@@ -384,8 +404,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
                     //var perfId = PerfHelper.Start(nameof(AddUpdate) + etype.Name)
                     lock (DataContextLock)
                     {
-                        DataContext.Entry(entity).State = isNew ? EntityState.Added : EntityState.Modified;
+                        DataContext.Entry(entity).State = unsaved?.State ?? (isNew ? EntityState.Added : EntityState.Modified);
                         DataContextSave();
+                        if (unsaved != null)
+                            SaveBatchRemove(entity);
                     }
                     //PerfHelper.Complete(perfId)
                 }
@@ -421,7 +443,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
                 }
                 else
                 {
-                    AddToSaveBatch(entity, EntityState.Deleted);
+                    SaveBatchAdd(entity, EntityState.Deleted);
                 }
                 return true;
             }

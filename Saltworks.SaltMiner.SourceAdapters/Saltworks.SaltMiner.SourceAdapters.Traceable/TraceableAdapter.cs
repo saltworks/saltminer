@@ -110,7 +110,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
 
         private async Task SyncAsync(TraceableClient client)
         {
-            CheckCancel();
+            CheckCancel(true);
 
             if (Config.SourceType != SourceType.Traceable.GetDescription())
             {
@@ -186,10 +186,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
                             }
                         }
 
-                        //Include: Update sync record to reflect the metric currently processed
-                        SyncRecord.CurrentSourceId = metric.SourceId;
-                        SyncRecord.State = SyncState.InProgress;
-                        LocalData.AddUpdate(SyncRecord, true);
+                        // Set sync record to show this source ID in progress
+                        SyncInProgress(SyncRecord, metric.SourceId);
 
                         //Include: Get matching local metric to current metric
                         var localMetric = LocalData.GetSourceMetric(Config.Instance, Config.SourceType, metric.SourceId);
@@ -258,7 +256,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
                     catch (LocalDataException ex)
                     {
                         Logger.LogCritical(ex, "[Sync] Local data access error: {Msg}", ex.InnerException?.Message ?? ex.Message);
-                        StillLoading = false;
                         throw new TraceableException($"Local data access error: {ex.InnerException?.Message ?? ex.Message}", ex);
                     }
                     catch (Exception ex)
@@ -274,32 +271,27 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
                             if (exceptionCounter == Config.SourceAbortErrorCount)
                             {
                                 Logger.LogCritical(ex, "[Sync] {Instance} instance exceeded {Count} sync processing errors: {Msg}", Config.Instance, Config.SourceAbortErrorCount, ex.InnerException?.Message ?? ex.Message);
-                                StillLoading = false;
                                 break;
                             }
                         }
                     }
                 }
 
-                //Include: indicate you are finished with this source metric
-                SyncRecord.LastSync = (DateTime.UtcNow);
-                SyncRecord.CurrentSourceId = null;
-                SyncRecord.State = SyncState.Completed;
-                LocalData.AddUpdate(SyncRecord, true);
+                SyncComplete(SyncRecord);
                 LocalData.SaveAllBatches();
                 Logger.LogInformation("[Sync] Sync complete ({Ac} total assets, {Ic} total source issues), exiting phase in 5 sec...", totalAssetCount, totalIssueCount);
                 await Task.Delay(5000);
-                //Include: Set this to indicate you are finished syncing
-                StillLoading = false;
             }
             catch (CancelTokenException cte)
             {
                 Logger.LogWarning(cte, "[Sync] Cancellation requested, aborting processing: {Msg}.", cte.Message);
-                StillLoading = false;
             }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "[Sync] Aborting Traceable sync due to exception: [{Type}] {Msg}", ex.GetType().Name, ex.Message);
+            }
+            finally
+            {
                 StillLoading = false;
             }
         }

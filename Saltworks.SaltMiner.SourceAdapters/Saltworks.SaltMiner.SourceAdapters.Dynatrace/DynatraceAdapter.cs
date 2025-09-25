@@ -173,9 +173,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
                         }
 
                         //Include: Update sync record to reflect the metric currently processed
-                        SyncRecord.CurrentSourceId = metric.SourceId;
-                        SyncRecord.State = SyncState.InProgress;
-                        LocalData.AddUpdate(SyncRecord, true);
+                        SyncInProgress(SyncRecord, metric.SourceId);
 
                         //Include: Get matching local metric to current metric
                         var localMetric = LocalData.GetSourceMetric(Config.Instance, Config.SourceType, metric.SourceId);
@@ -286,25 +284,22 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
                 //    Logger.LogInformation("Asset retirement processing disabled by configuration, skipping.");
                 //}
 
-                //Include: indicate your done with this source metric
-                SyncRecord.LastSync = (DateTime.UtcNow);
-                SyncRecord.CurrentSourceId = null;
-                SyncRecord.State = SyncState.Completed;
-                LocalData.AddUpdate(SyncRecord, true);
+                //Include: indicate you are finished with sync
+                SyncComplete(SyncRecord);
                 LocalData.SaveAllBatches();
                 Logger.LogInformation("[Sync] Exiting sync loading phase in 5 sec...");
                 await Task.Delay(5000);
-                //Include: Set this to indiciate your done syncing
-                StillLoading = false;
             }
             catch (CancelTokenException cte)
             {
                 Logger.LogWarning(cte, "[Sync] Cancellation requested, aborting processing.");
-                StillLoading = false;
             }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "[Sync] Aborting Dynatrace sync due to exception: [{Type}] {Msg}", ex.GetType().Name, ex.Message);
+            }
+            finally
+            {
                 StillLoading = false;
             }
         }

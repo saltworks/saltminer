@@ -22,9 +22,9 @@ using Saltworks.SaltMiner.SourceAdapters.Core;
 using Saltworks.SaltMiner.SourceAdapters.Core.Data;
 using Saltworks.SaltMiner.SourceAdapters.Core.Interfaces;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography.Xml;
 using System.Threading;
 using System.Threading.Tasks;
 using static Saltworks.SaltMiner.Core.Entities.QueueScan;
@@ -201,348 +201,348 @@ namespace Saltworks.SaltMiner.SourceAdapters.Oligo
         //}
         internal async Task SyncAsync(OligoClient client, OligoConfig config)
         {
-            CheckCancel();
-            //List<WorkItemDTO> workList = new();
-            Dictionary<string, WorkItemDTO> workList = new();
-            Dictionary<string, List<string>> cveIssueMap = new(); 
-            List<string> cveList= new(); 
-            
-
-            await foreach (VulnerabilityDTO vulnerability in GetAsync(client, Config))
+            try
             {
-                if(!cveList.Contains(vulnerability.CVE.Code))
-                {
-                    cveList.Add(vulnerability.CVE.Code);
-                    cveIssueMap[vulnerability.CVE.Code] = new List<string>();
-                }
+                CheckCancel();
+                //List<WorkItemDTO> workList = new();
+                Dictionary<string, WorkItemDTO> workList = new();
+                Dictionary<string, List<string>> cveIssueMap = new();
+                List<string> cveList = new();
 
 
-                if (vulnerability.Image.Builds == null)
+                await foreach (VulnerabilityDTO vulnerability in GetAsync(client, Config))
                 {
-                    throw new OligoException("[Sync] Vulnerability found with no builds");
-                }
-
-                DateTime parsedLastScannedDate = DateTime.Parse(vulnerability.Image.LastScannedAt.ToString(), null, System.Globalization.DateTimeStyles.RoundtripKind);
-                 
-                foreach (ImageBuildsDTO build in vulnerability.Image.Builds)
-                {
-                    if(workList.TryGetValue(build.Id, out WorkItemDTO workItem))
+                    if (!cveList.Contains(vulnerability.CVE.Code))
                     {
+                        cveList.Add(vulnerability.CVE.Code);
+                        cveIssueMap[vulnerability.CVE.Code] = new List<string>();
+                    }
 
-                          if (workItem.LastScan == DateTime.UtcNow.Date)
-                          {
-                              continue;
-                          }
-                        
-                        QueueIssue newIssue = MapIssue(workItem, vulnerability);
-                        try
+
+                    if (vulnerability.Image.Builds == null)
+                    {
+                        throw new OligoException("[Sync] Vulnerability found with no builds");
+                    }
+
+                    DateTime parsedLastScannedDate = DateTime.Parse(vulnerability.Image.LastScannedAt.ToString(), null, System.Globalization.DateTimeStyles.RoundtripKind);
+
+                    foreach (ImageBuildsDTO build in vulnerability.Image.Builds)
+                    {
+                        if (workList.TryGetValue(build.Id, out WorkItemDTO workItem))
                         {
-                            if (!cveIssueMap.TryGetValue(vulnerability.CVE.Code, out var issueList))
+
+                            if (workItem.LastScan == DateTime.UtcNow.Date)
                             {
-                                issueList = new List<string>();
-                                cveIssueMap[vulnerability.CVE.Code] = issueList;
+                                continue;
                             }
 
-                            issueList.Add(newIssue.Id);
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.LogWarning(ex, "Error adding data to cveIssueMap for CVE: {CVE}, {msg}", vulnerability.CVE.Code, ex.Message);
-                        }
-
-                        workItem.IssueCount++;
-                    }
-                    else
-                    {
-                        var sourceMetric = LocalData.GetSourceMetric(Config.Instance, Config.SourceType, build.Id);
-                        WorkItemDTO newWorkItemDTO = new();
-                        if (sourceMetric != null && sourceMetric.LastScan == DateTime.UtcNow.Date)
-                        {
-                            newWorkItemDTO = new WorkItemDTO
+                            QueueIssue newIssue = MapIssue(workItem, vulnerability);
+                            try
                             {
-                                Id = build.Id,
-                                Digest = build.Digest,
-                                Tags = build.Tags,
-                                LastScan = DateTime.UtcNow.Date
+                                if (!cveIssueMap.TryGetValue(vulnerability.CVE.Code, out var issueList))
+                                {
+                                    issueList = new List<string>();
+                                    cveIssueMap[vulnerability.CVE.Code] = issueList;
+                                }
 
-                            };
-                            workList[build.Id] = newWorkItemDTO;
-                            continue;
-                        }
-                        QueueScan queueScan = MapScan(build.Id, 0, parsedLastScannedDate.Date);
-                        QueueAsset queueAsset = MapAsset(vulnerability.Image.Name, build.Id, queueScan);
-                        newWorkItemDTO = new WorkItemDTO
-                        {
-                            Id = build.Id,
-                            Name = vulnerability.Image.Name,
-                            QueueScanID = queueScan.Id,
-                            QueueScanReportID = queueScan.Entity.Saltminer.Scan.ReportId,
-                            QueueAssetID = queueAsset.Id,
-                            Digest = build.Digest,
-                            Tags = build.Tags,
-                            LastScan = null,
-                            IssueCount = 0,
-                            Link = build.Link ?? " "
-                        };
-                        workList[build.Id] = newWorkItemDTO;
-                        QueueIssue newIssue = MapIssue(newWorkItemDTO, vulnerability);
-                        try
-                        {
-                            if (!cveIssueMap.TryGetValue(vulnerability.CVE.Code, out var issueList))
+                                issueList.Add(newIssue.Id);
+                            }
+                            catch (Exception ex)
                             {
-                                issueList = new List<string>();
-                                cveIssueMap[vulnerability.CVE.Code] = issueList;
+                                Logger.LogWarning(ex, "Error adding data to cveIssueMap for CVE: {CVE}, {msg}", vulnerability.CVE.Code, ex.Message);
                             }
 
-                            issueList.Add(newIssue.Id);
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.LogWarning(ex, "Error adding data to cveIssueMap for CVE: {CVE}, {msg}", vulnerability.CVE.Code, ex.Message);
-                        }
-
-
-
-                        workList[build.Id].IssueCount++;
-                    }   
-                }
-            }
-            // Used with the merge approach for issues, might not be appropriate now
-            
-
-            // Used with the merge approach for issues, might not be appropriate now
-            
-
-            Logger.LogInformation("[Sync] Assets present: {Count}", workList.Count);
-
-            //Write: Change Whitesource source type checking to your own.
-            if (Config.SourceType != SourceType.Oligo.GetDescription())
-            {
-                Logger.LogCritical("[Sync] Invalid configuration - SourceType expected to be 'Saltworks.{etype}' but was found to be '{atype}'", SourceType.Oligo.GetDescription(), Config.SourceType);
-                //Throw an adapter-specific exception here (for example for WS it was WhiteSourceValidationException)
-                throw new Exception("Invalid configuration - source type");
-            }
-
-            var exceptionCounter = 0;
-            var localMetrics = LocalData.GetSourceMetrics(Config.Instance, Config.SourceType).ToList();
-            //Include: Check for existing Run that did not finish
-            SyncRecord = LocalData.CheckSyncRecordSourceForFailure(Config.Instance, Config.SourceType);
-
-            //Include: Set recoverymode based on whether not there is a prior syncrecod
-
-            if (SyncRecord != null)
-            {
-                RecoveryMode = true;
-            }
-            else
-            {
-                //Include: If not create a new record for this run
-                RecoveryMode = false;
-                SyncRecord = LocalData.GetSyncRecord(Config.Instance, Config.SourceType);
-
-                //Include: Clear any leftover queue data from previous run
-                ClearQueues();
-            }
-            if (workList.Count == 0)
-                Logger.LogWarning("[Sync] No projects in queue in a timely fashion.  Sync will not start.");
-            int localIssues = 0;
-            int localAssets = 0;
-            Dictionary<string, CveDto> cveDict = new();
-
-            int totalCves = cveList.Count; // Total number of CVEs
-            int processedCves = 0;         // Counter for processed CVEs
-
-            var progress = new Progress<int>(processedCves =>
-            {
-                double percentage = (processedCves / (double)totalCves) * 100;
-                Logger.LogInformation("Progress: {percentage:F2}%", percentage);
-            });
-
-            int batchSize = 2; // Limit to 2 concurrent requests
-            var cveQueue = new Queue<string>(cveList); // Queue for CVE processing
-
-            while (cveQueue.Any())
-            {
-                // Dequeue a batch of CVEs
-                var currentBatch = cveQueue.Take(batchSize).ToList();
-
-                var cveTasks = currentBatch.Select(async cve =>
-                {
-                    var cveData = await client.GetCveAsync(cve);
-                    lock (cveDict)
-                    {
-                        cveDict[cve] = cveData;
-                    }
-
-                    // Update progress
-                    ((IProgress<int>)progress).Report(Interlocked.Increment(ref processedCves));
-                }).ToList();
-
-                // Wait for the batch to complete
-                await Task.WhenAll(cveTasks);
-
-                // Remove processed CVEs from the queue
-                for (int i = 0; i < currentBatch.Count; i++)
-                {
-                    cveQueue.Dequeue();
-                }
-            }
-
-
-
-            foreach (KeyValuePair<string, List<string>> kvp in cveIssueMap)
-            {
-                var cve = kvp.Key;
-                List<string> issueIds = kvp.Value;
-
-                foreach (string issueId in issueIds)
-                {
-                    try
-                    {
-                        QueueIssue currentIssue = LocalData.Get<QueueIssue>(issueId);
-
-                        if (currentIssue == null)
-                        {
-                            Logger.LogError("QueueIssue not found for Issue ID: {IssueId}", issueId);
-                            continue;
-                        }
-
-                        if (currentIssue.Entity == null)
-                        {
-                            Logger.LogError("Entity is null for Issue ID: {IssueId}", issueId);
-                            continue;
-                        }
-
-                        if (currentIssue.Entity.Vulnerability == null)
-                        {
-                            Logger.LogError("Vulnerability is null for Issue ID: {IssueId}", issueId);
-                            continue;
-                        }
-
-                        if (!cveDict.TryGetValue(cve, out var cveDetails) || cveDetails == null)
-                        {
-                            Logger.LogError("CVE details not found for CVE: {Cve}", cve);
-                            continue;
-                        }
-
-                        currentIssue.Entity.Vulnerability.Description = cveDetails.Description;
-
-                        LocalData.AddUpdate(currentIssue);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError(ex,
-                            "Error processing Issue ID: {IssueId} with CVE: {Cve}",
-                            issueId,
-                            cve);
-                    }
-                }
-                Logger.LogInformation("Issues with CVE of {cve} enriched with CVE data", kvp.Key);
-            }
-
-            await Task.Delay(10000);
-            Logger.LogDebug("Starting to send issues");
-            foreach (KeyValuePair<string, WorkItemDTO> entry in workList)
-            {
-                string buildId = entry.Key;
-                WorkItemDTO workItem = entry.Value;
-                MergeIssueDates(workItem.Id, workItem.QueueScanID, workItem.QueueAssetID);
-                QueueScan currentScan = LocalData.Get<QueueScan>(workItem.QueueScanID);
-                currentScan.Entity.Saltminer.Internal.IssueCount = (int)workItem.IssueCount;
-                try
-                {
-                    var metric = client.GetSourceMetric(currentScan);
-                    //If Recoverymode loop through until you are on that sourcemetric
-                    if (RecoveryMode)
-                    {
-                        if (SyncRecord.CurrentSourceId != null && SyncRecord.CurrentSourceId != currentScan.Id)
-                        {
-                            continue;
+                            workItem.IssueCount++;
                         }
                         else
                         {
-                            RecoveryMode = false;
+                            var sourceMetric = LocalData.GetSourceMetric(Config.Instance, Config.SourceType, build.Id);
+                            WorkItemDTO newWorkItemDTO = new();
+                            if (sourceMetric != null && sourceMetric.LastScan == DateTime.UtcNow.Date)
+                            {
+                                newWorkItemDTO = new WorkItemDTO
+                                {
+                                    Id = build.Id,
+                                    Digest = build.Digest,
+                                    Tags = build.Tags,
+                                    LastScan = DateTime.UtcNow.Date
+
+                                };
+                                workList[build.Id] = newWorkItemDTO;
+                                continue;
+                            }
+                            QueueScan queueScan = MapScan(build.Id, 0, parsedLastScannedDate.Date);
+                            QueueAsset queueAsset = MapAsset(vulnerability.Image.Name, build.Id, queueScan);
+                            newWorkItemDTO = new WorkItemDTO
+                            {
+                                Id = build.Id,
+                                Name = vulnerability.Image.Name,
+                                QueueScanID = queueScan.Id,
+                                QueueScanReportID = queueScan.Entity.Saltminer.Scan.ReportId,
+                                QueueAssetID = queueAsset.Id,
+                                Digest = build.Digest,
+                                Tags = build.Tags,
+                                LastScan = null,
+                                IssueCount = 0,
+                                Link = build.Link ?? " "
+                            };
+                            workList[build.Id] = newWorkItemDTO;
+                            QueueIssue newIssue = MapIssue(newWorkItemDTO, vulnerability);
+                            try
+                            {
+                                if (!cveIssueMap.TryGetValue(vulnerability.CVE.Code, out var issueList))
+                                {
+                                    issueList = new List<string>();
+                                    cveIssueMap[vulnerability.CVE.Code] = issueList;
+                                }
+
+                                issueList.Add(newIssue.Id);
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.LogWarning(ex, "Error adding data to cveIssueMap for CVE: {CVE}, {msg}", vulnerability.CVE.Code, ex.Message);
+                            }
+
+
+
+                            workList[build.Id].IssueCount++;
                         }
                     }
-
-                    //Include: Update Syncrecord to reflect the metric currently processed
-                    SyncRecord.CurrentSourceId = currentScan.Id;
-                    SyncRecord.State = SyncState.InProgress;
-                    LocalData.AddUpdate(SyncRecord, true); // use true for second paramter to write this update immediately (no queuing)
-
-                    var localMetric = localMetrics.FirstOrDefault(x => x.SourceId == metric.SourceId);
-                    if (localMetric != null)
-                    {
-                        //Include: If found set isProcessed to true for tracking and retiring records
-                        localMetric.IsProcessed = true;
-                    }
-                    currentScan.Loading = false;
-                    LocalData.AddUpdate(currentScan);
-                    localAssets++;
-                    UpdateLocalMetric(metric, localMetric);
-                    await LetSendCatchUpAsync(Config);
-                    Logger.LogInformation("Scan with report id : {scanId} set to send", currentScan.ReportId);
-
                 }
-                catch (LocalDataException ex)
+                // Used with the merge approach for issues, might not be appropriate now
+
+
+                // Used with the merge approach for issues, might not be appropriate now
+
+
+                Logger.LogInformation("[Sync] Assets present: {Count}", workList.Count);
+
+                //Write: Change Whitesource source type checking to your own.
+                if (Config.SourceType != SourceType.Oligo.GetDescription())
                 {
-                    Logger.LogCritical(ex.InnerException?.Message ?? ex.Message, ex);
-
-                    StillLoading = false;
-
-                    throw;
+                    Logger.LogCritical("[Sync] Invalid configuration - SourceType expected to be 'Saltworks.{etype}' but was found to be '{atype}'", SourceType.Oligo.GetDescription(), Config.SourceType);
+                    //Throw an adapter-specific exception here (for example for WS it was WhiteSourceValidationException)
+                    throw new Exception("Invalid configuration - source type");
                 }
-                catch (Exception ex)
+
+                var exceptionCounter = 0;
+                var localMetrics = LocalData.GetSourceMetrics(Config.Instance, Config.SourceType).ToList();
+                //Include: Check for existing Run that did not finish
+                SyncRecord = LocalData.CheckSyncRecordSourceForFailure(Config.Instance, Config.SourceType);
+
+                //Include: Set recoverymode based on whether not there is a prior syncrecod
+
+                if (SyncRecord != null)
                 {
-                    if (ex.Message == "Not Found")
-                    {
-                        Logger.LogWarning(ex, $"[Sync] {Config.Instance} for {Config.SourceType} Sync Processing Error: {ex.InnerException?.Message ?? ex.Message}");
-                    }
-                    else
-                    {
-                        exceptionCounter++;
+                    RecoveryMode = true;
+                }
+                else
+                {
+                    //Include: If not create a new record for this run
+                    RecoveryMode = false;
+                    SyncRecord = LocalData.GetSyncRecord(Config.Instance, Config.SourceType);
 
-                        Logger.LogWarning(ex, $"[Sync] {Config.Instance} for {Config.SourceType} Sync Processing Error {exceptionCounter}: {ex.InnerException?.Message ?? ex.Message}");
+                    //Include: Clear any leftover queue data from previous run
+                    ClearQueues();
+                }
+                if (workList.Count == 0)
+                    Logger.LogWarning("[Sync] No projects in queue in a timely fashion.  Sync will not start.");
+                int localIssues = 0;
+                int localAssets = 0;
+                Dictionary<string, CveDto> cveDict = new();
 
-                        if (exceptionCounter == Config.SourceAbortErrorCount)
+                int totalCves = cveList.Count; // Total number of CVEs
+                int processedCves = 0;         // Counter for processed CVEs
+
+                var progress = new Progress<int>(processedCves =>
+                {
+                    double percentage = (processedCves / (double)totalCves) * 100;
+                    Logger.LogInformation("Progress: {percentage:F2}%", percentage);
+                });
+
+                int batchSize = 2; // Limit to 2 concurrent requests
+                var cveQueue = new Queue<string>(cveList); // Queue for CVE processing
+
+                while (cveQueue.Any())
+                {
+                    // Dequeue a batch of CVEs
+                    var currentBatch = cveQueue.Take(batchSize).ToList();
+
+                    var cveTasks = currentBatch.Select(async cve =>
+                    {
+                        var cveData = await client.GetCveAsync(cve);
+                        lock (cveDict)
                         {
-                            Logger.LogCritical(ex, $"[Sync] {Config.Instance} for {Config.SourceType} Exceeded {Config.SourceAbortErrorCount} Sync Processing Errors: {ex.InnerException?.Message ?? ex.Message}");
+                            cveDict[cve] = cveData;
+                        }
 
-                            StillLoading = false;
+                        // Update progress
+                        ((IProgress<int>)progress).Report(Interlocked.Increment(ref processedCves));
+                    }).ToList();
 
-                            break;
+                    // Wait for the batch to complete
+                    await Task.WhenAll(cveTasks);
+
+                    // Remove processed CVEs from the queue
+                    for (int i = 0; i < currentBatch.Count; i++)
+                    {
+                        cveQueue.Dequeue();
+                    }
+                }
+
+
+
+                foreach (KeyValuePair<string, List<string>> kvp in cveIssueMap)
+                {
+                    var cve = kvp.Key;
+                    List<string> issueIds = kvp.Value;
+
+                    foreach (string issueId in issueIds)
+                    {
+                        try
+                        {
+                            QueueIssue currentIssue = LocalData.Get<QueueIssue>(issueId);
+
+                            if (currentIssue == null)
+                            {
+                                Logger.LogError("QueueIssue not found for Issue ID: {IssueId}", issueId);
+                                continue;
+                            }
+
+                            if (currentIssue.Entity == null)
+                            {
+                                Logger.LogError("Entity is null for Issue ID: {IssueId}", issueId);
+                                continue;
+                            }
+
+                            if (currentIssue.Entity.Vulnerability == null)
+                            {
+                                Logger.LogError("Vulnerability is null for Issue ID: {IssueId}", issueId);
+                                continue;
+                            }
+
+                            if (!cveDict.TryGetValue(cve, out var cveDetails) || cveDetails == null)
+                            {
+                                Logger.LogError("CVE details not found for CVE: {Cve}", cve);
+                                continue;
+                            }
+
+                            currentIssue.Entity.Vulnerability.Description = cveDetails.Description;
+
+                            LocalData.AddUpdate(currentIssue);
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError(ex,
+                                "Error processing Issue ID: {IssueId} with CVE: {Cve}",
+                                issueId,
+                                cve);
+                        }
+                    }
+                    Logger.LogInformation("Issues with CVE of {cve} enriched with CVE data", kvp.Key);
+                }
+
+                await Task.Delay(10000);
+                Logger.LogDebug("Starting to send issues");
+                foreach (KeyValuePair<string, WorkItemDTO> entry in workList)
+                {
+                    string buildId = entry.Key;
+                    WorkItemDTO workItem = entry.Value;
+                    MergeIssueDates(workItem.Id, workItem.QueueScanID, workItem.QueueAssetID);
+                    QueueScan currentScan = LocalData.Get<QueueScan>(workItem.QueueScanID);
+                    currentScan.Entity.Saltminer.Internal.IssueCount = (int)workItem.IssueCount;
+                    try
+                    {
+                        var metric = client.GetSourceMetric(currentScan);
+                        //If Recoverymode loop through until you are on that sourcemetric
+                        if (RecoveryMode)
+                        {
+                            if (SyncRecord.CurrentSourceId != null && SyncRecord.CurrentSourceId != currentScan.Id)
+                            {
+                                continue;
+                            }
+                            else
+                            {
+                                RecoveryMode = false;
+                            }
+                        }
+
+                        //Include: Update SyncRecord to reflect the metric currently processed
+                        SyncInProgress(SyncRecord, currentScan.Id);
+
+                        var localMetric = localMetrics.FirstOrDefault(x => x.SourceId == metric.SourceId);
+                        if (localMetric != null)
+                        {
+                            //Include: If found set isProcessed to true for tracking and retiring records
+                            localMetric.IsProcessed = true;
+                        }
+                        currentScan.Loading = false;
+                        LocalData.AddUpdate(currentScan);
+                        localAssets++;
+                        UpdateLocalMetric(metric, localMetric);
+                        await LetSendCatchUpAsync(Config);
+                        Logger.LogInformation("Scan with report id : {scanId} set to send", currentScan.ReportId);
+
+                    }
+                    catch (LocalDataException ex)
+                    {
+                        var msg = $"[{(ex.InnerException ?? ex).GetType().Name}] {ex.InnerException?.Message ?? ex.Message}";
+                        Logger.LogCritical(ex, "LocalDataException thrown - {Msg}", ex.InnerException?.Message ?? ex.Message);
+                        throw new OligoException();
+                    }
+                    catch (Exception ex)
+                    {
+                        if (ex.Message == "Not Found")
+                        {
+                            Logger.LogWarning(ex, $"[Sync] {Config.Instance} for {Config.SourceType} Sync Processing Error: {ex.InnerException?.Message ?? ex.Message}");
+                        }
+                        else
+                        {
+                            exceptionCounter++;
+                            Logger.LogWarning(ex, $"[Sync] {Config.Instance} for {Config.SourceType} Sync Processing Error {exceptionCounter}: {ex.InnerException?.Message ?? ex.Message}");
+                            if (exceptionCounter == Config.SourceAbortErrorCount)
+                            {
+                                Logger.LogCritical(ex, $"[Sync] {Config.Instance} for {Config.SourceType} Exceeded {Config.SourceAbortErrorCount} Sync Processing Errors: {ex.InnerException?.Message ?? ex.Message}");
+                                break;
+                            }
                         }
                     }
                 }
-            }
-            LocalData.SaveAllBatches();
-            CheckCancel();
+                LocalData.SaveAllBatches();
+                CheckCancel();
 
-            //Include: Set this to indiciate your done syncing
-            StillLoading = false;
-            if (!Config.DisableRetire)
-            {
-                try
+                if (!Config.DisableRetire)
                 {
-                    RetireLocalMetrics(localMetrics);
-                    RetireQueueAssets(localMetrics, AssetType, Config);
+                    try
+                    {
+                        RetireLocalMetrics(localMetrics);
+                        RetireQueueAssets(localMetrics, AssetType, Config);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex, "Error occurred when processing retirees, see log for details.");
+                    }
                 }
-                catch (Exception ex)
+                else
                 {
-                    Logger.LogError(ex, "Error occurred when processing retirees, see log for details.");
+                    Logger.LogInformation("Asset retirement processing disabled by configuration, skipping.");
                 }
-            }
-            else
-            {
-                Logger.LogInformation("Asset retirement processing disabled by configuration, skipping.");
-            }
 
-            //Include: indicate you are done with this source metric
-            SyncRecord.LastSync = (DateTime.UtcNow);
-            SyncRecord.CurrentSourceId = null;
-            SyncRecord.State = SyncState.Completed;
-            LocalData.AddUpdate(SyncRecord, true);
-            LocalData.SaveAllBatches(); // use this to flush all remaining queued database updates after completing sync processing
+                //Include: indicate you are finished with sync
+                SyncComplete(SyncRecord);
+                LocalData.SaveAllBatches(); // use this to flush all remaining queued database updates after completing sync processing
+            }
+            catch (Exception ex)
+            {
+                var msg = $"[{(ex.InnerException ?? ex).GetType().Name}] {ex.InnerException?.Message ?? ex.Message}";
+                Logger.LogError(ex, "[Sync] General sync failure - {Msg}", msg);
+                throw new OligoException(msg, ex);
+            }
+            finally
+            {
+                //Include: Set this to indicate sync is complete
+                StillLoading = false;
+            }
         }
 
         private void MergeIssueDates(string sourceId, string scanId, string assetId)
