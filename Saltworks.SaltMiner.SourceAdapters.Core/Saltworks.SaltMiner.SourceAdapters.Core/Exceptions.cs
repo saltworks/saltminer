@@ -18,8 +18,6 @@
 
 namespace Saltworks.SaltMiner.SourceAdapters.Core
 {
-    [Serializable]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S3925:\"ISerializable\" should be implemented correctly", Justification = "Serialization constructor is obsolete.  In absense of replacement pattern, excluding it.")]
     public class SourceException : Exception
     {
         public SourceException() { }
@@ -27,10 +25,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
         public SourceException(string message, Exception inner) : base(message, inner) { }
     }
 
-
-
-    [Serializable]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S3925:\"ISerializable\" should be implemented correctly", Justification = "Serialization constructor is obsolete.  In absense of replacement pattern, excluding it.")]
     public class SourceValidationException : SourceException
     {
         public SourceValidationException() { }
@@ -38,8 +32,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
         public SourceValidationException(string message, Exception inner) : base(message, inner) { }
     }
 
-    [Serializable]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S3925:\"ISerializable\" should be implemented correctly", Justification = "Serialization constructor is obsolete.  In absense of replacement pattern, excluding it.")]
     public class CancelTokenException : SourceException
     {
         public CancelTokenException() { }
@@ -47,8 +39,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
         public CancelTokenException(string message, Exception inner) : base(message, inner) { }
     }
     
-    [Serializable]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S3925:\"ISerializable\" should be implemented correctly", Justification = "Serialization constructor is obsolete.  In absense of replacement pattern, excluding it.")]
     public class SourceConfigurationException : SourceException
     {
         public SourceConfigurationException() { }
@@ -57,8 +47,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
     }
 
 
-    [Serializable]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S3925:\"ISerializable\" should be implemented correctly", Justification = "Serialization constructor is obsolete.  In absense of replacement pattern, excluding it.")]
     public class SourceMaxErrorsReachedException : SourceException
     {
         public SourceMaxErrorsReachedException() { }
@@ -66,8 +54,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
         public SourceMaxErrorsReachedException(string message, Exception inner) : base(message, inner) { }
     }
 
-    [Serializable]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S3925:\"ISerializable\" should be implemented correctly", Justification = "Serialization constructor is obsolete.  In absense of replacement pattern, excluding it.")]
     public class LocalDataException : Exception
     {
         public LocalDataException() { }
@@ -76,8 +62,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
     }
 
 
-    [Serializable]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S3925:\"ISerializable\" should be implemented correctly", Justification = "Serialization constructor is obsolete.  In absense of replacement pattern, excluding it.")]
     public class LocalDataConcurrencyException : LocalDataException
     {
         public LocalDataConcurrencyException() { }

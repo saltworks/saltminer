@@ -35,7 +35,7 @@ namespace Saltworks.SaltMiner.Core.Util
             }
             catch (Exception ex)
             {
-                throw new AssemblyHelperException($"Assembly: {assemblyName} - Type: {typeName} - Interface: {typeof(T).Name} - Could not be loaded.", ex);
+                throw new AssemblyHelperException($"Assembly: {assemblyName} - Type: {typeName} - Interface: {typeof(T).Name} - Could not be loaded due to error: [{ex.GetType().Name}] {ex.Message}", ex);
             }
         }
 
@@ -50,7 +50,7 @@ namespace Saltworks.SaltMiner.Core.Util
             }
             catch (Exception ex)
             {
-                throw new AssemblyHelperException($"Assembly: {assemblyName} - Type: {typeName} - Interface: {typeof(T).Name} - Could not be loaded.", ex);
+                throw new AssemblyHelperException($"Assembly: {assemblyName} - Type: {typeName} - Interface: {typeof(T).Name} - Could not be loaded due to error: [{ex.GetType().Name}] {ex.Message}", ex);
             }
         }
 
@@ -64,7 +64,7 @@ namespace Saltworks.SaltMiner.Core.Util
             }
             catch (Exception ex)
             {
-                throw new AssemblyHelperException($"Assembly: {assembly.FullName} - Type: {typeName} - Interface: {typeof(T).Name} - Could not be loaded.", ex);
+                throw new AssemblyHelperException($"Assembly: {assembly.FullName} - Type: {typeName} - Interface: {typeof(T).Name} - Could not be loaded due to error: [{ex.GetType().Name}] {ex.Message}", ex);
             }
         }
 
@@ -86,19 +86,15 @@ namespace Saltworks.SaltMiner.Core.Util
             }
             catch (Exception ex)
             {
-                throw new AssemblyHelperException($"Assembly: {assembly.FullName} - Base: {baseName} - Interface: {typeof(T).Name} - Failed to Load Could not be loaded.", ex);
+                throw new AssemblyHelperException($"Assembly: {assembly.FullName} - Base: {baseName} - Interface: {typeof(T).Name} - Could not be loaded due to error: [{ex.GetType().Name}] {ex.Message}", ex);
             }
         }
 
-        [Serializable]
         public class AssemblyHelperException : Exception
         {
             public AssemblyHelperException() { }
             public AssemblyHelperException(string message) : base(message) { }
             public AssemblyHelperException(string message, Exception inner) : base(message, inner) { }
-            protected AssemblyHelperException(
-              System.Runtime.Serialization.SerializationInfo info,
-              System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
         }
     }
 }
