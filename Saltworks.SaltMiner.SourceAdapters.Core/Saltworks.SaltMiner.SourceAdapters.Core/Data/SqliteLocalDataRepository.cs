@@ -366,8 +366,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
             {
                 if (!AddUpdateQueue.Exists(ce => ce.Type == type))
                     return;  // nothing to do
-                var batch = AddUpdateQueue.Where(ce => ce.Type == type);
-                Logger.LogDebug("[LocalData] Saving changes for {Count} {Type} doc(s).", batch.Count(), type.Name);
+                var batch = AddUpdateQueue.Where(ce => ce.Type == type).ToList();
+                Logger.LogDebug("[LocalData] Saving changes for {Count} {Type} doc(s).", batch.Count, type.Name);
                 lock (DataContextLock)
                 {
                     DataContext.Set<T>().AddRange(batch.Where(ce => ce.State == EntityState.Added).Select(ce => (T)ce.Entity));
@@ -375,12 +375,23 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
                     DataContext.Set<T>().RemoveRange(batch.Where(ce => ce.State == EntityState.Deleted).Select(ce => (T)ce.Entity));
                     DataContextSave();
                 }
-                AddUpdateQueue.RemoveAll(ce => ce.Type == type);
+                var removed = AddUpdateQueue.RemoveAll(ce => ce.Type == type);
+                if (removed != batch.Count)
+                    Logger.LogError("SaveBatch saved {Bat} {Typ}s but removed {Rem} items from the queue (they should match).", batch.Count, typeof(T).Name, removed);
             }
         }
 
-
-
+        internal struct MyStruct
+        {
+            internal int Index;
+            internal string Type;
+            internal string Id;
+            public override string ToString()
+            {
+                return $"{Index} {Type} {Id}";
+            }
+        }
+        private readonly List<MyStruct> List = [];
 
         /// <param name="entity">Entity to add/update</param>
         /// <param name="immediate">If add and immediate set, will be immediately sent to DB instead of being queued for a batch add.</param>
@@ -396,6 +407,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
             {
                 entity.Id = Guid.NewGuid().ToString();
                 isNew = true;
+                if (typeof(T).Name == typeof(QueueAsset).Name || typeof(T).Name == typeof(QueueScan).Name)
+                    List.Add(new() { Index = List.Count, Type = typeof(T).Name, Id = entity.Id });
             }
             entity.UpdateDtoFields();
             var unsaved = SaveBatchGet(entity);  // Get entry if we have this queued already
@@ -404,7 +417,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
             {
                 if (!immediate)
                 {
-                    SaveBatchAdd(entity, unsaved?.State ?? EntityState.Added);
+                    SaveBatchAdd(entity, unsaved?.State ?? (isNew ? EntityState.Added : EntityState.Modified));
                 }
                 else
                 {

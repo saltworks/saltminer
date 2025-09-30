@@ -19,43 +19,40 @@ using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json;
 
-namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
+namespace Saltworks.SaltMiner.SourceAdapters.Core.Data;
+
+[Table("QueueIssues")]
+public class QueueIssue : ILocalDataEntity
 {
-    [Table("QueueIssues")]
-    public class QueueIssue : ILocalDataEntity
+    [Key]
+    public string Id { get; set; }
+    public string QueueScanId { get; set; }
+    public string QueueAssetId { get; set; }
+    public DateTime? FoundDate { get; set; }
+    public string DataIndexName() => "QueueIssues";
+    public string SerializedEntity { get; set; }
+    private SaltMiner.Core.Entities.QueueIssue _entity;
+
+    [NotMapped]
+    public SaltMiner.Core.Entities.QueueIssue Entity
     {
-        [Key]
-        public string Id { get; set; }
-        public string QueueScanId { get; set; }
-        public string QueueAssetId { get; set; }
-        public DateTime? FoundDate { get; set; }
-        public string DataIndexName() => "QueueIssues";
-        public string SerializedEntity { get; set; }
-        private SaltMiner.Core.Entities.QueueIssue _entity;
-
-        [NotMapped]
-        public SaltMiner.Core.Entities.QueueIssue Entity
+        get
         {
-            get
-            {
-                _entity ??= (string.IsNullOrEmpty(SerializedEntity) ? null : JsonSerializer.Deserialize<SaltMiner.Core.Entities.QueueIssue>(SerializedEntity));
-                return _entity;
-            }
-            set
-            {
-                _entity = value;
-            }
+            _entity ??= (string.IsNullOrEmpty(SerializedEntity) ? null : JsonSerializer.Deserialize<SaltMiner.Core.Entities.QueueIssue>(SerializedEntity));
+            return _entity;
         }
-
-        public void UpdateDtoFields()
+        set
         {
-            if (string.IsNullOrEmpty(Entity.Id))
-                Entity.Id = Guid.NewGuid().ToString();
-            Id = Entity?.Id;
-            QueueScanId = Entity?.Saltminer?.QueueScanId;
-            QueueAssetId = Entity?.Saltminer?.QueueAssetId;
-            FoundDate = Entity?.Vulnerability.FoundDate;
-            SerializedEntity = Entity == null ? string.Empty : JsonSerializer.Serialize(Entity);
+            _entity = value;
         }
+    }
+
+    public void UpdateDtoFields()
+    {
+        Entity.Id = Id;
+        QueueScanId = Entity?.Saltminer?.QueueScanId;
+        QueueAssetId = Entity?.Saltminer?.QueueAssetId;
+        FoundDate = Entity?.Vulnerability.FoundDate;
+        SerializedEntity = Entity == null ? string.Empty : JsonSerializer.Serialize(Entity);
     }
 }
