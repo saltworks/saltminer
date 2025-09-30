@@ -276,47 +276,51 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
         {
             if (string.IsNullOrEmpty(entity?.Id))
                 throw new ArgumentException("Entity cannot be null and must include a valid ID.", nameof(entity));
+            Logger.LogDebug("SaveBatchGet: [{Type}] ID: {Id}", typeof(T).Name, entity.Id);
             return AddUpdateQueue.Find(e => e.Entity.Id == entity.Id && e.Type == entity.GetType());
         }
 
         private void SaveBatchRemove<T>(T entity) where T: ILocalDataEntity
         {
+            Logger.LogDebug("SaveBatchRemove: [{Type}] ID: {Id}", typeof(T).Name, entity.Id);
             var entry = SaveBatchGet(entity);
             if (entry != null)
                 AddUpdateQueue.Remove(entry);
         }
-        
+
         private void SaveBatchAdd<T>(T entity, EntityState state, bool pauseFlush = false) where T : ILocalDataEntity
         {
-            if (!object.Equals(entity, default(T)))
+            if (object.Equals(entity, default(T)))  // check for entity null
+                throw new ArgumentNullException(nameof(entity));
+            if (string.IsNullOrEmpty(entity.Id))
+                throw new ArgumentNullException(nameof(entity), "Entity ID cannot be null");
+            Logger.LogDebug("SaveBatchAdd: [{Type}] ID: {Id}", typeof(T).Name, entity.Id);
+            lock (AddUpdateQueueLock)
             {
-                lock (AddUpdateQueueLock)
+                var entry = SaveBatchGet(entity);
+                if (entry != null)
                 {
-                    var entry = SaveBatchGet(entity);
-                    if (entry != null)
+                    entry.Entity = entity;
+                    if (entry.State != state)
                     {
-                        entry.Entity = entity;
-                        if (entry.State != state)
-                        {
-                            // logic for state change based on current state and incoming state (if different)
-                            // best guess handling here...
-                            if (entry.State == EntityState.Added && state == EntityState.Deleted)
-                                AddUpdateQueue.Remove(entry);  // just kidding, don't save this one
-                            if (entry.State == EntityState.Modified && state == EntityState.Deleted)
-                                entry.State = EntityState.Deleted;
-                            if (entry.State == EntityState.Deleted)
-                                entry.State = state;
-                        }
+                        // logic for state change based on current state and incoming state (if different)
+                        // best guess handling here...
+                        if (entry.State == EntityState.Added && state == EntityState.Deleted)
+                            AddUpdateQueue.Remove(entry);  // just kidding, don't save this one
+                        if (entry.State == EntityState.Modified && state == EntityState.Deleted)
+                            entry.State = EntityState.Deleted;
+                        if (entry.State == EntityState.Deleted)
+                            entry.State = state;
                     }
-                    else
+                }
+                else
+                {
+                    AddUpdateQueue.Add(new()
                     {
-                        AddUpdateQueue.Add(new()
-                        {
-                            Entity = entity,
-                            State = state,
-                            Type = typeof(T)
-                        });
-                    }
+                        Entity = entity,
+                        State = state,
+                        Type = typeof(T)
+                    });
                 }
             }
 
@@ -348,6 +352,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
                     #pragma warning restore S6667 // Logging in a catch clause should pass the caught exception as a parameter.
                     throw new LocalDataConcurrencyException(ex.Message);
                 }
+            }
+            catch (Exception ex)
+            {
+                throw new LocalDataException($"General data failure: [{ex.InnerException?.GetType().Name ?? ex.GetType().Name}] {ex.InnerException?.Message ?? ex.Message}", ex);
             }
         }
 
