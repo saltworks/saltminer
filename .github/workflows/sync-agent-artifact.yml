@@ -18,6 +18,7 @@ on:
     - 'Saltworks.SaltMiner.DataClient/**'
     - 'Saltworks.Utility.ApiHelper/**'
     - 'Saltworks.SaltMiner.Licensing.Core/**'
+    - 'Saltworks.SaltMiner.SourceAdapters.Core/**'
     - 'Saltworks.SaltMiner.SourceAdapters/**'
     
 env:
