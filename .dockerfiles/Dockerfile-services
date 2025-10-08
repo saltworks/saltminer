@@ -1,6 +1,6 @@
-FROM mcr.microsoft.com/dotnet/aspnet:8.0.18-alpine3.22-amd64
+FROM mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64
 
-LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.18-alpine3.22-amd64"
+LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
 ARG ARTIFACT_PATH=.
