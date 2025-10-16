@@ -17,10 +17,11 @@
 ﻿using Saltworks.SaltMiner.SourceAdapters.Core.Data;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
 {
-    public class ReportDTO
+    public class ReportDto
     {
         public string ProjectId { get; set; }
         public string Team { get; set; }
@@ -29,29 +30,29 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
         public string Files { get; set; }
         public string Loc { get; set; }
         public string ScanType { get; set; }
-        public AdditionalDetailsDTO AdditionalDetails { get; set; }
-        public ScanSummaryDTO ScanSummary { get; set; }
-        public List<IssueDTO> XIssues { get; set; }
+        public AdditionalDetailsDto AdditionalDetails { get; set; }
+        public ScanSummaryDto ScanSummary { get; set; }
+        public List<IssueDto> XIssues { get; set; }
         public bool SastResults { get; set; }
 
         public SourceMetric GetSourceMetric(CheckmarxSastConfig config)
         {
             return new SourceMetric
             {
-                LastScan = DateTime.Parse(AdditionalDetails.ScanStartDate).AddMilliseconds(1).ToUniversalTime(),
+                LastScan = DateTime.Parse(AdditionalDetails.ScanStartDate, new CultureInfo("en-us")).AddMilliseconds(1).ToUniversalTime(),
                 Instance = config.Instance,
                 SourceType = config.SourceType,
                 SourceId = AdditionalDetails.ScanId.ToString(),
                 VersionId = "",
-                Attributes = AdditionalDetails?.CustomFields ?? new Dictionary<string, string>(),
+                Attributes = AdditionalDetails?.CustomFields ?? [],
                 IssueCount = XIssues.Count
             };
         }
     }
 
-    public class AdditionalDetailsDTO
+    public class AdditionalDetailsDto
     { 
-        public FlowSummaryDTO FlowSummary { get; set; }
+        public FlowSummaryDto FlowSummary { get; set; }
         public string NumFailedLoc { get; set; }
         public string ScanRiskSeverity { get; set; }
         public string ScanId { get; set; }
@@ -61,14 +62,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
 
     }
 
-    public class FlowSummaryDTO
+    public class FlowSummaryDto
 {
         public int High { get; set; }
         public int Medium { get; set; }
         public int Low { get; set; }
     }
 
-    public class ScanSummaryDTO
+    public class ScanSummaryDto
 {
         public int HighSeverity { get; set; }
         public int MediumSeverity { get; set; }
@@ -77,7 +78,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
         public string StatisticsCalculationDate { get; set; }
     }
 
-    public class IssueDTO
+    public class IssueDto
 {
         public string Vulnerability { get; set; }
         public string VulnerabilityStatus { get; set; }
@@ -92,28 +93,28 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
         public bool AllFalsePositive { get; set; }
     }
 
-    public class IssueAdditionalDetailDTO
+    public class IssueAdditionalDetailDto
 {
         public string RecommendedFix { get; set; }
         public string Categories { get; set; }
-        public List<IssueAdditionalDetailResultsDTO> Results { get; set; }
+        public List<IssueAdditionalDetailResultsDto> Results { get; set; }
     }
 
-    public class IssueAdditionalDetailResultsDTO
+    public class IssueAdditionalDetailResultsDto
 {
         public string State { get; set; }
-        public IssueAdditionalDetailResultsSourceDTO Source { get; set; }
-        public IssueAdditionalDetailResultsSinkDTO Sink { get; set; }
+        public IssueAdditionalDetailResultsSourceDto Source { get; set; }
+        public IssueAdditionalDetailResultsSinkDto Sink { get; set; }
     }
 
-    public class IssueAdditionalDetailResultsSinkDTO
+    public class IssueAdditionalDetailResultsSinkDto
 {
         public string File { get; set; }
         public string Line { get; set; }
         public string Object { get; set; }
     }
 
-    public class IssueAdditionalDetailResultsSourceDTO
+    public class IssueAdditionalDetailResultsSourceDto
 {
         public string File { get; set; }
         public string Line { get; set; }

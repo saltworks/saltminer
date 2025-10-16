@@ -15,10 +15,8 @@
  */
 
 ﻿using Saltworks.SaltMiner.SourceAdapters.Core;
-using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
-using System.Threading;
 
 namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
 {
@@ -26,15 +24,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
     {
         public CheckmarxSastConfig()
         {
-            FilePaths = new List<string>();
             SourceAbortErrorCount = 10;
-            DataApiRetryCount = 3;
         }
 
         public bool DeleteFileWhenDone { get; set; } = true;
-        public List<string> FilePaths { get; set; }
         public string CxFlowFolder { get; set; }
         public new static bool IsSaltminerSource { get => true; }
+        public override string CurrentCompatibleApiVersion => "3.3.0";
+        public override string MinimumCompatibleApiVersion => "3.2.0";
 
         public override string Serialize()
         {
@@ -45,7 +42,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
         {
             base.Validate();
             var missingFields = Core.Helpers.Extensions.IsAnyNullOrEmpty(this);
-            var myFields = new string[] { nameof(FilePaths), nameof(CxFlowFolder) };
+            var myFields = new string[] { nameof(CxFlowFolder) };
             if (myFields.Any(f => missingFields.Contains(f)))
                 throw new SourceConfigurationException($"'{nameof(CheckmarxSastConfig)}' is missing values. {missingFields}");
         }

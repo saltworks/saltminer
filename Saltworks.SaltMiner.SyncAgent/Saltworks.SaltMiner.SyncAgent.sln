@@ -39,6 +39,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.Core", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.Utility.ApiHelper", "..\Saltworks.ApiClient\Saltworks.Utility.ApiHelper\Saltworks.Utility.ApiHelper.csproj", "{F8935952-CCAF-CC40-8B85-FA602D85EB8A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.SourceAdapters.CheckmarxSast", "..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.CheckmarxSast\Saltworks.SaltMiner.SourceAdapters.CheckmarxSast.csproj", "{658D67BE-96B8-F99B-CB07-88A4B483FEBA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -117,6 +119,10 @@ Global
 		{F8935952-CCAF-CC40-8B85-FA602D85EB8A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F8935952-CCAF-CC40-8B85-FA602D85EB8A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F8935952-CCAF-CC40-8B85-FA602D85EB8A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{658D67BE-96B8-F99B-CB07-88A4B483FEBA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{658D67BE-96B8-F99B-CB07-88A4B483FEBA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{658D67BE-96B8-F99B-CB07-88A4B483FEBA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{658D67BE-96B8-F99B-CB07-88A4B483FEBA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -81,7 +81,7 @@ class SscClient(object):
             # Make the token expire in a day
             body = {
                 "type": "UnifiedLoginToken",
-                "terminalDate": (datetime.datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S.%f"),
+                "terminalDate": (datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S.%f"),
                 "description": tokenDescription
             }
         auth = RestClient.basicAuth(appSettings.GetSource(sourceName, "Username"), appSettings.GetSource(sourceName, "Password"))
@@ -111,6 +111,12 @@ class SscClient(object):
             raise SscClientAuthenticationException(f"({response.status_code}) {r['message']}")
         self.__AuthToken = r['data']['token']
         self.__AuthTokenId = r['data']['id']
+        self.__AuthTokenExp = None
+        try:
+            self.__AuthTokenExp = datetime.datetime.fromisoformat(r['data']['terminalDate'])
+        except Exception as e:
+            logging.debug("Token expiration parse failure: %s", f"{e}")
+            logging.warning("Failed to parse token expiration - this can happen if python 3.11 or older and can be ignored safely.")
         headers = {
             'Accept':'application/json',
             'Content-Type':'application/json;charset=UTF-8',
@@ -165,6 +171,9 @@ class SscClient(object):
         suppressError - set to True to not raise an error if the response.status_code is not 2xx.  Returns None if error suppressed.
         statKey - used in recording stats for API calls
         '''
+        if datetime.datetime.now(datetime.UTC) > self.__AuthTokenExp:
+            logging.info("Token expired, attempting to get new token")
+            self.__GetAuthToken(self.__App.Settings, self.__SourceName)
         wait = self.__RetrySec if not retryDelaySec or retryDelaySec < 0 else retryDelaySec
         ex = None
 
