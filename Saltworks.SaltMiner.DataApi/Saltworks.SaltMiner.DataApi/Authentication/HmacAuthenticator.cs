@@ -16,6 +16,7 @@
 
 ﻿using Microsoft.AspNetCore.Http;
 using System;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -23,7 +24,7 @@ namespace Saltworks.SaltMiner.DataApi.Authentication
 {
     public interface IHmacAuthenticator
     {
-        string GetHexHashed(string secret, string message);
+        string GetHashed(string secret, string message);
         bool IsAuthentic(string secret, IHeaderDictionary headers, string payload);
         string MatchHeader { get; }
     }
@@ -31,19 +32,45 @@ namespace Saltworks.SaltMiner.DataApi.Authentication
     public class FortifySscHmacAuthenticator: IHmacAuthenticator
     {
         public string MatchHeader => "X-SSC-Signature";
-        public string GetHexHashed(string secret, string message)
+        public string GetHashed(string secret, string message)
         {
-            var hashSecret = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-            var hash = Convert.ToHexString(hashSecret.ComputeHash(Encoding.UTF8.GetBytes(message)));
-            return hash;
+            //var hashSecret = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+            //var hash = hashSecret.ComputeHash(Encoding.UTF8.GetBytes(message));
+            //var hashed = BitConverter.ToString(hash).Replace("-", "").ToLower();
+            ////var hashed = Convert.ToHexString(hash);
+            //return hashed;
+            byte[] secretBytes = Encoding.UTF8.GetBytes(secret);
+            byte[] messageBytes = Encoding.UTF8.GetBytes(message);
+
+            // Act
+            using var hmac = new HMACSHA256(secretBytes);
+            var hash = hmac.ComputeHash(messageBytes);
+            var computedHash = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+            return computedHash;
         }
 
         public bool IsAuthentic(string secret, IHeaderDictionary headers, string payload)
         {
+            // X-SSC-Signature is already known to exist
+            var dateHeader = headers.Date.ToString();
+
+            // Validate date skew (≤5 min)
+            if (DateTime.TryParseExact(dateHeader, "ddd, dd MMM yyyy HH:mm:ss zzz", new CultureInfo("en-us"), DateTimeStyles.AssumeUniversal, out DateTime reqDate))
+            {
+                TimeSpan skew = DateTime.UtcNow - reqDate;
+                if (Math.Abs(skew.TotalSeconds) > 300)
+                    throw new WebhookValidationException("Date skew too large");
+            }
+            else
+            {
+                throw new WebhookValidationException("Invalid date header format");
+            }
+
+            // Validate signature
             if (!headers.TryGetValue(MatchHeader, out var vals))
                 return false;
-            var hexHashed = vals[0].Replace("sha256=", "");
-            return GetHexHashed(secret, payload) == hexHashed;
+            var hdrHashed = vals[0].Replace("sha256=", "");
+            return GetHashed(secret, dateHeader + payload) == hdrHashed;
         }
     }
 }

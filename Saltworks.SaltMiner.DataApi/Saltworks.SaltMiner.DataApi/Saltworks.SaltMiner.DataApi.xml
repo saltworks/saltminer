@@ -1242,12 +1242,11 @@
             </summary>
             <returns>NoDataResponse with boolean indicating success</returns>
         </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.AddSyncQueueItem(System.String,System.Text.Json.Nodes.JsonObject)">
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.AddSyncQueueItem(System.String)">
             <summary>
             Receives new queue sync items (webhook events), storing them in a "queue" for later processing
             </summary>
             <param name="source">Webhook source key (must be configured)</param>
-            <param name="payload">Webhook payload (ignore the swagger generated model)</param>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.GetSyncQueueItems(System.String)">
             <summary>

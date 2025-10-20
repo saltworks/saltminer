@@ -1,0 +1,14 @@
+﻿sldlk@#934jlk
+188d60d0a733b4addb54cc0187bcc99f623f71cda8e7674cd88547892f23f54a
+Mon, 20 Oct 2025 16:16:43 GMT
+{
+  "events": [
+    {
+      "event": "TEST",
+      "message": "Test delivery for a newly created webhook."
+    }
+  ],
+  "triggeredAt": "2025-10-17T17:58:53.312\u002B00:00",
+  "sscUrl": "http://ssc.saltminer.io/ssc/",
+  "webHookId": 3
+}

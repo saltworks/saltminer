@@ -91,12 +91,11 @@ public class UtilityController(UtilityContext context, ILogger<UtilityController
     /// Receives new queue sync items (webhook events), storing them in a "queue" for later processing
     /// </summary>
     /// <param name="source">Webhook source key (must be configured)</param>
-    /// <param name="payload">Webhook payload (ignore the swagger generated model)</param>
     [Consumes("application/json")]
     [HttpPost("Webhook/{source}")]
-    public ActionResult<NoDataResponse> AddSyncQueueItem(string source, [FromBody] JsonObject payload)
+    public ActionResult<NoDataResponse> AddSyncQueueItem(string source)
     {
-        return Ok(Context.AddQueueSyncItem(Request.Headers, source, payload.ToString()));
+        return Ok(Context.AddQueueSyncItem(source, Request));
     }
 
     /// <summary>

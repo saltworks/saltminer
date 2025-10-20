@@ -205,4 +205,10 @@ namespace Saltworks.SaltMiner.DataApi
         public ImportPipelineException(string message) : base(message) { }
         public ImportPipelineException(string message, Exception inner) : base(message, inner) { }
     }
+
+    public class WebhookValidationException : Exception
+    {
+        public WebhookValidationException() { }
+        public WebhookValidationException(string message) : base(message) { }
+    }
 }

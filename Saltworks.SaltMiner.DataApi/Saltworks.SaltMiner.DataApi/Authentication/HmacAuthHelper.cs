@@ -42,9 +42,14 @@ public static class HmacAuthHelper
             }
             return ha.IsAuthentic(secret, headers, payload);
         }
+        catch (WebhookValidationException ex)
+        {
+            logger?.LogError(ex, "Webhook validation exception thrown for '{Type}' webhook: {Msg}", type, ex.Message);
+            return false;
+        }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Failure to perform HMAC authentication for this web hook call: [{Type}] {Msg}", ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
+            logger?.LogError(ex, "Failure to perform HMAC authentication for '{Wtype}' webhook: [{Type}] {Msg}", type, ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
             return false;
         }
     }

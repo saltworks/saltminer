@@ -28,6 +28,7 @@ using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using System.Linq;
 using System.Text;
+using Saltworks.Utility.ApiHelper;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts;
 
@@ -119,7 +120,7 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
         return ElasticClient.RestoreBackup(Config.ElasticBackupRepoName, Config.ElasticBackupName).ToNoDataResponse();
     }
 
-    internal NoDataResponse AddQueueSyncItem(IHeaderDictionary headers, string type, string payload)
+    internal NoDataResponse AddQueueSyncItem(string type, HttpRequest request)
     {
         if (!Config.EnableWebhooks)
         {
@@ -129,9 +130,12 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
         if (!Config.WebhookSecrets.ContainsKey(type))
         {
             Logger.LogWarning("Attempted web hook post, but indicated type '{Type}' is not configured in WebhookSecrets.  Type must be configured even if secret is blank and EnableWebhookSecurity is false.", type);
-            throw new ApiUnauthorizedException();
+            throw new ApiClientBadRequestException();
         }
-        if (Config.EnableWebhookSecurity && !HmacAuthHelper.Authenticate(type, Config.WebhookSecrets, headers, payload, Logger))
+        // Because body is signed, have to read directly from stream to get exact whitespace
+        using var reader = new StreamReader(request.Body);
+        var payload = reader.ReadToEnd();
+        if (Config.EnableWebhookSecurity && !HmacAuthHelper.Authenticate(type, Config.WebhookSecrets, request.Headers, payload, Logger))
         {
             Logger.LogInformation("Webhook auth failure, EnableWebhookDebug: {Bool}", Config.EnableWebhookDebug);
             try
@@ -140,7 +144,7 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
                 {
                     StringBuilder sb = new("");
                     var file = "webhookdebug.txt";
-                    foreach (var hdr in headers)
+                    foreach (var hdr in request.Headers)
                     {
                         sb.Append($"[HEADER]\n{hdr.Key}: {hdr.Value}\n");
                         Logger.LogInformation("[Webhook debug] {Hdr}: {Val}", hdr.Key, hdr.Value);
