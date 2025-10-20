@@ -134,7 +134,7 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
         }
         // Because body is signed, have to read directly from stream to get exact whitespace
         using var reader = new StreamReader(request.Body);
-        var payload = reader.ReadToEnd();
+        var payload = reader.ReadToEndAsync().Result;
         if (Config.EnableWebhookSecurity && !HmacAuthHelper.Authenticate(type, Config.WebhookSecrets, request.Headers, payload, Logger))
         {
             Logger.LogInformation("Webhook auth failure, EnableWebhookDebug: {Bool}", Config.EnableWebhookDebug);
