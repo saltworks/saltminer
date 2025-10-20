@@ -59,7 +59,7 @@ namespace Saltworks.SaltMiner.DataApi.Models
         public string ElasticBackupName { get; set; } = "saltminer_backup";
         public bool ElasticSingleNodeCluster { get; set; } = false;
         public string InventoryAssetEnrichmentPolicy { get; set; } = "inventory-asset-enrich-policy";
-        public Dictionary<string, string> ApiKeys { get; set; } = new();  // key, role
+        public Dictionary<string, string> ApiKeys { get; set; } = [];  // key, role
         public string AuthHeader { get; set; } = "Authorization";
         public string ElasticAppRolePrefix { get; set; } = "smapp_";
         public string AuthType { get; set; } = "bearer";

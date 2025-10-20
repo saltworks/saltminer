@@ -25,23 +25,23 @@ namespace Saltworks.SaltMiner.DataApi.UnitTests
         public void Basic_Hash()
         {
             IHmacAuthenticator ha = new FortifySscHmacAuthenticator();
-            var secret = "1234567890qwertyuiopasdfghjkl";
-            var body = @"{
+            var secret = "sldlk@#934jlk";
+            var body = @"{ 
   ""events"": [
     {
       ""event"": ""TEST"",
-      ""message"": ""Test delivery for an updated webhook.""
+      ""message"": ""Test delivery for a newly created webhook.""
     }
   ],
-  ""triggeredAt"": ""2025-03-10T23:20:08.493+00:00"",
+  ""triggeredAt"": ""2025-10-17T17:58:53.312+00:00"",
   ""sscUrl"": ""http://ssc.saltminer.io/ssc/"",
-  ""webHookId"": 2
+  ""webHookId"": 3
 }";
-            var message = "Mon, 10 Mar 2025 23:20:08 GMT" + body;
-            var hashed = ha.GetHexHashed(secret, message);
+            var hashed = ha.GetHexHashed(secret, body);
             Assert.IsNotNull(hashed);
             // Re-enable if this unit test becomes viable
-            //var expected = "38327431baca1d9283461198b5eee9ddb3c3e573aa9ad39ea4ed83d4516feb3f"
+            //var expected = "eaa9650c143f4dd99eb0763dc7d5e5c6b3da464baba47efb3b3e7280f7b7cf7f"
+            // actual = 22666F8BEB0AD95113336608D00CDA1904A836A9643BEE554761B524EF729E3F
             //Assert.AreEqual(expected, hashed)
         }
     }

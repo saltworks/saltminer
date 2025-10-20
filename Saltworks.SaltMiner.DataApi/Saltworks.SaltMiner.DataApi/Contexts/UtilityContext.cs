@@ -27,6 +27,7 @@ using Saltworks.SaltMiner.ElasticClient;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using System.Linq;
+using System.Text;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts;
 
@@ -137,13 +138,21 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
             {
                 if (Config.EnableWebhookDebug)
                 {
+                    StringBuilder sb = new("");
+                    var file = "webhookdebug.txt";
                     foreach (var hdr in headers)
-                        Logger.LogInformation("[Webhook request header] {Hdr}: {Val}", hdr.Key, hdr.Value);
+                    {
+                        sb.Append($"[HEADER]\n{hdr.Key}: {hdr.Value}\n");
+                        Logger.LogInformation("[Webhook debug] {Hdr}: {Val}", hdr.Key, hdr.Value);
+                    }
+                    sb.Append($"[BODY]\n{payload}");
+                    File.WriteAllText(file, sb.ToString());
+                    Logger.LogInformation("[Webhook debug] File {File} contains last payload body and headers.", file);
                 }
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "Error when logging webhook request headers: [{Type}] {Msg}", ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
+                Logger.LogWarning(ex, "Error when logging webhook debug information: [{Type}] {Msg}", ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
                 // ignore otherwise
             }
             Logger.LogWarning("Attempted web hook post of type '{Type}' but authentication failed.", type);

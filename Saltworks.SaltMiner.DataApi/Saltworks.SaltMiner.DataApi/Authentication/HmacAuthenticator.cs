@@ -33,8 +33,9 @@ namespace Saltworks.SaltMiner.DataApi.Authentication
         public string MatchHeader => "X-SSC-Signature";
         public string GetHexHashed(string secret, string message)
         {
-            var hash = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-            return Convert.ToHexString(hash.ComputeHash(Encoding.UTF8.GetBytes(message)));
+            var hashSecret = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+            var hash = Convert.ToHexString(hashSecret.ComputeHash(Encoding.UTF8.GetBytes(message)));
+            return hash;
         }
 
         public bool IsAuthentic(string secret, IHeaderDictionary headers, string payload)
@@ -42,10 +43,7 @@ namespace Saltworks.SaltMiner.DataApi.Authentication
             if (!headers.TryGetValue(MatchHeader, out var vals))
                 return false;
             var hexHashed = vals[0].Replace("sha256=", "");
-            if (!headers.TryGetValue("Date", out vals))
-                return false;
-            var message = vals[0] + payload;
-            return GetHexHashed(secret, message) == hexHashed;
+            return GetHexHashed(secret, payload) == hexHashed;
         }
     }
 }
