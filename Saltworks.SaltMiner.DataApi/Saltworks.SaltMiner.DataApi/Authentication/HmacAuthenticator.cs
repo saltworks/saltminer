@@ -70,7 +70,7 @@ namespace Saltworks.SaltMiner.DataApi.Authentication
             if (!headers.TryGetValue(MatchHeader, out var vals))
                 return false;
             var hdrHashed = vals[0].Replace("sha256=", "");
-            return GetHashed(secret, dateHeader + payload) == hdrHashed;
+            return GetHashed(secret, payload + dateHeader) == hdrHashed;
         }
     }
 }

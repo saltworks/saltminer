@@ -14,22 +14,33 @@
  * ----
  */
 
-﻿using System.Reflection;
-using System;
-using System.Linq;
-using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+﻿using System.Reflection;
 
 namespace Saltworks.SaltMiner.DataApi.Authentication;
 
 public static class HmacAuthHelper
 {
-    public static bool Authenticate(string type, Dictionary<string, string> secrets, IHeaderDictionary headers, string payload, ILogger logger = null)
+    public static string GetPayload(HttpRequest request)
+    {
+        // Because body is signed, have to read directly from stream to get exact whitespace
+        request.EnableBuffering();
+        using var reader = new StreamReader(request.Body);
+        var payload = reader.ReadToEndAsync().Result;
+        request.Body.Position = 0;
+        return payload;
+    }
+
+    public static bool Authenticate(string type, Dictionary<string, string> secrets, HttpRequest request, ILogger logger = null)
     {
         try
         {
-            var ha = FindMatchingAuthenticator(headers);
+            var ha = FindMatchingAuthenticator(request.Headers);
             if (ha == null)
             {
                 logger?.LogError("Unable to find HMAC authenticator for this web hook call.");
@@ -40,7 +51,7 @@ public static class HmacAuthHelper
                 logger?.LogWarning("Web hook call matched to authenticator '{Auth}' but found no matching secret in WebhookSecrets dictionary for '{Key}'.", ha.GetType().Name, type);
                 return false;
             }
-            return ha.IsAuthentic(secret, headers, payload);
+            return ha.IsAuthentic(secret, request.Headers, GetPayload(request));
         }
         catch (WebhookValidationException ex)
         {
@@ -49,7 +60,7 @@ public static class HmacAuthHelper
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Failure to perform HMAC authentication for '{Wtype}' webhook: [{Type}] {Msg}", type, ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
+            logger?.LogError(ex, "Failure to perform HMAC authentication for '{Wtype}' webhook: [{Etype}] {Msg}", type, ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
             return false;
         }
     }
