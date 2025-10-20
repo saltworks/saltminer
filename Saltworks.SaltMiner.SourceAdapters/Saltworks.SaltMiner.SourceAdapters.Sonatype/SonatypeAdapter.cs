@@ -442,37 +442,38 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                         var location = (component.PackageUrl == "" || component.PackageUrl == null) ? "N/A" : component.PackageUrl;
                         queueIssues.Add(new QueueIssue
                         {
-                           Entity = new()
-                           {
-                               Labels = [],
-                               Vulnerability = new()
-                               {
-                                   Audit = new()
-                                   {
-                                       Audited = true,
-                                   },
-                                   Category = [ "Application" ],
-                                   FoundDate = FixTimezone(appReport.EvaluationDate).Value,
-                                   LocationFull = location,
-                                   Location = location,
-                                   Name = violation.GetViolationName(),
-                                   ReportId = appReport.ReportId,
-                                   Scanner = new()
-                                   {
-                                       Id = $"{application.Id}~{violation.PolicyViolationId}",
-                                       AssessmentType = AssessmentType.Open.ToString("g"),
-                                       Product = "Lifecycle",
-                                       Vendor = "Sonatype",
-                                       GuiUrl = vulReportLink
-                                   },
-                                   Severity = SeverityHelper.ValidSeverity(Config.IssueSeverityMap, violation.PolicyName),
-                                   SourceSeverity = violation.PolicyName,
-                                   IsSuppressed = violation.Waived || violation.Grandfathered || violation.WaivedWithAutoWaiver
-                               },
-                               Saltminer = new()
-                               {
-                                   IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
-                                   Attributes = new Dictionary<string, string>
+                            Entity = new()
+                            {
+                                Labels = [],
+                                Vulnerability = new()
+                                {
+                                    Audit = new()
+                                    {
+                                        Audited = true,
+                                    },
+                                    Category = ["Application"],
+                                    FoundDate = FixTimezone(appReport.EvaluationDate).Value,
+                                    LocationFull = location,
+                                    Location = location,
+                                    Name = violation.GetViolationName(),
+                                    ReportId = appReport.ReportId,
+                                    Scanner = new()
+                                    {
+                                        Id = $"{application.Id}~{violation.PolicyViolationId}",
+                                        AssessmentType = AssessmentType.Open.ToString("g"),
+                                        Product = "Lifecycle",
+                                        Vendor = "Sonatype",
+                                        GuiUrl = vulReportLink
+                                    },
+                                    Severity = SeverityHelper.ValidSeverity(Config.IssueSeverityMap, violation.PolicyName),
+                                    SourceSeverity = violation.PolicyName,
+                                    IsSuppressed = violation.Waived || violation.Grandfathered || violation.WaivedWithAutoWaiver,
+                                    Reference = violation.GetViolationReference()
+                                },
+                                Saltminer = new()
+                                {
+                                    IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
+                                    Attributes = new Dictionary<string, string>
                                    {
                                        { "waived", violation.Waived.ToString() },
                                        { "waivedWithAutoWaiver", violation.WaivedWithAutoWaiver.ToString() },
@@ -482,16 +483,16 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
                                        { "policyThreatCategory", violation.PolicyThreatCategory },
                                        { "policyName", violation.PolicyName }
                                    },
-                                   QueueScanId = queueScan.Id,
-                                   QueueAssetId = queueAsset.Id,
-                                   Source = new SaltMiner.Core.Entities.SourceInfo
-                                   {
-                                       Analyzer = "Sonatype",
-                                   }
-                               },
-                               Tags = [],
-                               Timestamp = DateTime.UtcNow
-                           }
+                                    QueueScanId = queueScan.Id,
+                                    QueueAssetId = queueAsset.Id,
+                                    Source = new SaltMiner.Core.Entities.SourceInfo
+                                    {
+                                        Analyzer = "Sonatype",
+                                    }
+                                },
+                                Tags = [],
+                                Timestamp = DateTime.UtcNow
+                            }
                         });
                     }
                 }
