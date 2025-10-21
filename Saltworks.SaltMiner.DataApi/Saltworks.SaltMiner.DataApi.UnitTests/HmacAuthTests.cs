@@ -82,10 +82,15 @@ public sealed class HmacAuthTests
     }
 
 // This test can't be run without recent data from an SSC webhook
-#if DEBUG
     [TestMethod]
-    public void FortifySsc_Hash_2()
+    public void FortifySsc_Hash_Debug_Only()
     {
+        // Only debug
+        if (!System.Diagnostics.Debugger.IsAttached)
+        {
+            return;
+        }
+        
         // Arrange
         var logger = new DebugLoggerProvider().CreateLogger("mylogger");
         var request = new DefaultHttpContext().Request;
@@ -103,4 +108,3 @@ public sealed class HmacAuthTests
         Assert.IsTrue(yup);
     }
 }
-#endif
