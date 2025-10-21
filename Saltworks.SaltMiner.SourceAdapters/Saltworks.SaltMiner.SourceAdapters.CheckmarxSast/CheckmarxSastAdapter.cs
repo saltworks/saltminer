@@ -33,6 +33,9 @@ using static Saltworks.SaltMiner.Core.Entities.QueueScan;
 
 namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
 {
+    // NOTES:
+    // We do not track source metrics for this source, as we are given report files directly and there's no API to call.
+    // Every report from CxSast is treated as needing an update in SaltMiner.
     public class CheckmarxSastAdapter : SourceAdapter
     {
         private ISourceAdapterCustom CustomAssembly;
@@ -144,13 +147,12 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                         Logger.LogInformation("[Sync] Testing asset limit ({Limit}) reached.  Stopping sync.", Config.TestingAssetLimit);
                         break;
                     }
-                    var metric = report.GetSourceMetric(Config);
 
                     try
                     {
                         if (RecoveryMode)
                         {
-                            if (syncRecord.CurrentSourceId != metric.SourceId)
+                            if (syncRecord.CurrentSourceId != report.SourceId)
                                 continue;
                             else
                                 RecoveryMode = false;
@@ -160,8 +162,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                             syncRecord = LocalData.GetSyncRecord(Config.Instance, Config.SourceType);
                         }
 
-                        SyncInProgress(syncRecord, metric.SourceId);
-                        Logger.LogInformation("[Sync] {SourceType} {Instance}, Src ID '{SrcId}'", Config.SourceType, Config.Instance, metric.SourceId);
+                        SyncInProgress(syncRecord, report.SourceId);
+                        Logger.LogInformation("[Sync] {SourceType} {Instance}, '{SrcId}' - '{App}'", Config.SourceType, Config.Instance, report.SourceId, report.AssetName);
 
                         QueueScan queueScan = MapScan(report);
                         newLocalScans++;
@@ -171,13 +173,16 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                         if (queueScan.Entity.Saltminer.Internal.QueueStatus == QueueScanStatus.Cancel.ToString())
                             continue;
 
-                        MapIssues(report, queueScan, queueAsset);
+                        queueScan.Entity.Saltminer.Internal.IssueCount = MapIssues(report, queueScan, queueAsset);
+                        queueScan.Loading = false;
+                        LocalData.AddUpdate(queueScan);
                         SyncComplete(syncRecord);
                         RecoveryMode = false;
                         if (Config.DeleteFileWhenDone)
                             File.Delete(dto.FilePath);
                         newLocalIssues += queueScan.Entity.Saltminer.Internal.IssueCount;
                         CheckCancel(true);
+                        counter++;
                     }
                     catch (LocalDataException ex)
                     {
@@ -202,6 +207,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                 }
                 if (counter == 0)
                     Logger.LogWarning("[Sync] No report files found to process for the last week");
+                LocalData.SaveAllBatches();
             }
             catch (Exception ex)
             {
@@ -262,7 +268,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
 
         private QueueAsset MapAsset(ReportDto appReport, QueueScan queueScan)
         {
-            var sourceId = appReport.ProjectId;
             var queueAsset = new QueueAsset
             {
                 Entity = new()
@@ -273,13 +278,15 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                         Asset = new SaltMiner.Core.Entities.AssetInfoPolicy
                         {
                             Description = appReport.Project,
-                            Name = appReport.Project,
+                            Name = appReport.AssetName,
                             Attributes = appReport.AdditionalDetails.CustomFields,
                             IsProduction = true,
                             Instance = Config.Instance,
                             IsSaltminerSource = CheckmarxSastConfig.IsSaltminerSource,
                             SourceType = Config.SourceType,
-                            SourceId = sourceId,
+                            SourceId = appReport.SourceId,
+                            Version = appReport.SourceId,
+                            VersionId = appReport.SourceId,
                             AssetType = AssetType,
                             LastScanDaysPolicy = Config.LastScanDaysPolicy
                         },
@@ -293,70 +300,70 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
             return LocalData.AddUpdate(queueAsset);
         }
 
-        private void MapIssues(ReportDto appReport, QueueScan queueScan, QueueAsset queueAsset)
+        private int MapIssues(ReportDto appReport, QueueScan queueScan, QueueAsset queueAsset)
         {
+            var issueCounter = 0;
             if (appReport.XIssues.Count == 0)
             { 
                 LocalData.AddUpdate(GetZeroQueueIssue(queueScan, queueAsset));
-                return;
+                return 1;
             }
-            else
+            foreach (var issue in appReport.XIssues)
             {
-                foreach (var issue in appReport.XIssues)
+                var qIssue = new QueueIssue
                 {
-                    var qIssue = new QueueIssue
+                    QueueScanId = queueScan.Id,
+                    QueueAssetId = queueAsset.Id,
+                    Entity = new()
                     {
-                        QueueScanId = queueScan.Id,
-                        QueueAssetId = queueAsset.Id,
-                        Entity = new()
+                        Labels = [],
+                        Vulnerability = new SaltMiner.Core.Entities.VulnerabilityInfo
                         {
-                            Labels = [],
-                            Vulnerability = new SaltMiner.Core.Entities.VulnerabilityInfo
+                            Audit = new SaltMiner.Core.Entities.AuditInfo
                             {
-                                Audit = new SaltMiner.Core.Entities.AuditInfo
-                                {
-                                    Audited = true,
-                                },
-                                Category =[ "Application" ],
-                                Description = issue.Description, //not avaiable unless following link
-                                Classification = issue.Link,
-                                FoundDate = DateTime.Parse(appReport.AdditionalDetails.ScanStartDate, new CultureInfo("en-us")).AddMilliseconds(1).ToUniversalTime(),
-                                Id = [ issue.Link ],
-                                LocationFull = (issue.Filename == "" || issue.Filename == null) ? "N/A" : issue.Filename,
-                                Location = (issue.Filename == "" || issue.Filename == null) ? "N/A" : issue.Filename,
-                                Name = issue.Vulnerability,
-                                Reference = issue.Link,
-                                ReportId = appReport.AdditionalDetails.ScanId,
-                                Scanner = new SaltMiner.Core.Entities.ScannerInfo
-                                {
-                                    ApiUrl = issue.Link,
-                                    Id = $"{issue?.SimilarityId ?? ""}|{issue?.Vulnerability ?? ""}|{issue?.VulnerabilityStatus ?? ""}",
-                                    AssessmentType = AssessmentType.SAST.ToString("g"),
-                                    Product = "Checkmarx SAST",
-                                    Vendor = "Checkmarx"
-                                },
-                                Severity = SeverityHelper.ValidSeverity(Config.IssueSeverityMap, issue.Severity),
-                                SourceSeverity = issue.Severity
+                                Audited = true,
                             },
-                            Saltminer = new SaltMiner.Core.Entities.SaltMinerQueueIssueInfo
+                            Category =[ "Application" ],
+                            Description = issue.Description, //not avaiable unless following link
+                            Classification = issue.Link,
+                            FoundDate = DateTime.Parse(appReport.AdditionalDetails.ScanStartDate, new CultureInfo("en-us")).AddMilliseconds(1).ToUniversalTime(),
+                            Id = [ issue.Link ],
+                            LocationFull = (issue.Filename == "" || issue.Filename == null) ? "N/A" : issue.Filename,
+                            Location = (issue.Filename == "" || issue.Filename == null) ? "N/A" : issue.Filename,
+                            Name = issue.Vulnerability,
+                            Reference = issue.Link,
+                            ReportId = appReport.AdditionalDetails.ScanId,
+                            Scanner = new SaltMiner.Core.Entities.ScannerInfo
                             {
-                                Attributes = [],
-                                QueueScanId = queueScan.Id,
-                                QueueAssetId = queueAsset.Id,
-                                Source = new SaltMiner.Core.Entities.SourceInfo
-                                {
-                                    Analyzer = "Checkmarx SAST",
-                                }
+                                ApiUrl = issue.Link,
+                                Id = $"{issue?.SimilarityId ?? ""}|{issue?.Vulnerability ?? ""}|{issue?.VulnerabilityStatus ?? ""}",
+                                AssessmentType = AssessmentType.SAST.ToString("g"),
+                                Product = "Checkmarx SAST",
+                                Vendor = "Checkmarx"
                             },
-                            Tags = [],
-                            Timestamp = DateTime.UtcNow
-                        }
-                    };
-                    CustomAssembly?.CustomizeQueueIssue(qIssue, appReport);
-                    LocalData.AddUpdate(qIssue);
-                    CheckCancel(false);
-                }
+                            Severity = SeverityHelper.ValidSeverity(Config.IssueSeverityMap, issue.Severity),
+                            SourceSeverity = issue.Severity
+                        },
+                        Saltminer = new SaltMiner.Core.Entities.SaltMinerQueueIssueInfo
+                        {
+                            Attributes = [],
+                            QueueScanId = queueScan.Id,
+                            QueueAssetId = queueAsset.Id,
+                            Source = new SaltMiner.Core.Entities.SourceInfo
+                            {
+                                Analyzer = "Checkmarx SAST",
+                            }
+                        },
+                        Tags = [],
+                        Timestamp = DateTime.UtcNow
+                    }
+                };
+                CustomAssembly?.CustomizeQueueIssue(qIssue, appReport);
+                LocalData.AddUpdate(qIssue);
+                issueCounter++;
+                CheckCancel(false);
             }
+            return issueCounter;
         }
     }
 }

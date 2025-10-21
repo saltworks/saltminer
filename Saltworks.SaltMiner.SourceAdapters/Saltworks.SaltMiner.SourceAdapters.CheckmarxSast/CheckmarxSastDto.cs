@@ -40,20 +40,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
         public ScanSummaryDto ScanSummary { get; set; }
         public List<IssueDto> XIssues { get; set; }
         public bool SastResults { get; set; }
-
-        public SourceMetric GetSourceMetric(CheckmarxSastConfig config)
-        {
-            return new SourceMetric
-            {
-                LastScan = DateTime.Parse(AdditionalDetails.ScanStartDate, new CultureInfo("en-us")).AddMilliseconds(1).ToUniversalTime(),
-                Instance = config.Instance,
-                SourceType = config.SourceType,
-                SourceId = AdditionalDetails.ScanId.ToString(),
-                VersionId = "",
-                Attributes = AdditionalDetails?.CustomFields ?? [],
-                IssueCount = XIssues.Count
-            };
-        }
+        public string SourceId => ProjectId;
+        public string AssetName => Project;
     }
 
     public class AdditionalDetailsDto

@@ -24,6 +24,7 @@ using Saltworks.SaltMiner.SourceAdapters.Core.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -254,7 +255,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 
                         if (!noScan)
                         {
-                            MapIssues(application, latestReport, components, queueScan, queueAsset);
+                            queueScan.Entity.Saltminer.Internal.IssueCount = MapIssues(application, latestReport, components, queueScan, queueAsset);
                         }
 
                         newLocalIssues += queueScan.Entity.Saltminer.Internal.IssueCount;
@@ -420,89 +421,86 @@ namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
             return result;
         }
 
-        private void MapIssues(Application application, Report appReport, List<Component> components, QueueScan queueScan, QueueAsset queueAsset)
+        private int MapIssues(Application application, Report appReport, List<Component> components, QueueScan queueScan, QueueAsset queueAsset)
         {
             CheckCancel();
+            var issueCount = 0;
             List<QueueIssue> queueIssues = [];
             if (queueScan.Entity.Saltminer.Internal.IssueCount == 0)
             {
                 queueIssues.Add(GetZeroQueueIssue(queueScan, queueAsset));
+                return 1;
             }
-            else
+            foreach (var component in components.Where(x => (x.Violations?.Count ?? 0) > 0))
             {
-                foreach (var component in components.Where(x => (x.Violations?.Count ?? 0) > 0))
+                foreach (var violation in component.Violations)
                 {
-                    foreach (var violation in component.Violations)
-                    {
-                        // Only import selected types if configured
-                        if (Config.VulnerabilityImportTypes.Count > 0 && !Config.VulnerabilityImportTypes.Contains(violation.PolicyThreatCategory))
-                            continue;
+                    // Only import selected types if configured
+                    if (Config.VulnerabilityImportTypes.Count > 0 && !Config.VulnerabilityImportTypes.Contains(violation.PolicyThreatCategory))
+                        continue;
 
-                        var vulReportLink = $"{Config.AppReportBaseUrl}{application.Name}/{appReport.ReportId}/componentDetails/{component.Hash}/overview";
-                        var location = (component.PackageUrl == "" || component.PackageUrl == null) ? "N/A" : component.PackageUrl;
-                        queueIssues.Add(new QueueIssue
+                    var vulReportLink = $"{Config.AppReportBaseUrl}{application.Name}/{appReport.ReportId}/componentDetails/{component.Hash}/overview";
+                    var location = (component.PackageUrl == "" || component.PackageUrl == null) ? "N/A" : component.PackageUrl;
+                    var queueIssue = new QueueIssue
+                    {
+                        Entity = new()
                         {
-                            Entity = new()
+                            Labels = [],
+                            Vulnerability = new()
                             {
-                                Labels = [],
-                                Vulnerability = new()
+                                Audit = new()
                                 {
-                                    Audit = new()
-                                    {
-                                        Audited = true,
-                                    },
-                                    Category = ["Application"],
-                                    FoundDate = FixTimezone(appReport.EvaluationDate).Value,
-                                    LocationFull = location,
-                                    Location = location,
-                                    Name = violation.GetViolationName(),
-                                    ReportId = appReport.ReportId,
-                                    Scanner = new()
-                                    {
-                                        Id = $"{application.Id}~{violation.PolicyViolationId}",
-                                        AssessmentType = AssessmentType.Open.ToString("g"),
-                                        Product = "Lifecycle",
-                                        Vendor = "Sonatype",
-                                        GuiUrl = vulReportLink
-                                    },
-                                    Severity = SeverityHelper.ValidSeverity(Config.IssueSeverityMap, violation.PolicyName),
-                                    SourceSeverity = violation.PolicyName,
-                                    IsSuppressed = violation.Waived || violation.Grandfathered || violation.WaivedWithAutoWaiver,
-                                    Reference = violation.GetViolationReference()
+                                    Audited = true,
                                 },
-                                Saltminer = new()
+                                Category = ["Application"],
+                                FoundDate = FixTimezone(appReport.EvaluationDate).Value,
+                                LocationFull = location,
+                                Location = location,
+                                Name = violation.GetViolationName(),
+                                ReportId = appReport.ReportId,
+                                Scanner = new()
                                 {
-                                    IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
-                                    Attributes = new Dictionary<string, string>
-                                   {
-                                       { "waived", violation.Waived.ToString() },
-                                       { "waivedWithAutoWaiver", violation.WaivedWithAutoWaiver.ToString() },
-                                       { "grandfathered", violation.Grandfathered.ToString() },
-                                       { "policyType", violation.PolicyThreatCategory },
-                                       { "policyThreatLevel", violation.PolicyThreatLevel.ToString() },
-                                       { "policyThreatCategory", violation.PolicyThreatCategory },
-                                       { "policyName", violation.PolicyName }
-                                   },
-                                    QueueScanId = queueScan.Id,
-                                    QueueAssetId = queueAsset.Id,
-                                    Source = new SaltMiner.Core.Entities.SourceInfo
-                                    {
-                                        Analyzer = "Sonatype",
-                                    }
+                                    Id = $"{application.Id}~{violation.PolicyViolationId}",
+                                    AssessmentType = AssessmentType.Open.ToString("g"),
+                                    Product = "Lifecycle",
+                                    Vendor = "Sonatype",
+                                    GuiUrl = vulReportLink
                                 },
-                                Tags = [],
-                                Timestamp = DateTime.UtcNow
-                            }
-                        });
-                    }
+                                Severity = SeverityHelper.ValidSeverity(Config.IssueSeverityMap, violation.PolicyName),
+                                SourceSeverity = violation.PolicyName,
+                                IsSuppressed = violation.Waived || violation.Grandfathered || violation.WaivedWithAutoWaiver,
+                                Reference = violation.GetViolationReference()
+                            },
+                            Saltminer = new()
+                            {
+                                IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
+                                Attributes = new Dictionary<string, string>
+                                {
+                                    { "waived", violation.Waived.ToString() },
+                                    { "waivedWithAutoWaiver", violation.WaivedWithAutoWaiver.ToString() },
+                                    { "grandfathered", violation.Grandfathered.ToString() },
+                                    { "policyType", violation.PolicyThreatCategory },
+                                    { "policyThreatLevel", violation.PolicyThreatLevel.ToString() },
+                                    { "policyThreatCategory", violation.PolicyThreatCategory },
+                                    { "policyName", violation.PolicyName }
+                                },
+                                QueueScanId = queueScan.Id,
+                                QueueAssetId = queueAsset.Id,
+                                Source = new SaltMiner.Core.Entities.SourceInfo
+                                {
+                                    Analyzer = "Sonatype",
+                                }
+                            },
+                            Tags = [],
+                            Timestamp = DateTime.UtcNow
+                        }
+                    };
+                    CustomAssembly?.CustomizeQueueIssue(queueIssue, appReport);
+                    LocalData.AddUpdate(queueIssue);
+                    issueCount++;
                 }
             }
-
-            foreach (var queueIssue in queueIssues)
-            {
-                CustomAssembly?.CustomizeQueueIssue(queueIssue, appReport);
-                LocalData.AddUpdate(queueIssue); 
-            }
+            return issueCount;
         }
 
         private int GetTotalIssueCount(List<Component> components)
