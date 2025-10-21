@@ -35,7 +35,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
 {
     public class CheckmarxSastAdapter : SourceAdapter
     {
-        private SyncRecord SyncRecord;
         private ISourceAdapterCustom CustomAssembly;
         private bool RecoveryMode = false;
         private CheckmarxSastConfig Config;
@@ -48,6 +47,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
 
         public async override Task RunAsync(SourceAdapterConfig config, CancellationToken token)
         {
+            await base.RunAsync(config, token);
             try
             {
                 config = config ?? throw new ArgumentNullException(nameof(config));
@@ -63,12 +63,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
 
                 FirstLoadSyncUpdate(config);
 
-                if (GetFiles(Config.CxFlowFolder).Count == 0)
-                {
-                    Logger.LogWarning("No JSON CxFlow files dated for today {Now:yyyyMMdd} in {Folder}", DateTime.UtcNow, Config.CxFlowFolder);
-                    return;
-                }
-
                 if (Config.HasCustomAssembly)
                 {
                     CustomAssembly = AssemblyHelper.LoadClassAssembly<ISourceAdapterCustom>(Config.CustomAssemblyName, Config.CustomAssemblyType);
@@ -77,20 +71,12 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
 
                 StillLoading = true;
 
-                var reports = ParseFiles(Config.CxFlowFolder);
-
-                if (Config.TestingAssetLimit > 0)
-                    reports = reports.Take(Config.TestingAssetLimit).ToList();
-
-                await Task.WhenAll(SyncAsync(reports), SendAsync(Config, AssetType));
+                await Task.WhenAll(SyncAsync(), SendAsync(Config, AssetType));
 
                 ResetFailures(Config);
                 DeleteFailures(Config);
 
-                if (Config.DeleteFileWhenDone)
-                    DeleteFiles(Config.CxFlowFolder);
-
-                await Task.Delay(5, CancellationToken.None);
+                await Task.Delay(3000, CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -100,11 +86,30 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
             }
         }
 
-        private async Task SyncAsync(List<ReportDto> reports, CancellationToken cancel = default)
+        private static async IAsyncEnumerable<ReportFileDto> GetAsync(string folderPath)
+        {
+            var dt = DateTime.UtcNow.Date;
+            List<string> dtList = [];
+            while (dt > DateTime.UtcNow.Date.AddDays(-7))
+            {
+                dtList.Add(dt.ToString("yyyyMMdd"));
+                dt = dt.AddDays(-1);
+            }
+            var files = Directory.GetFiles(folderPath)
+                .Where(x => x.EndsWith(".json", StringComparison.OrdinalIgnoreCase) && dtList.Contains(Path.GetFileName(x)[..8]));
+
+            foreach (var file in files)
+                yield return new()
+                {
+                    Report = JsonSerializer.Deserialize<ReportDto>(await File.ReadAllTextAsync(file), JsonSerializerOptions.Web),
+                    FilePath = file
+                };
+        }
+
+        private async Task SyncAsync()
         {
             try
             {
-                await Task.Delay(1, cancel);
 
                 if (Config.SourceType != SourceType.CheckmarxSast.GetDescription())
                 {
@@ -113,46 +118,51 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                 }
 
                 var exceptionCounter = 0;
-                var sourceMetrics = reports.Select(x => x.GetSourceMetric(Config)).ToList();
                 var newLocalIssues = 0;
                 var newLocalScans = 0;
                 var newLocalAssets = 0;
 
-                SyncRecord = LocalData.CheckSyncRecordSourceForFailure(Config.Instance, Config.SourceType);
+                var syncRecord = LocalData.CheckSyncRecordSourceForFailure(Config.Instance, Config.SourceType);
 
-                if (SyncRecord != null)
+                if (syncRecord != null)
                 {
                     RecoveryMode = true;
                 }
                 else
                 {
                     RecoveryMode = false;
-                    SyncRecord = LocalData.GetSyncRecord(Config.Instance, Config.SourceType);
+                    syncRecord = LocalData.GetSyncRecord(Config.Instance, Config.SourceType);
                     ClearQueues();
                 }
 
-                for (var i = 0; i < sourceMetrics.Count; i++)
+                var counter = 0;
+                await foreach (var dto in GetAsync(Config.CxFlowFolder))
                 {
-                    var metric = sourceMetrics[i];
+                    var report = dto.Report;
+                    if (Config.TestingAssetLimit > 0 && counter >= Config.TestingAssetLimit)
+                    {
+                        Logger.LogInformation("[Sync] Testing asset limit ({Limit}) reached.  Stopping sync.", Config.TestingAssetLimit);
+                        break;
+                    }
+                    var metric = report.GetSourceMetric(Config);
 
                     try
                     {
                         if (RecoveryMode)
                         {
-                            if (SyncRecord.CurrentSourceId != metric.SourceId)
+                            if (syncRecord.CurrentSourceId != metric.SourceId)
                                 continue;
                             else
                                 RecoveryMode = false;
                         }
                         else
                         {
-                            SyncRecord = LocalData.GetSyncRecord(Config.Instance, Config.SourceType);
+                            syncRecord = LocalData.GetSyncRecord(Config.Instance, Config.SourceType);
                         }
 
-                        SyncInProgress(SyncRecord, metric.SourceId);
+                        SyncInProgress(syncRecord, metric.SourceId);
                         Logger.LogInformation("[Sync] {SourceType} {Instance}, Src ID '{SrcId}'", Config.SourceType, Config.Instance, metric.SourceId);
 
-                        var report = reports.First(x => x.AdditionalDetails.ScanId.ToString() == metric.SourceId);
                         QueueScan queueScan = MapScan(report);
                         newLocalScans++;
                         QueueAsset queueAsset = MapAsset(report, queueScan);
@@ -162,11 +172,12 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                             continue;
 
                         MapIssues(report, queueScan, queueAsset);
-                        CheckCancel(true);
-                        queueScan.Loading = false;
-                        LocalData.AddUpdate(queueScan);
+                        SyncComplete(syncRecord);
                         RecoveryMode = false;
+                        if (Config.DeleteFileWhenDone)
+                            File.Delete(dto.FilePath);
                         newLocalIssues += queueScan.Entity.Saltminer.Internal.IssueCount;
+                        CheckCancel(true);
                     }
                     catch (LocalDataException ex)
                     {
@@ -189,7 +200,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                     }
                     CheckCancel(true);
                 }
-                SyncComplete(SyncRecord);
+                if (counter == 0)
+                    Logger.LogWarning("[Sync] No report files found to process for the last week");
             }
             catch (Exception ex)
             {
@@ -342,33 +354,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                     };
                     CustomAssembly?.CustomizeQueueIssue(qIssue, appReport);
                     LocalData.AddUpdate(qIssue);
+                    CheckCancel(false);
                 }
             }
-        }
-
-        private static List<ReportDto> ParseFiles(string folderPath)
-        {
-            var files = GetFiles(folderPath);
-            var results = new List<ReportDto>();
-            foreach (var file in files)
-            {
-                results.Add(JsonSerializer.Deserialize<ReportDto>(File.ReadAllText(file), JsonSerializerOptions.Web));
-            }
-            return results;
-        }
-
-        private static void DeleteFiles(string folderPath)
-        {
-            var files = GetFiles(folderPath);
-            foreach (var file in files)
-            {
-                File.Delete(file);
-            }
-        }
-
-        private static List<string> GetFiles(string folderPath)
-        {
-            return Directory.GetFiles(folderPath).Where(x => x.Contains(DateTime.UtcNow.ToString("yyyyMMdd"))).ToList();
         }
     }
 }

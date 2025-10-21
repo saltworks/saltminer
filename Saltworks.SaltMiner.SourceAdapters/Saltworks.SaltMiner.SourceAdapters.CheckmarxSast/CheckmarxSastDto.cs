@@ -21,6 +21,12 @@ using System.Globalization;
 
 namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
 {
+    public class ReportFileDto
+    {
+        public string FilePath { get; set; }
+        public ReportDto Report { get; set; }
+    }
+
     public class ReportDto
     {
         public string ProjectId { get; set; }
