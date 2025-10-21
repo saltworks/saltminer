@@ -28,21 +28,15 @@ namespace Saltworks.SaltMiner.DataApi.Authentication
         bool IsAuthentic(string secret, IHeaderDictionary headers, string payload);
         string MatchHeader { get; }
     }
-    
+
     public class FortifySscHmacAuthenticator: IHmacAuthenticator
     {
         public string MatchHeader => "X-SSC-Signature";
+        internal bool IgnoreDateSkew { get; set; } = false;
         public string GetHashed(string secret, string message)
         {
-            //var hashSecret = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-            //var hash = hashSecret.ComputeHash(Encoding.UTF8.GetBytes(message));
-            //var hashed = BitConverter.ToString(hash).Replace("-", "").ToLower();
-            ////var hashed = Convert.ToHexString(hash);
-            //return hashed;
             byte[] secretBytes = Encoding.UTF8.GetBytes(secret);
             byte[] messageBytes = Encoding.UTF8.GetBytes(message);
-
-            // Act
             using var hmac = new HMACSHA256(secretBytes);
             var hash = hmac.ComputeHash(messageBytes);
             var computedHash = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
@@ -55,10 +49,10 @@ namespace Saltworks.SaltMiner.DataApi.Authentication
             var dateHeader = headers.Date.ToString();
 
             // Validate date skew (≤5 min)
-            if (DateTime.TryParseExact(dateHeader, "ddd, dd MMM yyyy HH:mm:ss zzz", new CultureInfo("en-us"), DateTimeStyles.AssumeUniversal, out DateTime reqDate))
+            if (DateTime.TryParseExact(dateHeader, "ddd, dd MMM yyyy HH:mm:ss GMT", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTime reqDate))
             {
                 TimeSpan skew = DateTime.UtcNow - reqDate;
-                if (Math.Abs(skew.TotalSeconds) > 300)
+                if (Math.Abs(skew.TotalSeconds) > 300 && !IgnoreDateSkew)
                     throw new WebhookValidationException("Date skew too large");
             }
             else

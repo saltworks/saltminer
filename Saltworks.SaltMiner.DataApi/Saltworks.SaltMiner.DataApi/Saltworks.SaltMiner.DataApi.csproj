@@ -27,6 +27,7 @@
     <EmbeddedResource Remove="RunData\**" />
     <None Remove="pub\**" />
     <None Remove="RunData\**" />
+	<InternalsVisibleTo Include="Saltworks.SaltMiner.DataApi.UnitTests" />
   </ItemGroup>
 
   <ItemGroup>
