@@ -49,10 +49,11 @@ namespace Saltworks.SaltMiner.DataApi.Authentication
             var dateHeader = headers.Date.ToString();
 
             // Validate date skew (≤5 min)
-            if (DateTime.TryParseExact(dateHeader, "ddd, dd MMM yyyy HH:mm:ss GMT", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTime reqDate))
+            var styles = DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal;
+            if (DateTime.TryParseExact(dateHeader, "ddd, dd MMM yyyy HH:mm:ss 'GMT'", CultureInfo.InvariantCulture, styles, out DateTime reqDate))
             {
                 TimeSpan skew = DateTime.UtcNow - reqDate;
-                if (Math.Abs(skew.TotalSeconds) > 300 && !IgnoreDateSkew)
+                if (Math.Abs(skew.TotalMinutes) > 15 && !IgnoreDateSkew)
                     throw new WebhookValidationException("Date skew too large");
             }
             else

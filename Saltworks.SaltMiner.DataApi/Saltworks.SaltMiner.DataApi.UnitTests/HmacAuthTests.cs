@@ -43,8 +43,8 @@ public sealed class HmacAuthTests
         var request = new DefaultHttpContext().Request;
         var buffer = Encoding.UTF8.GetBytes("{\"events\":[{\"event\":\"APP_VERSION_UPDATED\",\"projectId\":38,\"projectName\":\"AAATest\",\"projectVersionId\":10037,\"projectVersionName\":\"Test\",\"changes\":[\"ATTRIBUTES\"]}],\"triggeredAt\":\"2025-10-20T23:13:00.351+00:00\",\"sscUrl\":\"http://ssc.saltminer.io/ssc/\",\"webHookId\":3}");
         request.Body = new MemoryStream(buffer);
-        request.Headers.Append("Date", "Mon, 20 Oct 2025 23:18:57 GMT");
-        request.Headers.Append("X-SSC-Signature", "sha256=342250b5b2b431d18fbaec0d72ea09dfa989213be80e06d845180f4beb40390f");
+        request.Headers.Append("Date", "Tue, 21 Oct 2025 01:15:40 GMT");
+        request.Headers.Append("X-SSC-Signature", "sha256=280e7c79f92b6b78d44b263d0614760cdff38bb7d69cb1992aa585d715c8577e");
 
         // Act
         var ha = new FortifySscHmacAuthenticator();
