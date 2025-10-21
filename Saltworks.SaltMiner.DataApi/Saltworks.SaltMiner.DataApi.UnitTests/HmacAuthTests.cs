@@ -69,10 +69,11 @@ public sealed class HmacAuthTests
 
         // Act
         var ha = new FortifySscHmacAuthenticator();
-#if !DEBUG
+        
         // Allow this test to run in build without failing due to old data
-        ha.IgnoreDateSkew = true;
-#endif
+        if (!System.Diagnostics.Debugger.IsAttached)
+            ha.IgnoreDateSkew = true;
+        
         var secret = _config.WebhookSecrets.Values.First();
         var yup = ha.IsAuthentic(secret, request.Headers, HmacAuthHelper.GetPayload(request));
 
