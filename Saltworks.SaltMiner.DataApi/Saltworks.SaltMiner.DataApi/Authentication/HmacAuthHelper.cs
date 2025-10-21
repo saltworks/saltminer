@@ -30,7 +30,7 @@ public static class HmacAuthHelper
     {
         // Because body is signed, have to read directly from stream to get exact whitespace
         request.EnableBuffering();
-        using var reader = new StreamReader(request.Body);
+        using var reader = new StreamReader(request.Body, System.Text.Encoding.UTF8, leaveOpen: true);
         var payload = reader.ReadToEndAsync().Result;
         request.Body.Position = 0;
         return payload;
