@@ -604,27 +604,9 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             // no scan, just create one placeholder issue with 'NoScan' severity
             if (isNoScan)
             {
-                // remove any previous issue placeholder(s) for 'noscan'
-                var issueSearchRequest = new SearchRequest
-                {
-                    Filter = new()
-                    {
-                        FilterMatches = new()
-                        {
-                            { "Vulnerability.Severity", Severity.NoScan.ToString("g") },
-                            { "Saltminer.Asset.SourceId", result.Item2.Saltminer.Asset.SourceId },
-                            { "Saltminer.Scan.AssessmentType", result.Item1.Saltminer.Scan.AssessmentType },
-                            { "Saltminer.Asset.SourceType", result.Item2.Saltminer.Asset.SourceType },
-                            { "Saltminer.Asset.Instance", result.Item2.Saltminer.Asset.Instance }
-                        }
-                    },
-                    PagingInfo = new(10)
-                };
-                foreach (var pi in DataClient.IssueSearch(issueSearchRequest).Data)
-                {
-                    // This should usually only be 0 or 1, but if dups make it in we will remove them
-                    DataClient.IssueDelete(pi.Id, pi.Saltminer.Asset.AssetType, pi.Saltminer.Asset.SourceType, pi.Saltminer.Asset.Instance);
-                }
+                // delete any existing issues - it's rare but possible to have issues and then need to remove them (i.e. SSC remove only scan artifact)
+                var asset = result.Item2.Saltminer.Asset;
+                DataClient.IssuesDeleteBySourceId(asset.SourceId, asset.AssetType, asset.SourceType, asset.Instance, result.Item1.Saltminer.Scan.AssessmentType);
 
                 Logger.LogInformation("The Queue Scan is a 'no scan' type. Only one issue with 'no scan' severity will be created.");
                 var queueIssue = new QueueIssue
