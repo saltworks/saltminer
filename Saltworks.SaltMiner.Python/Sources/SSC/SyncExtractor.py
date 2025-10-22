@@ -695,6 +695,7 @@ class SyncExtractor(object):
         if not projectFilterSet:
             logging.error("Invalid/missing filterset from SSC API for project version %s.  Skipping...")
             return
+        projectDefFilter = None
         for projectFilter in projectFilterSet['data']:
             if projectFilter['defaultFilterSet'] == True:
                 projectDefFilter = projectFilter['guid']

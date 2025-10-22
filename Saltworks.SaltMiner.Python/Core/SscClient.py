@@ -16,6 +16,7 @@
 
 import json
 import sys
+import weakref
 import time
 import datetime
 import logging
@@ -44,6 +45,8 @@ class SscClient(object):
         if not sourceType == "SSC":
             raise SscClientConfigurationException(f"Invalid source type '{sourceType}', should be 'SSC'. (in source config '{sourceName}', property 'Source')")
         self.__App = appSettings.Application
+        self.__AuthTokenInfo = None
+        self.__DefaultTimeout = appSettings.GetSource(sourceName, 'RequestTimeoutSec', 10)
         self.__Client = None
         self.__SourceName = sourceName
         self.__GroupingTypeId = appSettings.GetSource(sourceName, 'GroupingTypeId')
@@ -62,6 +65,7 @@ class SscClient(object):
         self.__RetryCount = 0
         self.__RequestStatsReportEnabled = appSettings.GetSource(sourceName, 'RequestStatsReportEnabled', False)
         self.__LoggingFolder = appSettings.Get('Logging', 'Folder')
+        weakref.finalize(self, self.Cleanup)
         
         # Sample auth response
         # {"data":{"remainingUsages":-1,"terminalDate":"2020-06-19T20:36:42.697+0000","description":null,"id":1963,"creationDate":"2020-06-18T20:36:42.697+0000","type":"UnifiedLoginToken","token":"MGY4NDBkMzItZTlkYS00MjczLWI4OWQtNzEyZjVhMmQ2YTZj","username":"dennis.hurst"},"responseCode":201}
@@ -71,56 +75,74 @@ class SscClient(object):
     def BaseUrl(self):
         return self.__Client.BaseUrl
 
-    def __TokenApiCall(self, appSettings, sourceName, isDelete=False, isRetry=False):
-        tokenDescription = appSettings.GetSource(sourceName, 'AuthTokenDescription', 'SaltMiner')
+    def __Logout(self, isRetry=False):
+        if not self.__AuthTokenInfo:
+            logging.error("SscClient unable to log out of current session, session information missing.")
+            raise SscClientException("Missing auth token session information for logout.")
+        try:
+            r = requests.delete(self.__AuthTokenInfo['logoutUrl'], verify=self.__AuthTokenInfo['sslVerify'], headers=self.__AuthTokenInfo['headers'], auth=self.__AuthTokenInfo['auth'], timeout=self.__DefaultTimeout)
+            return 200 if r.ok else r.status_code
+        except ConnectionError as e:
+            msg = f"SscClient encountered an error when deleting a session token: {e}"
+            logging.error(msg)
+            if isRetry:
+                logging.error("SscClient giving up on deleting session token.")
+                return
+            logging.info("SscClient logout retry in 10 sec...")
+            time.sleep(10)
+            return self.__Logout(True)
+
+    def __Login(self, appSettings, sourceName, isRetry=False):
+        desc = appSettings.GetSource(sourceName, 'AuthTokenDescription', 'SaltMiner')
         headers = {
             'Accept':'application/json',
             'Content-Type':'application/json;charset=UTF-8'
         }
-        if not isDelete:
-            # Make the token expire in a day
-            body = {
-                "type": "UnifiedLoginToken",
-                "terminalDate": (datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S.%f"),
-                "description": tokenDescription
-            }
+        # Make the token expire in a day
+        body = {
+            "type": "UnifiedLoginToken",
+            "terminalDate": (datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S.%f"),
+            "description": desc
+        }
         auth = RestClient.basicAuth(appSettings.GetSource(sourceName, "Username"), appSettings.GetSource(sourceName, "Password"))
         verify = (appSettings.GetSource(sourceName, 'SslVerify')=='True')
-        if isDelete:
-            url = f"{appSettings.GetSource(sourceName, 'BaseUrl')}/api/v1/tokens/{self.__AuthTokenId}"
-            return requests.delete(url, verify=verify, headers=headers, auth=auth)
-        else:
+        try:
+            url = appSettings.GetSource(sourceName, 'BaseUrl') + '/api/v1/tokens'
+            rsp = requests.post(url, json=body, verify=verify, headers=headers, auth=auth, timeout=self.__DefaultTimeout)
+            r = json.loads(rsp.text)
+            if not rsp.ok:
+                raise SscClientAuthenticationException(f"({rsp.status_code}) {r['message']}")
+            exp = None
             try:
-                url = appSettings.GetSource(sourceName, 'BaseUrl') + '/api/v1/tokens'
-                return requests.post(url, json=body, verify=verify, headers=headers, auth=auth)
-            except ConnectionError as e:
-                msg = f"Error when requesting a login token: {e}"
-                logging.error(msg)
-                if isRetry:
-                    raise SscClientServerErrorException(msg) from e
-                logging.info("Login retry in 60 sec...")
-                time.sleep(10)
-                return self.__TokenApiCall(appSettings, sourceName, False, True)
+                exp = datetime.datetime.fromisoformat(r['data']['terminalDate'])
+            except Exception as e:
+                logging.debug("Token expiration parse failure: %s", f"{e}")
+                logging.warning("Failed to parse token expiration - this can happen if python 3.11 or older and can be ignored safely.")
+            self.__AuthTokenInfo = {
+                "token": r['data']['token'],
+                "tokenId": r['data']['id'],
+                "tokenExpires": exp,
+                "logoutUrl": f"{appSettings.GetSource(sourceName, 'BaseUrl')}/api/v1/tokens/{r['data']['id']}",
+                "sslVerify": verify,
+                "headers": headers,
+                "auth": auth
+            }
+        except ConnectionError as e:
+            msg = f"SscClient error when requesting a login token: {e}"
+            logging.error(msg)
+            if isRetry:
+                raise SscClientServerErrorException(msg) from e
+            logging.info("SscClient login retry in 10 sec...")
+            time.sleep(10)
+            return self.__Login(appSettings, sourceName, True)
 
-        
     def __GetAuthToken(self, appSettings, sourceName):
         RestClient.disableRequestWarnings()
-        response = self.__TokenApiCall(appSettings, sourceName)
-        r = json.loads(response.text)
-        if not response.ok:
-            raise SscClientAuthenticationException(f"({response.status_code}) {r['message']}")
-        self.__AuthToken = r['data']['token']
-        self.__AuthTokenId = r['data']['id']
-        self.__AuthTokenExp = None
-        try:
-            self.__AuthTokenExp = datetime.datetime.fromisoformat(r['data']['terminalDate'])
-        except Exception as e:
-            logging.debug("Token expiration parse failure: %s", f"{e}")
-            logging.warning("Failed to parse token expiration - this can happen if python 3.11 or older and can be ignored safely.")
+        self.__Login(appSettings, sourceName)
         headers = {
             'Accept':'application/json',
             'Content-Type':'application/json;charset=UTF-8',
-            'Authorization': 'FortifyToken {}'.format(self.__AuthToken)
+            'Authorization': f'FortifyToken {self.__AuthTokenInfo['token']}'
         }
         self.__Client = RestClient(appSettings.GetSource(sourceName, 'BaseUrl'), sslVerify=appSettings.GetSource(sourceName, 'SslVerify'), defaultHeaders= headers, retryConnectionErrors=False, overrideProtocol=self.__OverrideProtocol)
         self.__Client.SessionEnabled = True
@@ -130,11 +152,11 @@ class SscClient(object):
             return
         try:
             logging.info("Attempting to release SSC auth token")
-            r = self.__TokenApiCall(self.__App.Settings, self.__SourceName, True)
-            if r.ok:
+            r = self.__Logout()
+            if r == 200:
                 logging.info("Token released successfully")
             else:
-                logging.warning(f"Failed to release SSC token ({r.status_code})")
+                logging.warning("Failed to release SSC token (%s)", r.status_code)
         except Exception:
             logging.warning("Unable to release token", exc_info=True)
 
@@ -147,7 +169,7 @@ class SscClient(object):
         try:
             self.__DumpStats()
         except Exception:
-            logging.error(f"Error reporting API stats", exc_info=True)
+            logging.error("Error reporting API stats", exc_info=True)
 
         self.__CleanedUp = True
 
@@ -157,7 +179,7 @@ class SscClient(object):
         fldr = self.__LoggingFolder
         file = os.path.join(fldr, f"{self.__DateForFile}.SaltMiner.SscClientStats-{self.__Id}.json")
         self.__App.CleanFiles(fldr, "*.SscClientStats*.json", 7)
-        with open(file, "w") as f:
+        with open(file, "w", encoding="utf-8") as f:
             f.write(json.dumps(self.__Client.RequestStatsReport()))
         self.__App.LogInfo(f"SSC client API session stats written to log file '{file}'")
     
@@ -171,7 +193,7 @@ class SscClient(object):
         suppressError - set to True to not raise an error if the response.status_code is not 2xx.  Returns None if error suppressed.
         statKey - used in recording stats for API calls
         '''
-        if datetime.datetime.now(datetime.UTC) > self.__AuthTokenExp:
+        if datetime.datetime.now(datetime.UTC) > self.__AuthTokenInfo['tokenExpires']:
             logging.info("Token expired, attempting to get new token")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
         wait = self.__RetrySec if not retryDelaySec or retryDelaySec < 0 else retryDelaySec
@@ -291,7 +313,7 @@ class SscClient(object):
     def BulkRequest(self, uri, httpVerb='GET', postBody=None):
         return { 'uri': uri, 'httpVerb': httpVerb, 'postData': postBody }
     
-    def Bulk(self, requests):
+    def Bulk(self, bulkRequests):
         '''
         Send in multiple requests at once - see https://ssc.saltworks.io/ssc/html/docs/docs.html#!/bulk for more info.
         This version assumes the requests will all return the same single doc structure and unpacks the responses into a list.
@@ -302,17 +324,17 @@ class SscClient(object):
 
         returns a list of data items unpacked from the bulk response
         '''
-        lst = []       
+        lst = []
         retry = False
         wait = self.__RetrySec
         try:
-            rlst = self.__GetResponseDataOrError(self.__Client.Post("api/v1/bulk", { "requests": requests }))
+            rlst = self.__GetResponseDataOrError(self.__Client.Post("api/v1/bulk", { "requests": bulkRequests }))
         except (SscClientServerErrorException, SscClientEmptyResponseException, ConnectionError, RequestsConnectionError) as e:
             self.__App.LogError(f"SSC Bulk API error - [{type(e).__name__}] {e}, retrying in {wait} secs...")
             time.sleep(wait)
             retry = True
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid, attempting to get new token and retry previous operation ({e})")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
             retry = True
         except RequestsReadTimeout as e:
@@ -321,7 +343,7 @@ class SscClient(object):
             retry = True
         
         if retry:
-            rlst = self.__GetResponseDataOrError(self.__Client.Post("api/v1/bulk", { "requests": requests }))
+            rlst = self.__GetResponseDataOrError(self.__Client.Post("api/v1/bulk", { "requests": bulkRequests }))
 
         for rsp in rlst:
             if not 'responses' in rsp.keys() or not rsp['responses'] or len(rsp['responses']) < 1:
@@ -745,7 +767,7 @@ class SscClient(object):
             return self.__Get(url, False, "IssueDetails", "GetProjectVersionIssueDetail")
             
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid, attempting to get new token and retry previous operation ({e})")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
             return self.__Get(url, False, "IssueDetails", "GetProjectVersionIssueDetail")
 
@@ -862,7 +884,7 @@ class SscClient(object):
             self.__Client.Put(url=f'/api/v1/projectVersions/{projectVersionId}', json=data)
             
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid, attempting to get new token and retry previous operation ({e})")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
             self.__Client.Put(url=f'/api/v1/projectVersions/{projectVersionId}', data=data)
 
@@ -909,11 +931,11 @@ class SscClient(object):
 
            return self.__GetResponseDataOrError(self.__Client.Post(url="/api/v1/issuesDeltaExports", data=json.dumps(data)))
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid, attempting to get new token and retry previous operation ({e})")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
             return self.__GetResponseDataOrError(self.__Client.Post(url="/api/v1/issuesDeltaExports", data=json.dumps(data)))
         except Exception as e:
-            logging.error(f"Failed to create issues delta export: {e}")
+            logging.error("Failed to create issues delta export: %s", e)
 
     
     def GetIssuesDeltaExport(self, exportId):
@@ -921,11 +943,11 @@ class SscClient(object):
            return self.__GetResponseDataOrError(self.__Client.Get(url=f"/api/v1/issuesDeltaExports/{exportId}"))
            
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid, attempting to get new token and retry previous operation ({e})")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
             return self.__GetResponseDataOrError(self.__Client.Get(url=f"/api/v1/issuesDeltaExports/{exportId}"))
         except Exception as e:
-            logging.error(f"Failed to get issues delta export download: {e}")
+            logging.error("Failed to get issues delta export download: %s", e)
 
 
     def GetIssuesDeltaExportDownload(self, exportId):
@@ -934,11 +956,11 @@ class SscClient(object):
         try:
            return self.__Client.Get(url="/transfer/issuesDeltaExportDownload.html?mat=" + file_token + "&id=" + str(exportId))
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid ({e}), attempting to get new token and retry previous operation")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
             return self.__Client.Get(url="/transfer/issuesDeltaExportDownload.html?mat=" + file_token + "&id=" + str(exportId))
         except Exception as e:
-            logging.error(f"Failed to get issues delta export download: {e}")
+            logging.error("Failed to get issues delta export download: %s", e)
 
     def GetFileToken(self, fileTokenType):
         data = ({
