@@ -18,7 +18,6 @@
 using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.UiApiClient.Attributes;
 using System.ComponentModel.DataAnnotations;
-using System.Reflection;
 
 namespace Saltworks.SaltMiner.UiApiClient.ViewModels
 {
