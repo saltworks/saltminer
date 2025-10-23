@@ -335,11 +335,11 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                             ReportId = appReport.AdditionalDetails.ScanId,
                             Scanner = new SaltMiner.Core.Entities.ScannerInfo
                             {
-                                ApiUrl = issue.Link,
                                 Id = $"{issue?.SimilarityId ?? ""}|{issue?.Vulnerability ?? ""}|{issue?.VulnerabilityStatus ?? ""}",
                                 AssessmentType = AssessmentType.SAST.ToString("g"),
                                 Product = "Checkmarx SAST",
-                                Vendor = "Checkmarx"
+                                Vendor = "Checkmarx",
+                                GuiUrl = issue.Link
                             },
                             Severity = SeverityHelper.ValidSeverity(Config.IssueSeverityMap, issue.Severity),
                             SourceSeverity = issue.Severity
@@ -367,6 +367,3 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
         }
     }
 }
-
-
-
