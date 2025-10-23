@@ -555,7 +555,6 @@ namespace Saltworks.SaltMiner.DataApi
                         {
                             var json = r.ReadToEnd().Replace("\r\n", "");
                             var policyName = Path.GetFileName(policy).Replace(".json", "");
-
                             client.AddUpdateIndexPolicy(policyName, json);
                         }
                         failMsg = $"Failed when attempting to delete index policy file '{policy}'";
@@ -816,7 +815,13 @@ namespace Saltworks.SaltMiner.DataApi
                            
                             Log.Information("Processing ingest pipeline {PipelineName}", pipelineName[1]);
 
-                            client.CreateIngestPipeline(pipelineName[1], json);
+                            var rsp = client.CreateIngestPipeline(pipelineName[1], json, !pipelineName[1].Contains("custom", StringComparison.OrdinalIgnoreCase));
+                            if (!rsp.IsSuccessful) {
+                                if (pipelineName[1].Contains("custom", StringComparison.OrdinalIgnoreCase))
+                                    Log.Warning("Pipeline {Name} not created because it is a custom pipline and already exists.", pipelineName[1]);
+                                else
+                                    Log.Warning("Pipeline {Name} not created due to error: {Err}", pipelineName[1], rsp.Message);
+                            }
                         }
                         
                         failMsg = $"Failed when attempting to delete ingest pipeline file '{pipeline}'";

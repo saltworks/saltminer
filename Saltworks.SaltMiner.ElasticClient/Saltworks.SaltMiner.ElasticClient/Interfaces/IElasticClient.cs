@@ -389,7 +389,8 @@ namespace Saltworks.SaltMiner.ElasticClient
         /// </summary>
         /// <param name="pipelineName">Name of the ingest pipeline</param>
         /// <param name="pipeline">The ingest pipeline to add</param>
+        /// <param name="overwrite">If set, enables overwriting existing pipeline</param>
         /// <returns>A response object that specifies if the ingest pipeline was created</returns>
-        IElasticClientResponse CreateIngestPipeline(string pipelineName, string pipeline);
+        IElasticClientResponse CreateIngestPipeline(string pipelineName, string pipeline, bool overwrite);
     }
 }

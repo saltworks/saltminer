@@ -262,9 +262,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         }
         
         Logger.LogDebug("Delete index {Index}: deleting", indexName);
-        
         var r = ElasticClient.Indices.Delete(indexName);
-        
         return NestClientResponse.BuildResponse(r.Acknowledged, "Index deleted", 0);
     }
 
@@ -272,63 +270,49 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
     public IElasticClientResponse<T> DeleteIndex<T>(string indexName) where T : SaltMinerEntity
     {
         Logger?.LogDebug("Delete index: {IndexName}", indexName);
-        
         var index = Indices.Index(indexName);
         ElasticClient.Indices.Delete(new DeleteIndexRequest(index));
-        
         return NestClientResponse<T>.BuildResponse(true, 0);
     }
     public IElasticClientResponse CheckActiveIssueAlias(string indexName)
     {
         Logger?.LogDebug("Check for 'issues_active_*' alias on {IndexName}", indexName);
-
         var result = ElasticClient.LowLevel.DoRequest<ExistsResponse>(HttpMethod.GET, $"{indexName}/_alias/issues_active_*");
-
         return NestClientResponse.BuildResponse(result.Exists, null, 0);
     }
 
     public IElasticClientResponse AddActiveIssueAlias(string indexName, string alias)
     {
         Logger?.LogDebug("Add 'issues_active_*' alias on {IndexName}", indexName);
-
         var result = ElasticClient.LowLevel.DoRequest<PutAliasResponse>(HttpMethod.PUT, $"_alias/", alias);
-
         return NestClientResponse.BuildResponse(result.IsValid, null, 1);
     }
 
     public IElasticClientResponse CheckIndexTemplateExists(string templateName)
     {
-        Logger?.LogDebug("Check for template {templateName}", templateName);
-
+        Logger?.LogDebug("Check for template {TemplateName}", templateName);
         var result = ElasticClient.LowLevel.DoRequest<ExistsResponse>(HttpMethod.GET, $"_index_template/{templateName}");
-
         return NestClientResponse.BuildResponse(result.Exists, null, 0);
     }
 
     public string GetIndexTemplate(string templateName)
     {
-        Logger?.LogDebug("Get template {templateName}", templateName);
-
+        Logger?.LogDebug("Get template {TemplateName}", templateName);
         var result = ElasticClient.LowLevel.DoRequest<StringResponse>(HttpMethod.GET, $"_index_template/{templateName}");
-
         return result.Body;
     }
 
     public IElasticClientResponse AddUpdateIndexTemplate(string templateName, string template)
     {
-        Logger?.LogDebug("Add/Update template for {templateName}", templateName);
-
+        Logger?.LogDebug("Add/Update template for {TemplateName}", templateName);
         var result = ElasticClient.LowLevel.DoRequest<PutIndexTemplateResponse>(HttpMethod.PUT, $"_index_template/{templateName}", template);
-
         return NestClientResponse.BuildResponse(result.Acknowledged, null, 1);
     }
 
     public IElasticClientResponse AddUpdateIndexPolicy(string policyName, string policy)
     {
-        Logger?.LogDebug("Add/Update index policy for {policyName}", policyName);
-
+        Logger?.LogDebug("Add/Update index policy for {PolicyName}", policyName);
         var result = ElasticClient.LowLevel.DoRequest<PutLifecycleResponse>(HttpMethod.PUT, $"_ilm/policy/{policyName}", policy);
-
         return NestClientResponse.BuildResponse(result.Acknowledged, null, 1);
     }
 
@@ -1519,20 +1503,25 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return NestClientResponse.BuildResponse(true, msg, 0);
     }
 
-    public IElasticClientResponse CreateIngestPipeline(string pipelineName, string pipeline)
+    public IElasticClientResponse CreateIngestPipeline(string pipelineName, string pipeline, bool overwrite)
     {
+        if (!overwrite)
+        {
+            var rsp = ElasticClient.Ingest.GetPipeline(new GetPipelineRequest(pipelineName));
+            if (rsp.IsValid)
+                return NestClientResponse.BuildResponse(false, $"Cannot overwrite pipeline {pipelineName}.", 0);
+        }
         var results = ElasticClient.LowLevel.Ingest.PutPipeline<PutPipelineResponse>(pipelineName, pipeline);
-        string msg;
-
         if (results.IsValid)
         {
-            msg = $"Ingest pipeline {pipelineName} created";
+            return NestClientResponse.BuildResponse(true, $"Ingest pipeline {pipelineName} created", 1);
         }
         else
+
         {
-            msg = $"Ingest pipeline {pipelineName} not created";
+            Logger?.LogError("Ingest pipeline {Name} not created. Response: [{Status}] {Rsp}", pipelineName, results.ServerError?.Status ?? 0, results.ServerError?.Error.Reason ?? "?");
+            return NestClientResponse.BuildResponse(false, $"Ingest pipeline {pipelineName} not created - see log for details.", 0);
         }
-        return NestClientResponse.BuildResponse(true, msg, 0);
     }
 
     protected static Indices BuildIndex(string indexName) => Indices.Index(indexName);
