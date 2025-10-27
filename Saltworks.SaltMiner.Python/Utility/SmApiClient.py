@@ -792,7 +792,7 @@ class SmApiClient(object):
         else:
             gui_url = self.__GetGuiUrl(avid, isSsc, str(issue['scanner_id']) if not isSsc else sscInstanceId)
         try:
-            if key not in self.__KeyMap.keys():
+            if key not in self.__KeyMap:
                 raise SmApiClientException(f"Failure to map issue, KeyMap does not contain App Release id '{avid}' and assessment type '{atype}'.")
             qscanId = self.__KeyMap[key]['sid']
             qassetId = self.__KeyMap[key]['aid']
@@ -801,7 +801,7 @@ class SmApiClient(object):
             pver = self.__KeyMap[key]['pver']
 
             if not issue['severity']:
-                logging.warning("Issue '{}' is missing a severity", issue['scanner_id'])
+                logging.warning("Issue '%s' is missing a severity", issue['scanner_id'])
             tags = None if not issue['tags'] else [ issue['tags'] ]
 
             issue['location'] = str(issue['location'])
