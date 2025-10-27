@@ -1582,6 +1582,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 ReportId = queueScan.Saltminer.Scan.ReportId,
                 ScanDate = queueScan.Saltminer.Scan.ScanDate,
                 ProductType = queueScan.Saltminer.Scan.ProductType,
+                ProductVersion = queueScan.Saltminer.Scan.ProductVersion,
                 Vendor = queueScan.Saltminer.Scan.Vendor,
             },
             Asset = new AssetIdInfo
@@ -1641,6 +1642,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 ReportId = queueScan.Saltminer.Scan.ReportId,
                 ScanDate = queueScan.Saltminer.Scan.ScanDate,
                 ProductType = queueScan.Saltminer.Scan.ProductType,
+                ProductVersion = queueScan.Saltminer.Scan.ProductVersion,
                 Vendor = queueScan.Saltminer.Scan.Vendor,
             },
             Asset = newScan.Saltminer.Asset,
@@ -1675,6 +1677,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 AssessmentType = scan.Saltminer.Scan.AssessmentType,
                 Product = scan.Saltminer.Scan.Product,
                 ProductType = scan.Saltminer.Scan.ProductType,
+                ProductVersion = scan.Saltminer.Scan.ProductVersion,
                 Rulepacks = scan.Saltminer.Scan.Rulepacks,
                 Vendor = scan.Saltminer.Scan.Vendor,
             },

@@ -158,9 +158,14 @@ public class IssueScanInfo : IScanInfoBase
     public string AssessmentType { get; set; }
 
     /// <summary>
-    /// Gets or sets Type. This is the type of scan run. EG) SCA, could be mobile or static for FoD for example.
+    /// Gets or sets Product Type. This is the type of scan run. EG) SCA, could be mobile or static for FoD for example.
     /// </summary>
     public string ProductType { get; set; }
+
+    /// <summary>
+    /// Gets or sets Product Version. This is the version of scan run (see also <seealso cref="Product"/>, <seealso cref="ProductType"/>).
+    /// </summary>
+    public string ProductVersion { get; set; }
 
     /// <summary>
     /// Gets or sets Product. This is the product used to run the scan. EG) SCA. SaltMiner uses this property.
