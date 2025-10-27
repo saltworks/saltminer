@@ -50,6 +50,12 @@
                     "text": { "type": "text" }
                   }
                 },
+                "product_version": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
                 "product": {
                   "type": "keyword",
                   "fields": {

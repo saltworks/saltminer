@@ -437,6 +437,12 @@
                     }
                   }
                 },
+                "product_version": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
                 "vendor": {
                   "type": "keyword",
                   "fields": {

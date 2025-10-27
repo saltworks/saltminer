@@ -431,7 +431,7 @@ class AppVulsProcessor(object):
                 if scanDate > lastScans[assessment_type]['lastscan'] and not cancel:
                     # Update last scan date if newer for this assessement type
                     lastScans[assessment_type] = { "lastscan": scanDate, "orgType": scanType, "engineVersion": None }
-                if lastScans[assessment_type]['engineVersion'] == None and 'engineVersion' in scan:
+                if lastScans[assessment_type]['engineVersion'] is None and 'engineVersion' in scan:
                     # Set engine version if not already set and available
                     lastScans[assessment_type]['engineVersion'] = scan['engineVersion']
 
