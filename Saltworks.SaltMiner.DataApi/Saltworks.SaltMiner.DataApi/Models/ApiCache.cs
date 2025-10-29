@@ -14,6 +14,7 @@
 * ----
 */
 
+using Nest;
 using Saltworks.SaltMiner.DataApi.Contexts;
 using System;
 using System.Collections.Generic;
@@ -58,7 +59,7 @@ namespace Saltworks.SaltMiner.DataApi.Models
                 return removed ? 1 : 0; // Return 1 if removed, 0 if not found
             }
         }
-        public void SawManagerInstance(string name, QueueScanContext context)
+        public void SawManagerInstance(string name)
         {
             var id = GetManagerInstanceId(name);
             if (id < 0) throw new ArgumentException("Invalid manager instance name.", nameof(name));
@@ -72,6 +73,13 @@ namespace Saltworks.SaltMiner.DataApi.Models
                 {
                     ManagerInstances.Add(id, new ManagerInstance(id)); // Add if not found
                 }
+            }
+        }
+
+        public void CleanupManagerInstances(QueueScanContext context)
+        {
+            lock (Lock)
+            {
                 foreach (var mi in ManagerInstances.Values.Where(x => x.LastSeen < DateTime.UtcNow.AddMinutes(-10)))
                 {
                     // Remove instances that haven't been seen in the last 10 minutes and unlock their queues

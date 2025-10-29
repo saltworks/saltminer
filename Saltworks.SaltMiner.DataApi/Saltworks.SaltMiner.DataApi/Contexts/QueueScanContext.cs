@@ -121,6 +121,13 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             }
         }
 
+        public DataResponse<QueueScan> Search(SearchRequest request)
+        {
+            // Cleanup Manager instance cache with each search
+            ApiCache.ManagerInstanceManager.CleanupManagerInstances(this);
+            return base.Search<QueueScan>(QueueScanIndex, request);
+        }
+
         public DataItemResponse<QueueScan> Get(string id)
         {
             Logger.LogInformation("Get for id '{Id}'", id);
@@ -183,7 +190,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         public NoDataResponse UpdateStatus(string id, string fromStatus, string toStatus, string lockId = "")
         {
             if (!string.IsNullOrEmpty(lockId))
-                ApiCache.ManagerInstanceManager.SawManagerInstance(lockId, this);
+                ApiCache.ManagerInstanceManager.SawManagerInstance(lockId);
 
             const string ANY_STATUS = "[any]";
             if (string.IsNullOrEmpty(fromStatus) || fromStatus == QueueScanStatus.None.ToString("g"))
@@ -306,8 +313,6 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
         private QueueScan Validate(QueueScan queueScan, bool isBulk = false)
         {
-            // TODO: add more basic+ validation for queuescan
-
             ValidateStatus(queueScan.Saltminer.Internal.QueueStatus);
 
             // Update
@@ -345,8 +350,6 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                     }
                 }
             }
-
-            // TODO: rethink index field / logic, current design is complicated and not intuitive
             return queueScan;
         }
 
