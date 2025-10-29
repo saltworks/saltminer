@@ -75,7 +75,7 @@ class EncryptionHelper(object):
 
     def Decrypt(self, encryptedValue):
         try:
-            encVer = re.search('e\$(.*)\$.*', encryptedValue).group(1)
+            encVer = re.search('e\\$(.*)\\$.*', encryptedValue).group(1)
         except Exception as e:
             msg = f"Unable to determine encryption version of encrypted value ({e})"
             logging.error(msg)
