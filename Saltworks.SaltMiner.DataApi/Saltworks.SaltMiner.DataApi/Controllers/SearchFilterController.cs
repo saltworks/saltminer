@@ -25,7 +25,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
 {
     [Route("[controller]")]
     [Produces("application/json")]
-    [Auth]
+    [Auth(Role.Pentester)]
     [ApiController]
     public class SearchFilterController(SearchFilterContext context, ILogger<SearchFilterController> logger) : ApiControllerBase(context, logger)
     {

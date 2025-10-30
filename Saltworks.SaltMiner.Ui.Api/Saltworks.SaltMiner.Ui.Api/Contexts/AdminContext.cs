@@ -25,7 +25,6 @@ using Saltworks.SaltMiner.UiApiClient.Import;
 using Saltworks.SaltMiner.UiApiClient.Requests;
 using Saltworks.SaltMiner.UiApiClient.Responses;
 using Saltworks.SaltMiner.UiApiClient.ViewModels;
-using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
 namespace Saltworks.SaltMiner.Ui.Api.Contexts
