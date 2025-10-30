@@ -25,7 +25,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers;
 
 [Route("[controller]")]
 [Produces("application/json")]
-[Auth]
+[Auth(Role.Pentester, Role.Admin)]
 [ApiController]
 public class AttributeDefinitionController(AttributeDefinitionContext context, ILogger<AttributeDefinitionController> logger) : ApiControllerBase(context, logger)
 {

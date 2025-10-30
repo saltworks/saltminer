@@ -25,7 +25,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
 {
     [Route("[controller]")]
     [Produces("application/json")]
-    [Auth]
+    [Auth(Role.Admin, Role.Pentester)]
     [ApiController]
     public class SearchFilterController(SearchFilterContext context, ILogger<SearchFilterController> logger) : ApiControllerBase(context, logger)
     {
@@ -80,7 +80,6 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <response code="202">Returns a response object containing the updated entity</response>
         [ProducesResponseType(202, Type = typeof(DataItemResponse<SearchFilter>))]
         [HttpPost]
-        [Auth(Role.Admin, Role.Pentester)]
         public ActionResult<DataItemResponse<SearchFilter>> Post([FromBody] DataItemRequest<SearchFilter> request)
         {
             Logger.LogInformation("Post action called");
@@ -95,7 +94,6 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <response code="200">Returns response indicating success</response>
         [ProducesResponseType(200, Type = typeof(NoDataResponse))]
         [HttpDelete("{id}")]
-        [Auth(Role.Admin, Role.Pentester)]
         public ActionResult<NoDataResponse> Delete(string id)
         {
             Logger.LogInformation("Delete action called for id '{id}'", id);

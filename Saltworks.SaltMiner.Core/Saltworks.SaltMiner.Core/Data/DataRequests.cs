@@ -14,7 +14,6 @@
 * ----
 */
 
-﻿using Org.BouncyCastle.Bcpg;
 using Saltworks.SaltMiner.Core.Common;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Extensions;
