@@ -21,7 +21,9 @@ using Saltworks.SaltMiner.DataClient;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.Manager;
@@ -33,7 +35,7 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
     private readonly ManagerConfig Config = config;
     private CleanUpRuntimeConfig RunConfig;
     private readonly ConcurrentQueue<string> DeleteQueue = new();
-    private readonly ConcurrentQueue<string> TaskQueue = [];
+    private readonly ConcurrentQueue<string> TaskQueue = []; // used like StillLoading in QueueProcessor, but for multiple things
 
     /// <summary>
     /// Runs clean up processing for queue scans that have exceeded the maximum days as assigned
@@ -65,28 +67,28 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
 
         Logger.LogInformation("Looking for queue scan(s) to clean up, configured for source '{Source}', limit {Limit}, and listOnly {ListOnly}", string.IsNullOrEmpty(RunConfig?.SourceType) ? "[all]" : RunConfig?.SourceType, RunConfig?.Limit, RunConfig?.ListOnly);
 
-        var tasks = new List<Task>();
-        List<string> skips = [];
-        List<QueueScan.QueueScanStatus> statuses = [
-            QueueScan.QueueScanStatus.Complete,
-            QueueScan.QueueScanStatus.Error,
-            QueueScan.QueueScanStatus.Processing,
-            QueueScan.QueueScanStatus.Loading,
-            QueueScan.QueueScanStatus.Cancel
-        ];
-        foreach (var s in statuses)
-        {
-            if (Config.CleanupProcessorDisableForStatus.Contains(s.ToString("g")))
-                skips.Add(s.ToString("g"));
-            else
-                tasks.Add(GetByStatusAsync(QueueScan.QueueScanStatus.Complete));
-        }
-        
-        if (skips.Count > 0)
-            Logger.LogInformation("Per CleanupProcessorDisableForStatus setting, skipping cleanup for statuses: {Statuses}", string.Join(", ", skips));
-
         try
         {
+            var tasks = new List<Task>();
+            List<string> skips = [];
+            List<QueueScan.QueueScanStatus> statuses = [
+                QueueScan.QueueScanStatus.Complete,
+                QueueScan.QueueScanStatus.Error,
+                QueueScan.QueueScanStatus.Processing,
+                QueueScan.QueueScanStatus.Loading,
+                QueueScan.QueueScanStatus.Cancel
+            ];
+            foreach (var s in statuses)
+            {
+                if (Config.CleanupProcessorDisableForStatus.Contains(s.ToString("g")))
+                    skips.Add(s.ToString("g"));
+                else
+                    tasks.Add(GetByStatusAsync(s));
+            }
+        
+            if (skips.Count > 0)
+                Logger.LogInformation("Per CleanupProcessorDisableForStatus setting, skipping cleanup for statuses: {Statuses}", string.Join(", ", skips));
+
             // Remove by status and aging settings
             if (tasks.Count == 0)
             {
@@ -95,31 +97,32 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
             else
             {
                 tasks.Add(ProcessQueueAsync(crunConfig));
-                Task.WaitAll([.. tasks]);
+                Task.WaitAll([.. tasks], RunConfig.CancelToken);
                 Logger.LogInformation("Pausing for 30 sec to allow delete to complete before looking for orphans...");
-                Task.Delay(TimeSpan.FromSeconds(30)).Wait(); // wait for the delete to finish before looking for orphans
+                Task.Delay(TimeSpan.FromSeconds(30), RunConfig.CancelToken).Wait(); // wait for the delete to finish before looking for orphans
             }
 
             // Remove orphan queue assets and queue issues by queue asset search
-            Task.WaitAll(
-                GetByAssetOrphanAsync(),
-                ProcessQueueAsync(crunConfig)
-            );
+            Task.WaitAll([GetByAssetOrphanAsync(), ProcessQueueAsync(crunConfig)], RunConfig.CancelToken);
 
             // Remove orphan queue issues by queue issue search
-            Task.WaitAll(
-                GetByIssueOrphanAsync(),
-                ProcessQueueAsync(crunConfig)
-            );
+            Task.WaitAll([GetByIssueOrphanAsync(), ProcessQueueAsync(crunConfig)], RunConfig.CancelToken);
         }
-        catch (CancelTokenException)
+        catch (AggregateException ex)
         {
-            // Already logged, so just do nothing but quit silently
+            if (!(ex.InnerException != null && ex.InnerException is OperationCanceledException))
+                throw;
+            Logger.LogInformation("Cancelling processing as requested.");
         }
-        catch (ManagerException ex)
+        catch (OperationCanceledException)
         {
-            Logger.LogError(ex, "Error in CleanUp processor: [{Type}] {Msg}", ex.GetType().Name, ex.Message);
-            throw new ManagerException($"Cleanup processor error: [{ex.GetType().Name}] {ex.Message}");
+            Logger.LogInformation("Cancelling processing as requested.");
+        }
+        catch (Exception ex)
+        {
+            var iex = ex.InnerException ?? ex;
+            Logger.LogError(ex, "Error in Cleanup processor: [{Type}] {Msg}", iex.GetType().Name, iex.Message);
+            throw new ManagerException($"Cleanup processor error: [{iex.GetType().Name}] {iex.Message}");
         }
     }
 
@@ -289,12 +292,21 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
         if (!string.IsNullOrEmpty(RunConfig.SourceType))
             srch.Filter.AddSimpleFilterMatch("Saltminer.Scan.SourceType", RunConfig.SourceType);
 
+        var lastSearchCount = 0L;
         while (curloops < maxloops)
         {
             curloops++;
             var rsp = await DataClient.QueueScanSearchAsync(srch);
             if (!rsp.Success)
                 break;
+            var curSearchCount = rsp.PagingInfo.TotalHits ?? 0;
+            if (curSearchCount == lastSearchCount && lastSearchCount > 0 && !rsp.PagingInfo.TotalHitsWereTruncated)
+            {
+                Logger.LogInformation("[GetByStatus] Same query count returned for status '{Status:g}' ({Count}), let's wait a few sec and then try again.", status, lastSearchCount);
+                await Task.Delay(5000);
+                continue;
+            }
+            lastSearchCount = curSearchCount;
             foreach (var qs in rsp.Data)
             {
                 // Redundant check for draft pentest queue data
@@ -324,26 +336,30 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
 
     private async Task ProcessQueueAsync(CleanUpRuntimeConfig runConfig)
     {
-        var startingTaskCount = await GetTaskCountAsync();
+        var startingTaskCount = await GetTaskCountAsync(runConfig.CancelToken);
         var counter = 0L;
-        await Task.Delay(5000); // make sure other tasks get started first
-        while (!TaskQueue.IsEmpty)
+        
+        // When both queues are empty we are finished
+        while (!DeleteQueue.IsEmpty || !TaskQueue.IsEmpty)
         {
+            if (!TaskQueue.IsEmpty && DeleteQueue.IsEmpty)
+                // Wait for other tasks
+                await Task.Delay(2000, runConfig.CancelToken);
+
             CheckCancel(true);
-            // Wait for empty queue in GetDeleteListBatchAsync()
-            var lst = await GetDeleteListBatchAsync(Config.CleanupProcessorBatchSize);
+            var lst = GetDeleteListBatch(Config.CleanupProcessorBatchSize);
             if (lst.Any())
             {
                 if ((runConfig?.Limit ?? 0) > 0 && counter >= runConfig.Limit)
                 {
                     Logger.LogInformation("[ProcessQueue] Limit of {Limit} reached or exceeded, stopping execution.", runConfig.Limit);
-                    throw new CancelTokenException("Configured limit reached.");
+                    throw new OperationCanceledException();
                 }
                 var taskWaitCycles = 0;
-                while ((await GetTaskCountAsync()) > startingTaskCount + Config.CleanupProcessorMaxTaskCount && taskWaitCycles < 360)
+                while ((await GetTaskCountAsync(runConfig.CancelToken)) > startingTaskCount + Config.CleanupProcessorMaxTaskCount && taskWaitCycles < 360)
                 {
                     Logger.LogInformation("[ProcessQueue] Waiting for Elasticsearch tasks to complete (10 sec delay)...");
-                    await Task.Delay(10000);
+                    await Task.Delay(10000, runConfig.CancelToken);
                     taskWaitCycles++;
                     if (taskWaitCycles == 360)
                         throw new ManagerException("Processing failure, Elasticsearch task count remained above threshold (Config.CleanupProcessorMaxTaskCount) for too long.");
@@ -367,16 +383,11 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
         }
     }
 
-    private async Task<IEnumerable<string>> GetDeleteListBatchAsync(int size)
+    private IEnumerable<string> GetDeleteListBatch(int size)
     {
         var lst = new List<string>();
-        while (lst.Count < size && !TaskQueue.IsEmpty)
+        while (lst.Count < size && !DeleteQueue.IsEmpty)
         {
-            while (DeleteQueue.IsEmpty && !TaskQueue.IsEmpty)
-            {
-                Logger.LogDebug("[ProcessQueue] GetDeleteListBatch - waiting 2 sec, empty queue...");
-                await Task.Delay(2000);
-            }
             if (DeleteQueue.TryDequeue(out var id))
                 lst.Add(id);
             CheckCancel(true);
@@ -384,7 +395,7 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
         return lst;
     }
 
-    private async Task<long> GetTaskCountAsync()
+    private async Task<long> GetTaskCountAsync(CancellationToken cancelToken = default)
     {
         var retries = 0;
         while (retries < 3)
@@ -393,7 +404,7 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
             if (rsp.Success)
                 return rsp.Affected;
             retries++;
-            await Task.Delay(1000); // if failed, wait a sec before trying again
+            await Task.Delay(1000, cancelToken); // if failed, wait a sec before trying again
         }
         throw new ManagerException("Failed to get count of running tasks from Elasticsearch");
     }
@@ -407,7 +418,7 @@ public class CleanUpProcessor(ILogger<CleanUpProcessor> logger, DataClientFactor
             if (readyToAbort)
             {
                 Logger.LogInformation("Cancellation requested, aborting clean up process.");
-                throw new CancelTokenException();
+                throw new OperationCanceledException();
             }
             if (!RunConfig.CancelRequestedReported)
             {
