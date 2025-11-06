@@ -297,6 +297,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                     }
                 }
             };
+            queueAsset.Entity.Saltminer.Asset.Attributes.Add("team", appReport.Team);
             return LocalData.AddUpdate(queueAsset);
         }
 
