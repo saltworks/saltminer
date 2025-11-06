@@ -170,8 +170,8 @@ class AppVulsProcessor(object):
             time.sleep(5)
 
         # Create an object so we can remember if we have run an import already.
-        # If we get duplicates it would be because we got ahead of the updates while in process, 
-        # and we can wait a few sec for it to catch up. 
+        # If we get duplicates it would be because we got ahead of the updates while in process,
+        # and we can wait a few sec for it to catch up.
         updated = []
 
         # Priming read

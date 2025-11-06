@@ -28,49 +28,8 @@ from .SscUtilities import SscUtilities
 from .SscEsUtils import SscEsUtils
 from Utility.SyncQueueHelper import *
 
-def initZeroIssueObject():
-    return {
-        'projectVersionId': 0,
-        'issueName': 'Zero',
-        'engineType': '',
-        'friority': 'Zero',
-        'engineCategory': '',
-        'hidden': False,
-        'removed': False,
-        'suppressed': False,
-        'lastUpdated': '',
-        'bugURL': '',
-        'folderGuid': '',
-        'lastScanId': 0,
-        'issueStatus': 'Zero',
-        'analyzer': '',
-        'primaryLocation': '',
-        'reviewed': '',
-        'id': 0,
-        'hasAttachments': False,
-        'projectVersionName': 'Zero',
-        'severity': 0,
-        '_href': '',
-        'displayEngineType': '',
-        'foundDate': '',
-        'removedDate': None,
-        'confidence': 0,
-        'impact': 0,
-        'primaryRuleGuid': '',
-        'scanStatus': '',
-        'audited': False,
-        'kingdom': 'Zero',
-        'folderId': 0,
-        'revision': 0,
-        'likelihood': 0,
-        'issueInstanceId': '',
-        'hasCorrelatedIssues': False,
-        'primaryTag': '',
-        'lineNumber': 0,
-        'projectName': '',
-        'fullFileName': '',
-        'primaryTagValueAutoApplied': False
-    }
+class SyncExtractorException(Exception):
+    pass
 
 class SyncExtractor(object):
     """Extraction of Open SSC Changes"""
@@ -100,6 +59,7 @@ class SyncExtractor(object):
         self.__ImportPurgedScans = appSettings.GetSource(sourceName, 'ImportPurgedScans', True)
         self.__SyncQueue = SyncQueueHelper(appSettings, sourceName)
         self.__PreloadProjectVersions = appSettings.GetSource(sourceName, 'SyncPreloadProjectVersions', True)
+        self.__MaxSyncErrors = appSettings.GetSource(sourceName, "MaxSyncErrors", 10)
 
         if not len(self.__AssessmentTypeMap.keys()):
             logging.warn("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
@@ -213,13 +173,49 @@ class SyncExtractor(object):
 
     def __WriteZeroIssue(self, projid, atype, category):
         formatnow = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")
-        issueInfo = initZeroIssueObject()
-        issueInfo['projectVersionId'] = projid
-        issueInfo['engineType'] = atype
-        issueInfo['engineCategory'] = category
-        issueInfo['foundDate'] = formatnow
-        issueInfo['lastUpdated'] = formatnow
-        self.__ElasticClient.Index('sscprojissues', json.dumps(issueInfo))
+        issue = {
+            'projectVersionId': projid,
+            'issueName': 'Zero',
+            'engineType': atype,
+            'friority': 'Zero',
+            'engineCategory': category,
+            'hidden': False,
+            'removed': False,
+            'suppressed': False,
+            'lastUpdated': formatnow,
+            'bugURL': '',
+            'folderGuid': '',
+            'lastScanId': 0,
+            'issueStatus': 'Zero',
+            'analyzer': '',
+            'primaryLocation': '',
+            'reviewed': '',
+            'id': 0,
+            'hasAttachments': False,
+            'projectVersionName': 'Zero',
+            'severity': 0,
+            '_href': '',
+            'displayEngineType': '',
+            'foundDate': formatnow,
+            'removedDate': None,
+            'confidence': 0,
+            'impact': 0,
+            'primaryRuleGuid': '',
+            'scanStatus': '',
+            'audited': False,
+            'kingdom': 'Zero',
+            'folderId': 0,
+            'revision': 0,
+            'likelihood': 0,
+            'issueInstanceId': '',
+            'hasCorrelatedIssues': False,
+            'primaryTag': '',
+            'lineNumber': 0,
+            'projectName': '',
+            'fullFileName': '',
+            'primaryTagValueAutoApplied': False
+        }
+        self.__ElasticClient.Index('sscprojissues', json.dumps(issue))
         
     def __GetSSCProjectByProjectId(self, projid):
         # declare a filter query dict object
@@ -599,9 +595,13 @@ class SyncExtractor(object):
         pvCount = 0
         iTotal = 0
         bailoutCount = 0
+        consErrorCount = 0
+        badPvids = []
+        didSomethingInBatch = False
         while r and len(r[0]) > 0:
             queueBatch = r[0]
             iTotal = r[1]
+            pvid = 0
             logging.debug("Sync queue total: %s", iTotal)
             
             try:
@@ -618,7 +618,12 @@ class SyncExtractor(object):
                         bailoutCount += 1
                         continue
                     bailoutCount = 0
-
+                    pvid = int(qItem.SyncQueueDoc.TargetId)
+                    if pvid in badPvids:
+                        # skip, a failure came back up again in query
+                        logging.debug("Skipping pvid %s, failed previously", pvid)
+                        continue
+                    didSomethingInBatch = True
                     projectVersion = self.__GetProjectVersion(qItem.SyncQueueDoc.TargetId, projectVersions)
                     if not projectVersion:
                         logging.warning("[SYNC] SSC app/version ID %s not found, cannot sync.", qItem.SyncQueueDoc.TargetId)
@@ -626,7 +631,6 @@ class SyncExtractor(object):
                         if not sqdto:
                             logging.warning("Failed to complete sync queue item %s:%s:%s. Earlier log messages may have more details.", qItem.SyncQueueDoc.TargetType, qItem.SyncQueueDoc.Instance, qItem.SyncQueueDoc.TargetId)
                         continue
-                    pvid = projectVersion['id']
                     pvMessage = f"PVID: {pvid}"
                     p.Progress(pvCount, f'Comparing SSC to Elastic - {pvid}, {pvCount} processed, {iTotal-pvCount} remain')
                     self.__ProcessOne(projectVersion, projectAttrDefs, seenIdList, pvMessage, qItem.SyncQueueDoc.Force)
@@ -648,10 +652,22 @@ class SyncExtractor(object):
                             logging.info("Found projid %s in elastic", pvid)
                         else:
                             logging.error("Did not find projid %s in elastic after sync", pvid)
+                    consErrorCount = 0 # reset consecutive error count
                 # end 'for qItem in queueBatch'
-            except Exception:
-                logging.warning("Exception raised, attempting to clear sync queue session...")
-                raise
+                if not didSomethingInBatch:
+                    logging.debug("This batch has only failed project versions, bailing out...")
+                    break # if batch only includes previous failures then bail out of while loop
+            except Exception as e:
+                logging.error("Error when processing PV ID %s: %s", pvid, e, stack_info=True)
+                badPvids.append(pvid)
+                consErrorCount += 1
+                if consErrorCount >= 3:
+                    logging.warning("Too many project versions failed consecutively (%s), bubbling error", consErrorCount)
+                    raise
+                if len(badPvids) > self.__MaxSyncErrors:
+                    logging.error("Too many project versions failed to process (%s), giving up.", len(badPvids))
+                    raise SyncExtractorException(f"Too many project versions failed to process ({len(badPvids)})") from e
+                # continue
             finally:
                 try:
                     logging.debug("Attempting to clear sync queue session.")
@@ -1040,7 +1056,3 @@ class SyncExtractor(object):
             addToObject[esAttribute['attributeName']] = esAttribute['attributeValue']
             return True
         return False
-
-
-class SyncExtractorException(Exception):
-    pass
