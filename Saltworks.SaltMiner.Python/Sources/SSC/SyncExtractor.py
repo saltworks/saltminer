@@ -665,7 +665,7 @@ class SyncExtractor(object):
                     logging.warning("Too many project versions failed consecutively (%s), bubbling error", consErrorCount)
                     raise
                 if len(badPvids) > self.__MaxSyncErrors:
-                    logging.error("Too many project versions failed to process (%s), giving up.", len(badPvids))
+                    logging.error("Too many project versions failed to process (%s), giving up.  This can be configured with setting 'MaxSyncErrors'.", len(badPvids))
                     raise SyncExtractorException(f"Too many project versions failed to process ({len(badPvids)})") from e
                 # continue
             finally:
