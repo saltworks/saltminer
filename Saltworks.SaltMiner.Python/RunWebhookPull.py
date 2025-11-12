@@ -46,11 +46,15 @@ app = Application(loggingInstance=prmLogInstance)
 es = app.GetElasticClient()
 api = SmApiClient(app.Settings, prmSourceName)
 sqh = SyncQueueHelper(app.Settings, prmSourceName)
+MAX_LOOPS = 500
+maxLoops = app.Settings.Get("main", "WebhookMaxBatches", MAX_LOOPS)
 
 # Let's go
 sscIds = []
 foundSome = False
-maxLoops = 500
+if maxLoops > MAX_LOOPS:
+    logging.warning("[Webhook Pull] WebhookMaxBatches set to %s, but max supported currently are %s, which will be used.", maxLoops, MAX_LOOPS)
+    maxLoops = MAX_LOOPS
 curLoop = 1
 while curLoop < maxLoops:
     data = api.GetWebhookEvents(prmWebhookSource)
@@ -78,7 +82,8 @@ while curLoop < maxLoops:
                     event = "?" if not 'event' in evt else evt['event']
                     user = "?" if not 'username' in evt else evt['username']
                     logging.info("[Webhook Pull] SSC update event '%s' found for project version %s, tagged with username %s.", event, evt['projectVersionId'], user)
-                    sscIds.append(evt['projectVersionId'])
+                    if evt['projectVersionId'] not in sscIds: # avoid duplicates
+                        sscIds.append(evt['projectVersionId'])
                 else:
                     logging.error("[Webhook Pull] SSC update event may be malformed (missing projectVersionId), encountered in webhook (queue sync item) ID %s. Skipping.", dataItm['id'])
 

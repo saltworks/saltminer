@@ -900,7 +900,7 @@ class SyncExtractor(object):
                         needsAttrReset = True
                         break
 
-                self.__UpdateAttributes(projid, pvMessage, paDefs, sscRawAttributes)
+                self.__UpdateAttributes(projid, pvMessage, paDefs, sscRawAttributes, False)
                                 
             # STEP 4 - Refresh project scans
             projectScans = self.__SscUtils.SscClient.GetProjectVersionScans(projid)
