@@ -864,7 +864,7 @@ class SyncExtractor(object):
 
             # Reset attributes if needed
             if needsAttrReset == True:
-                self.__UpdateAttributes(projid, pvMessage, paDefs, sscRawAttributes)
+                self.__UpdateAttributes(projid, pvMessage, paDefs, sscRawAttributes, not needsReset)
                 attributesUpdated = True
             else:
                 logging.info(f"{pvMessage}, attributes all match" )
@@ -966,7 +966,7 @@ class SyncExtractor(object):
                 }
                 self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
 
-    def __UpdateAttributes(self, projid:int, pvMessage:str, attributeDefs:dict, sscRawAttributes:dict):
+    def __UpdateAttributes(self, projid:int, pvMessage:str, attributeDefs:dict, sscRawAttributes:dict, queueRefresh:bool = True):
         logging.info('%s, syncing SSC attributes', pvMessage)
         # Clear out records to do refresh
         self.__DeleteById('sscprojattrs', 'projectVersionId', projid)
@@ -999,16 +999,17 @@ class SyncExtractor(object):
             sidecarAttributes.append(attrInfo)
         self.UpdateSidecarAttributes(sidecarAttributes) # adds to bulk queue, sending when full
 
-        queueInfo = {
-            'processedDateTime' : datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S"),
-            'projectVersionId': projid,
-            'updateType': 'U',
-            'updateReason': "attributes updated",
-            'completedDateTime' : '1900-01-01T00:00:00.000-0000'
-        }
-        logging.info(f"{pvMessage}, Creating Queue record")
-        logging.info(queueInfo)
-        self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
+        if queueRefresh: # only need to queue for attrib refresh if not already doing it for main as well
+            queueInfo = {
+                'processedDateTime' : datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+                'projectVersionId': projid,
+                'updateType': 'U',
+                'updateReason': "attributes updated",
+                'completedDateTime' : '1900-01-01T00:00:00.000-0000'
+            }
+            logging.info(f"{pvMessage}, Creating Queue record")
+            logging.info(queueInfo)
+            self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
 
     def __ConvertSscAttribute(self, attributeDefs:dict, sscAttribute:dict, addToObject:dict):
         '''
