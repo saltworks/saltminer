@@ -84,7 +84,7 @@ namespace Saltworks.SaltMiner.DataApi.Models
         public string DataIngestPipelinePath { get; set; } = "./data/ingest-pipelines";
         public string DataIndexPolicyPath { get; set; } = "./data/index-policies";
         public string DataIssueIndexDefaultAlias { get; set; } = "{ \"actions\": [ { \"add\": { \"index\": \"[indexName]\", \"alias\": \"issues_active_app\", \"filter\": { \"bool\": { \"must\": [ { \"term\": { \"vulnerability.is_active\": true } }, { \"term\": { \"saltminer.is_historical\": false } } ] } } } } ] }";
-        public static string IndexVersion => "3.0.8";
+        public static string IndexVersion => "3.3.0";
         public string IssuesActiveAlias { get; set; } = @"{ ""actions"": [ { ""add"": { ""index"": ""issues_[assetType]_[sourceType]"", ""alias"": ""issues_active_[assetType]"", ""filter"": { ""term"": { ""vulnerability.is_active"": true } } } } ] }";
         public bool DisableUpgradeRunner { get; set; } = true;
         public bool EnableWebhookDebug { get; set; } = false;
