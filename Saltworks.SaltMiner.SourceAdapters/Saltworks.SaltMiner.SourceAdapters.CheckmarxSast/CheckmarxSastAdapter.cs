@@ -139,8 +139,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                 }
 
                 var counter = 0;
+                var foundFiles = false;
                 await foreach (var dto in GetAsync(Config.CxFlowFolder))
                 {
+                    foundFiles = true;
                     var report = dto.Report;
                     if (Config.TestingAssetLimit > 0 && counter >= Config.TestingAssetLimit)
                     {
@@ -205,7 +207,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                     }
                     CheckCancel(true);
                 }
-                if (counter == 0)
+                if (!foundFiles)
                     Logger.LogWarning("[Sync] No report files found to process for the last week. Path searched: '{Path}'", Config.CxFlowFolder);
                 LocalData.SaveAllBatches();
             }
@@ -235,7 +237,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                             AssessmentType = AssessmentType.SAST.ToString("g"),
                             Product = "Checkmarx SAST",
                             ReportId = appReport.ProjectId,
-                            ScanDate = DateTime.Parse(appReport.AdditionalDetails.ScanStartDate, new CultureInfo("en-US")).AddMilliseconds(1).ToUniversalTime(),
+                            ScanDate = DateTime.Parse(appReport.AdditionalDetails.ScanStartDate, CultureInfo.InvariantCulture).AddMilliseconds(1).ToUniversalTime(),
                             ProductType = "SAST",
                             Vendor = "Checkmarx",
                             AssetType = AssetType,
