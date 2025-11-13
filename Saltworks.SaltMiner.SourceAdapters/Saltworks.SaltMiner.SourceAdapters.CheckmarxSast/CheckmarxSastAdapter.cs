@@ -206,7 +206,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                     CheckCancel(true);
                 }
                 if (counter == 0)
-                    Logger.LogWarning("[Sync] No report files found to process for the last week");
+                    Logger.LogWarning("[Sync] No report files found to process for the last week. Path searched: '{Path}'", Config.CxFlowFolder);
                 LocalData.SaveAllBatches();
             }
             catch (Exception ex)
