@@ -329,7 +329,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                             Category =[ "Application" ],
                             Description = issue.Description, //not avaiable unless following link
                             Classification = issue.Link,
-                            FoundDate = DateTime.Parse(appReport.AdditionalDetails.ScanStartDate, new CultureInfo("en-us")).AddMilliseconds(1).ToUniversalTime(),
+                            FoundDate = DateTime.Parse(appReport.AdditionalDetails.ScanStartDate, CultureInfo.InvariantCulture).AddMilliseconds(1).ToUniversalTime(),
                             Id = [ issue.Link ],
                             LocationFull = (issue.Filename == "" || issue.Filename == null) ? "N/A" : issue.Filename,
                             Location = (issue.Filename == "" || issue.Filename == null) ? "N/A" : issue.Filename,
