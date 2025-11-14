@@ -14,10 +14,7 @@
 * ----
 */
 
-﻿using Saltworks.SaltMiner.SourceAdapters.Core.Data;
-using System;
 using System.Collections.Generic;
-using System.Globalization;
 
 namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
 {
@@ -34,17 +31,19 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
         public string Project { get; set; }
         public string Link { get; set; }
         public string Files { get; set; }
-        public string Loc { get; set; }
+        public int Loc { get; set; }
         public string ScanType { get; set; }
-        public AdditionalDetailsDto AdditionalDetails { get; set; }
+        public string Version { get; set; }
+        public ReportAdditionalDetailsDto AdditionalDetails { get; set; }
         public ScanSummaryDto ScanSummary { get; set; }
         public List<IssueDto> XIssues { get; set; }
+        public List<IssueDto> UnFilteredIssues { get; set; }
         public bool SastResults { get; set; }
         public string SourceId => ProjectId;
         public string AssetName => Project;
     }
 
-    public class AdditionalDetailsDto
+    public class ReportAdditionalDetailsDto
     { 
         public FlowSummaryDto FlowSummary { get; set; }
         public string NumFailedLoc { get; set; }
@@ -84,7 +83,15 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
         public string Link { get; set; }
         public string Filename { get; set; }
         public int FalsePositiveCount { get; set; }
+        public Dictionary<string, IssueDetailItemDto> Details { get; set; }
+        public IssueAdditionalDetailDto AdditionalDetails { get; set; }
         public bool AllFalsePositive { get; set; }
+    }
+
+    public class IssueDetailItemDto
+    {
+        public bool FalsePositive { get; set; }
+        public string Comment { get; set; }
     }
 
     public class IssueAdditionalDetailDto
