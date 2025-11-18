@@ -415,8 +415,15 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             newIssue.IsCloned = true;
             newIssue.Vulnerability.Scanner.Id = Guid.NewGuid().ToString();
 
+            var newIssueFull = new IssueFull(newIssue, UiApiConfig.AppVersion, MyFieldInfo);
+
+            // Set default values for attributes that are configured to be cleared on clone
+            foreach (var attr in newIssueFull.Attributes.Where(x => Config.CloneIssueClearAttributes.Contains(x.Label)))
+                newIssue.Saltminer.Attributes[attr.Name] = attr.DefaultValue;
+
             Logger.LogInformation("New QueueIssue");
             var response = DataClient.QueueIssueAddUpdate(newIssue);
+            newIssueFull = new(newIssue, UiApiConfig.AppVersion, MyFieldInfo); // too complex to avoid the double init, but no db hits
 
             DataClient.RefreshIndex(QueueIssue.GenerateIndex());
 
@@ -427,7 +434,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             await AttachmentHelper.CloneIssueAttachmentsAsync(response.Data.Saltminer.Engagement.Id, response.Data.Id, attachmentsResponse.Data.Where(attachment => attachment.IsMarkdown).Select(info => info.Attachment).ToList(), user?.UserName ?? "", user?.FullName ?? "", Config.FileRepository, ApiBaseUrl, Config.FileRepository, true);
             await AttachmentHelper.CloneIssueAttachmentsAsync(response.Data.Saltminer.Engagement.Id, response.Data.Id, attachmentsResponse.Data.Where(attachment => !attachment.IsMarkdown).Select(info => info.Attachment).ToList(), user?.UserName ?? "", user?.FullName ?? "", Config.FileRepository, ApiBaseUrl, Config.FileRepository);
 
-            return new UiDataItemResponse<IssueFull>(new IssueFull(response.Data, UiApiConfig.AppVersion, MyFieldInfo));
+            return new UiDataItemResponse<IssueFull>(newIssueFull);
         }
 
         public UiDataItemResponse<IssueFull> Edit(IssueEdit request, KibanaUser user)

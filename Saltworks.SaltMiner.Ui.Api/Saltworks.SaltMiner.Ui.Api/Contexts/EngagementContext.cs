@@ -446,12 +446,12 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 throw new UiApiClientValidationException($"This Engagement {id} already has a draft and cannot be checked out.");
             }
 
-            List<UiComment> engagementComments = fullEngagement.Comments.Where(x => x.ScanId == fullEngagement.Scan.ScanId).ToList();
+            List<UiComment> engagementComments;
 
-            if (!Config.EngagementCheckoutWithSystemComments)
-            {
+            if (Config.EngagementCheckoutWithSystemComments)
+                engagementComments = fullEngagement.Comments.Where(x => x.ScanId == fullEngagement.Scan.ScanId).ToList();
+            else
                 engagementComments = fullEngagement.Comments.Where(x => x.Type == "User" && x.ScanId == fullEngagement.Scan.ScanId).ToList();
-            }
 
             var newSummaryRequest = new EngagementNew()
             {
@@ -510,7 +510,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                     var cloneIssue = issue.CloneRequest(engagement, queueScan.Id, newAsset.Id, UiBaseUrl);
                     // Set default values for attributes that are configured to be cleared on clone
                     foreach (var attr in issue.Attributes.Where(x => Config.CloneIssueClearAttributes.Contains(x.Label)))
-                        attr.Value = attr.DefaultValue;
+                        cloneIssue.Saltminer.Attributes[attr.Name] = attr.DefaultValue;
 
                     //copy issue comments
                     foreach (var pubComment in engagementComments.Where(x => x.IssueId == issue.Id))
