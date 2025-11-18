@@ -423,7 +423,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
             Logger.LogInformation("New QueueIssue");
             var response = DataClient.QueueIssueAddUpdate(newIssue);
-            newIssueFull = new(newIssue, UiApiConfig.AppVersion, MyFieldInfo); // too complex to avoid the double init, but no db hits
+            newIssueFull = new(response.Data, UiApiConfig.AppVersion, MyFieldInfo); // too complex to avoid the double init, but no db hits
 
             DataClient.RefreshIndex(QueueIssue.GenerateIndex());
 
