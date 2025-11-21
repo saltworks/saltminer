@@ -509,7 +509,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                     issue.TestStatus.Value = EngagementHelper.ValidateTestStatus(issue.TestStatus.Value, TestedDropdowns);
                     var cloneIssue = issue.CloneRequest(engagement, queueScan.Id, newAsset.Id, UiBaseUrl);
                     // Set default values for attributes that are configured to be cleared on clone
-                    foreach (var attr in issue.Attributes.Where(x => Config.CloneIssueClearAttributes.Contains(x.Label)))
+                    foreach (var attr in issue.Attributes.Where(x => Config.CloneEngagementClearAttributes.Contains(x.Label)))
                         cloneIssue.Saltminer.Attributes[attr.Name] = attr.DefaultValue;
 
                     //copy issue comments
