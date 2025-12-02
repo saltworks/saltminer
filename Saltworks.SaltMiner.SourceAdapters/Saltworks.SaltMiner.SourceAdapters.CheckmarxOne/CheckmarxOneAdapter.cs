@@ -287,7 +287,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                                 queueScan = MapScan(queueProject, lastScan, lastScanSummary.ScansSummaries[0], currentIssue.Type);
                                 localScans++;
 
-                                queueAsset = MapAsset(queueProject, queueScan);
+                                queueAsset = MapAsset(queueProject, queueScan, lastScan);
                                 localAssets++;
                                 assessmentType = currentIssue.Type;
                                 scanAssetMapped = true;
@@ -428,9 +428,15 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
         }
 
 
-        private QueueAsset MapAsset(ProjectDto project, QueueScan queueScan, bool isRetired = false)
+        private QueueAsset MapAsset(ProjectDto project, QueueScan queueScan, ScanDTO scan, bool isRetired = false)
         {
             var sourceId = $"{project.ID}";
+
+            // Build tags string once
+            var tagsString = project.Tags != null
+                ? string.Join(", ", project.Tags.Select(kv => $"{kv.Key}:{kv.Value}"))
+                : string.Empty;
+
             var queueAsset = new QueueAsset
             {
                 Entity = new()
@@ -441,13 +447,16 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                         Asset = new SaltMiner.Core.Entities.AssetInfoPolicy
                         {
                             Name = project.Name,
-                            Attributes = [],
+                            Attributes = new Dictionary<string, string>
+                            {
+                                { "tags", tagsString }
+                            },
                             IsProduction = true,
                             Instance = Config.Instance,
                             IsSaltminerSource = CheckmarxOneConfig.IsSaltminerSource,
                             SourceType = Config.SourceType,
                             SourceId = sourceId,
-                            Version = project.Name,
+                            Version = scan.Branch,
                             AssetType = AssetType,
                             LastScanDaysPolicy = Config.LastScanDaysPolicy,
                             IsRetired = isRetired
@@ -460,7 +469,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                 }
             };
 
-            
             var result = LocalData.AddUpdate(queueAsset);
             return result;
         }
