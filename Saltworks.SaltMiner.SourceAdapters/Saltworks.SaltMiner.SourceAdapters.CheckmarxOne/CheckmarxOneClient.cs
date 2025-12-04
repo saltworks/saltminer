@@ -169,25 +169,27 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
             int mediumCount = 0;
             int lowCount = 0;
 
-            foreach (ResultsOverviewSeverityCounterDTO counter in result.SeverityCounters)
+            if (result?.SeverityCounters != null)
+            {
+                foreach (ResultsOverviewSeverityCounterDTO counter in result.SeverityCounters)
 
-                if (counter.Severity == "Critical")
-                {
-                    criticalCount = counter.Counter;
-                }
-                else if (counter.Severity == "High")
-                {
-                    highCount = counter.Counter;
-                }
-                else if (counter.Severity == "Medium")
-                {
-                    mediumCount = counter.Counter;
-                }
-                else if (counter.Severity == "Low")
-                {
-                    lowCount = counter.Counter;
-                }
-
+                    if (counter.Severity == "Critical")
+                    {
+                        criticalCount = counter.Counter;
+                    }
+                    else if (counter.Severity == "High")
+                    {
+                        highCount = counter.Counter;
+                    }
+                    else if (counter.Severity == "Medium")
+                    {
+                        mediumCount = counter.Counter;
+                    }
+                    else if (counter.Severity == "Low")
+                    {
+                        lowCount = counter.Counter;
+                    }
+            }
             return new SourceMetric
             {
                 Instance = Config.Instance,

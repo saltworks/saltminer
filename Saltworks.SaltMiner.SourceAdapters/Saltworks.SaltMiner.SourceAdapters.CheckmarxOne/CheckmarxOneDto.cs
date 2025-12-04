@@ -46,7 +46,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
         public ResultsOverviewProjectTagsDTO ProjectTags { get; set; }
         public DateTime LastScanDate { get; set; }
         public string RiskLevel { get; set; }
-        public List<ResultsOverviewSeverityCounterDTO> SeverityCounters { get; set; }
+        public List<ResultsOverviewSeverityCounterDTO> SeverityCounters { get; set; } = new();
         public int TotalCounter { get; set; }
         public List<ResultsOverviewEngineCounterDTO> EngineCounters { get; set; }
     }
@@ -96,7 +96,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
     public class ResultsOverviewSourceFileDTO
     {
         public string File { get; set; }
-        public int Counter { get; set; }
+        public long Counter { get; set; }
     }
 
 

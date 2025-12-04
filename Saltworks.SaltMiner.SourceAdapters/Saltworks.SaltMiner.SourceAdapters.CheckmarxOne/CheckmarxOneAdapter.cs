@@ -269,11 +269,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                         QueueAsset queueAsset = new();
                         List<QueueIssue> queueIssues = new();
 
+                        int issuecounter = 0;
+
+
                         await foreach (var issue in GetResultsAsync(lastScan.ID, client))
                         {
 
                             var currentIssue = issue;
-                           
+
                             if (FindAssessmentType(assessmentType) != FindAssessmentType(currentIssue.Type))
                             {
 
@@ -292,7 +295,20 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                                 assessmentType = currentIssue.Type;
                                 scanAssetMapped = true;
                             }
-                            var mappedIssue = MapIssue(queueProject, currentIssue, queueScan, queueAsset, queueIssues, lastScan.ID, false);
+                            var mappedIssue = MapIssue(queueProject, queueScan, queueAsset, queueIssues, lastScan.ID, false, currentIssue);
+                            localIssues++;
+                            issuecounter++;
+
+                        }
+                        if (issuecounter== 0)
+                        {
+                            queueScan = MapScan(queueProject, lastScan, lastScanSummary.ScansSummaries[0], "Zero");
+                            localScans++;
+
+                            queueAsset = MapAsset(queueProject, queueScan, lastScan);
+                            localAssets++;
+
+                            var mappedIssue = MapIssue(queueProject, queueScan, queueAsset, queueIssues, lastScan.ID, true);
                             localIssues++;
 
                         }
@@ -301,7 +317,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                         //Write: End time for individual sourcemetric
                         //write a issue counter and pass it in.
                         //****************************
-
                         queueScan.Loading = false;
                         LocalData.AddUpdate(queueScan);
                         totalProjectCount++;
@@ -432,9 +447,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
         {
             var sourceId = $"{project.ID}";
 
-            // Build tags string once
             var tagsString = project.Tags != null
-                ? string.Join(", ", project.Tags.Select(kv => $"{kv.Key}:{kv.Value}"))
+                ? string.Join(", ", project.Tags.Select(kv => $"{kv.Key ?? ""}:{kv.Value ?? ""}"))
                 : string.Empty;
 
             var queueAsset = new QueueAsset
@@ -473,7 +487,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
             return result;
         }
 
-        private QueueIssue MapIssue(ProjectDto project, ScanResultsResultDTO issue, QueueScan queueScan, QueueAsset queueAsset, List<QueueIssue> queueIssues,string scanId, bool zeroRecord = false)
+        private QueueIssue MapIssue(ProjectDto project, QueueScan queueScan, QueueAsset queueAsset, List<QueueIssue> queueIssues,string scanId, bool zeroRecord = false, ScanResultsResultDTO issue = null)
         {
             var sourceId = queueAsset.SourceId;
 
@@ -485,6 +499,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
             }
             else
             {
+                if (issue == null)
+                {
+                    throw new ArgumentNullException(nameof(issue), "Issue cannot be null when zeroRecord is false.");
+                }
 
                 var issueScannerId = issue.Id;
                 string package = null;
