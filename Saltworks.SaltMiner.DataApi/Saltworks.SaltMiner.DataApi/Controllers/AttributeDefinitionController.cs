@@ -25,7 +25,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers;
 
 [Route("[controller]")]
 [Produces("application/json")]
-[Auth(Role.Pentester, Role.Admin)]
+[Auth]
 [ApiController]
 public class AttributeDefinitionController(AttributeDefinitionContext context, ILogger<AttributeDefinitionController> logger) : ApiControllerBase(context, logger)
 {
@@ -37,6 +37,7 @@ public class AttributeDefinitionController(AttributeDefinitionContext context, I
     /// </summary>
     /// <returns>Count of docs affected and success flag</returns>
     /// <response code="202">Returns a response object indicating success and count of affected docs</response>
+    [Auth(Role.Admin, Role.Pentester)]
     [ProducesResponseType(202, Type = typeof(BulkResponse))]
     [HttpPost("bulk/query")]
     public ActionResult<BulkResponse> UpdateByQuery([FromBody] UpdateQueryRequest<AttributeDefinition> request)
@@ -55,8 +56,6 @@ public class AttributeDefinitionController(AttributeDefinitionContext context, I
     public ActionResult<DataItemResponse<AttributeDefinition>> Get(string id)
     {
         Logger.LogInformation("Get action called for id '{id}'", id);
-
-
         return Ok(Context.Get<AttributeDefinition>(id, AttributeDefinitionIndex));
     }
 
@@ -70,7 +69,6 @@ public class AttributeDefinitionController(AttributeDefinitionContext context, I
     public ActionResult<DataResponse<AttributeDefinition>> Search([FromBody] SearchRequest search)
     {
         Logger.LogInformation("Search action called");
-
         return Ok(Context.Search<AttributeDefinition>(AttributeDefinitionIndex, search));
     }
 
@@ -85,7 +83,6 @@ public class AttributeDefinitionController(AttributeDefinitionContext context, I
     public ActionResult<DataItemResponse<AttributeDefinition>> Post([FromBody] DataItemRequest<AttributeDefinition> request)
     {
         Logger.LogInformation("Post action called");
-
         return Accepted(Context.AddUpdate(request, AttributeDefinitionIndex));
     }
 
@@ -100,7 +97,6 @@ public class AttributeDefinitionController(AttributeDefinitionContext context, I
     public ActionResult<NoDataResponse> Delete(string id)
     {
         Logger.LogInformation("Delete action called for id '{id}'", id);
-
         return Ok(Context.Delete<AttributeDefinition>(id, AttributeDefinitionIndex));
     }
 }
