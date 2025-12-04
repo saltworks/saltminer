@@ -104,18 +104,11 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
     public class IssueAdditionalDetailResultsDto
 {
         public string State { get; set; }
-        public IssueAdditionalDetailResultsSourceDto Source { get; set; }
-        public IssueAdditionalDetailResultsSinkDto Sink { get; set; }
+        public IssueAdditionalDetailResultsDetailDto Source { get; set; }
+        public IssueAdditionalDetailResultsDetailDto Sink { get; set; }
     }
 
-    public class IssueAdditionalDetailResultsSinkDto
-{
-        public string File { get; set; }
-        public string Line { get; set; }
-        public string Object { get; set; }
-    }
-
-    public class IssueAdditionalDetailResultsSourceDto
+    public class IssueAdditionalDetailResultsDetailDto
 {
         public string File { get; set; }
         public string Line { get; set; }

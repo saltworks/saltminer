@@ -234,7 +234,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
             var match = ScanIdRegex().Match(appReport.Link);
             string scanId;
             if (match.Success)
-                scanId = $"project:{match.Groups[2].Value};scan:{match.Groups[1].Value}";
+                scanId = $"prj{match.Groups[2].Value}-scn{match.Groups[1].Value}";
             else
                 throw new CheckmarxSastValidationException($"Invalid report file for project {appReport.ProjectId}-'{appReport.Project}', missing top level link.");
 
@@ -334,19 +334,19 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                 var issId = issue.Link;
                 var match = IssueIdRegex().Match(issue.Link);
                 if (match.Success)
-                    issId = $"scan:{match.Groups[1].Value};project:{match.Groups[2].Value};path:{match.Groups[3].Value};line:";
+                    issId = $"scn{match.Groups[1].Value}-prj{match.Groups[2].Value}-pth{match.Groups[3].Value}";
                 // Issues contain results, which represent locations in the file where the issue was found
                 foreach (var result in issue.AdditionalDetails.Results)
                 {
-                    if (result.Sink == null)
+                    if (result.Source == null)
                     {
                         Logger.LogWarning("Result with index {Idx} invalid for issue '{Vuln}' in location '{Loc}'. Skipping.", resultCounter, issue.Vulnerability, issue.Filename);
                         continue;
                     }
                     var isSuppressed = false;
-                    var location = $"{issue.Filename}:{result.Sink.Line}";
+                    var location = $"{issue.Filename}:{result.Source.Line}:{result.Source.Column}";
                     // False positive found in separate detail collection
-                    if (issue.Details.TryGetValue(result.Sink.Line.ToString(), out var dtl))
+                    if (issue.Details.TryGetValue(result.Source.Line.ToString(), out var dtl))
                         isSuppressed = dtl.FalsePositive;
                     var qIssue = new QueueIssue
                     {
@@ -373,7 +373,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxSast
                                 ReportId = appReport.AdditionalDetails.ScanId,
                                 Scanner = new()
                                 {
-                                    Id = issId + result.Sink.Line,
+                                    Id = $"{issId}-src{result.Source.Line}-{result.Source.Column}-snk{result.Sink.Line}-{result.Sink.Column}",
                                     AssessmentType = AssessmentType.SAST.ToString("g"),
                                     Product = "Checkmarx SAST",
                                     Vendor = "Checkmarx",

@@ -1296,7 +1296,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         if (!nulls[0] && nulls[1])
         {
             request.Filter.RemoveFilterMatchByField("Vulnerability.Scanner.Id");
-            request.Filter.AddGreaterThanFilterMatch("Vulnerability.Scanner.Id", firstScannerId);
+            request.Filter.AddGreaterThanOrEqualFilterMatch("Vulnerability.Scanner.Id", firstScannerId);
         }
 
         var response = DataClient.IssueSearch(request);
