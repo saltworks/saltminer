@@ -22,6 +22,7 @@ import json
 from Core.Application import Application
 from Utility.SmApiClient import SmApiClient
 from Utility.SyncQueueHelper import SyncQueueHelper
+from Core.SscClient import SscClient
 
 # Parameters
 prog = os.path.splitext(os.path.basename(__file__))[0]
@@ -46,6 +47,22 @@ app = Application(loggingInstance=prmLogInstance)
 es = app.GetElasticClient()
 api = SmApiClient(app.Settings, prmSourceName)
 sqh = SyncQueueHelper(app.Settings, prmSourceName)
+ssc = None
+sscInactives = []
+try:
+    ssc = SscClient(app.Settings, prmSourceName)
+except Exception:
+    logging.warning("[Webhook Pull] '%' appears to not be an SSC source name, inactive release checking disabled.")
+    ssc = None
+try:
+    if ssc:
+        sscInactives = ssc.GetInactiveProjectVersionIds()
+except Exception as ex:
+    logging.error("[Webhook Pull] Error retrieving SSC inactive version list: %s", ex)
+    sscInactives = []
+
+MAX_LOOPS = 500
+maxLoops = app.Settings.Get("main", "WebhookMaxBatches", MAX_LOOPS)
 
 # Let's go
 sscIds = []
@@ -71,7 +88,11 @@ for dataItm in data:
                 event = "?" if not 'event' in evt else evt['event']
                 user = "?" if not 'username' in evt else evt['username']
                 logging.info("[Webhook Pull] SSC update event '%s' found for project version %s, tagged with username %s.", event, evt['projectVersionId'], user)
-                sscIds.append(evt['projectVersionId'])
+                sscId = evt['projectVersionId']
+                if sscId not in sscInactives:
+                    sscIds.append(sscId)
+                else:
+                    logging.info("[Webhook Pull] SSC projectVersion ID %s is inactive and will not be syned.", sscId)
             else:
                 logging.error("[Webhook Pull] SSC update event may be malformed (missing projectVersionId), encountered in webhook (queue sync item) ID %s. Skipping.", dataItm['id'])
 
