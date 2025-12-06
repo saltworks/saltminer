@@ -80,11 +80,9 @@ jobs:
       - name: Slack notification
         if: ${{ steps.python.outputs.PY_EXIT == '0' }}
         run: |
-          echo "Sending slack success notification..."
-          curl -X POST ${{ secrets.SLACK_URL }} \
-            -H "Content-Type: application/json" \
-            -d '{"type": "success", "data": "New build available: ${{env.sln-name}}.${{env.BRANCH}}.${{env.BUILD_NUMBER}}"}'
-
+          echo "Slack notification disabled.  Replace with Teams when convenient."
+          echo "New build available: ${{env.sln-name}}.${{env.BRANCH}}.${{env.BUILD_NUMBER}}"
+          
   on-fail:
     runs-on: self-hosted
     needs: main  # wait for main to complete
