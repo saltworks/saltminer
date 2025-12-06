@@ -492,6 +492,50 @@ class SscClient(object):
             return data[0]
         return None
 
+    def GetInactiveProjectVersionIds(self, batchSize = 200, limit = 0, startIndex = 0):
+        '''
+        Return list of project version IDs where the project version is inactive
+
+        Parameters:
+        :batchSize: how many project versions to load in a single API call
+        :forceRefresh: use the API to refresh the data even if it's already been pulled and cached
+        :limit: return no more than this number of project versions; if greater then batchSize then ignored
+        '''
+        if limit > 0 and limit < batchSize:
+            batchSize = limit
+        url = f"/api/v1/projectVersions?start={startIndex}&limit={batchSize}&includeInactive=true&q=active:false&orderby=id&fields=id"
+
+        list = []
+        count = 0
+        ccount = 0
+        done = False
+        while not done:
+            projectVersions = self.__Get(url, False, False, "GetInactiveProjectVersionIds")
+            ccount += len(projectVersions['data'])
+            if count == 0:
+                count = projectVersions['count']
+                if limit > 0 or startIndex > 0:
+                    count = limit
+                logging.info(f"{count} total project versions to load, starting at index {startIndex}.")
+            else:       
+                logging.info(f"Downloading {ccount} of {count} total records")
+
+            for pv in projectVersions['data']:
+                list.append(pv['id'])
+
+            try:
+                url = projectVersions['links']['next']['href']
+            except KeyError:
+                done = True
+            except:
+                logging.error('Unexpected error:{}'.format(sys.exc_info()[0]))
+                done = True
+            if limit <= ccount and limit > 0:
+                done = True
+
+        logging.info(f"Retrieved {len(list)} inactive project version IDs")
+        return list
+
     def GetProjectVersions(self, fields = None, inactive = False, batchSize = 200, forceRefresh = False, limit = 0, startIndex = 0):
         '''
         Returns complete list of project versions, calling the API in batches
@@ -500,7 +544,7 @@ class SscClient(object):
 
         Parameters:
         fields - comma delimited list of fields to return, or None to return all
-        inactive - set to True to include inactive project versions
+        inactive - set to True to include inactive project versions, F
         batchSize - how many project versions to load in a single API call
         forceRefresh - use the API to refresh the data even if it's already been pulled and cached
         limit - return no more than this number of project versions; if greater then batchSize then ignored
