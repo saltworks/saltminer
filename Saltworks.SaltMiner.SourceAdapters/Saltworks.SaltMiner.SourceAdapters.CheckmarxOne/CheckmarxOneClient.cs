@@ -144,10 +144,13 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
             return CheckContent(result);
         }
 
-        public async Task<ApplicationsDTO> GetApplicationsAsync()
+        public async Task<ApplicationsDTO> GetApplicationsAsync(int limit, int offset)
         {
+            var endpoint = $"/applications?limit={limit}&offset={offset}";
 
-            var result = await ApiClient.GetAsync<ApplicationsDTO>($"/applications");
+            Logger.LogDebug(endpoint);
+
+            var result = await ApiClient.GetAsync<ApplicationsDTO>(endpoint);
             return CheckContent(result);
         }
 

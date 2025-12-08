@@ -170,6 +170,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
             //Include: Check for existing Run that did not finish
             var syncRecord = LocalData.CheckSyncRecordSourceForFailure(Config.Instance, Config.SourceType);
 
+            var apps = await GetAllApplicationsAsync(client);
+
+
             //Include: Set recoverymode based on whether not there is a prior syncrecod
             if (syncRecord != null)
             {
@@ -290,7 +293,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                                 queueScan = MapScan(queueProject, lastScan, lastScanSummary.ScansSummaries[0], currentIssue.Type);
                                 localScans++;
 
-                                queueAsset = MapAsset(queueProject, queueScan, lastScan);
+                                queueAsset = MapAsset(queueProject, queueScan, lastScan, apps);
                                 localAssets++;
                                 assessmentType = currentIssue.Type;
                                 scanAssetMapped = true;
@@ -305,7 +308,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                             queueScan = MapScan(queueProject, lastScan, lastScanSummary.ScansSummaries[0], "Zero");
                             localScans++;
 
-                            queueAsset = MapAsset(queueProject, queueScan, lastScan);
+                            queueAsset = MapAsset(queueProject, queueScan, lastScan, apps);
                             localAssets++;
 
                             var mappedIssue = MapIssue(queueProject, queueScan, queueAsset, queueIssues, lastScan.ID, true);
@@ -443,13 +446,36 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
         }
 
 
-        private QueueAsset MapAsset(ProjectDto project, QueueScan queueScan, ScanDTO scan, bool isRetired = false)
+        private QueueAsset MapAsset(ProjectDto project, QueueScan queueScan, ScanDTO scan, Dictionary<string, string> apps, bool isRetired = false)
         {
             var sourceId = $"{project.ID}";
 
             var tagsString = project.Tags != null
                 ? string.Join(", ", project.Tags.Select(kv => $"{kv.Key ?? ""}:{kv.Value ?? ""}"))
                 : string.Empty;
+
+            var appNames = new List<string>();
+
+            if (project.ApplicationIds != null && project.ApplicationIds.Any())
+            {
+                foreach (var appId in project.ApplicationIds)
+                {
+                    if (apps.TryGetValue(appId, out var name))
+                    {
+                        appNames.Add(name);
+                    }
+                }
+            }
+
+            string orgApplicationNames = appNames.Count > 0
+            ? string.Join(", ", appNames)
+            : string.Empty;
+
+            var attributes = new Dictionary<string, string>
+            {
+                { "tags", tagsString },
+                { "org_application_names", orgApplicationNames }  
+            };
 
             var queueAsset = new QueueAsset
             {
@@ -461,10 +487,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                         Asset = new SaltMiner.Core.Entities.AssetInfoPolicy
                         {
                             Name = project.Name,
-                            Attributes = new Dictionary<string, string>
-                            {
-                                { "tags", tagsString }
-                            },
+                            Attributes = attributes,
                             IsProduction = true,
                             Instance = Config.Instance,
                             IsSaltminerSource = CheckmarxOneConfig.IsSaltminerSource,
@@ -635,6 +658,33 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                 _ => IssueType.Open.ToString("g"),
             };
         }
+
+
+        public async Task<Dictionary<string, string>> GetAllApplicationsAsync(CheckmarxOneClient client)
+        {
+            int limit = 100;
+            int offset = 0;
+
+            var appDict = new Dictionary<string, string>();
+
+            while (true)
+            {
+                var response = await client.GetApplicationsAsync(limit, offset);
+
+                if (response?.Applications == null || response.Applications.Count == 0)
+                    break;
+
+                foreach (var app in response.Applications)
+                {
+                    appDict[app.Id] = app.Name;
+                }
+
+                offset += limit;
+            }
+
+            return appDict;
+        }
+
 
         public static string BuildLocationFullByType(ScanResultsResultDTO issue)
         {
