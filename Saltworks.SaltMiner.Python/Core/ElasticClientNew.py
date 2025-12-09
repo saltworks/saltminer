@@ -28,6 +28,7 @@ from elasticsearch import Elasticsearch, NotFoundError, exceptions, ConflictErro
 from elasticsearch import helpers
 from elasticsearch.client import SecurityClient, IndicesClient, IngestClient
 
+
 from .StringUtils import StringUtils
 
 class ElasticClient(object):
@@ -45,8 +46,8 @@ class ElasticClient(object):
         if not configName or not configName in appSettings.GetConfigNames():
             raise ElasticClientException(f"Invalid or missing configuration for name '{configName}'")
         version = vertest('elasticsearch')
-        if not version[0] == '7':
-            raise ElasticClientException(f"Expected elasticsearch python package to be version 7.x.x, but found {version} instead.  Please install elasticsearch 7.x.x.")
+        # if not version[0] == '7':
+        #     raise ElasticClientException(f"Expected elasticsearch python package to be version 7.x.x, but found {version} instead.  Please install elasticsearch 7.x.x.")
         self.__RequestTimeout = appSettings.Get(configName, 'RequestTimeout')
         self.__DeleteRequestTimeout = appSettings.Get(configName, 'DeleteRequestTimeout', 30)
         self.__BulkRequestTimeout = appSettings.Get(configName, 'BulkRequestTimeout', 120)
@@ -70,6 +71,11 @@ class ElasticClient(object):
         hosts = appSettings.Get(configName, 'Host')
         port = appSettings.Get(configName, 'Port')
         sslVerify = appSettings.Get(configName, 'SslVerify', True)
+        v8_headers = {
+            "Accept": "application/vnd.elasticsearch+json; compatible-with=9",
+            "Content-Type": "application/vnd.elasticsearch+json; compatible-with=9"
+        }
+
         try:
             # in case we get a string and not a bool try to manage it
             if sslVerify.lower() == "true":
@@ -87,28 +93,24 @@ class ElasticClient(object):
             
             if not appSettings.Get(configName, 'UseAuth', True):
                 print('Not using username or password')
-                self.es = Elasticsearch( hosts = hosts,
-                    scheme = scheme,
-                    port = port,
+                self.es = Elasticsearch( hosts,
                     request_timeout = self.__RequestTimeout,
-                    timeout = self.__RequestTimeout)
+                    verify_certs=sslVerify
+                    )
             else:
-                self.es = Elasticsearch( hosts = hosts,
-                    http_auth = auth,
-                    scheme = scheme,
-                    port = port,
-                    request_timeout = self.__RequestTimeout,
-                    timeout = self.__RequestTimeout)
+                self.es = Elasticsearch( hosts,
+                    basic_auth= auth,
+                    request_timeout = self.__RequestTimeout                    
+                    )
         else:
-            
-            self.es = Elasticsearch( hosts = hosts,
-                http_auth = auth,
-                scheme = scheme,
-                port = port,
+            print(hosts + '/n')
+            self.es = Elasticsearch( hosts,
+                basic_auth= auth,
                 verify_certs = sslVerify,
                 ssl_show_warn = sslWarn,
                 request_timeout = self.__RequestTimeout,
-                timeout = self.__RequestTimeout)
+                headers= v8_headers
+                )
 
         self.sc = SecurityClient(self.es)
         self.ic = IndicesClient(self.es)
@@ -124,7 +126,9 @@ class ElasticClient(object):
 
         logging.info(f"Elastic client initialized.  Using host(s) {hosts}, port {port}, scheme {scheme}")
 
-    def ResilientSearch(self, index, body, size=20, scrollTimeout=None, afterKeys=None, includeLockingInfo=False, requestTimeout=None):
+
+    def ResilientSearch(self, index, body, size=20, scrollTimeout=None, afterKeys=None,
+                        includeLockingInfo=False, requestTimeout=None):
         '''
         Calls ES search, trapping and then retrying for connection exceptions
 
@@ -144,18 +148,33 @@ class ElasticClient(object):
         if self.__RetryCount == self.__RetryMaxAttempts:
             self.__RetryCount = 0
             raise ElasticClientException("Reached retry limit - see earlier logged errors for details.")
-        
+    
         try:
             if not body:
                 body = {}
+
             if afterKeys and len(afterKeys) > 0:
                 body['search_after'] = afterKeys
+
             if not requestTimeout:
                 requestTimeout = self.__RequestTimeout
-            rsp = self.es.search(body, index, size=size, scroll=scrollTimeout, seq_no_primary_term=includeLockingInfo, request_timeout=requestTimeout)
+
+            # Build the search parameters for ES 8.x (no body duplication)
+            search_args = {**body}
+            search_args["index"] = index
+            search_args["size"] = size
+            if scrollTimeout:
+                search_args["scroll"] = scrollTimeout
+            if includeLockingInfo:
+                search_args["seq_no_primary_term"] = True
+            search_args["timeout"] = f"{requestTimeout}s"
+
+            # Execute search
+            rsp = self.es.search(**search_args)
+
             self.__RetryCount = 0
             return rsp
-            
+
         except (exceptions.NotFoundError) as e:
             if scrollTimeout:
                 logging.error(f"Elasticsearch NotFound error thrown, likely scroll has expired. ({e})")
@@ -173,7 +192,7 @@ class ElasticClient(object):
             raise
         except (exceptions.ConnectionError, exceptions.ConnectionTimeout, exceptions.TransportError, ReadTimeoutError) as e:
             wait = self.__RetryDelaySecs
-            msg = e.__str__()
+            msg = str(e)
             self.__RetryCount += 1
             logging.error(f"API connection error during search operation - [{type(e).__name__}] {msg}, retrying in {wait} secs...")
             time.sleep(wait)
@@ -297,7 +316,7 @@ class ElasticClient(object):
         '''
         Gets ES task information
         '''
-        return self.es.tasks.get(taskId)
+        return self.es.tasks.get(task_id= taskId)
 
 
     def GetTaskCount(self):
@@ -311,6 +330,7 @@ class ElasticClient(object):
         return count
 
     def UpdateByQuery(self, index, queryBody, noWait=False, ignoreConflicts=False, retryConflicts=False, slices=None):
+        #TODO:TEST
         '''
         Calls ES update_by_query, trapping and then retrying for connection exceptions
 
@@ -356,9 +376,9 @@ class ElasticClient(object):
         
         try:
             if slices:
-                rsp = self.es.update_by_query(index, queryBody, wait_for_completion=False, conflicts=conflicts, slices=slices)
+                rsp = self.es.update_by_query(index=index, body=queryBody, wait_for_completion=False, conflicts=conflicts, slices=slices) # pylint: disable=unexpected-keyword-arg
             else:
-                rsp = self.es.update_by_query(index, queryBody, wait_for_completion=False, conflicts=conflicts)
+                rsp = self.es.update_by_query(index=index, body=queryBody, wait_for_completion=False, conflicts=conflicts) # pylint: disable=unexpected-keyword-arg
             if not noWait:
                 rsp = self.WaitForTask(rsp['task'], f"{index} update by query", conflictsAreBad = not ignoreConflicts)
             self.__RetryCount = 0
@@ -419,9 +439,30 @@ class ElasticClient(object):
     # https://elasticsearch-py.readthedocs.io/en/7.9.1/api.html#elasticsearch.client.IndicesClient.put_template
     def PutTemplate(self, templateName, body, create=None, includeTypeName=None, masterTimeout=None, order=None,
                     headers=None):
-        if not self.ic.exists_template(templateName):
-            self.ic.put_template(templateName, body, create=create, include_type_name=includeTypeName,
-                                 master_timeout=masterTimeout, order=order, headers=headers)
+        
+        if not self.ic.exists_index_template(name=templateName):
+            params = {}
+            if create is not None:
+                params["create"] = create
+            if masterTimeout is not None:
+                params["master_timeout"] = masterTimeout
+
+            if includeTypeName is not None:
+                pass
+
+            if order is not None:
+                # The 'order' field was replaced by 'priority' in composable templates
+                # If the user passed order, inject it into the body if not already set
+                if "priority" not in body:
+                    body["priority"] = order
+
+            if headers is not None:
+                # The 'headers' param was removed in 8.x; could be mapped to request_options if needed
+                params["request_options"] = {"headers": headers}
+
+
+            self.ic.put_index_template(name=templateName, **body, **params)
+
 
     def GetIndex(self, indexName, sort=None, limit=1000):
         '''
@@ -508,13 +549,13 @@ class ElasticClient(object):
             "email": email,
             "full_name": fullName
         }
-        return self.sc.put_user(username, body)
+        return self.sc.put_user(username=username, body=body) # pylint: disable=unexpected-keyword-arg
 
     def DeleteNativeUser(self, username):
         '''
         Deletes specified native user
         '''
-        return self.sc.delete_user(username)
+        return self.sc.delete_user(username=username)
         
     def GetRoleMappings(self, name = None):
         '''
@@ -523,7 +564,7 @@ class ElasticClient(object):
         Parameters:
         name - Name of role mapping to find (or None to return all)
         '''
-        return self.sc.get_role_mapping(name)
+        return self.sc.get_role_mapping(name=name)
 
     def GetRoles(self, name = None):
         '''
@@ -532,7 +573,7 @@ class ElasticClient(object):
         Parameters:
         name - Name of role to find and return (or None to return all)
         '''
-        return self.sc.get_role(name)
+        return self.sc.get_role(name=name)
 
     def DeleteRoleMapping(self, name, refresh = True):
         '''
@@ -542,7 +583,7 @@ class ElasticClient(object):
         name - name of the role mapping to delete
         refresh - deprecated, do not use
         '''
-        return self.sc.delete_role_mapping(name)
+        return self.sc.delete_role_mapping(name=name)
 
     def DeleteRole(self, name, refresh = True):
         '''
@@ -552,7 +593,7 @@ class ElasticClient(object):
         name - name of the role to delete
         refresh - deprecated, do not use
         '''
-        return self.sc.delete_role(name)
+        return self.sc.delete_role(name=name)
 
 
     # https://www.elastic.co/guide/en/elasticsearch/reference/current/security-api-put-role.html
@@ -564,7 +605,15 @@ class ElasticClient(object):
         name - Name of role to create/update
         roleBody - Role definition
         '''
-        return self.sc.put_role(name, roleBody)
+        return self.sc.put_role(
+                name=name,
+                cluster=roleBody.get("cluster", []),
+                indices=roleBody.get("indices", []),
+                applications=roleBody.get("applications", []),
+                run_as=roleBody.get("run_as", []),
+                metadata=roleBody.get("metadata", {})
+            )
+    
 
     def RoleFromTemplate(self, name, template, dictionary=None):
         '''
@@ -578,11 +627,11 @@ class ElasticClient(object):
         if dictionary:
             for k in dictionary.keys():
                 template = template.replace("<<" + k + ">>", dictionary[k])
-        return self.Role(name, json.loads(template))
+        return self.Role(name, template)
 
     # https://www.elastic.co/guide/en/elasticsearch/reference/current/security-api-put-role-mapping.html
     def RoleMapping(self, name, roles, dns=[], groups=[], usernames=[], any=True):
-        '''
+        """
         Creates role mapping with the specified parameters
 
         Parameters:
@@ -592,29 +641,31 @@ class ElasticClient(object):
         groups - [] of groups to map
         usernames - [] of usernames to map
         any - use logical OR when multiple usernames and/or groups specified
-        '''
+        """
         if dns is None or groups is None or usernames is None:
             raise ElasticClientValidationException("DNs, groups, and usernames must be lists (even if empty).")
-        if len(dns)  == 0 and len(groups) == 0 and len(usernames) == 0:
+        if len(dns) == 0 and len(groups) == 0 and len(usernames) == 0:
             raise ElasticClientValidationException("DNs, groups, and/or usernames must be specified.")
-        body = {
-                "roles": roles,
-                "enabled": True,
-                "rules": {
-                }
-            }
+
+        # Build rules list
         fields = []
         for u in dns:
-            fields.append({ "field": { "dn": u }})
+            fields.append({"field": {"dn": u}})
         for g in groups:
-            fields.append({ "field": { "groups": g }})
+            fields.append({"field": {"groups": g}})
         for u in usernames:
-            fields.append({ "field": { "username": u }})
-        if any:
-            body["rules"] = { "any": fields }
-        else:
-            body["rules"] = { "all": fields }
-        return self.sc.put_role_mapping(name, body)
+            fields.append({"field": {"username": u}})
+
+        # Determine any/all logic
+        rules = {"any": fields} if any else {"all": fields}
+
+        # Call Elasticsearch 8.x API directly with keyword arguments
+        return self.sc.put_role_mapping(
+            name=name,
+            roles=roles,
+            enabled=True,
+            rules=rules
+        )
     
     def Get(self, index, docId, raiseNotFoundError=True):
         '''
@@ -625,7 +676,7 @@ class ElasticClient(object):
             raise ElasticClientException("Reached retry limit - see earlier logged errors for details.")
         
         try:
-            rsp = self.es.get(index, docId)
+            rsp = self.es.get(index=index, id=docId)
             self.__RetryCount = 0
             return rsp
 
@@ -702,7 +753,7 @@ class ElasticClient(object):
         Usage:
         count =  es.Count('sscprojects', query)
         '''
-        count = self.es.count(queryBody, index)
+        count = self.es.count(query=queryBody, index=index)
         return count["count"]
     
     def SearchWithCursor(self, keyField, index, queryBody, scrollSize=0, scrollTimeout='10s'):
@@ -764,7 +815,7 @@ class ElasticClient(object):
 
 
     def SearchWithSql(self, sql):
-
+        #TODO:TEST
         iCount = 0
         query = {"query": sql,
             "fetch_size": 1000}
@@ -779,7 +830,7 @@ class ElasticClient(object):
         moreRows = True
         while moreRows:
             iCount = iCount + 1
-            response =  self.es.sql.query(query, request_timeout = self.__RequestTimeout)
+            response =  self.es.sql.query(query =query, request_timeout = f"{self.__RequestTimeout}s")
             print('Back from SQL with {} block of 1000'.format(iCount))
 
             if iCount == 1:
@@ -811,7 +862,7 @@ class ElasticClient(object):
 
         try:
             logging.debug("Running delete by id for index '%s', id %s", index, idToRemove)
-            rsp = self.es.delete(index, idToRemove)
+            rsp = self.es.delete(index=index, id=idToRemove)
             self.__RetryCount = 0
             return rsp
 
@@ -898,9 +949,9 @@ class ElasticClient(object):
             logging.debug("Running delete by query for index '%s' with timeout '%s'", index, timeout)
             self.RefreshIndex(index)
             if slices:
-                rsp = self.es.delete_by_query(index, queryBody, wait_for_completion=False, conflicts=conflicts, request_timeout=timeout, slices=slices)
+                rsp = self.es.delete_by_query(index=index, body=queryBody, wait_for_completion=False, conflicts=conflicts, timeout=f"{timeout}s", slices=slices) # pylint: disable=unexpected-keyword-arg
             else:
-                rsp = self.es.delete_by_query(index, queryBody, wait_for_completion=False, conflicts=conflicts, request_timeout=timeout)
+                rsp = self.es.delete_by_query(index=index, body=queryBody, wait_for_completion=False, conflicts=conflicts, timeout=f"{timeout}s") # pylint: disable=unexpected-keyword-arg
             if wait:
                 rsp = self.WaitForTask(rsp['task'])
             if flushAfter and wait:
@@ -918,7 +969,7 @@ class ElasticClient(object):
     def ExecuteEnrichPolicy(self, policy):
         try:
             logging.info("Attempting to execute enrichment policy '%s'", policy)
-            self.es.enrich.execute_policy(policy, wait_for_completion=False)
+            self.es.enrich.execute_policy(name=policy, wait_for_completion=False)
             logging.info("Enrichment policy '%s' execution requested successfully", policy)
         except Exception as e:
             logging.warning("Unable to execute enrich policy %s: [%s] %s", policy, type(e).__name__, e)
@@ -935,7 +986,7 @@ class ElasticClient(object):
 
         try:
             logging.debug("Updating document in index '%s'", index)
-            rsp = self.es.index(index=index, id=docId, body=doc, if_primary_term=priTerm, if_seq_no=seqNo, timeout=timeout)
+            rsp = self.es.index(index=index, id=docId, document=doc, if_primary_term=priTerm, if_seq_no=seqNo, timeout=timeout)
             self.__RetryCount = 0
             return rsp
 
@@ -947,7 +998,7 @@ class ElasticClient(object):
             self.__RetryCount += 1
             logging.error(f"API connection error during update operation - [{type(e).__name__}] {msg}, retrying in {wait} secs...")
             time.sleep(wait)
-            return self.Index(index, doc, docId, seqNo, priTerm, timeout)
+            return self.UpdateWithLocking(index, doc, docId, seqNo, priTerm, timeout)
 
     def IndexWithId(self, index, docId, doc, timeout=None, createOnly=False):
         if not timeout:
@@ -959,7 +1010,7 @@ class ElasticClient(object):
         try:
             logging.debug("Inserting document into index '%s'", index)
             op_type = None if not createOnly else 'create'
-            rsp = self.es.index(index=index, id=docId, body=doc, op_type=op_type, timeout=timeout)
+            rsp = self.es.index(index=index, id=docId, document=doc, op_type=op_type, timeout=timeout)
             self.__RetryCount = 0
             return rsp
 
@@ -977,25 +1028,25 @@ class ElasticClient(object):
         return self.IndexWithId(index, None, doc, timeout, createOnly)
 
     def IndexExists(self, name):
-        return self.es.indices.exists(name)
+        return self.es.indices.exists(index=name)
 
     def FlushIndex(self, index):
         try:
-            self.es.indices.flush(index)
+            self.es.indices.flush(index=index)
         except urllib3.exceptions.ReadTimeoutError:
             delay = self.__RetryDelaySecs
             logging.warning(f"Timeout occurred when attempting to flush index '{index}'.  Will retry after a {delay} sec delay.")
             time.sleep(delay)
-            self.es.indices.flush(index)
+            self.es.indices.flush(index=index)
     
     def RefreshIndex(self, index):
         try:
-            self.es.indices.refresh(index)
+            self.es.indices.refresh(index=index)
         except urllib3.exceptions.ReadTimeoutError:
             delay = self.__RetryDelaySecs
             logging.warning(f"Timeout occurred when attempting to refresh index '{index}'.  Will retry after a {delay} sec delay.")
             time.sleep(delay)
-            self.es.indices.refresh(index)
+            self.es.indices.refresh(index=index)
 
     def GetMapping(self, mappingName, default=None):
         mn = StringUtils.CamelCase(mappingName)
@@ -1019,14 +1070,16 @@ class ElasticClient(object):
         '''
         Gets mapping by index
         '''
-        mapping =self.es.indices.get_mapping(index)
+        mapping =self.es.indices.get_mapping(index=index)
         return mapping
         
+
     def MapIndex(self, indexToMap, force):
         if type(force) is dict:
             raise ElasticClientMappingException("MapIndex no longer accepts mapping body.  See ElasticClient.py.")
         mapping = self.GetMapping(indexToMap)
         self.MapIndexWithMapping(indexToMap, mapping, force)
+
 
     def MapIndexWithMapping(self, indexToMap, mapping, force):
         if not type(mapping) is dict:
@@ -1040,7 +1093,7 @@ class ElasticClient(object):
             exists = False
 
         if not exists:
-            response = self.es.indices.create(index=indexToMap, body=mapping )
+            response = self.es.indices.create(index=indexToMap, body=mapping ) # pylint: disable=unexpected-keyword-arg
             msg = 'Mapping {} - {}'.format(indexToMap, response)
             logging.debug(msg)
 
@@ -1056,12 +1109,27 @@ class ElasticClient(object):
 
         '''
         logging.info('Finding alias for %s', index)
-        aliasData = self.ic.get_alias(index= index, name=name, params=params, allow_no_indices=allow_no_indices)
+        kwargs = {}
+
+        if params:
+            # Supported query parameters in v8 (expandable)
+            allowed_keys = {"expand_wildcards", "ignore_unavailable", "local", "allow_no_indices"}
+            for k, v in params.items():
+                if k in allowed_keys:
+                    kwargs[k] = v
+                else:
+                    logging.debug("Ignoring unsupported param for get_alias: %s=%s", k, v)
+            # Explicitly pass in allow_no_indices so it's not lost
+            kwargs["allow_no_indices"] = allow_no_indices
+            # Call Elasticsearch v8 API with unpacked kwargs
+        aliasData = self.ic.get_alias(index=index, name=name, **kwargs)  
+
         if len(aliasData[index]['aliases']) >= 1:
                 return aliasData
         else:
             logging.info('There are no aliases for the index named: %s', index)
             return None
+
 
     def PutAlias(self, inIndex, aliasName, aliasBody, force):
         '''Creates / Updates an alias for the given index'''
@@ -1079,16 +1147,16 @@ class ElasticClient(object):
         if aliasBody == '':
             self.es.indices.put_alias(index=inIndex, name=aliasName)
         else:
-            self.es.indices.put_alias(index=inIndex, name=aliasName, body=aliasBody)
+            self.es.indices.put_alias(index=inIndex, name=aliasName, body=aliasBody) # pylint: disable=unexpected-keyword-arg
 
 
     def IndexSetRefreshInterval(self, index, interval):
         _settings = {"index": {"refresh_interval": interval}}
-        self.__PutSettings(index, _settings)
+        self.PutSettings(index, _settings)
 
 
     def PutSettings(self, index, settings):
-        self.es.indices.put_settings(index=index, body=settings)
+        self.es.indices.put_settings(index=index, settings=settings) # pylint: disable=unexpected-keyword-arg
 
 
     def DeleteIndex(self, index):
@@ -1105,7 +1173,11 @@ class ElasticClient(object):
                 raise ElasticClientException(f"Destination index '{destIndex}' already exists.  Set overwrite to enable replacing it.")
         if not self.IndexExists(srcIndex):
             raise ElasticClientException(f"Source index '{srcIndex}' does not exist.")
+        self.es.indices.put_settings(index=srcIndex, settings={"index": {"blocks.write": True}})
+
         self.es.indices.clone(index=srcIndex, target=destIndex)
+
+        self.es.indices.put_settings(index=srcIndex, settings={"index": {"blocks.write": False}})
 
 
     def Reindex(self, srcIndex, destIndex, destPipeline=None, block=True):
@@ -1120,7 +1192,7 @@ class ElasticClient(object):
         body = { "source": { "index": srcIndex } , "dest": { "index": destIndex } }
         if destPipeline:
             body['dest']['pipeline'] = destPipeline
-        return self.es.reindex(body, wait_for_completion=block)
+        return self.es.reindex(body=body, wait_for_completion=block) # pylint: disable=unexpected-keyword-arg,  missing-kwoa
     
     def GetPipeline(self, pipelineName = None, error_trace=None, filter_path=None, human=None, master_timeout=None, pretty=None, summary=None):
         '''
@@ -1142,7 +1214,7 @@ class ElasticClient(object):
         processor that failed and run the on failure handler. In order to add on failure parameters to the processors you must specify
         this within the processor itself. 
         '''
-        self.ingestClient.put_pipeline(id, body)#, on_failure= on_failure, version=version)
+        self.ingestClient.put_pipeline(id=id, body=body) # pylint: disable=unexpected-keyword-arg #, on_failure= on_failure, version=version)
 
 class ElasticSearchUtilsScroller(object):
     def __init__(self, elasticClient, index, scrollSize, scrollTimeout, queryBody=None):
