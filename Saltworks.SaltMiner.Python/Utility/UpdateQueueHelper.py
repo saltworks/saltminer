@@ -52,7 +52,11 @@ class UpdateQueueHelper(object):
           "aggs": {
             "id": {
               "terms": { "field": self.__IdField, "size": self.__BatchSize },
-              "aggs": { "max_processed": { "max": { "field": "processedDateTime" } } }
+              "aggs": { 
+                "max_processed": { "max": { "field": "processedDateTime" } },
+                "min_processed": { "min": { "field": "processedDateTime" } },
+                "sort": { "bucket_sort": { "sort": [ "min_processed"] } }
+              }
             },
             "total_count": { "value_count": { "field": self.__IdField } }
           }, 

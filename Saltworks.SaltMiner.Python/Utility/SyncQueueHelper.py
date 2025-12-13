@@ -272,7 +272,7 @@ class SyncQueueHelper(object):
         if skipExisting:
             self.__LoadExclusions = self.GetSyncQueueCurrent()
         self.__LoadPriorityReservations()
-        dt = datetime.datetime.utcnow().isoformat()
+        dt = datetime.datetime.now(datetime.UTC).isoformat()
         prmList = []
         wrkList = []
         for i in idList:

@@ -14,19 +14,41 @@
 * ----
 '''
 
-from Utility.ProgressLogger import *
-from Core.Application import Application
 import time
+import unittest
 
-es = Application().GetElasticClient()
-p = ProgressLogger(es)
-p.Start("test", 20)
-for i in range(1,20,1):
-    time.sleep(5)
-    p.Progress(i)
-p.Finish()
+from Utility.ProgressLogger import ProgressLogger
+from Core.Application import Application
 
-sys.exit()
-#r = es.GetIndex(ProgressLogger.IndexName(), "id:ascending,timestamp:ascending")
-#for x in r:
-#    print("{}".format(x))
+
+class ProgressLoggerTests(unittest.TestCase):
+    """Unit tests for ProgressLogger functionality."""
+
+    @classmethod
+    def setUpClass(cls):
+        """[UnitTest] Set up test fixtures before running tests in this class."""
+        cls.es = Application().GetElasticClient()
+
+    def setUp(self):
+        """[UnitTest] Set up test fixtures before each test method."""
+        self.progress_logger = ProgressLogger(self.es)
+
+    def test_progress(self):
+        """Test progress logging functionality."""
+        self.progress_logger.Start("test", 20)
+        for i in range(1, 20, 1):
+            time.sleep(5)
+            self.progress_logger.Progress(i)
+        self.progress_logger.Finish()
+
+    def test_get_index(self):
+        """Test retrieving progress log index."""
+        # Uncomment if needed for testing index retrieval
+        # r = self.es.GetIndex(ProgressLogger.IndexName(), "id:ascending,timestamp:ascending")
+        # for x in r:
+        #     print("{}".format(x))
+        pass
+
+
+if __name__ == '__main__':
+    unittest.main()
