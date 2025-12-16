@@ -30,7 +30,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Saltworks.SaltMiner.ElasticClient;
+namespace Saltworks.SaltMiner.ElasticClient.NestClient;
 
 public class NestClient(ClientConfiguration configuration, ConnectionSettings connectionSettings, ILogger<IElasticClient> logger) : IElasticClient
 {
