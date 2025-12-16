@@ -119,8 +119,8 @@ if [ "$pstep" == 1 ]; then
       sudo nginx -s reload
       
       echo ""
-      echo "Installing pip for python"
-      sudo apt install -y python3-pip
+      echo "Installing python components"
+      sudo apt install -y python3 python3-pip python3-venv
     fi
     
     #   RHEL8, OL8
