@@ -14,7 +14,6 @@
 * ----
 '''
 
-from codecs import ignore_errors
 import time
 import logging
 import json
@@ -27,6 +26,7 @@ from urllib3.exceptions import ReadTimeoutError
 from elasticsearch import Elasticsearch, NotFoundError, exceptions, ConflictError
 from elasticsearch import helpers
 from elasticsearch.client import SecurityClient, IndicesClient, IngestClient
+from elasticsearch import logger as es_logger
 
 from .StringUtils import StringUtils
 from .DictUtils import DictUtils
@@ -103,6 +103,7 @@ class ElasticClient(object):
             request_timeout = self.__RequestTimeout,
             headers= headers
         )
+        es_logger.setLevel(logging.WARNING)
 
         self.sc = SecurityClient(self.es)
         self.ic = IndicesClient(self.es)
