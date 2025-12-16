@@ -91,7 +91,7 @@ class ElasticClient(object):
         isHttp = scheme == 'http'
         if isHttp:
             logging.warning("Insecure connection scheme (http), this should not be used in a production environment")
-        if useAuth:
+        if not useAuth:
             logging.warning('Anonymous connection, no credentials specified')
             
         res_hosts = [f"{scheme}://{x}:{port}" for x in hosts]

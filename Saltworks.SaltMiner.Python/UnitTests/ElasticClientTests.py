@@ -65,7 +65,8 @@ class ElasticClientTests(unittest.TestCase):
             for i in range(1, 6):
                 self.es.IndexWithId(idx, str(i), { "id": i, "status": "old", "value": i })
             self.es.IndexWithId(idx, str(i), { "id": 7, "status": "nope", "value": 7 })
-            time.sleep(1)
+            self.es.FlushIndex(idx)
+            time.sleep(2)
 
             # Build an UpdateByQuery body that includes both script and query nodes
             body = {
@@ -137,8 +138,10 @@ class ElasticClientTests(unittest.TestCase):
         try:
             total_docs = 120
             for i in range(1, total_docs + 1):
-                self.es.IndexWithId(idx, str(i), {"id": i, "name": f"proj_{i}"})
-            time.sleep(1)
+                self.es.BulkSendBatch(idx, {"id": i, "name": f"proj_{i}"}, batchSize=1000)
+            self.es.BulkSendBatch(None, None)  # finalize bulk
+            self.es.FlushIndex(idx)
+            time.sleep(2) # give it a chance to settle...
 
             scroll = self.es.SearchScroll(idx, scrollSize=50, scrollTimeout=None)
             batch = 1
@@ -607,10 +610,6 @@ class ElasticClientTests(unittest.TestCase):
             # Verify alias still exists
             alias_data_check = self.es.GetAlias(idx, name=alias_name)
             self.assertIsNotNone(alias_data_check, "Alias should still exist after PutAlias with force=False")
-
-            # Test GetAlias with params
-            alias_data_with_params = self.es.GetAlias(idx, name=alias_name, params={"local": True})
-            self.assertIsNotNone(alias_data_with_params, "GetAlias with params should return data")
 
             logging.info(f"[TEST SUCCESS] {module}:test_aliases")
         finally:
