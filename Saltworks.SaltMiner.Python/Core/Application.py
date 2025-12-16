@@ -35,9 +35,10 @@ class AppLoggingFilter(logging.Filter):
         self.__suppressBaseWarnings = suppressBaseWarnings
 
     def filter(self, record):
+        filtered = ["base", "connectionpool", "_transport"]
         if self.__suppressBaseWarnings:
-            return record.module not in ["base", "connectionpool"] or record.levelno > logging.WARNING
-        return record.module not in ["base", "connectionpool"] or record.levelno > logging.INFO
+            return record.module not in filtered or record.levelno > logging.WARNING
+        return record.module not in filtered or record.levelno > logging.INFO
 
 
 class Application(object):
