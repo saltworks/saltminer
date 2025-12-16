@@ -674,14 +674,21 @@ if [ "$pstep" == 5 ]; then
     # https://stackoverflow.com/questions/78357791/how-to-apply-break-system-packages-conditionally-only-when-the-system-pip-py
 
     if [ "$os" == "U" ]; then
-      echo "Running pip install for SM25 dependencies"
-      cmd="PIP_BREAK_SYSTEM_PACKAGES=1 pip install -r $smapp2/requirements.txt"
+      echo "Setting up python virtual env and dependencies..."
+      cmd="python3 -m venv $smapp2/.venv"
       sudo su svc-saltminer -c "$cmd"
+      cmd="source $smapp2/.venv/bin/activate"
+      sudo su svc-saltminer -c "$cmd"
+      cmd="pip install -r $smapp2/requirements.txt"
+      sudo su svc-saltminer -c "$cmd"
+      sudo su svc-saltminer -c "deactivate"
     else
-      echo "Attempting pip install for SM25 dependencies, only supports python 3.9 right now on this OS because of the versioned calls (pip3.9, python3.9)"
-      cmd="PIP_BREAK_SYSTEM_PACKAGES=1 pip3.9 install -r $smapp2/requirements.txt"
-      sudo su svc-saltminer -c "$cmd"
-    fi  
+      echo "Use the following commands to setup python's virtual environment and dependencies"
+      echo "cd $smapp2"
+      echo "python3 -m venv .venv"
+      echo "source .venv/bin/activate"
+      echo "pip install -r requirements.txt"
+    fi
   fi
 fi
 
