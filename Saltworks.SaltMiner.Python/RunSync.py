@@ -89,6 +89,7 @@ for sourceName in sourceNames:
                 e.CheckDrop()
     except KeyboardInterrupt:
         logging.info("Keyboard interrupt, cancelling")
+        break
     except Exception as e:
         error_msg = traceback.format_exc()
         logging.critical(error_msg)

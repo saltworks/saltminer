@@ -675,17 +675,17 @@ if [ "$pstep" == 5 ]; then
 
     if [ "$os" == "U" ]; then
       echo "Setting up python virtual env and dependencies..."
-      cmd="python3 -m venv $smapp2/.venv"
+      cmd="python3 -m venv $smapp/.venv"
       sudo su svc-saltminer -c "$cmd"
-      cmd1="source $smapp2/.venv/bin/activate"
+      cmd1="source $smapp/.venv/bin/activate"
       cmd2="pip install -r $smapp2/requirements.txt"
       sudo -iu svc-saltminer bash -c "$cmd1 && $cmd2 && deactivate"
     else
       echo "Use the following commands to setup python's virtual environment and dependencies"
-      echo "cd $smapp2"
+      echo "cd $smapp"
       echo "python3 -m venv .venv"
       echo "source .venv/bin/activate"
-      echo "pip install -r requirements.txt"
+      echo "pip install -r $smapp2/requirements.txt"
     fi
   fi
 fi
