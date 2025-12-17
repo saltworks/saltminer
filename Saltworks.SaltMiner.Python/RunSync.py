@@ -23,7 +23,7 @@ import os
 import traceback
 import time
 
-from Core.Application import Application
+from Core.Application import Application, ApplicationException
 from Sources.FOD.SyncExtractor import SyncExtractor as SyncExtractorFod
 from Sources.SSC.SyncExtractor import SyncExtractor as SyncExtractorSsc
 
@@ -89,10 +89,10 @@ for sourceName in sourceNames:
                 e.CheckDrop()
     except KeyboardInterrupt:
         logging.info("Keyboard interrupt, cancelling")
-        break
+        exit(0)
     except Exception as e:
         error_msg = traceback.format_exc()
         logging.critical(error_msg)
-        raise Exception(f"[{prog}] Exception: [{type(e).__name__}] {e}")
+        raise ApplicationException(f"[{prog}] Exception: [{type(e).__name__}] {e}")
     logging.info(f"[{prog}] Completed processing source '{sourceName}'")
 
