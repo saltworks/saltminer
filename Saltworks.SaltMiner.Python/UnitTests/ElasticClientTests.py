@@ -21,6 +21,7 @@ import time
 import unittest
 
 from elasticsearch.helpers.actions import BulkIndexError
+from elasticsearch import NotFoundError
 
 from Core.Application import Application
 from Core.DictUtils import DictUtils
@@ -564,6 +565,50 @@ class ElasticClientTests(unittest.TestCase):
                 self.es.DeleteIndex(idx)
             except Exception as e:
                 logging.info(f"[TEST CLEANUP FAILURE] {module}:test_index_management: {e}")
+
+    def test_count(self):
+        """Test Count functionality."""
+        # Arrange
+        idx = self._get_test_index_name()
+        self.es.DeleteIndex(idx)  # just in case it exists
+
+        try:
+            # Act/Assert - Test Count on non-existent index (should return 0)
+            try:
+                self.es.Count(idx)
+            except Exception as e:
+                self.assertIsInstance(e, NotFoundError, "Should raise NotFoundError for non-existent index")
+            count_empty = self.es.Count(idx, suppressErrorOnMissingIndex=True)
+            self.assertEqual(count_empty, 0, "Count should return 0 for non-existent index")
+
+            # Index multiple documents
+            for i in range(1, 111):
+                self.es.BulkSendBatch(idx, {"id": i, "category": "A" if i % 2 == 0 else "B", "value": i * 10}, batchSize=1000)
+            self.es.BulkSendBatch(None, None)  # finalize bulk
+            self.es.FlushIndex(idx)
+            time.sleep(1)  # Allow indexing to complete
+
+            # Test Count without query (all documents)
+            count_all = self.es.Count(idx)
+            self.assertEqual(count_all, 110, "Count should return 110 after indexing 110 documents")
+
+            # Test Count with query body (filter for category="A")
+            query_body = {"query": {"match": {"category": "A"}}}
+            count_filtered = self.es.Count(idx, query_body)
+            self.assertEqual(count_filtered, 55, "Count should return 55 for documents with category='A'")
+
+            # Test Count with different filter (value > 50)
+            query_range = {"query": {"range": {"value": {"gt": 50}}}}
+            count_range = self.es.Count(idx, query_range)
+            self.assertEqual(count_range, 105, "Count should return 105 for documents with value > 50")
+
+            logging.info(f"[TEST SUCCESS] {module}:test_count")
+        finally:
+            # Cleanup
+            try:
+                self.es.DeleteIndex(idx)
+            except Exception as e:
+                logging.info(f"[TEST CLEANUP FAILURE] {module}:test_count: {e}")
 
     def test_aliases(self):
         """Test alias operations."""

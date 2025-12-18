@@ -528,7 +528,7 @@ class AppVulsProcessor(object):
         # It's possible we have a record in the Queue that has since been
         # removed from SSC, in that case we can bail out
         #
-        if not appVerId in sscProjects.keys():
+        if appVerId not in sscProjects.keys():
             return
 
         # Get a list of all the vulnerabilites found by SSC with the matching

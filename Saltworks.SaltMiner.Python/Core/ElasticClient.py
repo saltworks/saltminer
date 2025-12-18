@@ -735,7 +735,7 @@ class ElasticClient(object):
         scroller.IncludeLockingInfo = includeLockingInfo
         return scroller
     
-    def Count(self, index, queryBody=None):
+    def Count(self, index, queryBody=None, suppressErrorOnMissingIndex=False):
         '''
         Searches Elastic for all matching documents, returning the count of the resultset.
         
@@ -746,8 +746,15 @@ class ElasticClient(object):
         Usage:
         count =  es.Count('sscprojects', query)
         '''
-        count = self.es.count(query=queryBody, index=index)
-        return count["count"]
+        
+        try:
+            count = self.es.count(body=queryBody, index=index)
+            return count["count"]
+        except NotFoundError:
+            if suppressErrorOnMissingIndex:
+                return 0
+            else:
+                raise
     
     def SearchWithCursor(self, keyField, index, queryBody, scrollSize=0, scrollTimeout='10s'):
         
