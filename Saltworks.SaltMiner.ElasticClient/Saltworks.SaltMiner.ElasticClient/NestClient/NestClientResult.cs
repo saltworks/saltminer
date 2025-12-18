@@ -14,10 +14,12 @@
 * ----
 */
 
-﻿using Nest;
+using System;
+using Nest;
 
 namespace Saltworks.SaltMiner.ElasticClient.NestClient;
 
+[Obsolete("Use EsClientResult instead. NestClientResult will be removed in a future version.", error: false)]
 public class NestClientResult<T> : IElasticClientDto<T> where T : class
 {
     public T Document { get; set; }

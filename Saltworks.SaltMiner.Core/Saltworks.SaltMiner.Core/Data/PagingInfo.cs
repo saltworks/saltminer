@@ -22,7 +22,7 @@ namespace Saltworks.SaltMiner.Core.Data
     public class PagingInfo
     {
         public PagingInfo() { }
-        public PagingInfo(int size)
+        public PagingInfo(int? size)
         {
             Size = size;
         }
@@ -57,9 +57,9 @@ namespace Saltworks.SaltMiner.Core.Data
         /// </summary>
         public bool TotalHitsWereTruncated { get; set; } = false;
         /// <summary>
-        /// Page size - should not exceed 10,000.  If set to 0, will use default from configuration.
+        /// Page size - should not exceed 10,000.  If set to 0 or null, will use default from configuration.
         /// </summary>
-        public int Size { get; set; } = 0;
+        public int? Size { get; set; } = null;
         /// <summary>
         /// Enables Elasticsearch PIT (Point In Time) paging to ensure consistent results over multiple search request pages.
         /// </summary>
@@ -76,6 +76,10 @@ namespace Saltworks.SaltMiner.Core.Data
         /// Keys used for current request - speeds up page requests when available.
         /// </summary>
         public List<object> CurrentAfterKeys { get; set; }
+        /// <summary>
+        /// Keys used for current aggregate request - speeds up page requests when available.
+        /// </summary>
+        public Dictionary<string, object> AggregateKeys { get; set; }
         /// <summary>
         /// Returns a PagingInfo object representing a next page request, just add to your SearchRequest and fire it off.
         /// </summary>

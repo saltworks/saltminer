@@ -1,19 +1,16 @@
-﻿
-
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Elastic.Clients.Elasticsearch;
 using System.Collections.Generic;
 using System;
 using Elastic.Transport;
 using System.Threading.Tasks;
 
+namespace Saltworks.SaltMiner.ElasticClient.EsClient;
 
-namespace Saltworks.SaltMiner.ElasticClient.EsClient
-{
-    /// <summary>
-    /// EsClient factory class
-    /// </summary>
-    public class EsClientFactory : IElasticClientFactory
+/// <summary>
+/// EsClient factory class
+/// </summary>
+public class EsClientFactory : IElasticClientFactory
     {
         // Logger is set by "UseEsClient()" extension
         public ILogger<IElasticClient> Logger { get; set; } = null;

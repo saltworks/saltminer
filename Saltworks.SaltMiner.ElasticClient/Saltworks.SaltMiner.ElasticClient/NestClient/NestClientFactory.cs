@@ -25,6 +25,7 @@ namespace Saltworks.SaltMiner.ElasticClient.NestClient;
 /// <summary>
 /// NestClient factory class
 /// </summary>
+[Obsolete("Use EsClientFactory instead. NestClientFactory will be removed in a future version.", error: false)]
 public class NestClientFactory : IElasticClientFactory
 {
     // Logger is set by "UseNestClient()" extension

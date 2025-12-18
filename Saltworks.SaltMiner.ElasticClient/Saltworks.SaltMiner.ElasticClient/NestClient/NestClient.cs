@@ -32,6 +32,7 @@ using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.ElasticClient.NestClient;
 
+[Obsolete("Use EsClient instead. NestClient will be removed in a future version.", error: false)]
 public class NestClient(ClientConfiguration configuration, ConnectionSettings connectionSettings, ILogger<IElasticClient> logger) : IElasticClient
 {
     private readonly Nest.ElasticClient ElasticClient = new(connectionSettings);

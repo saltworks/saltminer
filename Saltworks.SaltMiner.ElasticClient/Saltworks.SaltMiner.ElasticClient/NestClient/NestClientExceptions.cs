@@ -14,11 +14,12 @@
 * ----
 */
 
-﻿using System;
+using System;
 
 namespace Saltworks.SaltMiner.ElasticClient.NestClient;
 
 [Serializable]
+[Obsolete("Use EsClientException instead. NestClientException will be removed in a future version.", error: false)]
 public class NestClientException : Exception
 {
     public NestClientException() { }

@@ -17,6 +17,7 @@
 ﻿using Microsoft.Extensions.Logging.Abstractions;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Util;
+using Saltworks.SaltMiner.ElasticClient.EsClient;
 using System.IO;
 using System.Text.Json;
 
@@ -32,9 +33,10 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
 
         public static IElasticClient GetElasticClient(ClientConfiguration config)
         {
-            var f = new NestClientFactory(config);
-            f.Logger = 
-            f.Logger = NullLogger<IElasticClient>.Instance;
+            var f = new EsClientFactory(config)
+            {
+                Logger = NullLogger<IElasticClient>.Instance
+            };
             return f.CreateClient();
         }
 

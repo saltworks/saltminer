@@ -24,6 +24,7 @@ using System.Linq;
 
 namespace Saltworks.SaltMiner.ElasticClient.NestClient;
 
+[Obsolete("Use EsClientResponse instead. NestClientResponse will be removed in a future version.", error: false)]
 public class NestClientResponse : IElasticClientResponse
 {
     public bool IsSuccessful { get; set; }

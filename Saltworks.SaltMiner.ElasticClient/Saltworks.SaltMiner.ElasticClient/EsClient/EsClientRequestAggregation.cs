@@ -1,10 +1,8 @@
-﻿
+﻿using System.Collections.Generic;
 
-using System.Collections.Generic;
+namespace Saltworks.SaltMiner.ElasticClient.EsClient;
 
-namespace Saltworks.SaltMiner.ElasticClient.EsClient
-{
-    public class EsClientRequestAggregation : IElasticClientRequestAggregation
+public class EsClientRequestAggregation : IElasticClientRequestAggregation
     {
         public string Name { get; set; }
         public string BucketField { get; set; }
