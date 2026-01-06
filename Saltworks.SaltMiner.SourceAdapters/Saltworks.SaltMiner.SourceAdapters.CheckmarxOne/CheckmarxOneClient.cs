@@ -81,8 +81,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
         public async Task<List<ResultsOverviewDTO>> GetResultsOverviewAsync(string projectId)
         {
 
-            var result = await ApiClient.GetAsync<List<ResultsOverviewDTO>>($"/results-overview/projects?projectIds={projectId}");
-            
+            var endpoint = $"/results-overview/projects?projectIds={projectId}";
+
+            Logger.LogInformation(endpoint);
+
+            var result = await ApiClient.GetAsync<List<ResultsOverviewDTO>>(endpoint);
+
+            await Task.Delay(1000);
+
             return CheckContent(result);
         }
 
@@ -126,7 +132,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
         
             var result = await ApiClient.GetAsync<ScanResultsDTO>($"/results?scan-id={ScanId}&limit={Limit}&offset={Offset}&sort=-type");
 
-            Logger.LogDebug($"/results?scan-id={ScanId}&limit={Limit}&offset={Offset}&sort=-type");
+            Logger.LogInformation($"/results?scan-id={ScanId}&limit={Limit}&offset={Offset}&sort=-type");
             return CheckContent(result);
         }
 
@@ -148,7 +154,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
         {
             var endpoint = $"/applications?limit={limit}&offset={offset}";
 
-            Logger.LogDebug(endpoint);
+            Logger.LogInformation(endpoint);
 
             var result = await ApiClient.GetAsync<ApplicationsDTO>(endpoint);
             return CheckContent(result);
@@ -156,6 +162,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
 
         public async Task<ApplicationDetailsDTO> GetApplicationDetailsAsync(string ApplicationId)
         {
+
 
             var result = await ApiClient.GetAsync<ApplicationDetailsDTO>($"/applications/{ApplicationId}");
             return CheckContent(result);

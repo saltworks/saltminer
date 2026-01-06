@@ -170,6 +170,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
             //Include: Check for existing Run that did not finish
             var syncRecord = LocalData.CheckSyncRecordSourceForFailure(Config.Instance, Config.SourceType);
 
+            Logger.LogInformation("[Sync] Getting Application information");
             var apps = await GetAllApplicationsAsync(client);
 
 
@@ -451,7 +452,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
             var sourceId = $"{project.ID}";
 
             var tagsString = project.Tags != null
-                ? string.Join(", ", project.Tags.Select(kv => $"{kv.Key ?? ""}:{kv.Value ?? ""}"))
+                ? string.Join("; ", project.Tags.Select(kv => $"{kv.Key ?? ""}:{kv.Value ?? ""}"))
                 : string.Empty;
 
             var appNames = new List<string>();
@@ -615,10 +616,13 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
         {
             return assessmentType switch
             {
-                "sast" => Config.GuiAddress + "sast-results/" + projectId + "/" + scanId + "?resultId=" + resultId,
-                "sca" => Config.GuiAddress + "results/" + projectId + "/" + scanId + "sca?internalPath=%2Fvulnerabilities%2F" + resultId + "%253A" + package + "%2FvulnerabilityDetailsGql",
+                "sast" => Config.GuiAddress + "sast-results/" + projectId + "/" + scanId +
+                          "?resultId=" + Uri.EscapeDataString(resultId) +
+                          "&pagination=pageSize%3D10%3BcurrentPage%3D1",
+                "sca" => Config.GuiAddress + "results/" + projectId + "/" + scanId + "/sca?internalPath=%2Fvulnerabilities%2F" + resultId + "%253A" + package + "%2FvulnerabilityDetailsGql",
                 "kics" => Config.GuiAddress + "results/" + projectId + "/" + scanId + "kics?result-id=" + resultId,
                 "iac" => Config.GuiAddress + "results/" + projectId + "/" + scanId + "kics?result-id=" + resultId,
+                "containers" => Config.GuiAddress + "container-security-results/" + projectId + "/" + scanId + "/",
                 _ => "N/A"
             };
         }
