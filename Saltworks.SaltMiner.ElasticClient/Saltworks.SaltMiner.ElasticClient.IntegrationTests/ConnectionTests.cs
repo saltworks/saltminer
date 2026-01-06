@@ -14,28 +14,26 @@
 * ----
 */
 
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Nest;
 using Saltworks.SaltMiner.Core.Entities;
 using System.Linq;
 
-namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
+namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
+[TestClass]
+public class ConnectionTests
 {
-    [TestClass]
-    public class ConnectionTests
+    [TestMethod]
+    public void SimpleConnection()
     {
-        [TestMethod]
-        public void SimpleConnection()
-        {
-            // Arrange / Act
-            var config = Helpers.SettingsConfig();
-            var uri = new System.Uri($"{config.HttpScheme}://{config.ElasticSearchHost.First()}:{config.Port}");
-            var settings = new ConnectionSettings(uri).BasicAuthentication(config.Username, config.Password);
-            var client = new Nest.ElasticClient(settings);
-            var response = client.Search<QueueIssue>(s => s.Index(QueueIssue.GenerateIndex()).Size(10));
+        // Arrange / Act
+        var config = Helpers.SettingsConfig();
+        var uri = new System.Uri($"{config.HttpScheme}://{config.ElasticSearchHost.First()}:{config.Port}");
+        var settings = new ConnectionSettings(uri).BasicAuthentication(config.Username, config.Password);
+        var client = new Nest.ElasticClient(settings);
+        var response = client.Search<QueueIssue>(s => s.Index(QueueIssue.GenerateIndex()).Size(10));
 
-            // Assert
-            Assert.IsTrue(response.IsValid);
-        }
+        // Assert
+        Assert.IsTrue(response.IsValid);
     }
 }

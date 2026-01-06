@@ -9,6 +9,7 @@ using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Ingest;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Elastic.Clients.Elasticsearch.QueryDsl;
+using Elastic.Clients.Elasticsearch.Security;
 using Elastic.Clients.Elasticsearch.Snapshot;
 using Elastic.Transport;
 using Microsoft.Extensions.Logging;
@@ -22,6 +23,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using static Saltworks.SaltMiner.ElasticClient.EsClient.EsClientRequestAggregation;
 
 namespace Saltworks.SaltMiner.ElasticClient.EsClient
@@ -31,6 +33,10 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
         private readonly ElasticsearchClient ElasticClient;
         private readonly ILogger Logger;
         private readonly ClientConfiguration ClientConfig;
+        private static JsonSerializerOptions JsonCamelCaseOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
 
         public EsClient(ClientConfiguration configuration, ElasticsearchClientSettings connectionSettings, ILogger<IElasticClient> logger)
         {
@@ -209,7 +215,7 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                 }
                 catch (Exception exOuter)
                 {
-                    Logger.LogError(exOuter, "Bulk indexing failure for index {Idx}.", index);
+                    Logger.LogError(exOuter, "Bulk indexing failure for index {Idx}: {Msg}.", index, exOuter.GetBaseException().Message);
                     if (ClientConfig.EnableBulkAddErrorDiagnostics)
                     {
                         Logger.LogInformation("Bulk indexing error encountered and diagnostics enabled, attempting to retry one item at a time...");
@@ -218,7 +224,7 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                         {
                             try
                             {
-                                rsp = ElasticClient.IndexManyAsync(new List<T> { doc }, index).Result;
+                                rsp = ElasticClient.IndexManyAsync([ doc ], index).Result;
                                 Logger.LogInformation("Successful indexing for document {Id}", doc.Id);
                                 if (rsp.Errors)
                                 {
@@ -229,14 +235,12 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                             }
                             catch (Exception exInner)
                             {
-                                if (exInner.InnerException != null)
-                                    Logger.LogError(exInner.InnerException, "Inner exception: {Msg}", exInner.InnerException.Message);
-                                Logger.LogError(exInner, "Fatal: failed to index document {Id} on single item retry: {Error}", doc.Id, exInner.Message);
+                                Logger.LogError(exInner, "Fatal: failed to index document {Id} on single item retry: {Error}", doc.Id, exInner.GetBaseException().Message);
                                 break;
                             }
                         }
                     }
-                    throw;
+                    throw new EsClientException($"Bulk indexing failure for index {index}", exOuter);
                 }
                 Logger.LogDebug("elasticsearch IndexMany call completed successfully.");
 
@@ -389,6 +393,115 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             return EsClientResponse.BuildResponse(isSuccessful, bulkErrors, isSuccessful ? null : "Bulk Errors", countAffected);
         }
 
+        public IElasticClientResponse UpdatePartialBulkWithLocking<T, U>(IEnumerable<DataDto<T>> dtos, string script, U updateObject, string updateObjectName = "update") 
+            where T : SaltMinerEntity 
+            where U : class
+        {
+            var countAffected = 0;
+            var isSuccessful = false;
+            var bulkErrors = new Dictionary<string, string>();
+
+            if (dtos != null && dtos.Any())
+            {
+                Logger?.LogDebug("UpdatePartialBulkWithLocking initiated.");
+
+                // Build bulk request body manually to support if_seq_no and if_primary_term
+                var sb = new StringBuilder();
+                foreach (var dto in dtos)
+                {
+                    // Action line with concurrency controls
+                    var actionLine = new
+                    {
+                        update = new
+                        {
+                            _index = dto.Index,
+                            _id = dto.DataItem.Id,
+                            if_seq_no = dto.SequenceNumber,
+                            if_primary_term = dto.PrimaryTerm
+                        }
+                    };
+                    sb.AppendLine(JsonSerializer.Serialize(actionLine, JsonCamelCaseOptions));
+
+                    // Script line
+                    var scriptParams = new Dictionary<string, object>();
+                    if (updateObject != null)
+                        scriptParams.Add(updateObjectName, updateObject);
+
+                    var scriptLine = new
+                    {
+                        script = new
+                        {
+                            source = script,
+                            @params = scriptParams
+                        }
+                    };
+                    sb.AppendLine(JsonSerializer.Serialize(scriptLine, JsonCamelCaseOptions));
+                }
+
+                Logger.LogDebug("Attempting to update {Count} docs with locking", dtos.Count());
+
+                try
+                {
+                    var bulkResponse = ElasticClient.Transport.RequestAsync<StringResponse>(HttpMethod.POST, "/_bulk", sb.ToString()).Result;
+
+                    if (!string.IsNullOrEmpty(bulkResponse.Body))
+                    {
+                        var jsonDoc = JsonDocument.Parse(bulkResponse.Body);
+                        if (jsonDoc.RootElement.TryGetProperty("errors", out var errorsElement) && errorsElement.GetBoolean())
+                        {
+                            if (ClientConfig.EnableDebugInfoInElasticsearchResponse)
+                            {
+                                var debugInfo = bulkResponse.Body;
+                                if (debugInfo.Length > 1000)
+                                    debugInfo = debugInfo[..1000];
+                                Logger.LogInformation("Debug Info (limited to 1000 chars): {Info}", debugInfo);
+                                bulkErrors.Add("[all]", bulkResponse.Body);
+                            }
+
+                            if (jsonDoc.RootElement.TryGetProperty("items", out var itemsElement))
+                            {
+                                var errCount = 1;
+                                foreach (var item in itemsElement.EnumerateArray())
+                                {
+                                    if (item.TryGetProperty("update", out var updateElement) &&
+                                        updateElement.TryGetProperty("error", out var errorElement))
+                                    {
+                                        if (errCount >= 6)
+                                        {
+                                            Logger.LogWarning("Suppressing further bulk errors for this operation.");
+                                            bulkErrors.Add("multiple", "Further error(s) suppressed.");
+                                            break;
+                                        }
+
+                                        var itemId = updateElement.TryGetProperty("_id", out var idElement) ? idElement.GetString() : "?";
+                                        bulkErrors.Add(itemId, errorElement.ToString());
+                                        Logger.LogDebug("Failed to update document {Id}: {Error}", itemId, errorElement.ToString());
+                                        errCount++;
+                                    }
+                                }
+                                Logger.LogWarning("{Count} error(s) found in bulk response.", bulkErrors.Count);
+                            }
+                        }
+
+                        if (jsonDoc.RootElement.TryGetProperty("items", out var allItemsElement))
+                        {
+                            countAffected = allItemsElement.GetArrayLength() - bulkErrors.Count;
+                        }
+                    }
+
+                    isSuccessful = bulkErrors.Count == 0;
+                    Logger?.LogDebug("UpdatePartialBulkWithLocking completed. Success: {Success}, Affected: {Affected}, Errors: {Errors}", isSuccessful, countAffected, bulkErrors.Count);
+                }
+                catch (Exception exOuter)
+                {
+                    Logger.LogError(exOuter, "Bulk partial update with locking failure.");
+                    throw new EsClientException("Bulk partial update with locking failure", exOuter);
+                }
+            }
+
+            return EsClientResponse.BuildResponse(isSuccessful, bulkErrors, isSuccessful ? null : "Bulk Errors", countAffected);
+        }
+
         public IElasticClientResponse CheckActiveIssueAlias(string indexName)
         {
             Logger?.LogDebug("Check for 'issues_active_*' alias on {IndexName}", indexName);
@@ -517,9 +630,24 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             return EsClientResponse.BuildResponse(response.Acknowledged, "Index created", 0);
         }
 
-        public IElasticClientResponse CreateIngestPipeline(string pipelineName, string pipeline)
+        public IElasticClientResponse CreateIngestPipeline(string pipelineName, string pipeline, bool overwrite)
         {
-            var results = ElasticClient.Transport.RequestAsync<PutPipelineResponse>(HttpMethod.PUT, $"_enrich/policy/{pipelineName}", pipeline).Result;
+            if (!overwrite)
+            {
+                try
+                {
+                    var existing = ElasticClient.Ingest.GetPipelineAsync(new GetPipelineRequest(pipelineName)).Result;
+                    if (existing.IsValidResponse && existing.Pipelines.Count > 0)
+                    {
+                        return EsClientResponse.BuildResponse(false, $"Cannot overwrite pipeline {pipelineName}.", 0);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    throw new EsClientException($"Error checking for existing pipeline {pipelineName}.", ex);
+                }
+            }
+            var results = ElasticClient.Transport.RequestAsync<PutPipelineResponse>(HttpMethod.PUT, $"_ingest/pipeline/{pipelineName}", pipeline).Result;
             string msg;
 
             if (results.IsValidResponse)
@@ -755,42 +883,23 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             return null;
         }
 
-        public IElasticClientResponse RefreshIndex(string indexName)
+        public IElasticClientResponse RefreshIndex(string indexName, int pauseMs = 1000)
         {
-            Thread.Sleep(1000);
+            Thread.Sleep(pauseMs);
             ElasticClient.Indices.RefreshAsync(indexName).Wait();
             return EsClientResponse.BuildResponse(true, "Index refreshed", 0);
         }
 
         public IElasticClientResponse RegisterBackupRepository(string backupRepoName, string backupLocation)
         {
-            if (string.IsNullOrEmpty(backupRepoName))
-            {
-                throw new ArgumentNullException(nameof(backupRepoName));
-            }
-
-            if (string.IsNullOrEmpty(backupLocation))
-            {
-                throw new ArgumentNullException(nameof(backupLocation));
-            }
-
-            var registerRequest = new CreateRepositoryRequest(backupRepoName)
-            {
-                Repository = new FileSystemRepository(
-                    new FileSystemRepositorySettings(backupLocation)
-                    {
-                        Compress = true,
-                    }
-                )
-            };
-
+            ArgumentNullException.ThrowIfNullOrEmpty(backupRepoName);
+            ArgumentNullException.ThrowIfNullOrEmpty(backupLocation);
+            var repo = new SharedFileSystemRepository(new(backupLocation));
+            var registerRequest = new CreateRepositoryRequest(backupRepoName, repo);
             var response = ElasticClient.Snapshot.CreateRepositoryAsync(registerRequest).Result;
 
             if (response.IsValidResponse)
-            {
                 return EsClientResponse.BuildResponse(true, "Backup repo created", 1);
-            }
-
             return EsClientResponse.BuildResponse(false, "Backup repo was not created", 0);
         }
 
@@ -857,11 +966,11 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             return EsClientResponse.BuildResponse(false, "Restore was not created", 0);
         }
 
-        public IElasticClientResponse<T> Search<T>(Core.Data.SearchRequest searchRequest, string index) where T : SaltMinerEntity
+        public IElasticClientResponse<T> Search<T>(string index, Core.Data.SearchRequest searchRequest) where T : SaltMinerEntity
         {
             Logger?.LogDebug("Search initiated.");
             var request = CreateSearchRequest<T>(searchRequest, index);
-            Elastic.Clients.Elasticsearch.SearchResponse<T> response = null;
+            SearchResponse<T> response = null;
             try
             {
                 response = ElasticClient.SearchAsync<T>(request).Result;
@@ -909,47 +1018,41 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             return result.Body;
         }
 
-        public IElasticClientResponse<ElasticClientCompositeAggregate> SearchWithCompositeAgg(IElasticClientRequestAggregation agg, Core.Data.SearchRequest searchRequest, string indexName)
+        public IElasticClientAggregateResponse SearchWithAggregates<T>(IElasticClientRequestAggregation agg, Core.Data.SearchRequest searchRequest, string indexName) where T : SaltMinerEntity
         {
-            Logger?.LogDebug("SearchWithAgg initiated.");
+            Logger?.LogDebug("SearchWithAggregates initiated.");
 
             var index = Indices.Index(indexName);
-            var ta = new TermsAggregation
-            {
-                Field = agg.BucketField.ToSnakeCase(),
-                Size = 5000,
-                Order = searchRequest.SortKeys.ToDictionary(k => Field.FromString(k.Key.ToSnakeCase()), v => v.Value ? SortOrder.Asc : SortOrder.Desc)
-            };
-            ta.
+            Query query = null;
+            if ((searchRequest?.Filter?.FilterMatches?.Count ?? 0) > 0)
+                query = CreateQueryFromRequest(searchRequest.Filter);
+            var sort = searchRequest.SortKeys.Select(x => new SortOptions { 
+                Field = new FieldSort { 
+                    Field = Field.FromString(x.Key.ToSnakeCase()), 
+                    Order = x.Value ? SortOrder.Asc : SortOrder.Desc 
+                }
+            }).ToList() ?? [];
+            
 
-            foreach (var a in agg.Aggregates)
-            {
-                ta.Aggregations.Add(a.Name, GetAggregate(a));
-            }
+            var request = new SearchRequestDescriptor<T>(index);
+            request
+                .Aggregations(a => a
+                    .Add(agg.Name, a1 => {
+                        var descriptor = a1.Terms(t => t
+                            .Field(agg.BucketField.ToSnakeCase())
+                        );
+                        foreach (var a in agg.Aggregates)
+                            descriptor = descriptor.Aggregations(subAggs => subAggs
+                                .Add(a.Name, GetAggregate(a))
+                        );
+                    })
+                )
+                .Query(query)
+                .Sort(sort);
 
-            SearchRequest<ElasticClientCompositeAggregate> request;
+            var response = ElasticClient.SearchAsync<T>(request).Result;
 
-            if (searchRequest?.Filter?.FilterMatches == null || searchRequest.Filter.FilterMatches.Count == 0)
-            {
-                request = new SearchRequest<ElasticClientCompositeAggregate>(index)
-                {
-                    Sort = CreateSort(searchRequest?.PagingInfo?.SortFilters),
-                    Aggregations = new Dictionary<string, Aggregation> { { "SeveritySummary", ta } }
-                };
-            }
-            else
-            {
-                request = new SearchRequest<ElasticClientCompositeAggregate>(index)
-                {
-                    Query = CreateQueryFromRequest(searchRequest.Filter),
-                    Sort = CreateSort(searchRequest?.PagingInfo?.SortFilters),
-                    Aggregations = new Dictionary<string, Aggregation> { { "SeveritySummary", ta } }
-                };
-            }
-
-            var response = ElasticClient.SearchAsync<ElasticClientCompositeAggregate>(request).Result;
-
-            Logger?.LogDebug("SearchWithAgg completed.");
+            Logger?.LogDebug("SearchWithAggregates completed.");
             return EsClientBucketResponse.BuildResponseBucketAgg(true, response.Aggregations);
         }
 
@@ -963,7 +1066,7 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             return UpdateWithLocking(doc, index, null, null);
         }
 
-        public IElasticClientResponse<T> UpdateByQuery<T>(string query, string indexName, string updateScript) where T : SaltMinerEntity
+        public IElasticClientResponse<T> UpdateByQuery<T>(string query, string indexName, string updateScript, bool wait = true, bool refresh = false) where T : SaltMinerEntity
         {
             Logger?.LogDebug("UpdateByQuery initiated.");
 
@@ -974,7 +1077,8 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                     Query = query
                 },
                 Conflicts = Conflicts.Proceed,
-                Refresh = true,
+                Refresh = refresh,
+                WaitForCompletion = wait,
                 Script = new Script
                 {
                     Source = string.IsNullOrEmpty(updateScript) ? string.Empty : updateScript
@@ -988,7 +1092,7 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             return EsClientResponse<T>.BuildResponse(true, response.Total ?? 0);
         }
 
-        public IElasticClientResponse<T> UpdateByQuery<T>(UpdateQueryRequest<T> searchRequest, string indexName) where T : SaltMinerEntity
+        public IElasticClientResponse<T> UpdateByQuery<T>(UpdateQueryRequest<T> searchRequest, string indexName, bool wait = true, bool refresh = false) where T : SaltMinerEntity
         {
 
             Logger?.LogDebug("UpdateByQuery initiated.");
@@ -1009,7 +1113,8 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             {
                 Query = CreateQueryFromRequest(searchRequest.Filter),
                 Conflicts = Conflicts.Proceed,
-                Refresh = true,
+                WaitForCompletion = wait,
+                Refresh = refresh,
                 Script = new Script
                 {
                     Source = sourceString.ToString(),
@@ -1077,18 +1182,18 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             {
                 if (seq != null)
                 {
-                    result = ElasticClient.UpdateAsync<T, object>(ElasticClient.GetAsync<T>(doc.Id).Result.Id, i => i.Index(index).Doc(doc).IfPrimaryTerm(primary).IfSeqNo(seq)).Result;
+                    result = ElasticClient.UpdateAsync<T, object>(index, ElasticClient.GetAsync<T>(doc.Id).Result.Id, i => i.Doc(doc).IfPrimaryTerm(primary).IfSeqNo(seq)).Result;
                 }
                 else
                 {
-                    result = ElasticClient.UpdateAsync<T, object>(ElasticClient.GetAsync<T>(doc.Id).Result.Id, i => i.Index(index).Doc(doc)).Result;
+                    result = ElasticClient.UpdateAsync<T, object>(index, ElasticClient.GetAsync<T>(doc.Id).Result.Id, i => i.Doc(doc)).Result;
                 }
 
                 return EsClientResponse<T>.BuildResponse(doc, result);
             }
             catch (Exception ex)
             {
-                Logger?.LogError($"UpdateWithLocking Error:{ex.Message}", ex);
+                Logger?.LogError(ex, "UpdateWithLocking Error:{Msg}", ex.GetBaseException().Message);
                 return EsClientResponse<T>.BuildResponse(false, ex.Message);
             }
         }
@@ -1107,6 +1212,100 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                 msg = $"Role {roleName} updated";
             }
             return EsClientResponse.BuildResponse(true, msg, 0);
+        }
+
+        public IElasticClientResponse RoleExists(string roleName)
+        {
+            Logger?.LogDebug("Check for role {RoleName}", roleName);
+            
+            try
+            {
+                var result = ElasticClient.Security.GetRoleAsync(new GetRoleRequest(roleName)).Result;
+                return EsClientResponse.BuildResponse(result.IsSuccess(), "", 1);
+            }
+            catch(Exception ex)
+            {
+                throw new EsClientException($"Error checking for role {roleName}", ex);
+            }
+        }
+
+        public IElasticClientResponse DeleteRole(string roleName)
+        {
+            Logger?.LogDebug("Delete role {RoleName}", roleName);
+            
+            try
+            {
+                _ = ElasticClient.Transport.RequestAsync<StringResponse>(HttpMethod.DELETE, $"/_security/role/{roleName}").Result;
+                return EsClientResponse.BuildResponse(true, "", 1);
+            }
+            catch
+            {
+                return EsClientResponse.BuildResponse(false, "", 0);
+            }
+        }
+
+        public IElasticClientResponse GetClusterLicenseLevel()
+        {
+            Logger?.LogDebug("Get cluster license level");
+            
+            try
+            {
+                var result = ElasticClient.Transport.RequestAsync<StringResponse>(HttpMethod.GET, $"/_license").Result;
+                
+                if (!string.IsNullOrEmpty(result.Body))
+                {
+                    // Parse the license type from the response
+                    var jsonDoc = JsonDocument.Parse(result.Body);
+                    if (jsonDoc.RootElement.TryGetProperty("license", out var licenseElement) &&
+                        licenseElement.TryGetProperty("type", out var typeElement))
+                    {
+                        return EsClientResponse.BuildResponse(true, typeElement.GetString(), 0);
+                    }
+                }
+                
+                Logger.LogError("Failed to get Elasticsearch license");
+                return EsClientResponse.BuildResponse(false, "standard", 0);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to get Elasticsearch license, assuming standard. Error: {Msg}", ex.Message);
+                return EsClientResponse.BuildResponse(false, "standard", 0);
+            }
+        }
+
+        public async Task<IElasticClientResponse> GetClusterTaskCountAsync()
+        {
+            Logger?.LogDebug("Get cluster task count");
+            
+            try
+            {
+                var result = await ElasticClient.Transport.RequestAsync<StringResponse>(HttpMethod.GET, $"/_tasks");
+                
+                if (!string.IsNullOrEmpty(result.Body))
+                {
+                    var jsonDoc = JsonDocument.Parse(result.Body);
+                    if (jsonDoc.RootElement.TryGetProperty("nodes", out var nodesElement))
+                    {
+                        var count = 0;
+                        foreach (var node in nodesElement.EnumerateObject())
+                        {
+                            if (node.Value.TryGetProperty("tasks", out var tasksElement))
+                            {
+                                count += tasksElement.EnumerateObject().Count();
+                            }
+                        }
+                        return EsClientResponse.BuildResponse(true, "", count);
+                    }
+                }
+                
+                Logger.LogWarning("Task count call failure");
+                return EsClientResponse.BuildResponse(false, "Task count call failure, see log.", 0);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to get cluster task count: {Msg}", ex.Message);
+                return EsClientResponse.BuildResponse(false, "Task count call failure, see log.", 0);
+            }
         }
 
         public enum ClusterSettingType { Any, Persistent, Transient }
@@ -1133,75 +1332,65 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             return (T)result;
         }
 
-        private Properties CreateMappingProperties(string mapping)
+        private static Properties CreateMappingProperties(string mapping)
         {
             var properties = new Properties();
-
-            var options = new JsonSerializerOptions
+            var mappingDict = JsonSerializer.Deserialize<Dictionary<string, object>>(mapping, JsonCamelCaseOptions);
+            if (mappingDict != null && mappingDict.TryGetValue("properties", out var props) &&
+                props is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.Object)
             {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            };
-
-            var mappingDict = JsonSerializer.Deserialize<Dictionary<string, object>>(mapping, options);
-
-            if (mappingDict != null && mappingDict.TryGetValue("properties", out var props))
-            {
-                if (props is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.Object)
+                foreach (var prop in jsonElement.EnumerateObject())
                 {
-                    foreach (var prop in jsonElement.EnumerateObject())
+                    var propName = prop.Name;
+                    var propValue = prop.Value;
+
+                    if (propValue.TryGetProperty("type", out var typeProp))
                     {
-                        var propName = prop.Name;
-                        var propValue = prop.Value;
+                        var type = typeProp.GetString();
 
-                        if (propValue.TryGetProperty("type", out var typeProp))
+                        switch (type)
                         {
-                            var type = typeProp.GetString();
+                            case "text":
+                                properties.Add(propName, new TextProperty
+                                {
+                                    Analyzer = propValue.GetProperty("analyzer").GetString()
+                                });
+                                break;
 
-                            switch (type)
-                            {
-                                case "text":
-                                    properties.Add(propName, new TextProperty
-                                    {
-                                        Analyzer = propValue.GetProperty("analyzer").GetString()
-                                    });
-                                    break;
+                            case "integer":
+                                properties.Add(propName, new IntegerNumberProperty());
+                                break;
 
-                                case "integer":
-                                    properties.Add(propName, new IntegerNumberProperty());
-                                    break;
+                            case "long":
+                                properties.Add(propName, new LongNumberProperty());
+                                break;
 
-                                case "long":
-                                    properties.Add(propName, new LongNumberProperty());
-                                    break;
+                            case "float":
+                                properties.Add(propName, new FloatNumberProperty());
+                                break;
 
-                                case "float":
-                                    properties.Add(propName, new FloatNumberProperty());
-                                    break;
+                            case "double":
+                                properties.Add(propName, new DoubleNumberProperty());
+                                break;
 
-                                case "double":
-                                    properties.Add(propName, new DoubleNumberProperty());
-                                    break;
+                            case "keyword":
+                                properties.Add(propName, new KeywordProperty());
+                                break;
 
-                                case "keyword":
-                                    properties.Add(propName, new KeywordProperty());
-                                    break;
+                            case "boolean":
+                                properties.Add(propName, new BooleanProperty());
+                                break;
 
-                                case "boolean":
-                                    properties.Add(propName, new BooleanProperty());
-                                    break;
-
-                                case "date":
-                                    properties.Add(propName, new DateProperty
-                                    {
-                                        Format = propValue.GetProperty("format").GetString()
-                                    });
-                                    break;
-                            }
+                            case "date":
+                                properties.Add(propName, new DateProperty
+                                {
+                                    Format = propValue.GetProperty("format").GetString()
+                                });
+                                break;
                         }
                     }
                 }
             }
-
             return properties;
         }
 
@@ -1223,13 +1412,13 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             return queryRequest;
         }
 
-        private static BoolQuery CreateBoolQueryFromSubFilter(Core.Data.Filter filter)
+        private static BoolQuery CreateBoolQueryFromSubFilter(Filter filter)
         {
             var queries = BuildListQueryContainer(filter);
             return filter.AnyMatch ? new BoolQuery() { Should = queries } : new BoolQuery() { Must = queries };
         }
 
-        public static List<Query> BuildListQueryContainer(Core.Data.Filter filter)
+        public static List<Query> BuildListQueryContainer(Filter filter)
         {
             var queries = new List<Query>();
 
@@ -1237,7 +1426,7 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             {
                 if (kvp.Value.Contains("||"))
                 {
-                    if (kvp.Value.Contains(">") || kvp.Value.Contains("<"))
+                    if (kvp.Value.Contains('>') || kvp.Value.Contains('<'))
                     {
                         var query = new TermRangeQuery(kvp.Key.ToSnakeCase())
                         {
@@ -1269,7 +1458,7 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                     }
                     else
                     {
-                        if (kvp.Value.Contains("-"))
+                        if (kvp.Value.Contains('-'))
                         {
                             var dates = kvp.Value.Split("||");
                             queries.Add(new DateRangeQuery(kvp.Key.ToSnakeCase())
@@ -1288,7 +1477,7 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                             queries.Add(new TermsQuery
                             {
                                 Field = kvp.Key.ToSnakeCase(),
-                                Term = new TermsQueryField(terms)
+                                Terms = new TermsQueryField(terms)
                             });
                         }
                         else if (kvp.Value.Contains("||~"))
@@ -1300,7 +1489,7 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                             var termQuery = new TermsQuery
                             {
                                 Field = kvp.Key.ToSnakeCase(),
-                                Term = new TermsQueryField(terms)
+                                Terms = new TermsQueryField(terms)
                             };
                             var boolquery = new BoolQuery
                             {
@@ -1327,17 +1516,12 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                             // to get results for that value as one search token
                             if (Regex.IsMatch(value, pattern) && !string.IsNullOrEmpty(kvp.Key?.Trim()))
                             {
-                                var matchQuery = new MatchPhraseQuery(kvp.Key.ToSnakeCase())
-                                {
-                                    Query = value
-                                };
+                                var matchQuery = new MatchPhraseQuery(kvp.Key.ToSnakeCase(), value);
                                 if (!string.IsNullOrEmpty(kvp.Key?.Trim()))
                                 {
                                     matchQuery.Field = kvp.Key.ToSnakeCase();
                                 }
-
-                                var query = Query.MatchPhrase(matchQuery);
-                                queries.Add(query);
+                                queries.Add(matchQuery);
                             }
                             else
                             {
@@ -1354,7 +1538,7 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                             }
                         }
                     }
-                    else if (kvp.Value.Contains("*"))
+                    else if (kvp.Value.Contains('*'))
                     {
                         queries.Add(new WildcardQuery(kvp.Key.ToSnakeCase())
                         {
@@ -1368,32 +1552,31 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                         {
                             Must =
                             {
-                                    new ExistsQuery
-                                    {
-                                        Field = kvp.Key.ToSnakeCase()
-                                    }
+                                new ExistsQuery
+                                {
+                                    Field = kvp.Key.ToSnakeCase()
+                                }
                             }
                         });
                     }
-                    else if (kvp.Value.Contains("!"))
+                    else if (kvp.Value.Contains('!'))
                     {
                         queries.Add(new BoolQuery
                         {
                             MustNot =
                             [
-                                    new ExistsQuery
-                                    {
-                                        Field = kvp.Key.ToSnakeCase()
-                                    }
+                                new ExistsQuery
+                                {
+                                    Field = kvp.Key.ToSnakeCase()
+                                }
                             ]
                         });
                     }
                     else
                     {
-                        queries.Add(new TermQuery(kvp.Key.ToSnakeCase())
+                        queries.Add(new TermQuery(kvp.Key.ToSnakeCase(), kvp.Value)
                         {
-                            Field = kvp.Key.ToSnakeCase(),
-                            Value = kvp.Value
+                            Field = kvp.Key.ToSnakeCase()
                         });
                     }
                 }
@@ -1405,70 +1588,39 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
 
         private SearchRequest<T> CreateSearchRequest<T>(Core.Data.SearchRequest searchRequest, string indexName)
         {
-            SearchRequest<T> queryRequest = null;
-
             var index = Indices.Index(indexName);
-            queryRequest ??= new SearchRequest<T>(index);
+            var queryRequest = new SearchRequest<T>(index);
 
-            if (searchRequest.UIPagingInfo != null)
+            searchRequest.PagingInfo ??= new();
+            if (searchRequest.PagingInfo.Size < 1)
+                searchRequest.PagingInfo.Size = ClientConfig.DefaultPageSize;
+            queryRequest.Size = searchRequest.PagingInfo.Size;
+
+            if (searchRequest.PagingInfo.EnablePit)
             {
-                if (searchRequest.UIPagingInfo.Size < 1)
+                var pit = searchRequest.PagingInfo.PitPagingToken;
+                if (string.IsNullOrEmpty(pit))
                 {
-                    searchRequest.UIPagingInfo.Size = ClientConfig.DefaultPageSize;
+                    pit = ElasticClient.OpenPointInTimeAsync(index, s => s.KeepAlive(ClientConfig.DefaultPagingTimeout)).Result.Id;
                 }
 
-                queryRequest.Size = searchRequest.UIPagingInfo.Size;
-
-                if (searchRequest.UIPagingInfo.SortFilters == null || !searchRequest.UIPagingInfo.SortFilters.Any())
+                if (!string.IsNullOrEmpty(pit))
                 {
-                    searchRequest.UIPagingInfo.SortFilters = new() { { "id", true } };
+                    Logger.LogDebug("Point in time included on search of index '{Index}'", indexName);
+                    var pitReference = new PointInTimeReference { Id = pit };
+                    queryRequest.Pit = pitReference;
                 }
-
-                queryRequest.Sort = CreateSort(searchRequest.UIPagingInfo.SortFilters);
-            }
-            else
-            {
-                if (searchRequest.PitPagingInfo == null)
-                {
-                    searchRequest.PitPagingInfo = new();
-                }
-
-                if ((searchRequest?.PitPagingInfo?.Size ?? -1) < 1)
-                {
-                    searchRequest.PitPagingInfo.Size = ClientConfig.DefaultPageSize;
-                }
-
-                if (searchRequest.PitPagingInfo.Enabled)
-                {
-                    var pit = searchRequest.PitPagingInfo?.PagingToken;
-                    if (string.IsNullOrEmpty(pit))
-                    {
-                        pit = ElasticClient.OpenPointInTimeAsync(index, s => s.KeepAlive(ClientConfig.DefaultPagingTimeout)).Result.Id;
-                    }
-
-                    if (!string.IsNullOrEmpty(pit))
-                    {
-                        Logger.LogDebug("Point in time included on search of index '{Index}'", indexName);
-                        var pitReference = new PointInTimeReference { Id = pit };
-                        queryRequest = new SearchRequest<T> { Pit = pitReference };
-                    }
-                }
-
-                queryRequest.Size = searchRequest.PitPagingInfo.Size;
-
-                if (searchRequest.PitPagingInfo.SortFilters == null || !searchRequest.PitPagingInfo.SortFilters.Any())
-                {
-                    searchRequest.PitPagingInfo.SortFilters = new() { { "id", true } };
-                }
-
-                queryRequest.Sort = CreateSort(searchRequest.PitPagingInfo.SortFilters);
             }
 
-            if (searchRequest.AfterKeys != null)
+            if ((searchRequest.SortKeys ?? []).Count.Equals(0))
+                searchRequest.SortKeys = new() { { "id", true } };
+            queryRequest.Sort = CreateSort(searchRequest.SortKeys);
+
+            if (searchRequest.PagingInfo.CurrentAfterKeys != null)
             {
                 Logger.LogDebug("Paging after keys included on search of index '{Index}'", indexName);
                 
-                queryRequest.SearchAfter = ScrubPagingAfterKeys(searchRequest.AfterKeys);
+                queryRequest.SearchAfter = ScrubPagingAfterKeys(searchRequest.PagingInfo.CurrentAfterKeys);
                 queryRequest.From = 0;
             }
 
@@ -1485,49 +1637,29 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             return queryRequest;
         }
 
-        private static IList<FieldValue> ScrubPagingAfterKeys(IList<object> keys)
+        private static List<FieldValue> ScrubPagingAfterKeys(IList<object> keys)
         {
-            var result = new List<FieldValue>();
-
+            List<FieldValue> result = [];
             foreach (var key in keys)
             {
-                if (key is JsonElement element)
-                {
-                    var temp = CastKey(element);
-                    if (temp is string strValue)
-                    {
-                        result.Add(FieldValue.String(strValue));
-                    }
-                    else if (temp is double doubleValue)
-                    {
-                        result.Add(FieldValue.Double(doubleValue));
-                    }
-                    else if (temp is true)
-                    {
-                        result.Add(FieldValue.True);
-                    }
-                    else if (temp is false)
-                    {
-                        result.Add(FieldValue.False);
-                    }
-                }
-                else if (key is string strValue)
+                var cur = key is JsonElement je ? CastKey(je) : key;
+                if (cur is string strValue)
                 {
                     result.Add(FieldValue.String(strValue));
                 }
-                else if (key is int intValue)
+                else if (cur is int intValue)
                 {
                     result.Add(FieldValue.Long(intValue));
                 }
-                else if (key is long longValue)
+                else if (cur is long longValue)
                 {
                     result.Add(FieldValue.Long(longValue));
                 }
-                else if (key is double doubleValue)
+                else if (cur is double doubleValue)
                 {
                     result.Add(FieldValue.Double(doubleValue));
                 }
-                else if (key is FieldValue fieldValue)
+                else if (cur is FieldValue fieldValue)
                 {
                     result.Add(fieldValue);
                 }
@@ -1536,7 +1668,6 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                     throw new InvalidCastException($"Unable to convert object of type '{key.GetType()}' to FieldValue.");
                 }
             }
-
             return result;
         }
 
@@ -1562,10 +1693,13 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             {
                 foreach (var kvp in sortParams)
                 {
-                    sort.Add(SortOptions.Field(new Field(kvp.Key.ToSnakeCase()), new FieldSort
-                    {
-                        Order = kvp.Value ? SortOrder.Asc : SortOrder.Desc
-                    }));
+                    sort.Add(new() {
+                        Field = new()
+                        {
+                            Field = Field.FromString(kvp.Key.ToSnakeCase()),
+                            Order = kvp.Value ? SortOrder.Asc : SortOrder.Desc
+                        }
+                    });
                 }
             }
 

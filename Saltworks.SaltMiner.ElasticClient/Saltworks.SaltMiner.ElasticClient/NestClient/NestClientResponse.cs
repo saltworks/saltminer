@@ -49,6 +49,21 @@ public class NestClientResponse : IElasticClientResponse
     };
 }
 
+[Obsolete("Use EsClientAggregateResponse instead. NestClientAggregateResponse will be removed in a future version.", error: false)]
+public class NestClientAggregateResponse : NestClientResponse, IElasticClientAggregateResponse
+{
+    // Note: NEST uses Nest.AggregateDictionary but IElasticClientAggregateResponse expects Elastic.Clients.Elasticsearch.Aggregations.AggregateDictionary
+    // Since this is obsolete and only for backwards compatibility, we throw NotImplementedException
+    public Elastic.Clients.Elasticsearch.Aggregations.AggregateDictionary Aggregations 
+    { 
+        get => throw new NotImplementedException("NestClient does not support the new AggregateDictionary type. Use EsClient instead.");
+        set => throw new NotImplementedException("NestClient does not support the new AggregateDictionary type. Use EsClient instead.");
+    }
+    
+    // Store the actual NEST aggregations for internal use
+    internal Nest.AggregateDictionary NestAggregations { get; set; }
+}
+
 public class NestClientBucketResponse : NestClientResponse, IElasticClientResponse<ElasticClientCompositeAggregate>
 {
     public PitPagingInfo PitPagingInfo { get; set; } = new PitPagingInfo();
@@ -105,32 +120,14 @@ public class NestClientResponse<T> : NestClientResponse, IElasticClientResponse<
     {
     }
 
-    internal static IElasticClientResponse<ElasticClientCompositeAggregate> BuildResponseBucketAgg(bool isSuccessful, AggregateDictionary aggs)
+    [Obsolete("This method probably doesn't work now. Use EsClient instead of Nest.")]
+    internal static IElasticClientAggregateResponse BuildResponseBucketAgg(bool isSuccessful, AggregateDictionary aggs)
     {
-        // At least NEST's aggregate result structure is easy to understand, right? RIGHT?!
-        // The following is based on experimentation because there seems to be no documentation on aggregate results
-        // Currently we only support one bucket aggregate using this method - more structure would be needed to support multiples
-        // This is at least partially written to support multiples, but has not yet been tested for that use case
-        var results = new List<ElasticClientCompositeAggregate>();
-        foreach (var a in aggs)
-        {
-            // Assumes bucket aggregates - this won't go well otherwise
-            foreach (var i in (a.Value as BucketAggregate)?.Items)
-            {
-                var bagg = i as KeyedBucket<object>;
-                var result = new ElasticClientCompositeAggregate { BucketKey = bagg?.Key.ToString(), DocCount = bagg?.DocCount ?? 0};
-                
-                foreach (var v in bagg)
-                {
-                    result.Aggregates.Add(v.Key, (v.Value as ValueAggregate)?.Value);
-                }
-                results.Add(result);
-            }
-        }
-        return new NestClientResponse<ElasticClientCompositeAggregate>
+        // NEST aggregates returned as AggregateDictionary
+        return new NestClientAggregateResponse
         {
             IsSuccessful = isSuccessful,
-            Results = results.Select(r => NestClientResult<ElasticClientCompositeAggregate>.From(r))
+            NestAggregations = aggs
         };
     }
 

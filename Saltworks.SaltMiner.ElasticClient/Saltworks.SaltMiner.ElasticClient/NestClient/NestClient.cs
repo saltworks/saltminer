@@ -786,7 +786,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return new NestClientRequestAggregation(name, bucketField.ToSnakeCase(), aggregates);
     }
 
-    public IElasticClientResponse<ElasticClientCompositeAggregate> SearchWithCompositeAgg(IElasticClientRequestAggregation agg, Core.Data.SearchRequest searchRequest, string indexName)
+    public IElasticClientAggregateResponse SearchWithAggregates<T>(IElasticClientRequestAggregation agg, Core.Data.SearchRequest searchRequest, string indexName) where T : SaltMinerEntity
     {
         Logger?.LogDebug("SearchWithAgg initiated.");
 
@@ -1028,7 +1028,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return response;
     }
 
-    public IElasticClientResponse<T> UpdateByQuery<T>(string query, string indexName, string updateScript, bool wait=true) where T : SaltMinerEntity
+    public IElasticClientResponse<T> UpdateByQuery<T>(string query, string indexName, string updateScript, bool wait=true, bool refresh=false) where T : SaltMinerEntity
     {
         Logger?.LogDebug("UpdateByQuery initiated.");
 
@@ -1038,11 +1038,11 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
 
             if (string.IsNullOrEmpty(updateScript))
             {
-                r = s.Query(q => q.QueryString(qs => qs.Query(query))).Index(indexName).Conflicts(Conflicts.Proceed).WaitForCompletion(wait).Script(updateScript);
+                r = s.Query(q => q.QueryString(qs => qs.Query(query))).Index(indexName).Conflicts(Conflicts.Proceed).WaitForCompletion(wait).Refresh(refresh).Script(updateScript);
             }
             else
             {
-                r = s.Query(q => q.QueryString(qs => qs.Query(query))).Index(indexName).Conflicts(Conflicts.Proceed).WaitForCompletion(wait);
+                r = s.Query(q => q.QueryString(qs => qs.Query(query))).Index(indexName).Conflicts(Conflicts.Proceed).WaitForCompletion(wait).Refresh(refresh);
             }
 
             return r;
@@ -1055,7 +1055,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return NestClientResponse<T>.BuildResponse(true, response.Total);
     }
 
-    public IElasticClientResponse<T> UpdateByQuery<T>(UpdateQueryRequest<T> searchRequest, string indexName, bool wait=true) where T : SaltMinerEntity
+    public IElasticClientResponse<T> UpdateByQuery<T>(UpdateQueryRequest<T> searchRequest, string indexName, bool wait=true, bool refresh=false) where T : SaltMinerEntity
     {
         Logger?.LogDebug("UpdateByQuery initiated.");
 
@@ -1077,6 +1077,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
                 .Index(indexName)
                 .Conflicts(Conflicts.Proceed)
                 .WaitForCompletion(wait)
+                .Refresh(refresh)
                 .Script(s => s.Source(sourceString.ToString())
                 .Params(p =>
                 {

@@ -14,7 +14,8 @@
 * ----
 */
 
-﻿using Saltworks.SaltMiner.Core.Data;
+using Elastic.Clients.Elasticsearch.Aggregations;
+using Saltworks.SaltMiner.Core.Data;
 using System;
 using System.Collections.Generic;
 
@@ -44,6 +45,14 @@ namespace Saltworks.SaltMiner.ElasticClient
         public int HttpStatus { get; set; }
     }
 
+    public interface IElasticClientAggregateResponse : IElasticClientResponse
+    {
+        /// <summary>
+        /// Aggregation results go here.
+        /// </summary>
+        public AggregateDictionary Aggregations { get; set; }
+    }
+
     public interface IElasticClientResponse<T> : IElasticClientResponse where T: class
     {
         /// <summary>
@@ -54,15 +63,6 @@ namespace Saltworks.SaltMiner.ElasticClient
         /// Single result document goes here, not as a loner in the Results field.
         /// </summary>
         public IElasticClientDto<T> Result { get; set; }
-        /// <summary>
-        /// Single result document goes here, not as a loner in the Results field.
-        /// </summary>
-        [Obsolete("Use PagingInfo *AfterKeys properties instead.")]
-        public IList<object> AfterKeys { get; set; }
-        /// <summary>
-        /// For multiple result queries, key information needed to return the next (or first) set of results
-        /// </summary>
-        public PitPagingInfo PitPagingInfo { get; set; }
         /// <summary>
         /// For multiple result queries, key information needed to return the next (or first) set of results
         /// </summary>

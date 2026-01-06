@@ -11,55 +11,54 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient;
 /// EsClient factory class
 /// </summary>
 public class EsClientFactory : IElasticClientFactory
+{
+    // Logger is set by "UseEsClient()" extension
+    public ILogger<IElasticClient> Logger { get; set; } = null;
+    public ClientConfiguration Configuration { get; private set; } = null;
+    private ElasticsearchClientSettings ConnectionSettings { get; set; }
+
+    public EsClientFactory(ClientConfiguration configuration)
     {
-        // Logger is set by "UseEsClient()" extension
-        public ILogger<IElasticClient> Logger { get; set; } = null;
-        public ClientConfiguration Configuration { get; private set; } = null;
-        private ElasticsearchClientSettings ConnectionSettings { get; set; }
+        Configuration = configuration;
+        ConfigureConnection();
+    }
 
-        public EsClientFactory(ClientConfiguration configuration)
+    private void ConfigureConnection()
+    {
+        var uris = BuildUris();
+
+        var nodePool = new StaticNodePool(uris);
+        var settings = new ElasticsearchClientSettings(nodePool)
+            .Authentication(new BasicAuthentication(Configuration.Username, Configuration.Password));
+
+        if (Configuration.EnableDebugInfoInElasticsearchResponse)
         {
-            Configuration = configuration;
-            ConfigureConnection();
+            settings.EnableDebugMode();
+        }
+        if (!Configuration.VerifySsl)
+        {
+            settings.ServerCertificateValidationCallback((o, cert, chain, errors) => true)
+                .ServerCertificateValidationCallback(CertificateValidations.AllowAll);
         }
 
-        private void ConfigureConnection()
+        ConnectionSettings = settings;
+    }
+
+    private List<Uri> BuildUris()
+    {
+        var uri = new List<Uri>();
+        foreach (var address in Configuration.ElasticSearchHost)
         {
-            var uris = BuildUris();
-
-            var nodePool = new StaticNodePool(uris);
-            var settings = new ElasticsearchClientSettings(nodePool)
-                .Authentication(new BasicAuthentication(Configuration.Username, Configuration.Password));
-
-            if (Configuration.EnableDebugInfoInResponse)
-            {
-                settings.EnableDebugMode();
-            }
-            if (!Configuration.VerifySsl)
-            {
-                settings.ServerCertificateValidationCallback((o, cert, chain, errors) => true)
-                    .ServerCertificateValidationCallback(CertificateValidations.AllowAll);
-            }
-
-            ConnectionSettings = settings;
+            uri.Add(new Uri($"{Configuration.HttpScheme}://{address}:{Configuration.Port}"));
         }
+        return uri;
+    }
 
-        private List<Uri> BuildUris()
-        {
-            var uri = new List<Uri>();
-            foreach (var address in Configuration.ElasticSearchHost)
-            {
-                uri.Add(new Uri($"{Configuration.HttpScheme}://{address}:{Configuration.Port}"));
-            }
-            return uri;
-        }
-
-        /// <summary>
-        /// Creates an EsClient from DI configuration
-        /// </summary>
-        public IElasticClient CreateClient()
-        {
-            return new EsClient(Configuration, ConnectionSettings, Logger);
-        }
+    /// <summary>
+    /// Creates an EsClient from DI configuration
+    /// </summary>
+    public IElasticClient CreateClient()
+    {
+        return new EsClient(Configuration, ConnectionSettings, Logger);
     }
 }
