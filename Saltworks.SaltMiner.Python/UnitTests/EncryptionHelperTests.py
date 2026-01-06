@@ -5,7 +5,7 @@
 * Use of this software is governed by the Business Source License included
 * in the LICENSE file.
 *
-* Change Date: 2029-10-28
+* Change Date: 2029-12-09
 *
 * On the date above, in accordance with the Business Source License, use
 * of this software will be governed by version 2 or later of the General
@@ -14,34 +14,39 @@
 * ----
 '''
 
-import sys
 import os
+import unittest
 
 from Core.EncryptionHelper import EncryptionHelper
 
 module = os.path.splitext(os.path.basename(__file__))[0]
 
-def MainTests():
-    # Arrange
-    eh = EncryptionHelper()
 
-    # Act
-    s1 = "Hi there, how's it going?"
-    s4 = "Wp9VM4!@$%^&*()_=+-5#"
-    s2 = eh.Encrypt(s1)
-    s3 = eh.Decrypt(s2)
-    s5 = eh.Encrypt(s4)
-    s6 = eh.Decrypt(s5)
+class EncryptionHelperTests(unittest.TestCase):
+    """Unit tests for EncryptionHelper functionality."""
 
-    # Assert
-    try:
-        assert s2.startswith("e$Fernet$"), "Encrypted value should start with 'e$Fernet$'"
-        assert s3 == s1, "Encrypted value doesn't match original"
-        assert s4 == s6, "Encrypted value with special chars doesn't match original"
-        
-        fn = sys._getframe().f_code.co_name
-        print(f"[TEST SUCCESS] {module}:{fn}")
-    except AssertionError as e:
-        print(f"[TEST FAILURE] {module}:{fn}: {e}")
+    def setUp(self):
+        """[UnitTest] Set up test fixtures before each test method."""
+        self.eh = EncryptionHelper()
 
-MainTests()
+    def test_main(self):
+        """Test encryption and decryption functionality."""
+        # Arrange
+        s1 = "Hi there, how's it going?"
+        s4 = "Wp9VM4!@$%^&*()_=+-5#"
+
+        # Act
+        s2 = self.eh.Encrypt(s1)
+        s3 = self.eh.Decrypt(s2)
+        s5 = self.eh.Encrypt(s4)
+        s6 = self.eh.Decrypt(s5)
+
+        # Assert
+        self.assertTrue(s2.startswith("e$Fernet$"), "Encrypted value should start with 'e$Fernet$'")
+        self.assertEqual(s3, s1, "Encrypted value doesn't match original")
+        self.assertEqual(s4, s6, "Encrypted value with special chars doesn't match original")
+        print(f"[TEST SUCCESS] {module}:test_main")
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -5,7 +5,7 @@
 * Use of this software is governed by the Business Source License included
 * in the LICENSE file.
 *
-* Change Date: 2029-10-28
+* Change Date: 2029-12-09
 *
 * On the date above, in accordance with the Business Source License, use
 * of this software will be governed by version 2 or later of the General
@@ -14,77 +14,76 @@
 * ----
 '''
 
-import sys
 import os
-import time
 import logging
+import unittest
 
 from Core.Application import Application
 from Core.FodClient import FodClient
 
 module = os.path.splitext(os.path.basename(__file__))[0]
-app = Application(skipCleanFiles=True)
-sourceName = "FOD1"
 
-def ConnectionTest():
-    fn = sys._getframe().f_code.co_name
-    s = app.Settings
-    x,y = FodClient.TestConnection(s, sourceName)
-    if not x:
-        logging.info(f"[TEST FAILURE] {module}:{fn}")
-    else:
-        logging.info(f"[TEST SUCCESS] {module}:{fn}")
 
-def GetPagedTest():
-    # Arrange
-    fn = sys._getframe().f_code.co_name
-    fod = FodClient(app.Settings, sourceName)
-    limit = 102
-    # Act/Assert
-    try:
-        r = fod.GetReleases(limit)
+class FodClientTests(unittest.TestCase):
+    """Unit tests for FodClient functionality."""
+
+    @classmethod
+    def setUpClass(cls):
+        """[UnitTest] Set up test fixtures before running tests in this class."""
+        cls.app = Application(skipCleanFiles=True)
+        cls.source_name = "FOD1"
+
+    def setUp(self):
+        """[UnitTest] Set up test fixtures before each test method."""
+        self.fod = FodClient(self.app.Settings, self.source_name)
+
+    def test_connection(self):
+        """Test FOD connection."""
+        x, y = FodClient.TestConnection(self.app.Settings, self.source_name)
+        self.assertTrue(x, f"Connection test failed: {y}")
+        logging.info(f"[TEST SUCCESS] {module}:test_connection")
+
+    def test_get_paged(self):
+        """Test paged retrieval of releases."""
+        # Arrange
+        limit = 102
+
+        # Act/Assert
+        r = self.fod.GetReleases(limit)
         total = r.Content['totalCount']
         if total >= limit:
             total = limit
-        assert len(r.Content['items']) == total, f"Should be returning {total} items."
-        # Report
-        logging.info(f"[TEST SUCCESS] {module}:{fn}")
-    except AssertionError as e:
-        logging.info(f"[TEST FAILURE] {module}:{fn}: {e}")
+        self.assertEqual(len(r.Content['items']), total, f"Should be returning {total} items.")
+        logging.info(f"[TEST SUCCESS] {module}:test_get_paged")
 
-def ScrollTest():
-    # Arrange
-    fn = sys._getframe().f_code.co_name
-    fod = FodClient(app.Settings, sourceName)
-    lst = []
-    # Act/Assert
-    try:
-        r = fod.GetReleases(scroller=True)
+    def test_scroll(self):
+        """Test scroll functionality for releases."""
+        # Arrange
+        lst = []
+
+        # Act/Assert
+        r = self.fod.GetReleases(scroller=True)
         r.GetAll()
         total = r.TotalHits
-        assert total and total > 0, "TotalHits should be > 0 from GetAll"
-        assert len(r.Results) == total, f"Should be returning {total} items from GetAll."
+        self.assertTrue(total and total > 0, "TotalHits should be > 0 from GetAll")
+        self.assertEqual(len(r.Results), total, f"Should be returning {total} items from GetAll.")
 
-        r = fod.GetReleases(scroller=True)
+        r = self.fod.GetReleases(scroller=True)
         total = 57
         r.GetAll(total)
-        assert len(r.Results) == total, f"Should be returning {total} items from GetAll(limit)."
+        self.assertEqual(len(r.Results), total, f"Should be returning {total} items from GetAll(limit).")
 
-        r = fod.GetReleases(scroller=True)
-        items = r.GetNext()
+        r = self.fod.GetReleases(scroller=True)
+        r.GetNext()
         total = r.TotalHits
-        assert total and total > 0, "TotalHits should be > 0 from GetNext"
+        self.assertTrue(total and total > 0, "TotalHits should be > 0 from GetNext")
         while r.Results:
             lst.extend(r.Results)
             r.GetNext()
-        assert len(lst) == total, f"Should be returning {total} items on GetNext loop."
+        self.assertEqual(len(lst), total, f"Should be returning {total} items on GetNext loop.")
 
-        # Report
-        logging.info(f"[TEST SUCCESS] {module}:{fn}")
-    except AssertionError as e:
-        logging.info(f"[TEST FAILURE] {module}:{fn}: {e}")
+        logging.info(f"[TEST SUCCESS] {module}:test_scroll")
 
-ConnectionTest()
-GetPagedTest()
-# Needs FOD releases to succeed
-ScrollTest()
+
+if __name__ == '__main__':
+    unittest.main()

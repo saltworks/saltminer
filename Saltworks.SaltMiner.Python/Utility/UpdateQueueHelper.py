@@ -5,7 +5,7 @@
 * Use of this software is governed by the Business Source License included
 * in the LICENSE file.
 *
-* Change Date: 2029-10-28
+* Change Date: 2029-12-09
 *
 * On the date above, in accordance with the Business Source License, use
 * of this software will be governed by version 2 or later of the General
@@ -52,7 +52,11 @@ class UpdateQueueHelper(object):
           "aggs": {
             "id": {
               "terms": { "field": self.__IdField, "size": self.__BatchSize },
-              "aggs": { "max_processed": { "max": { "field": "processedDateTime" } } }
+              "aggs": { 
+                "max_processed": { "max": { "field": "processedDateTime" } },
+                "min_processed": { "min": { "field": "processedDateTime" } },
+                "sort": { "bucket_sort": { "sort": [ "min_processed"] } }
+              }
             },
             "total_count": { "value_count": { "field": self.__IdField } }
           }, 

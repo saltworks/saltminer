@@ -5,7 +5,7 @@
 * Use of this software is governed by the Business Source License included
 * in the LICENSE file.
 *
-* Change Date: 2029-10-28
+* Change Date: 2029-12-09
 *
 * On the date above, in accordance with the Business Source License, use
 * of this software will be governed by version 2 or later of the General
@@ -528,7 +528,7 @@ class AppVulsProcessor(object):
         # It's possible we have a record in the Queue that has since been
         # removed from SSC, in that case we can bail out
         #
-        if not appVerId in sscProjects.keys():
+        if appVerId not in sscProjects.keys():
             return
 
         # Get a list of all the vulnerabilites found by SSC with the matching
