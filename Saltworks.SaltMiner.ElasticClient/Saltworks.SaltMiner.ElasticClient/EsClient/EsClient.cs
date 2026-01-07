@@ -1,5 +1,4 @@
-﻿
-using Elastic.Clients.Elasticsearch;
+﻿using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Aggregations;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
 using Elastic.Clients.Elasticsearch.Core.Search;
@@ -1748,6 +1747,24 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                 ElasticAggregateType.Sum => new SumAggregation { Field = agg.Field },
                 _ => throw new NotImplementedException($"Aggregation type {agg.AggregateType:g} not supported"),
             };
+        }
+
+        public IElasticClientResponse GetClusterInfo()
+        {
+            try
+            {
+                // Equivalent connectivity check to GET /_cluster
+                // Using a supported high-level API endpoint that hits the cluster subsystem.
+                var resp = ElasticClient.Cluster.Health();
+                var ok = resp.IsValidResponse;
+
+                return EsClientResponse.BuildResponse(ok, ok ? "OK" : "Cluster health request failed", ok ? 1 : 0);
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogError(ex, "Failed to get cluster info. Error: {Msg}", ex.Message);
+                return EsClientResponse.BuildResponse(false, ex.Message, 0);
+            }
         }
     }
 }

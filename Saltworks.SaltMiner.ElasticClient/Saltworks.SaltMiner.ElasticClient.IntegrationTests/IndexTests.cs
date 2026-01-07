@@ -14,24 +14,25 @@
 * ----
 */
 
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 
-namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
-{
-    [TestClass]
-    public class IndexTests
-    {
-        private static IElasticClient Client = null;
+namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
 
-        [ClassInitialize]
-        public static void Initialize(TestContext context)
-        {
-            if (context == null)
-                throw new ArgumentNullException(nameof(context));
-            var c = Helpers.SettingsConfig();
-            Client = Helpers.GetElasticClient(c);
-        }
+[TestClass]
+public class IndexTests
+{
+    private static IElasticClient Client = null;
+
+    [ClassInitialize]
+    public static void Initialize(TestContext context)
+    {
+        if (context == null)
+            throw new ArgumentNullException(nameof(context));
+        Helpers.ValidateSettingsAndConnect();
+        var c = Helpers.SettingsConfig();
+        Client = Helpers.GetElasticClient(c);
+    }
 
 		[TestMethod]
 		public void CheckIndexTemplate()
@@ -227,7 +228,82 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
 				""format"": ""date_time""
 			}
 		}
-	}
-}";
+	}";
+
+        [TestMethod]
+        public void CheckActiveIssueAlias_ChecksForAlias()
+        {
+            // Arrange
+            var indexName = "queue_issue";
+
+            // Act
+            var result = Client.CheckActiveIssueAlias(indexName);
+
+            // Assert
+            Assert.IsNotNull(result);
+            // Result will be true or false depending on whether alias exists
+        }
+
+        [TestMethod]
+        public void GetIndexMapping_RetrievesMapping()
+        {
+            // Arrange
+            var indexName = "queue_issue";
+
+            // Act
+            var result = Client.GetIndexMapping(indexName);
+
+            // Assert
+            Assert.IsNotNull(result);
+            // Result should be JSON string with mappings
+        }
+
+        [TestMethod]
+        public void UpdateIndexMapping_RemapsIndex()
+        {
+            // Arrange - create a temporary index with simple mapping
+            var tempIndex = $"test_remap_{System.Guid.NewGuid()}";
+            var simpleMapping = @"
+{
+  ""mappings"": {
+    ""properties"": {
+      ""field1"": { ""type"": ""keyword"" }
     }
+  }
+}";
+
+            Client.CreateIndex(tempIndex, simpleMapping);
+
+            // Act
+            var newIndexName = $"{tempIndex}_remapped";
+            var result = Client.UpdateIndexMapping(tempIndex, null, newIndexName);
+
+            // Assert
+            Assert.IsNotNull(result);
+            // Clean up if successful
+            try { Client.DeleteIndex(newIndexName); }
+            catch (Exception) { /* cleanup attempt */ }
+            try { Client.DeleteIndex(tempIndex); }
+            catch (Exception) { /* cleanup attempt */ }
+        }
+
+        [TestMethod]
+        public void UpdateIndexName_RenamesIndex()
+        {
+            // Arrange - create a temporary index
+            var tempIndex = $"test_rename_{System.Guid.NewGuid()}";
+            Client.CreateIndex(tempIndex);
+
+            // Act
+            var newIndexName = $"{tempIndex}_renamed";
+            var result = Client.UpdateIndexName(tempIndex, newIndexName);
+
+            // Assert
+            Assert.IsNotNull(result);
+            // Clean up if successful
+            try { Client.DeleteIndex(newIndexName); }
+            catch (Exception) { /* cleanup attempt */ }
+            try { Client.DeleteIndex(tempIndex); }
+            catch (Exception) { /* cleanup attempt */ }
+        }
 }

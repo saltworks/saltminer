@@ -14,7 +14,7 @@
 * ----
 */
 
-﻿using System.Linq;
+using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Entities;
 using System;
@@ -22,43 +22,24 @@ using System.Collections.Generic;
 using Saltworks.SaltMiner.Core.Data;
 using System.Threading.Tasks;
 
-namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
+namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
+
+[TestClass]
+public class CRUDTests
 {
-    [TestClass]
-    public class CRUDTests
+    private const string SOURCE_TYPE = "ElasticClient";
+    private static IElasticClient Client = null;
+    private static void RegisterDeleteIndex(string index) => Helpers.RegisterDeleteIndex(index);
+
+    [ClassInitialize]
+    public static void Initialize(TestContext _)
     {
-        private const string SOURCE_TYPE = "ElasticClient";
-        private static IElasticClient Client = null;
-        private static readonly List<string> _indicesToDelete = [];
+        Helpers.ValidateSettingsAndConnect();
+        var c = Helpers.SettingsConfig();
+        Client = Helpers.GetElasticClient(c);
+    }
 
-        private static void RegisterDeleteIndex(string index)
-        {
-            if (!_indicesToDelete.Contains(index))
-                _indicesToDelete.Add(index);
-        }
-
-        [ClassCleanup(ClassCleanupBehavior.EndOfClass)]
-        public static void Cleanup()
-        {
-            foreach (var index in _indicesToDelete)
-            {
-                try
-                {
-                    Client.DeleteIndex(index);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error deleting index {index}: {ex.Message}");
-                }
-            }
-        }
-
-        [ClassInitialize]
-        public static void Initialize(TestContext _)
-        {
-            var c = Helpers.SettingsConfig();
-            Client = Helpers.GetElasticClient(c);
-        }
+    // Per-class cleanup no longer needed; indices are cleaned up centrally in AssemblyHooks
 
         [TestMethod]
         public void FuzzySearchTest()
@@ -76,7 +57,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 }
             };
 
-            var results = Client.Search<Engagement>(request, Engagement.GenerateIndex());
+            var results = Client.Search<Engagement>(Engagement.GenerateIndex(), request);
             Assert.IsTrue(results.IsSuccessful);
         }
 
@@ -143,17 +124,18 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         [TestMethod]
         public void SimpleSearchTest()
         {
-            var result = Client.Search<IndexMeta>(new SearchRequest
+            var idx = ThrowawayEntity.GenerateIndex("Test_SimpleSearch");
+            RegisterDeleteIndex(idx);
+            var result = Client.Search<ThrowawayEntity>(idx, new SearchRequest
             {
                 Filter = new Filter
                 {
                     FilterMatches = new Dictionary<string, string>
                         {
-                            { "index", "queue_issue" }
+                            { "index", idx }
                         },
                 },
-            }, IndexMeta.GenerateIndex());
-
+            });
             Assert.IsNotNull(result);
         }
 
@@ -203,9 +185,9 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 {
                     FilterMatches = kvps
                 },
-                PitPagingInfo = new PitPagingInfo(10)
+                PagingInfo = new PagingInfo(10) { EnablePit = true }
             };
-            var result = Client.Search<Issue>(request, indexName);
+            var result = Client.Search<Issue>(indexName, request);
  
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(10, result.Results.Count());
@@ -277,7 +259,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             RegisterDeleteIndex(indexName);
             var kvps = new Dictionary<string, string>() {
                 { "Saltminer.Asset.Name", "SearchWithScrollingTest" },
-                { "Vulnerability.Severity", "Critically" }
+                { "Vulnerability.Severity", "Critical" }
             };
 
 
@@ -297,7 +279,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             {
                 var issue = Mock.Issue(sourceType);
                 issue.Id = "";
-                issue.Vulnerability.Severity = "Critically";
+                issue.Vulnerability.Severity = "Critical";
                 issue.Saltminer.Asset.Name = "SearchWithScrollingTest";
                 issues.Add(issue);
             }
@@ -313,32 +295,29 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 {
                     FilterMatches = kvps
                 },
-                PitPagingInfo = new PitPagingInfo(5, true)
+                PagingInfo = new PagingInfo(5) { EnablePit = true }
             };
-            var result = Client.Search<Issue>(request, indexName);
+            var result = Client.Search<Issue>(indexName, request);
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(5, result.Results.Count());
 
-            request.AfterKeys = result.AfterKeys;
-            request.PitPagingInfo = result.PitPagingInfo;
-            result = Client.Search<Issue>(request, indexName);
+            request.PagingInfo = result.PagingInfo.NextPage();
+            result = Client.Search<Issue>(indexName, request);
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(5, result.Results.Count());
 
-            request.AfterKeys = result.AfterKeys;
-            request.PitPagingInfo = result.PitPagingInfo;
-            result = Client.Search<Issue>(request, indexName);
+            request.PagingInfo = result.PagingInfo.NextPage();
+            result = Client.Search<Issue>(indexName, request);
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(5, result.Results.Count());
 
-            request.AfterKeys = result.AfterKeys;
-            request.PitPagingInfo = result.PitPagingInfo;
-            result = Client.Search<Issue>(request, indexName);
+            request.PagingInfo = result.PagingInfo.NextPage();
+            result = Client.Search<Issue>(indexName, request);
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(0, result.Results.Count());
 
             //Clean Up
-            request.PitPagingInfo = null;
+            request.PagingInfo = null;
             var issueDelete = Client.DeleteByQuery<Issue>(request, indexName).CountAffected;
             Assert.AreEqual(issueCount, issueDelete);
         }
@@ -433,7 +412,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 }
             };
 
-            var newIssues = Client.Search<QueueIssue>(searchRequest, QueueIssue.GenerateIndex());
+            var newIssues = Client.Search<QueueIssue>(QueueIssue.GenerateIndex(), searchRequest);
 
             Assert.IsTrue(newIssues.IsSuccessful);
             Assert.AreEqual(issueCount, newIssues.CountAffected);
@@ -449,7 +428,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
 
             Client.RefreshIndex(QueueIssue.GenerateIndex());
 
-            newIssues = Client.Search<QueueIssue>(searchRequest, QueueIssue.GenerateIndex());
+            newIssues = Client.Search<QueueIssue>(QueueIssue.GenerateIndex(), searchRequest);
 
             Assert.IsTrue(newIssues.IsSuccessful);
             Assert.AreEqual(issueCount, newIssues.CountAffected);
@@ -767,16 +746,73 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 ["Saltminer.Scan.ScanDate"] = "2021-10-18||2021-10-18",
                 ["Saltminer.Scan.SourceType"] = sourceTpye,
             };
-            var results = Client.Search<QueueScan>(new SearchRequest
+            var results = Client.Search<QueueScan>(QueueScan.GenerateIndex(), new SearchRequest
             {
                 Filter = new()
                 {
                     FilterMatches = kvps
                 },
-                PitPagingInfo = new PitPagingInfo(300)
-            }, QueueScan.GenerateIndex());
+                PagingInfo = new PagingInfo(300) { EnablePit = true }
+            });
 
             Assert.IsNotNull(results);
         }
+
+        [TestMethod]
+        public async Task UpdateByQuery_WithStringQuery()
+        {
+            var sourceType = SOURCE_TYPE;
+            var issue = Mock.Issue(sourceType);
+            var indexName = Issue.GenerateIndex(issue.Saltminer.Asset.AssetType, issue.Saltminer.Asset.SourceType, issue.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(indexName);
+            
+            // Add test document
+            issue.Saltminer.Low = 1;
+            Client.AddUpdate(issue, indexName);
+            await Task.Delay(1000);
+
+            // Act
+            var updateScript = "ctx._source.saltminer_low = 5";
+            var result = Client.UpdateByQuery<Issue>("*", indexName, updateScript);
+
+            // Assert
+            Assert.IsNotNull(result);
+            Assert.IsTrue(result.IsSuccessful);
+            Assert.IsTrue(result.CountAffected > 0);
+
+            // Clean Up
+            Client.DeleteByQuery<Issue>(new SearchRequest(), indexName);
+        }
+
+        [TestMethod]
+        public async Task UpdateByQuery_WithRequest()
+        {
+            var sourceType = SOURCE_TYPE;
+            var issue = Mock.Issue(sourceType);
+            var indexName = Issue.GenerateIndex(issue.Saltminer.Asset.AssetType, issue.Saltminer.Asset.SourceType, issue.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(indexName);
+            
+            // Add test document
+            issue.Saltminer.Medium = 3;
+            Client.AddUpdate(issue, indexName);
+            await Task.Delay(1000);
+
+            // Act
+            var updateRequest = new UpdateQueryRequest<Issue>
+            {
+                Filter = new()
+                {
+                    FilterMatches = new Dictionary<string, string> { { "saltminer.asset.name", issue.Saltminer.Asset.Name } }
+                },
+                ScriptUpdates = new Dictionary<string, object> { { "Saltminer.Medium", 10 } }
+            };
+            var result = Client.UpdateByQuery<Issue>(updateRequest, indexName);
+
+            // Assert
+            Assert.IsNotNull(result);
+            Assert.IsTrue(result.IsSuccessful);
+
+            // Clean Up
+            Client.DeleteByQuery<Issue>(new SearchRequest(), indexName);
+        }
     }
-}

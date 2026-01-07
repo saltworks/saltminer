@@ -14,14 +14,13 @@
 * ----
 */
 
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.Common.Data;
 using Saltworks.SaltMiner.Core.Data;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
-{
+namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
     [TestClass]
     public class UtilityTests
     {
@@ -103,4 +102,3 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
 
         public string Index { get; set; }
     }
-}

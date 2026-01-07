@@ -14,7 +14,7 @@
 * ----
 */
 
-﻿using Elasticsearch.Net;
+using Elasticsearch.Net;
 using Microsoft.Extensions.Logging;
 using Nest;
 using Saltworks.SaltMiner.Core.Data;
@@ -1730,6 +1730,21 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
                 // Log and ignore any exception here
                 Logger.LogWarning(e, "Failed to log Elasticsearch response debug info due to error: [{Type}] {Msg}", e.GetType().Name, e.Message);
             }
+        }
+    }
+
+    public IElasticClientResponse GetClusterInfo()
+    {
+        try
+        {
+            var r = ElasticClient.LowLevel.DoRequest<StringResponse>(HttpMethod.GET, "_cluster");
+            var ok = r.Success && (r.HttpStatusCode >= 200 && r.HttpStatusCode < 300);
+            return NestClientResponse.BuildResponse(ok, ok ? r.Body : "Cluster info request failed", ok ? 1 : 0);
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogError(ex, "Failed to get cluster info. Error: {Msg}", ex.Message);
+            return NestClientResponse.BuildResponse(false, ex.Message, 0);
         }
     }
 

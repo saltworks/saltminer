@@ -14,33 +14,33 @@
 * ----
 */
 
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
+namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
+
+[TestClass]
+public class RoleTests
 {
-    [TestClass]
-    public class RoleTests
+    private static IElasticClient Client = null;
+
+    [ClassInitialize]
+    public static void Initialize(TestContext context)
     {
-        private static IElasticClient Client = null;
+        Helpers.ValidateSettingsAndConnect();
+        var c = Helpers.SettingsConfig();
+        Client = Helpers.GetElasticClient(c);
+    }
 
-        [ClassInitialize]
-        public static void Initialize(TestContext context)
-        {
-            var c = Helpers.SettingsConfig();
-            Client = Helpers.GetElasticClient(c);
-        }
+    [TestMethod]
+    public void Crud()
+    {
+        var role = "TestRole";
+        var rsp1 = Client.UpsertRole(role, "{}");
+        var rsp2 = Client.RoleExists(role);
+        var rsp3 = Client.DeleteRole(role);
 
-        [TestMethod]
-        public void Crud()
-        {
-            var role = "TestRole";
-            var rsp1 = Client.UpsertRole(role, "{}");
-            var rsp2 = Client.RoleExists(role);
-            var rsp3 = Client.DeleteRole(role);
-
-            Assert.IsTrue(rsp1.IsSuccessful);
-            Assert.IsTrue(rsp2.IsSuccessful);
-            Assert.IsTrue(rsp3.IsSuccessful);
-        }
+        Assert.IsTrue(rsp1.IsSuccessful);
+        Assert.IsTrue(rsp2.IsSuccessful);
+        Assert.IsTrue(rsp3.IsSuccessful);
     }
 }

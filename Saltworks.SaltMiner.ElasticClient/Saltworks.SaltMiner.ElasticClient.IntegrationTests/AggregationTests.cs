@@ -57,6 +57,7 @@ public class AggregationTests
     [ClassInitialize]
     public static void Initialize(TestContext _)
     {
+        Helpers.ValidateSettingsAndConnect();
         var c = Helpers.SettingsConfig();
         Client = Helpers.GetElasticClient(c);
     }

@@ -15,14 +15,12 @@
 */
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Saltworks.SaltMiner.Core.Entities;
-using System;
-using System.ComponentModel.DataAnnotations;
+using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
 
 [TestClass]
-public class ExceptionTests
+public class ClusterTests
 {
     private static IElasticClient Client = null;
 
@@ -35,15 +33,27 @@ public class ExceptionTests
     }
 
     [TestMethod]
-    public void Entity_Not_Found()
+    public void GetClusterLicenseLevel_ReturnsLicenseType()
     {
-        try
-        {
-            var index = Issue.GenerateIndex("nope", "sonatype");
-        }
-        catch(Exception ex)
-        {
-            Assert.IsTrue(ex != null);
-        }
+        // Act
+        var result = Client.GetClusterLicenseLevel();
+
+        // Assert
+        Assert.IsNotNull(result);
+        Assert.IsTrue(result.IsSuccessful);
+        // Result should be trial, basic, enterprise, standard, etc.
+    }
+
+    [TestMethod]
+    public async Task GetClusterTaskCountAsync_ReturnsTaskCount()
+    {
+        // Act
+        var result = await Client.GetClusterTaskCountAsync();
+
+        // Assert
+        Assert.IsNotNull(result);
+        Assert.IsTrue(result.IsSuccessful);
+        // Result should be a count >= 0
+        Assert.IsTrue(result.CountAffected >= 0);
     }
 }

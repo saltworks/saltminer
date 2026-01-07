@@ -24,19 +24,20 @@ using System.IO;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Util;
 
-namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
-{
-    [TestClass]
-    public class SnapshotTests
-    {
-        private static IElasticClient Client = null;
+namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
 
-        [ClassInitialize]
-        public static void Initialize(TestContext context)
-        {
-            var c = Helpers.SettingsConfig();
-            Client = Helpers.GetElasticClient(c);
-        }
+[TestClass]
+public class SnapshotTests
+{
+    private static IElasticClient Client = null;
+
+    [ClassInitialize]
+    public static void Initialize(TestContext context)
+    {
+        Helpers.ValidateSettingsAndConnect();
+        var c = Helpers.SettingsConfig();
+        Client = Helpers.GetElasticClient(c);
+    }
 
         [TestMethod]
         public void TestAggregateBucketIssuesLoading()
@@ -69,7 +70,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             var request = new SearchRequest
             {
                 AssetType = "App",
-                PitPagingInfo = new PitPagingInfo()
+                PagingInfo = new PagingInfo()
             };
 
             var response = Client.GetCompositeAggregate<Snapshot>(request, sourceFields, aggList, Issue.GenerateIndex());
@@ -77,7 +78,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             {
                 var searchVals = b.Document.BucketKey.Split("|").Select(v => v.Replace("{P}", "|")).ToArray();
                 var count = 0;
-                var srsp = Client.Search<Issue>(new SearchRequest
+                var srsp = Client.Search<Issue>(Issue.GenerateIndex(), new SearchRequest
                 {
                     Filter = new()
                     {
@@ -88,8 +89,8 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                             { "Vulnerability.Name", searchVals[3] }
                         }
                     },
-                    PitPagingInfo = new PitPagingInfo()
-                }, Issue.GenerateIndex());
+                    PagingInfo = new PagingInfo()
+                });
                 if (srsp?.Results?.Any() ?? false)
                 {
                     count++;
@@ -130,12 +131,13 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             var request = new SearchRequest
             {
                 AssetType = "App",
-                PitPagingInfo = new PitPagingInfo(5)
+                PagingInfo = new PagingInfo(5)
             };
 
             // Act
             var response = Client.GetCompositeAggregate<Snapshot>(request, aggFields, aggList, Issue.GenerateIndex("App"));
-            request.PitPagingInfo.Size = 6;
+            request.PagingInfo = response.PagingInfo.NextPage();
+            request.PagingInfo.Size = 6;
             var response2 = Client.GetCompositeAggregate<Snapshot>(request, aggFields, aggList, Issue.GenerateIndex());
 
             // Assert
@@ -162,14 +164,14 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
 
             var kvps = searchRequest.ToSearchRequest();
 
-            var response = Client.Search<Snapshot>(new SearchRequest
+            var response = Client.Search<Snapshot>(Snapshot.GenerateIndex(AssetType.Mocked.ToString()), new SearchRequest
             {
                 Filter = new()
                 {
                     FilterMatches = kvps
                 },
-                PitPagingInfo = new PitPagingInfo()
-            }, Snapshot.GenerateIndex(AssetType.Mocked.ToString()));
+                PagingInfo = new PagingInfo()
+            });
 
             // Assert
             Assert.IsNotNull(response);
@@ -208,4 +210,3 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             Assert.IsTrue(indexDelete);
         }
     }
-}

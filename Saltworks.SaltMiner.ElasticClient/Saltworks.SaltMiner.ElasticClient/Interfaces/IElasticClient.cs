@@ -394,4 +394,8 @@ public interface IElasticClient
     /// <param name="overwrite">If set, enables overwriting existing pipeline</param>
     /// <returns>A response object that specifies if the ingest pipeline was created</returns>
     IElasticClientResponse CreateIngestPipeline(string pipelineName, string pipeline, bool overwrite);
+    /// <summary>
+    /// Gets basic cluster information to verify connectivity (equivalent to GET /_cluster).
+    /// </summary>
+    IElasticClientResponse GetClusterInfo();
 }
