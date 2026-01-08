@@ -14,6 +14,8 @@
 * ----
 */
 
+using System;
+
 namespace Saltworks.SaltMiner.ElasticClient;
 // This is a sub config, meaning not loaded directly from a settings file.  
 // As such, there is no need to worry about encrypted settings - we assume all are unencrypted.
@@ -64,11 +66,11 @@ public class ClientConfiguration
     /// <summary>
     /// Sets the maximum number of documents to retrieve from Elasticsearch for a "cold" search (one that has no AfterKeys, but is past page 1).
     /// </summary>
-    public int MaxIndexDocsForPaging { get; set; } = 5000;
+    public static int MaxIndexDocsForPaging { get; set; } = 10000;
     /// <summary>
     /// In future versions this could change in Elasticsearch, so we will make a wee property that can give the number to us.
     /// </summary>
-    internal int MaxDocsInOneQuery => 10000;
+    internal static int MaxDocsInOneQuery => 10000;
     /// <summary>
     /// If set, configures the client to throw a ElasticClientException if the response is invalid
     /// </summary>
@@ -85,4 +87,8 @@ public class ClientConfiguration
     /// Set this to true to disable sniffing behaviors in the Nest connection pool
     /// </summary>
     public bool SingleNodeCluster { get; set; } = false;
+    /// <summary>
+    /// List of indices known to have inconsistent IDs (internal id might not match doc _id).  Some operations will be slower for these.
+    /// </summary>
+    public string[] IndicesWithInconsistentIds { get; set; } = [];
 }

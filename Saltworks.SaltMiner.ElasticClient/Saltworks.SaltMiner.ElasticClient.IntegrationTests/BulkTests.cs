@@ -60,7 +60,7 @@ public class BulkTests
     }
 
     [TestMethod]
-    public async Task AddUpdateBulkQueue_MultipleQueueIssues()
+    public async Task AddUpdateBulkQueueIssues()
     {
         // Arrange
         var queuedIssues = new List<QueueIssue>();
@@ -84,7 +84,7 @@ public class BulkTests
         Assert.AreEqual(issueCount, result.CountAffected);
 
         // Clean Up
-        var issueDelete = Client.DeleteByQuery<QueueIssue>(new Saltworks.SaltMiner.Core.Data.SearchRequest
+        var issueDelete = Client.DeleteByQuery<QueueIssue>(new Core.Data.SearchRequest
         {
             Filter = new()
             {

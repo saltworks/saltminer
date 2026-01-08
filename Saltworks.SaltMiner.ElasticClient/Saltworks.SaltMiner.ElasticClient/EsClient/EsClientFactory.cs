@@ -3,7 +3,6 @@ using Elastic.Clients.Elasticsearch;
 using System.Collections.Generic;
 using System;
 using Elastic.Transport;
-using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.ElasticClient.EsClient;
 
@@ -29,7 +28,8 @@ public class EsClientFactory : IElasticClientFactory
 
         var nodePool = new StaticNodePool(uris);
         var settings = new ElasticsearchClientSettings(nodePool)
-            .Authentication(new BasicAuthentication(Configuration.Username, Configuration.Password));
+            .Authentication(new BasicAuthentication(Configuration.Username, Configuration.Password))
+            .DefaultFieldNameInferrer(p => p.ToSnakeCase());
 
         if (Configuration.EnableDebugInfoInElasticsearchResponse)
         {

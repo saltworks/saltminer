@@ -1,5 +1,6 @@
 ﻿using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Aggregations;
+using Elastic.Clients.Elasticsearch.Nodes;
 using Elastic.Transport.Products.Elasticsearch;
 using Saltworks.Common.Data;
 using Saltworks.SaltMiner.Core.Data;
@@ -204,7 +205,7 @@ public class EsClientResponse<T> : EsClientResponse, IElasticClientResponse<T> w
             }
         }
 
-        return new EsClientResponse<T>
+        var rsp = new EsClientResponse<T>
         {
             Message = msg,
             IsSuccessful = success,
@@ -214,6 +215,12 @@ public class EsClientResponse<T> : EsClientResponse, IElasticClientResponse<T> w
             AfterKeys = response.Hits.LastOrDefault()?.Sort?.Cast<object>().ToList(),
             PagingInfo = pagingInfo
         };
+        rsp.PagingInfo.CurrentAfterKeys = pagingInfo.NextAfterKeys;
+        rsp.PagingInfo.NextAfterKeys = response.Hits.LastOrDefault()?.Sort?.Cast<object>().ToList();
+        rsp.PagingInfo.PitPagingToken = response.PitId;
+        if (string.IsNullOrEmpty(rsp.PagingInfo.PitPagingToken) && pagingInfo.EnablePit)
+            rsp.PagingInfo.EnablePit = false;
+        return rsp;
     }
 
     internal static IElasticClientResponse<T> BuildResponse(bool isSuccessful, long countAffected)

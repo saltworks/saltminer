@@ -323,132 +323,58 @@ public class CRUDTests
         }
 
         [TestMethod]
-        public async Task AddUpdateBulkQueueIssues()
+        public async Task UpdateByQuery()
         {
-            var queuedIssues = new List<QueueIssue>();
-            var issueCount = 5;
-            var scanId = Guid.NewGuid().ToString();
+            var queued = new List<ThrowawayEntity>();
+            var count = 5;
+            var name = "odd";
+            var newName = "oddball";
+            var nameField = "Name";
 
-            for (var index = 0; index < issueCount; index++)
+            foreach (var i in Enumerable.Range(1, count).ToArray())
             {
-                var qi = Mock.QueueIssue();
-                qi.Id = "";
-                qi.Saltminer.QueueScanId = scanId;
-                queuedIssues.Add(qi);
+                var itm = new ThrowawayEntity
+                {
+                    Number = i,
+                    Id = "",
+                    Name = i % 2 == 0 ? "even" : "odd"
+                };
+                queued.Add(itm);
             }
 
-            var result = Client.AddUpdateBulk(queuedIssues, QueueIssue.GenerateIndex());
-            await Task.Delay(2000); // gimme a sec or two to save that
+            var idx = ThrowawayEntity.GenerateIndex("Test_UpdateByQuery");
+            var result = Client.AddUpdateBulk(queued, idx);
+            RegisterDeleteIndex(idx);
+            Client.RefreshIndex(idx, 500);
 
-            Assert.IsTrue(result.IsSuccessful);
-            Assert.AreEqual(issueCount, result.CountAffected);
+            Assert.IsTrue(result.IsSuccessful, "Bulk insert failed");
+            Assert.AreEqual(count, result.CountAffected, "Bulk insert count mismatch");
 
-            //Clean Up
-            var issueDelete = Client.DeleteByQuery<QueueIssue>(new SearchRequest
+            var searchRequest = new SearchRequest(nameField, name, 5);
+            var updateRequest = new UpdateQueryRequest<ThrowawayEntity>
             {
                 Filter = new()
                 {
-                    FilterMatches = new Dictionary<string, string> { { "saltminer.queue_scan_id", scanId } }
-                }
-            }, QueueIssue.GenerateIndex());
-            Assert.AreEqual(issueCount, issueDelete.CountAffected);
-        }
-
-        [TestMethod]
-        public async Task UpdateByQueryueueIssues()
-        {
-            var queuedIssues = new List<QueueIssue>();
-            var issueCount = 5;
-            var scanId = Guid.NewGuid().ToString();
-            var name = "test";
-            var newName = "NewName";
-            var location = "test";
-            var newLocaion = "NewLocation";
-
-            for (var index = 0; index < issueCount; index++)
-            {
-                var qi = Mock.QueueIssue();
-                qi.Id = "";
-                qi.Saltminer.QueueScanId = scanId;
-                qi.Vulnerability.Name = name;
-                qi.Vulnerability.LocationFull = name;
-                qi.Vulnerability.Location = location;
-                qi.Vulnerability.RemovedDate = DateTime.UtcNow;
-                qi.Vulnerability.IsSuppressed = true;
-                qi.Vulnerability.FoundDate = DateTime.UtcNow;
-                qi.Saltminer.Engagement.Attributes = null;
-               
-                queuedIssues.Add(qi);
-            }
-
-            var result = Client.AddUpdateBulk(queuedIssues, QueueIssue.GenerateIndex());
-            await Task.Delay(2000); // gimme a sec or two to save that
-
-            Assert.IsTrue(result.IsSuccessful);
-            Assert.AreEqual(issueCount, result.CountAffected);
-
-            var searchRequest = new SearchRequest
-            {
-                Filter = new()
-                {
-                    FilterMatches = new Dictionary<string, string> { { "saltminer.queue_scan_id", scanId } }
-                }
-            };
-
-            var updateRequest = new UpdateQueryRequest<QueueIssue>
-            {
-                Filter = new()
-                {
-                    FilterMatches = new Dictionary<string, string> { { "saltminer.queue_scan_id", scanId } }
+                    FilterMatches = new Dictionary<string, string> { { nameField, name } }
                 },
                 ScriptUpdates = new Dictionary<string, object> { 
-                    { "Vulnerability.Name", newName }, 
-                    { "Vulnerability.LocationFull", newName }, 
-                    { "Vulnerability.Location", newLocaion }, 
-                    { "Vulnerability.RemovedDate", null }, 
-                    { "Vulnerability.IsSuppressed", false },
-                    { "Vulnerability.FoundDate", DateTime.UtcNow },
-                    { "Saltminer.Engagement.Attributes", new Dictionary<string, string> { { "Eddie", "test" } } }
+                    { nameField, newName }
                 }
             };
 
-            var newIssues = Client.Search<QueueIssue>(QueueIssue.GenerateIndex(), searchRequest);
+            var newSearch = Client.Search<ThrowawayEntity>(idx, searchRequest);
 
-            Assert.IsTrue(newIssues.IsSuccessful);
-            Assert.AreEqual(issueCount, newIssues.CountAffected);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.Name, name);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.Location, location);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.LocationFull, name);
-            Assert.IsTrue(newIssues.Results.First().Document.Vulnerability.RemovedDate != null);
-            Assert.IsTrue(newIssues.Results.First().Document.Vulnerability.IsSuppressed);
-            Assert.IsFalse(newIssues.Results.First().Document.Vulnerability.IsActive);
-            Assert.IsNull(newIssues.Results.First().Document.Saltminer.Engagement.Attributes);
+            Assert.IsTrue(newSearch.IsSuccessful);
+            Assert.AreEqual(count, newSearch.CountAffected);
+            Assert.AreEqual(newSearch.Results.First().Document.Name, name);
 
-            Client.UpdateByQuery<QueueIssue>(updateRequest, QueueIssue.GenerateIndex());
+            Client.UpdateByQuery(updateRequest, idx);
+            Client.RefreshIndex(idx, 500);
+            newSearch = Client.Search<ThrowawayEntity>(idx, searchRequest);
 
-            Client.RefreshIndex(QueueIssue.GenerateIndex());
-
-            newIssues = Client.Search<QueueIssue>(QueueIssue.GenerateIndex(), searchRequest);
-
-            Assert.IsTrue(newIssues.IsSuccessful);
-            Assert.AreEqual(issueCount, newIssues.CountAffected);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.Name, newName);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.Location, newLocaion);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.LocationFull, newName);
-            Assert.IsTrue(newIssues.Results.First().Document.Vulnerability.RemovedDate == null);
-            Assert.AreEqual(1, newIssues.Results.First().Document.Saltminer.Engagement.Attributes.Count);
-            Assert.IsFalse(newIssues.Results.First().Document.Vulnerability.IsSuppressed);
-            Assert.IsTrue(newIssues.Results.First().Document.Vulnerability.IsActive);
-
-            //Clean Up
-            var issueDelete = Client.DeleteByQuery<QueueIssue>(new SearchRequest
-            {
-                Filter = new()
-                {
-                    FilterMatches = new Dictionary<string, string> { { "saltminer.queue_scan_id", scanId } }
-                }
-            }, QueueIssue.GenerateIndex());
-            Assert.AreEqual(issueCount, issueDelete.CountAffected);
+            Assert.IsTrue(newSearch.IsSuccessful);
+            Assert.AreEqual(count, newSearch.CountAffected);
+            Assert.AreEqual(newSearch.Results.First().Document.Name, newName);
         }
 
         [TestMethod]

@@ -998,9 +998,6 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
                     Logger.LogWarning("Search count operation failed - [{Status}] {Msg}", countRsp.HttpStatus, countRsp.Message);
                 }
             }
-            // Use next after keys if present and page > 0 (in case someone got it backwards)
-            if (searchRequest.PagingInfo.Page > 1)
-                searchRequest.PagingInfo.CurrentAfterKeys = searchRequest.PagingInfo.CurrentAfterKeys ?? searchRequest.PagingInfo.NextAfterKeys;
 
             return EsClientResponse<T>.BuildResponse(response, searchRequest.PagingInfo, (response.ApiCallDetails.HttpStatusCode ?? 0) == 404);
         }
@@ -1171,22 +1168,20 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
         public IElasticClientResponse<T> UpdateWithLocking<T>(T doc, string index, long? primary, long? seq) where T : SaltMinerEntity
         {
             if (string.IsNullOrEmpty(doc.Id))
-            {
                 throw new EsClientException("Invalid document, ID missing");
-            }
 
             UpdateResponse<T> result;
 
             try
             {
+                // Need this in case doc ID doesn't match ES _id
+                var id = doc.Id;
+                if (ClientConfig.IndicesWithInconsistentIds.Contains(index))
+                    id = ElasticClient.GetAsync<T>(doc.Id).Result.Id;
                 if (seq != null)
-                {
-                    result = ElasticClient.UpdateAsync<T, object>(index, ElasticClient.GetAsync<T>(doc.Id).Result.Id, i => i.Doc(doc).IfPrimaryTerm(primary).IfSeqNo(seq)).Result;
-                }
+                    result = ElasticClient.UpdateAsync<T, object>(index, id, i => i.Doc(doc).IfPrimaryTerm(primary).IfSeqNo(seq)).Result;
                 else
-                {
-                    result = ElasticClient.UpdateAsync<T, object>(index, ElasticClient.GetAsync<T>(doc.Id).Result.Id, i => i.Doc(doc)).Result;
-                }
+                    result = ElasticClient.UpdateAsync<T, object>(index, id, i => i.Doc(doc)).Result;
 
                 return EsClientResponse<T>.BuildResponse(doc, result);
             }
@@ -1593,6 +1588,8 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
             searchRequest.PagingInfo ??= new();
             if (searchRequest.PagingInfo.Size < 1)
                 searchRequest.PagingInfo.Size = ClientConfig.DefaultPageSize;
+            if (searchRequest.PagingInfo.Page <= 1)
+                searchRequest.PagingInfo.CurrentAfterKeys = null;
             queryRequest.Size = searchRequest.PagingInfo.Size;
 
             if (searchRequest.PagingInfo.EnablePit)
@@ -1751,14 +1748,36 @@ namespace Saltworks.SaltMiner.ElasticClient.EsClient
 
         public IElasticClientResponse GetClusterInfo()
         {
+            Logger?.LogDebug("Get cluster info");
+            
             try
             {
-                // Equivalent connectivity check to GET /_cluster
-                // Using a supported high-level API endpoint that hits the cluster subsystem.
-                var resp = ElasticClient.Cluster.Health();
-                var ok = resp.IsValidResponse;
-
-                return EsClientResponse.BuildResponse(ok, ok ? "OK" : "Cluster health request failed", ok ? 1 : 0);
+                // Use the high-level Cluster.Health API
+                var healthTask = ElasticClient.Cluster.HealthAsync();
+                healthTask.Wait();
+                
+                if (healthTask.IsFaulted)
+                {
+                    var ex = healthTask.Exception?.GetBaseException();
+                    Logger?.LogError(ex, "Cluster health request faulted: {Msg}", ex?.Message ?? "unknown");
+                    return EsClientResponse.BuildResponse(false, $"Cluster health request faulted: {ex?.Message ?? "unknown"}", 0);
+                }
+                
+                var healthResponse = healthTask.Result;
+                
+                if (healthResponse.IsValidResponse)
+                {
+                    var status = healthResponse.Status.ToString();
+                    Logger?.LogDebug("Cluster health status: {Status}", status);
+                    return EsClientResponse.BuildResponse(true, status, 1);
+                }
+                
+                // Log detailed error information for debugging
+                var errorMsg = healthResponse.ElasticsearchServerError?.Error?.Reason ?? 
+                              healthResponse.DebugInformation ?? 
+                              "Unknown error";
+                Logger?.LogWarning("Cluster health check failed: {Error}", errorMsg);
+                return EsClientResponse.BuildResponse(false, $"Cluster health check failed: {errorMsg}", 0);
             }
             catch (Exception ex)
             {
