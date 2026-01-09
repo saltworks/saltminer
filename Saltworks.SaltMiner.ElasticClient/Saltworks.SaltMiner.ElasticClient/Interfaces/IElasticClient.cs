@@ -188,7 +188,7 @@ public interface IElasticClient
     /// <param name="updateObject">Update object to use - should be a poco</param>
     /// <param name="updateObjectName">Name of update object to use in script (i.e. 'update')</param>
     /// <returns></returns>
-    IElasticClientResponse UpdatePartialBulkWithLocking<T, U>(IEnumerable<DataDto<T>> dtos, string script, U updateObject, string updateObjectName = "update") where T : SaltMinerEntity where U : class;
+    IElasticClientResponse BulkUpdatePartialWithLocking<T, U>(IEnumerable<DataDto<T>> dtos, string script, U updateObject, string updateObjectName = "update") where T : SaltMinerEntity where U : class;
     /// <summary>
     /// Updates a document, checking to see that it is unchanged since retrieval, and failing if so
     /// </summary>

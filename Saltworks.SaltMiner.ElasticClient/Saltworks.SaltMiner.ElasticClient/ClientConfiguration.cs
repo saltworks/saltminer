@@ -66,11 +66,15 @@ public class ClientConfiguration
     /// <summary>
     /// Sets the maximum number of documents to retrieve from Elasticsearch for a "cold" search (one that has no AfterKeys, but is past page 1).
     /// </summary>
-    public static int MaxIndexDocsForPaging { get; set; } = 10000;
+    public int MaxIndexDocsForPaging { get; set; } = 10000;
     /// <summary>
     /// In future versions this could change in Elasticsearch, so we will make a wee property that can give the number to us.
     /// </summary>
     internal static int MaxDocsInOneQuery => 10000;
+    /// <summary>
+    /// Maximum number of documents to send in a single bulk add/update request
+    /// </summary>
+    public int MaxBulkDocsPerRequest { get; set; } = 10000;
     /// <summary>
     /// If set, configures the client to throw a ElasticClientException if the response is invalid
     /// </summary>

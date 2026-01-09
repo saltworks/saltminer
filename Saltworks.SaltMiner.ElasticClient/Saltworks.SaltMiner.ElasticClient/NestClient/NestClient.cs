@@ -416,7 +416,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return NestClientResponse.BuildResponse(isSuccessful, bulkErrors, "Bulk Errors", countAffected);
     }
 
-    public IElasticClientResponse UpdatePartialBulkWithLocking<T, U>(IEnumerable<DataDto<T>> dtos, string script, U updateObject, string updateObjectName = "update") where T : SaltMinerEntity where U: class
+    public IElasticClientResponse BulkUpdatePartialWithLocking<T, U>(IEnumerable<DataDto<T>> dtos, string script, U updateObject, string updateObjectName = "update") where T : SaltMinerEntity where U: class
     {
         var countAffected = 0;
         var isSuccessful = false;

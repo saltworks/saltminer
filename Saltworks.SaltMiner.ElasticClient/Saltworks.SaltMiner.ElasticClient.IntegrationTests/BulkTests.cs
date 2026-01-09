@@ -43,21 +43,7 @@ public class BulkTests
         Client = Helpers.GetElasticClient(c);
     }
 
-    [ClassCleanup(ClassCleanupBehavior.EndOfClass)]
-    public static void Cleanup()
-    {
-        foreach (var index in _indicesToDelete)
-        {
-            try
-            {
-                Client.DeleteIndex(index);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error deleting index {index}: {ex.Message}");
-            }
-        }
-    }
+    // Per-class index cleanup not needed; indices are cleaned up centrally in AssemblyHooks
 
     [TestMethod]
     public async Task AddUpdateBulkQueueIssues()
@@ -77,7 +63,7 @@ public class BulkTests
 
         // Act
         var result = Client.AddUpdateBulkQueue(queuedIssues);
-        await Task.Delay(2000);
+        Client.RefreshIndex(QueueIssue.GenerateIndex(), 500);
 
         // Assert
         Assert.IsTrue(result.IsSuccessful);
@@ -98,7 +84,7 @@ public class BulkTests
     public void BulkPartialUpdate_WithScript()
     {
         // Arrange
-        var indexName = $"throwaway_{Guid.NewGuid()}";
+        var indexName = "test_bulk_partial_update_with_script";
         RegisterDeleteIndex(indexName);
         
         var entities = new List<ThrowawayEntity>();
@@ -108,7 +94,7 @@ public class BulkTests
             entities.Add(entity);
             Client.AddUpdate(entity, indexName);
         }
-        System.Threading.Thread.Sleep(1000);
+        Client.RefreshIndex(indexName, 500);
 
         var script = "ctx._source.test_field = params.update";
         var updateObj = new { test_value = "updated" };
@@ -125,7 +111,7 @@ public class BulkTests
     public void DeleteBulk_MultipleDocs()
     {
         // Arrange
-        var indexName = $"throwaway_{Guid.NewGuid()}";
+        var indexName = "test_delete_bulk_multiple_docs";
         RegisterDeleteIndex(indexName);
 
         var entities = new List<ThrowawayEntity>();

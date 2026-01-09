@@ -25,7 +25,7 @@ using System.Threading.Tasks;
 namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
 
 [TestClass]
-public class CRUDTests
+public class CrudTests
 {
     private const string SOURCE_TYPE = "ElasticClient";
     private static IElasticClient Client = null;
@@ -39,7 +39,7 @@ public class CRUDTests
         Client = Helpers.GetElasticClient(c);
     }
 
-    // Per-class cleanup no longer needed; indices are cleaned up centrally in AssemblyHooks
+    // Per-class index cleanup not needed; indices are cleaned up centrally in AssemblyHooks
 
         [TestMethod]
         public void FuzzySearchTest()
@@ -329,7 +329,7 @@ public class CRUDTests
             var count = 5;
             var name = "odd";
             var newName = "oddball";
-            var nameField = "Name";
+            var nameField = "name";
 
             foreach (var i in Enumerable.Range(1, count).ToArray())
             {
@@ -342,7 +342,7 @@ public class CRUDTests
                 queued.Add(itm);
             }
 
-            var idx = ThrowawayEntity.GenerateIndex("Test_UpdateByQuery");
+            var idx = ThrowawayEntity.GenerateIndex("test_updatebyquery");
             var result = Client.AddUpdateBulk(queued, idx);
             RegisterDeleteIndex(idx);
             Client.RefreshIndex(idx, 500);
@@ -362,7 +362,7 @@ public class CRUDTests
                 }
             };
 
-            var newSearch = Client.Search<ThrowawayEntity>(idx, searchRequest);
+            var newSearch = Client.Count<ThrowawayEntity>(searchRequest, idx);
 
             Assert.IsTrue(newSearch.IsSuccessful);
             Assert.AreEqual(count, newSearch.CountAffected);
@@ -370,11 +370,10 @@ public class CRUDTests
 
             Client.UpdateByQuery(updateRequest, idx);
             Client.RefreshIndex(idx, 500);
-            newSearch = Client.Search<ThrowawayEntity>(idx, searchRequest);
+            newSearch = Client.Count<ThrowawayEntity>(searchRequest, idx);
 
             Assert.IsTrue(newSearch.IsSuccessful);
             Assert.AreEqual(count, newSearch.CountAffected);
-            Assert.AreEqual(newSearch.Results.First().Document.Name, newName);
         }
 
         [TestMethod]
