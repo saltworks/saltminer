@@ -57,7 +57,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
 
     #endregion
 
-    public IElasticClientResponse GetClusterLicenseLevel()
+    public IElasticClientResponse ClusterLicenseLevel()
     {
         try
         {
@@ -71,7 +71,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         }
     }
 
-    public async Task<IElasticClientResponse> GetClusterTaskCountAsync()
+    public async Task<IElasticClientResponse> ClusterTaskCountGetAsync()
     {
         var r = await ElasticClient.Tasks.ListAsync();
         if (r.IsValid)
@@ -85,14 +85,14 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return NestClientResponse.BuildResponse(false, "Task count call failure, see log.", 0);
     }
 
-    public IElasticClientResponse RefreshIndex(string indexName, int pauseMs = 1000)
+    public IElasticClientResponse IndexRefresh(string indexName, int pauseMs = 1000)
     {
         Thread.Sleep(pauseMs);
         ElasticClient.Indices.Refresh(indexName);
         return NestClientResponse.BuildResponse(true, "Index refreshed", 0);
     }
 
-    public IElasticClientResponse FlushIndex(string indexName)
+    public IElasticClientResponse IndexFlush(string indexName)
     {
         Thread.Sleep(1000);
         ElasticClient.Indices.Flush(indexName);
@@ -100,7 +100,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
     }
 
     /// <remarks>Untested currently</remarks>
-    public IElasticClientResponse UpdateIndexMapping(string indexName, string newMapping = null, string newIndexName = null)
+    public IElasticClientResponse IndexMappingUpdate(string indexName, string newMapping = null, string newIndexName = null)
     {
         if (string.IsNullOrEmpty(indexName))
         {
@@ -109,18 +109,18 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
 
         var backUpIndex = $"{indexName}_BackUp_ReMapping_{DateTime.UtcNow.ToString("MM/dd/yyyy")}";
 
-        ReIndex(indexName, backUpIndex);
-        DeleteIndex(indexName);
-        CreateIndex(newIndexName ?? indexName, newMapping);
-        ReIndex(backUpIndex, newIndexName ?? indexName);
-        DeleteIndex(backUpIndex);
+        IndexReindex(indexName, backUpIndex);
+        IndexDelete(indexName);
+        IndexCreate(newIndexName ?? indexName, newMapping);
+        IndexReindex(backUpIndex, newIndexName ?? indexName);
+        IndexDelete(backUpIndex);
 
         Logger?.LogDebug("UpdateIndexMappings for index: {IndexName}", newIndexName ?? indexName);
         
         return NestClientResponse.BuildResponse(true, $"Mapping for {newIndexName ?? indexName} was completed successfully.", 1);
     }
 
-    public IElasticClientResponse UpdateIndexName(string indexName, string newIndexName)
+    public IElasticClientResponse IndexRename(string indexName, string newIndexName)
     {
         if (string.IsNullOrEmpty(indexName))
         {
@@ -129,18 +129,18 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
 
         var backUpIndex = $"{indexName}_BackUp_ReName_{DateTime.UtcNow.ToString("MM/dd/yyyy")}";
 
-        ReIndex(indexName, backUpIndex);
-        DeleteIndex(indexName);
-        CreateIndex(newIndexName);
-        ReIndex(backUpIndex, newIndexName);
-        DeleteIndex(backUpIndex);
+        IndexReindex(indexName, backUpIndex);
+        IndexDelete(indexName);
+        IndexCreate(newIndexName);
+        IndexReindex(backUpIndex, newIndexName);
+        IndexDelete(backUpIndex);
 
         Logger?.LogDebug("UpdateIndexName for index: {IndexName} to {NewIndexName}", indexName, newIndexName);
 
         return NestClientResponse.BuildResponse(true, $"Renaming for {indexName} to {newIndexName} was completed successfully.", 1);
     }
 
-    public string GetIndexMapping(string indexName)
+    public string IndexMappingGet(string indexName)
     {
         var mapping = ElasticClient.LowLevel.Indices.GetMapping<StringResponse>(indexName);
 
@@ -153,7 +153,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
     }
 
     /// <remarks>Untested currently</remarks>
-    public IElasticClientResponse ReIndex(string sourceIndex, string destinationIndex)
+    public IElasticClientResponse IndexReindex(string sourceIndex, string destinationIndex, bool? destExists = null)
     {
         Logger?.LogDebug("ReIndex from {SourceIndex} to {DestinationIndex} initiated.", sourceIndex, destinationIndex);
 
@@ -189,19 +189,19 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return NestClientResponse.BuildResponse(isSuccessful, message, 1);
     }
 
-    public List<string> GetAllIndexes()
+    public List<string> IndexGetAll()
     {
         var response = ElasticClient.Cat.IndicesAsync(c => c.AllIndices()).Result;
         return response.Records.Select(i => i.Index).ToList();
     }
 
-    public List<string> GetAllTemplates()
+    public List<string> IndexTemplateGetList()
     {
         var response = ElasticClient.Cat.TemplatesAsync().Result;
         return response.Records.Select(i => i.Name).ToList();
     }
 
-    public IElasticClientResponse CreateIndex(string indexName, string mapping = null, bool force = false)
+    public IElasticClientResponse IndexCreate(string indexName, string mapping = null, bool force = false)
     {
         if (ElasticClient.Indices.Exists(indexName).Exists)
         {
@@ -233,7 +233,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return NestClientResponse.BuildResponse(response.Acknowledged, "Index created", 0);
     }
 
-    public IElasticClientResponse CheckForIndex(string indexName)
+    public IElasticClientResponse IndexExists(string indexName)
     {
         return NestClientResponse.BuildResponse(ElasticClient.Indices.Exists(indexName).Exists, "Index Exists", 0);
     }
@@ -254,7 +254,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return NestClientResponse<T>.BuildResponse(true, $"{indexName} was created successfully.");
     }
 
-    public IElasticClientResponse DeleteIndex(string indexName)
+    public IElasticClientResponse IndexDelete(string indexName)
     {
         if (!ElasticClient.Indices.Exists(indexName).Exists)
         {
@@ -296,21 +296,28 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return NestClientResponse.BuildResponse(result.Exists, null, 0);
     }
 
-    public string GetIndexTemplate(string templateName)
+    public IElasticClientResponse<string> IndexTemplateGet(string templateName)
     {
         Logger?.LogDebug("Get template {TemplateName}", templateName);
         var result = ElasticClient.LowLevel.DoRequest<StringResponse>(HttpMethod.GET, $"_index_template/{templateName}");
-        return result.Body;
+        var ok = result.HttpStatusCode == 200;
+        var body = ok ? result.Body : "failed to get template";
+        return NestClientResponse<string>.BuildResponse(ok, body, ok ? 1 : 0);
     }
 
-    public IElasticClientResponse AddUpdateIndexTemplate(string templateName, string template)
+    public IElasticClientResponse IndexTemplateDelete(string templateName)
+    {
+        throw new NotImplementedException();
+    }
+
+    public IElasticClientResponse IndexTemplateAddUpdate(string templateName, string template)
     {
         Logger?.LogDebug("Add/Update template for {TemplateName}", templateName);
         var result = ElasticClient.LowLevel.DoRequest<PutIndexTemplateResponse>(HttpMethod.PUT, $"_index_template/{templateName}", template);
         return NestClientResponse.BuildResponse(result.Acknowledged, null, 1);
     }
 
-    public IElasticClientResponse AddUpdateIndexPolicy(string policyName, string policy)
+    public IElasticClientResponse IndexPolicyAddUpdate(string policyName, string policy)
     {
         Logger?.LogDebug("Add/Update index policy for {PolicyName}", policyName);
         var result = ElasticClient.LowLevel.DoRequest<PutLifecycleResponse>(HttpMethod.PUT, $"_ilm/policy/{policyName}", policy);
@@ -463,7 +470,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return NestClientResponse.BuildResponse(isSuccessful, bulkErrors, "Bulk Errors", countAffected);
     }
 
-    public IElasticClientResponse AddUpdateBulkQueue(IEnumerable<SaltMinerEntity> docs)
+    public IElasticClientResponse BulkQueueAddUpdate(IEnumerable<SaltMinerEntity> docs)
     {
         var countAffected = 0;
         var isSuccessful = false;
@@ -576,7 +583,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return NestClientResponse.BuildResponse(isSuccessful, bulkErrors, isSuccessful ? null : "Bulk Errors", countAffected);
     }
 
-    public IElasticClientResponse AddUpdateBulk<T>(IEnumerable<T> docs, string index) where T: SaltMinerEntity
+    public IElasticClientResponse BulkAddUpdate<T>(IEnumerable<T> docs, string index) where T: SaltMinerEntity
     {
         var countAffected = 0;
         var isSuccessful = false;
@@ -668,7 +675,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return NestClientResponse.BuildResponse(isSuccessful, bulkErrors, isSuccessful ? null : "Bulk Errors", countAffected);
     }
 
-    public IElasticClientResponse DeleteBulk<T>(IEnumerable<string> ids, string indexName) where T : SaltMinerEntity
+    public IElasticClientResponse BulkDelete<T>(IEnumerable<string> ids, string indexName) where T : SaltMinerEntity
     {
         var countAffected = 0;
         var isSuccessful = false;
@@ -1747,5 +1754,4 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
             return NestClientResponse.BuildResponse(false, ex.Message, 0);
         }
     }
-
 }

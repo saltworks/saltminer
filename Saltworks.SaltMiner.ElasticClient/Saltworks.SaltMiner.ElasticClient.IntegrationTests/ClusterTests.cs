@@ -36,7 +36,7 @@ public class ClusterTests
     public void GetClusterLicenseLevel_ReturnsLicenseType()
     {
         // Act
-        var result = Client.GetClusterLicenseLevel();
+        var result = Client.ClusterLicenseLevel();
 
         // Assert
         Assert.IsNotNull(result);
@@ -48,7 +48,7 @@ public class ClusterTests
     public async Task GetClusterTaskCountAsync_ReturnsTaskCount()
     {
         // Act
-        var result = await Client.GetClusterTaskCountAsync();
+        var result = await Client.ClusterTaskCountGetAsync();
 
         // Assert
         Assert.IsNotNull(result);

@@ -44,7 +44,7 @@ public class AggregationTests
         {
             try
             {
-                Client.DeleteIndex(index);
+                Client.IndexDelete(index);
             }
             catch (Exception ex)
             {
@@ -171,7 +171,7 @@ public class AggregationTests
         }
         var issueIndex = Issue.GenerateIndex(scan.Saltminer.Asset.AssetType, sourceType, instance);
 
-        Client.AddUpdateBulk(list, issueIndex);
+        Client.BulkAddUpdate(list, issueIndex);
         await Task.Delay(2000); // wait for save to complete
 
         var agg = Client.BuildRequestAggregation("Saltminer.Asset.Instance", "Saltminer.Asset.SourceType",

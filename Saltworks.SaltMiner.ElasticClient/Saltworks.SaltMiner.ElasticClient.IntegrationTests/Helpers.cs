@@ -141,7 +141,7 @@ public static class Helpers
         {
             try
             {
-                client.DeleteIndex(idx);
+                client.IndexDelete(idx);
             }
             catch (Exception ex)
             {

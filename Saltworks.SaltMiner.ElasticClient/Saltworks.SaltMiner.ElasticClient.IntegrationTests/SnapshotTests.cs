@@ -206,7 +206,7 @@ public class SnapshotTests
             var delete = Client.Delete<Snapshot>(result.Id, Snapshot.GenerateIndex(AssetType.Mocked.ToString(), daily)).CountAffected;
             Assert.AreEqual(1, delete);
 
-            var indexDelete = Client.DeleteIndex(Snapshot.GenerateIndex(AssetType.Mocked.ToString(), daily)).IsSuccessful;
+            var indexDelete = Client.IndexDelete(Snapshot.GenerateIndex(AssetType.Mocked.ToString(), daily)).IsSuccessful;
             Assert.IsTrue(indexDelete);
         }
     }

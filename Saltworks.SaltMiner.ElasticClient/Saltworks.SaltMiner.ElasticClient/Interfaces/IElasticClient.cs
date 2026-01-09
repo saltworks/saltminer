@@ -28,43 +28,44 @@ public interface IElasticClient
     /// Get count of running tasks on cluster.  Useful for when you are about to add a bunch of "nowait" tasks.
     /// </summary>
     /// <returns>Response object with number of running tasks</returns>
-    Task<IElasticClientResponse> GetClusterTaskCountAsync();
+    Task<IElasticClientResponse> ClusterTaskCountGetAsync();
     /// <summary>
     /// Copy one index to another, creating the destination index if necessary
     /// </summary>
     /// <param name="sourceIndex">Source of the copy</param>
     /// <param name="destinationIndex">Destination for the copy</param>
+    /// <param name="destExists">If set, the destination index must exist or not exist as specified before proceeding.</param>
     /// <returns>A response object with IsSuccessful set based on success</returns>
-    IElasticClientResponse ReIndex(string sourceIndex, string destinationIndex);
+    IElasticClientResponse IndexReindex(string sourceIndex, string destinationIndex, bool? destExists = null);
     /// <summary>
     /// Refresh an existing index
     /// </summary>
     /// <param name="indexName">Specify index name</param>
     /// <param name="pauseMs">Wait this many ms before refresh</param>
     /// <returns>A response object with IsSuccessful set based on success</returns>
-    IElasticClientResponse RefreshIndex(string indexName, int pauseMs = 1000);
+    IElasticClientResponse IndexRefresh(string indexName, int pauseMs = 1000);
     /// <summary>
     /// Flush an existing index
     /// </summary>
     /// <param name="indexName">Specify index name</param>
     /// <returns>A response object with IsSuccessful set based on success</returns>
-    IElasticClientResponse FlushIndex(string indexName);
+    IElasticClientResponse IndexFlush(string indexName);
     /// <summary>
     /// Check for existing index
     /// </summary>
     /// <param name="indexName">Specify index name</param>
-    /// <returns>A response object with IsSuccessful set based on success</returns>
-    IElasticClientResponse CheckForIndex(string indexName);
+    /// <returns>Response object: IsSuccessful indicates call success, Affected count indicates if index exists (1) or not (0)</returns>
+    IElasticClientResponse IndexExists(string indexName);
     /// <summary>
     /// Get all indexes
     /// </summary>
     /// <returns>List of all indexes</returns>
-    List<string> GetAllIndexes();
+    List<string> IndexGetAll();
     /// <summary>
     /// Get all templates
     /// </summary>
     /// <returns>List of all templates</returns>
-    List<string> GetAllTemplates();
+    List<string> IndexTemplateGetList();
     /// <summary>
     /// Creates a new index
     /// </summary>
@@ -72,13 +73,13 @@ public interface IElasticClient
     /// <param name="mapping">Specify json mappings</param>
     /// <param name="force">If set, overwrite existing index</param>
     /// <returns>A response object with IsSuccessful set based on success</returns>
-    IElasticClientResponse CreateIndex(string indexName, string mapping = null, bool force = false);
+    IElasticClientResponse IndexCreate(string indexName, string mapping = null, bool force = false);
     /// <summary>
     /// Deletes an existing index
     /// </summary>
     /// <param name="indexName">Specify index name</param>
     /// <returns>A response object with IsSuccessful set based on success</returns>
-    IElasticClientResponse DeleteIndex(string indexName);
+    IElasticClientResponse IndexDelete(string indexName);
     /// <summary>
     /// Checks for active_issue_* alias on index
     /// </summary>
@@ -86,7 +87,7 @@ public interface IElasticClient
     /// <returns>A response object with IsSuccessful set based on success</returns>
     IElasticClientResponse CheckActiveIssueAlias(string indexName);
     /// <summary>
-    /// Add ctive_issue_* alias on existing index
+    /// Add active_issue_* alias on existing index
     /// </summary>
     /// <param name="indexName">Specify index name</param>
     /// <param name="alias">Specify alias to add</param>
@@ -98,51 +99,57 @@ public interface IElasticClient
     /// <param name="templateName">Specify template name</param>
     /// <param name="template">Specify template to add</param>
     /// <returns>A response object with IsSuccessful set based on whether the index has a template</returns>
-    IElasticClientResponse AddUpdateIndexTemplate(string templateName, string template);
+    IElasticClientResponse IndexTemplateAddUpdate(string templateName, string template);
     /// <summary>
     /// Add/Update Index Policy
     /// </summary>
     /// <param name="policyName">Specify index policy name</param>
     /// <param name="policy">Specify index policy to add</param>
     /// <returns>A response object with IsSuccessful set based on whether the index has a policy</returns>
-    IElasticClientResponse AddUpdateIndexPolicy(string policyName, string policy);
+    IElasticClientResponse IndexPolicyAddUpdate(string policyName, string policy);
     /// <summary>
     /// Check Index Template Exists
     /// </summary>
     /// <param name="templateName">Specify template name</param>
-    /// <returns>A response object with IsSuccessful set based on whether the index has a template</returns>
+    /// <returns>Response object: IsSuccessful indicates call success, Affected count indicates if index template exists (1) or not (0)</returns>
     IElasticClientResponse IndexTemplateExists(string templateName);
     /// <summary>
     /// Get Index Template
     /// </summary>
     /// <param name="templateName">Specify template name</param>
-    /// <returns>String of JSON Result</returns>
-    string GetIndexTemplate(string templateName);
+    /// <returns>Response containing json result</returns>
+    IElasticClientResponse<string> IndexTemplateGet(string templateName);
     /// <summary>
-    /// Updates an index mapping, using the type provided to generate the mappings
+    /// Delete Index Template
+    /// </summary>
+    /// <param name="templateName">Specify template name</param>
+    /// <returns>A response object with IsSuccessful set based on success</returns>
+    IElasticClientResponse IndexTemplateDelete(string templateName);
+    /// <summary>
+    /// Updates an index mapping, optionally creating a new index
     /// </summary>
     /// <param name="indexName">Specify index</param>
     /// <param name="newMapping">Mapping to be updated</param>
     /// <param name="newIndexName">Specify new index name</param>
     /// <returns>A response object with IsSuccessful set based on success</returns>
-    IElasticClientResponse UpdateIndexMapping(string indexName, string newMapping = null, string newIndexName = null);
+    IElasticClientResponse IndexMappingUpdate(string indexName, string newMapping = null, string newIndexName = null);
     /// <summary>
-    /// Updates an index mapping, using the type provided to generate the mappings
+    /// Renames index by reindexing to new name
     /// </summary>
     /// <param name="indexName">Specify index</param>
     /// <param name="newIndexName">Specify new index name</param>
     /// <returns>A response object with IsSuccessful set based on success</returns>
-    IElasticClientResponse UpdateIndexName(string indexName, string newIndexName);
+    IElasticClientResponse IndexRename(string indexName, string newIndexName);
     /// <summary>
     /// Get an index mapping
     /// </summary>
     /// <param name="indexName">Specify index</param>
     /// <returns>Index Mapping</returns>
-    string GetIndexMapping(string indexName);
+    string IndexMappingGet(string indexName);
     /// <summary>
     /// Returns elasticsearch cluster license level - Trial, Basic, Enterprise
     /// </summary>
-    IElasticClientResponse GetClusterLicenseLevel();
+    IElasticClientResponse ClusterLicenseLevel();
     /// <summary>
     /// Add or update (upsert) document of type T
     /// </summary>
@@ -169,7 +176,7 @@ public interface IElasticClient
     /// <param name="docs">Queue scan/asset/issue(s) to add or update</param>
     /// <returns>A response object containing a success flag and number of affected documents</returns>
     /// <remarks>Will throw an error if any document is not a QueueScan/QueueAsset/QueueIssue</remarks>
-    IElasticClientResponse AddUpdateBulkQueue(IEnumerable<SaltMinerEntity> docs);
+    IElasticClientResponse BulkQueueAddUpdate(IEnumerable<SaltMinerEntity> docs);
     /// <summary>
     /// Add or update (upsert) multiple documents of type T
     /// </summary>
@@ -177,7 +184,7 @@ public interface IElasticClient
     /// <param name="docs">Documents to add or update</param>
     /// <param name="index">Specify index</param>
     /// <returns>A response object containing a success flag and number of affected documents</returns>
-    IElasticClientResponse AddUpdateBulk<T>(IEnumerable<T> docs, string index) where T : SaltMinerEntity;
+    IElasticClientResponse BulkAddUpdate<T>(IEnumerable<T> docs, string index) where T : SaltMinerEntity;
     /// <summary>
     /// Bulk update passed docs, using locking and partial update
     /// </summary>
@@ -223,7 +230,7 @@ public interface IElasticClient
     /// <param name="ids">Identifiers of the documents to remove</param>
     /// <param name="indexName">Specify the index to update</param>
     /// <returns>A response object containing a success flag and count of affected docs</returns>
-    IElasticClientResponse DeleteBulk<T>(IEnumerable<string> ids, string indexName) where T : SaltMinerEntity;
+    IElasticClientResponse BulkDelete<T>(IEnumerable<string> ids, string indexName) where T : SaltMinerEntity;
     /// <summary>
     /// Removes multiple documents by search parameters
     /// </summary>

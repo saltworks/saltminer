@@ -28,13 +28,9 @@ using static Saltworks.SaltMiner.ElasticClient.EsClient.EsClientRequestAggregati
 namespace Saltworks.SaltMiner.ElasticClient.EsClient;
 public class EsClient(ClientConfiguration configuration, ElasticsearchClientSettings connectionSettings, ILogger<IElasticClient> logger) : IElasticClient
 {
-    private readonly ElasticsearchClient ElasticClient = new ElasticsearchClient(connectionSettings);
+    private readonly ElasticsearchClient ElasticClient = new(connectionSettings);
     private readonly ILogger Logger = logger;
     private readonly ClientConfiguration ClientConfig = configuration;
-    private static JsonSerializerOptions JsonCamelCaseOptions = new JsonSerializerOptions
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
 
     public IElasticClientResponse AddActiveIssueAlias(string indexName, string alias)
     {
@@ -76,22 +72,16 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         return EsClientResponse<T>.BuildResponse(doc, indexResponse);
     }
 
-    public IElasticClientResponse AddUpdateIndexPolicy(string policyName, string policy)
+    public IElasticClientResponse IndexPolicyAddUpdate(string policyName, string policy)
     {
         Logger?.LogDebug("Add/Update index policy for {PolicyName}", policyName);
-
-        var result = ElasticClient.Transport.RequestAsync<PutLifecycleResponse>(HttpMethod.PUT, $"_ilm/policy/{policyName}", policy).Result;
-
-        return EsClientResponse.BuildResponse(result.Acknowledged, null, 1);
-    }
-
-    public IElasticClientResponse AddUpdateIndexTemplate(string templateName, string template)
-    {
-        Logger?.LogDebug("Add/Update template for {TemplateName}", templateName);
-
-        var result = ElasticClient.Transport.RequestAsync<PutIndexTemplateResponse>(HttpMethod.PUT, $"_index_template/{templateName}", template).Result;
-
-        return EsClientResponse.BuildResponse(result.Acknowledged, null, 1);
+        var result = ElasticClient.Transport.RequestAsync<PutLifecycleResponse>(HttpMethod.PUT, $"_ilm/policy/{policyName}", PostData.String(policy)).Result;
+        if (!result.IsValidResponse)
+        {
+            Logger?.LogWarning("Failed to add/update index policy {Name}: {Error}", policyName, result.ElasticsearchServerError?.Error?.Reason ?? "Unknown error");
+            return EsClientResponse.BuildResponse(false, result.ElasticsearchServerError?.Error?.Reason ?? "Policy update failed", 0);
+        }
+        return EsClientResponse.BuildResponse(result.Acknowledged, "Policy updated", 1);
     }
 
     public IElasticClientRequestAggregate BuildRequestAggregate(string name, string field, ElasticAggregateType type)
@@ -118,27 +108,21 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         return EsClientResponse.BuildResponse(result.Exists, null, 0);
     }
 
-    public IElasticClientResponse CheckForIndex(string indexName)
+    public IElasticClientResponse IndexExists(string indexName)
     {
-        return EsClientResponse.BuildResponse(ElasticClient.Indices.ExistsAsync(indexName).Result.Exists, "Index Exists", 0);
-    }
-
-    public IElasticClientResponse IndexTemplateExists(string templateName)
-    {
-        Logger?.LogDebug("Check for template {TemplateName}", templateName);
-
-        var result = ElasticClient.Transport.RequestAsync<Elastic.Clients.Elasticsearch.ExistsResponse>(HttpMethod.GET, $"_index_template/{templateName}").Result;
-
-        return EsClientResponse.BuildResponse(result.Exists, null, 0);
-    }
-
-    public string GetIndexTemplate(string templateName)
-    {
-        Logger?.LogDebug("Get template {TemplateName}", templateName);
-
-        var result = ElasticClient.Transport.RequestAsync<StringResponse>(HttpMethod.GET, $"_index_template/{templateName}").Result;
-
-        return result.Body;
+        var rsp = ElasticClient.Indices.ExistsAsync(indexName).Result;
+        var status = rsp.ApiCallDetails?.HttpStatusCode ?? 0;
+        
+        // Treat 404 as success (index doesn't exist)
+        if (status == 404)
+            return EsClientResponse.BuildResponse(true, "Index does not exist", 0);
+        
+        // For valid responses, check if index exists
+        if (rsp.IsValidResponse && rsp.Exists)
+            return EsClientResponse.BuildResponse(true, "Index exists", 1);
+        
+        // Any other non-200 response is a failure
+        return EsClientResponse.BuildResponse(false, "Index check failed", 0);
     }
 
     public IElasticClientResponse<T> Count<T>(Core.Data.SearchRequest searchRequest, string indexName) where T : SaltMinerEntity
@@ -187,7 +171,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
 
         if (!index.Exists)
         {
-            var createRsp = ElasticClient.Indices.CreateAsync<CreateIndexResponse>(indexName, null).Result;
+            var createRsp = ElasticClient.Indices.CreateAsync(new CreateIndexRequest(indexName)).Result;
             ok = createRsp.IsSuccess();
         }
 
@@ -204,7 +188,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         return EsClientResponse.BuildResponse(true, msg, 0);
     }
 
-    public IElasticClientResponse CreateIndex(string indexName, string mapping = null, bool force = false)
+    public IElasticClientResponse IndexCreate(string indexName, string mapping = null, bool force = false)
     {
         if (ElasticClient.Indices.ExistsAsync(indexName).Result.Exists)
         {
@@ -300,7 +284,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         return EsClientResponse.BuildResponse(false, "Backup repo was not deleted", 0);
     }
 
-    public IElasticClientResponse DeleteBulk<T>(IEnumerable<string> ids, string indexName) where T : SaltMinerEntity
+    public IElasticClientResponse BulkDelete<T>(IEnumerable<string> ids, string indexName) where T : SaltMinerEntity
     {
         var countAffected = 0;
         var isSuccessful = false;
@@ -351,7 +335,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         return EsClientResponse<T>.BuildResponse(true, response.Total ?? 0);
     }
 
-    public IElasticClientResponse DeleteIndex(string indexName)
+    public IElasticClientResponse IndexDelete(string indexName)
     {
         if (!ElasticClient.Indices.ExistsAsync(indexName).Result.Exists)
         {
@@ -379,7 +363,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         }
     }
 
-    public IElasticClientResponse FlushIndex(string indexName)
+    public IElasticClientResponse IndexFlush(string indexName)
     {
         Thread.Sleep(1000);
         ElasticClient.Indices.FlushAsync(indexName).Wait();
@@ -398,35 +382,31 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         return EsClientResponse<T>.BuildResponse(response);
     }
 
-    public List<string> GetAllIndexes()
+    public List<string> IndexGetAll()
     {
-        var request = new GetIndexRequest("*");
-        var response = ElasticClient.Indices.GetAsync(request).Result;
+        // Use cat indices API to avoid complex JSON parsing of index metadata
+        // Replaces call to ElasticClient.Indices.GetAsync
+        var response = ElasticClient.Transport.RequestAsync<StringResponse>(HttpMethod.GET, "_cat/indices?h=index&format=json").Result;
 
         List<string> indexNames = new();
-        if (response.IsValidResponse)
+        if (!string.IsNullOrEmpty(response.Body))
         {
-            foreach (var index in response.Indices)
+            try
             {
-                indexNames.Add(index.Key.ToString());
+                var indices = JsonSerializer.Deserialize<List<Dictionary<string, string>>>(response.Body);
+                if (indices != null)
+                {
+                    foreach (var index in indices)
+                        if (index.TryGetValue("index", out var indexName))
+                            indexNames.Add(indexName);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogError(ex, "Failed to parse index list response");
             }
         }
         return indexNames;
-    }
-
-    public List<string> GetAllTemplates()
-    {
-        var response = ElasticClient.Indices.GetIndexTemplateAsync(".kibana-event-log-7.17.1-template").Result;
-
-        List<string> templateNames = new();
-        if (response.IsValidResponse)
-        {
-            foreach (var template in response.IndexTemplates)
-            {
-                templateNames.Add(template.Name);
-            }
-        }
-        return templateNames;
     }
 
     public IElasticClientResponse<ElasticClientCompositeAggregate> GetCompositeAggregate<T>(Core.Data.SearchRequest searchRequest, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggregates, string indexName) where T : SaltMinerEntity
@@ -482,15 +462,17 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         return EsClientBucketResponse.BuildBucketResponse(true, result);
     }
 
-    public string GetIndexMapping(string indexName)
+    public string IndexMappingGet(string indexName)
     {
-        var mapping = ElasticClient.Indices.GetMappingAsync(new GetMappingRequest(indexName)).Result;
-        if (mapping.IsValidResponse)
-            return mapping.Mappings.ToString();
+        // Use Transport API to get raw JSON response instead of deserializing/re-serializing
+        // replaces call to ElasticClient.Indices.GetMappingAsync
+        var response = ElasticClient.Transport.RequestAsync<StringResponse>(HttpMethod.GET, $"{indexName}/_mapping").Result;
+        if (!string.IsNullOrEmpty(response.Body))
+            return response.Body;
         return null;
     }
 
-    public IElasticClientResponse RefreshIndex(string indexName, int pauseMs = 1000)
+    public IElasticClientResponse IndexRefresh(string indexName, int pauseMs = 1000)
     {
         Thread.Sleep(pauseMs);
         ElasticClient.Indices.RefreshAsync(indexName).Wait();
@@ -510,37 +492,61 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         return EsClientResponse.BuildResponse(false, "Backup repo was not created", 0);
     }
 
-    public IElasticClientResponse ReIndex(string sourceIndex, string destinationIndex)
+    public IElasticClientResponse IndexReindex(string sourceIndex, string destinationIndex, bool? destExists = null)
     {
         Logger?.LogDebug("Reindex from {SourceIndex} to {DestinationIndex} initiated.", sourceIndex, destinationIndex);
 
         var isSuccessful = false;
         var message = string.Empty;
+        string ok = "";
 
-        if (!string.IsNullOrEmpty(sourceIndex) && !string.IsNullOrEmpty(destinationIndex))
+        ArgumentNullException.ThrowIfNullOrEmpty(sourceIndex);
+        ArgumentNullException.ThrowIfNullOrEmpty(destinationIndex);
+        var srcResponse = ElasticClient.Indices.ExistsAsync(Indices.Index(sourceIndex)).Result;
+        Elastic.Clients.Elasticsearch.IndexManagement.ExistsResponse dstResponse = null;
+        ok = srcResponse.IsValidResponse && srcResponse.Exists ? "" : "Source index invalid/missing.";
+        Logger.LogDebug("Source index {SourceIndex} exists: [{Status}]{Exists}", sourceIndex, srcResponse.ApiCallDetails.HttpStatusCode, srcResponse.Exists);
+        
+        if (destExists.HasValue && string.IsNullOrEmpty(ok))
         {
-            var sourceExistsResponse = ElasticClient.Indices.ExistsAsync(Indices.Index(sourceIndex)).Result;
-            var destinationExistsResponse = ElasticClient.Indices.ExistsAsync(Indices.Index(destinationIndex)).Result;
-
-            if (sourceExistsResponse.IsValidResponse && sourceExistsResponse.Exists && !destinationExistsResponse.IsValidResponse)
-            {
-                var reindexRequest = new ReindexRequestDescriptor()
-                    .Source(s => s.Indices(sourceIndex))
-                    .Dest(d => d.Index(destinationIndex));
-
-                var response = ElasticClient.ReindexAsync(reindexRequest).Result;
-
-                if (response.IsValidResponse)
-                {
-                    isSuccessful = true;
-                    message = "The ReIndex was completed successfully.";
-                    Logger?.LogDebug("Reindex from {SourceIndex} to {DestinationIndex} completed.", sourceIndex, destinationIndex);
-                }
-            }
-
-            Logger?.LogDebug("Reindex from {SourceIndex} to {DestinationIndex} completed.", sourceIndex, destinationIndex);
+            dstResponse = ElasticClient.Indices.ExistsAsync(Indices.Index(destinationIndex)).Result;
+            var badMsg = destExists.Value ? "Destination index expected but missing." : "Destination index expected to not exist but exists.";
+            ok = dstResponse.IsValidResponse && dstResponse.Exists == destExists.Value ? "" : badMsg;
+            Logger.LogDebug("Destination index {DestinationIndex} exists: [{Status}]{Exists}", destinationIndex, dstResponse.ApiCallDetails.HttpStatusCode, dstResponse.Exists);
         }
 
+        if (!string.IsNullOrEmpty(ok))
+        {
+            Logger.LogWarning("Reindex from {SourceIndex} to {DestinationIndex} not performed: {Reason}", sourceIndex, destinationIndex, ok);
+            return EsClientResponse.BuildResponse(false, ok, 0);
+        }
+        try
+        {
+            Logger?.LogDebug("Calling ReindexAsync from {SourceIndex} to {DestinationIndex}", sourceIndex, destinationIndex);
+            var response = ElasticClient.ReindexAsync(r => r
+                .Source(s => s.Indices(Indices.Index(sourceIndex)))
+                .Dest(d => d.Index(destinationIndex))
+                .WaitForCompletion(true)).Result;
+
+            if (response != null && response.IsValidResponse)
+            {
+                isSuccessful = true;
+                message = "The ReIndex was completed successfully.";               
+            }
+            else
+            {
+                var status = response?.ApiCallDetails?.HttpStatusCode ?? -1;
+                Logger.LogError("Reindex from {SourceIndex} to {DestinationIndex} failed with response code {Status}: {Error}", sourceIndex, destinationIndex, status, response?.ApiCallDetails?.DebugInformation);
+                message = $"Failed (HTTP {status})";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Reindex from {SourceIndex} to {DestinationIndex} threw exception: [{Type}] {Msg}", sourceIndex, destinationIndex, ex.GetBaseException().GetType().Name, ex.GetBaseException().Message);
+            message = $"Failed (HTTP 500)";
+        }
+
+        Logger?.LogDebug("Reindex from {SourceIndex} to {DestinationIndex} completed.", sourceIndex, destinationIndex);
         return EsClientResponse.BuildResponse(isSuccessful, message, 1);
     }
 
@@ -733,44 +739,79 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         return EsClientResponse<T>.BuildResponse(true, response.Total ?? 0);
     }
 
-    public IElasticClientResponse UpdateIndexMapping(string indexName, string newMapping = null, string newIndexName = null)
+    public IElasticClientResponse IndexMappingUpdate(string indexName, string newMapping = null, string newIndexName = null)
     {
         if (string.IsNullOrEmpty(indexName))
         {
             throw new ArgumentNullException(nameof(indexName));
         }
 
-        var backUpIndex = $"{indexName}_BackUp_ReMapping_{DateTime.UtcNow.ToString("MM/dd/yyyy")}";
+        var backUpIndex = $"{indexName}_BackUp_ReMapping_{DateTime.UtcNow:yyyyMMddHHmmss}";
 
-        ReIndex(indexName, backUpIndex);
-        DeleteIndex(indexName);
-        CreateIndex(newIndexName ?? indexName, newMapping);
-        ReIndex(backUpIndex, newIndexName ?? indexName);
-        DeleteIndex(backUpIndex);
+        var firstPass = IndexReindex(indexName, backUpIndex);
+        if (!firstPass.IsSuccessful)
+            return firstPass;
+
+        IndexDelete(indexName);
+        IndexCreate(newIndexName ?? indexName, newMapping);
+
+        var secondPass = IndexReindex(backUpIndex, newIndexName ?? indexName);
+        if (!secondPass.IsSuccessful)
+            return secondPass;
+
+        IndexDelete(backUpIndex);
 
         Logger?.LogDebug("UpdateIndexMappings for index: {IndexName}", newIndexName ?? indexName);
 
         return EsClientResponse.BuildResponse(true, $"Mapping for {newIndexName ?? indexName} was completed successfully.", 1);
     }
 
-    public IElasticClientResponse UpdateIndexName(string indexName, string newIndexName)
+    public IElasticClientResponse IndexRename(string indexName, string newIndexName)
     {
         if (string.IsNullOrEmpty(indexName))
         {
             throw new ArgumentNullException(nameof(indexName));
         }
 
-        var backUpIndex = $"{indexName}_BackUp_ReName_{DateTime.UtcNow.ToString("MM/dd/yyyy")}";
+        // Throw error if source index doesn't exist
+        var srcExists = ElasticClient.Indices.ExistsAsync(indexName).Result;
+        if (!srcExists.Exists)
+            return EsClientResponse.BuildResponse(false, $"Source index{indexName} does not exist", 0);
 
-        ReIndex(indexName, backUpIndex);
-        DeleteIndex(indexName);
-        CreateIndex(newIndexName);
-        ReIndex(backUpIndex, newIndexName);
-        DeleteIndex(backUpIndex);
+        // Throw error if destination already exists
+        var destExists = ElasticClient.Indices.ExistsAsync(newIndexName).Result;
+        if (destExists.Exists)
+            return EsClientResponse.BuildResponse(false, $"Dest index{indexName} already exists", 0);
 
-        Logger?.LogDebug("UpdateIndexName for index: {IndexName} to {NewIndexName}", indexName, newIndexName);
+        try
+        {
+            // Use reindex to copy from source to destination
+            Logger?.LogDebug("Reindexing from {SourceIndex} to {DestinationIndex} for rename", indexName, newIndexName);
+            var reindexResult = IndexReindex(indexName, newIndexName);
+            if (!reindexResult.IsSuccessful)
+                return reindexResult;
+            // Verify new index exists
+            Thread.Sleep(500);
+            var chk = IndexExists(newIndexName);
+            var chkExists = chk.IsSuccessful && chk.CountAffected > 0;
+            Logger.LogDebug("{DestinationIndex} {Does} exist reindex", newIndexName, chkExists ? "does" : "does NOT");
+            if (!chkExists)
+                return EsClientResponse.BuildResponse(false, $"{newIndexName} missing after reindex", 0);
 
-        return EsClientResponse.BuildResponse(true, $"Renaming for {indexName} to {newIndexName} was completed successfully.", 1);
+            // Delete the source index after successful reindex
+            Logger?.LogDebug("Deleting source index {SourceIndex} after rename reindex", indexName);
+            var deleteResult = IndexDelete(indexName);
+            if (!deleteResult.IsSuccessful)
+                Logger.LogWarning("Failed to delete source index {SourceIndex} after rename", indexName);
+
+            Logger?.LogInformation("IndexRename completed: {SourceIndex} -> {DestinationIndex}", indexName, newIndexName);
+            return EsClientResponse.BuildResponse(true, $"", 1);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "IndexRename failed with exception");
+            return EsClientResponse.BuildResponse(false, $"Failed (500)", 0);
+        }
     }
 
     public IElasticClientResponse<T> UpdateWithLocking<T>(T doc, string index, long? primary, long? seq) where T : SaltMinerEntity
@@ -846,7 +887,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         }
     }
 
-    public IElasticClientResponse GetClusterLicenseLevel()
+    public IElasticClientResponse ClusterLicenseLevel()
     {
         Logger?.LogDebug("Get cluster license level");
         
@@ -875,7 +916,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         }
     }
 
-    public async Task<IElasticClientResponse> GetClusterTaskCountAsync()
+    public async Task<IElasticClientResponse> ClusterTaskCountGetAsync()
     {
         Logger?.LogDebug("Get cluster task count");
         
@@ -937,60 +978,68 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
     private static Properties CreateMappingProperties(string mapping)
     {
         var properties = new Properties();
-        var mappingDict = JsonSerializer.Deserialize<Dictionary<string, object>>(mapping, JsonCamelCaseOptions);
-        if (mappingDict != null && mappingDict.TryGetValue("properties", out var props) &&
-            props is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.Object)
+        var mappingDoc = JsonDocument.Parse(mapping);
+        var root = mappingDoc.RootElement;
+
+        // Handle both formats: {"properties": {...}} and {"mappings": {"properties": {...}}}
+        if ((!root.TryGetProperty("mappings", out var mappingsElement) || !mappingsElement.TryGetProperty("properties", out var propsElement)) &&
+            !root.TryGetProperty("properties", out propsElement))
+            return properties; // No properties found
+
+        if (propsElement.ValueKind != JsonValueKind.Object)
+            return properties; // Invalid properties format
+
+        foreach (var prop in propsElement.EnumerateObject())
         {
-            foreach (var prop in jsonElement.EnumerateObject())
+            var propName = prop.Name;
+            var propValue = prop.Value;
+
+            if (!propValue.TryGetProperty("type", out var typeProp))
+                continue; // Skip if no type defined
+
+            switch (typeProp.GetString())
             {
-                var propName = prop.Name;
-                var propValue = prop.Value;
-
-                if (propValue.TryGetProperty("type", out var typeProp))
-                {
-                    var type = typeProp.GetString();
-
-                    switch (type)
+                case "text":
+                    var textProp = new TextProperty();
+                    if (propValue.TryGetProperty("analyzer", out var analyzer))
                     {
-                        case "text":
-                            properties.Add(propName, new TextProperty
-                            {
-                                Analyzer = propValue.GetProperty("analyzer").GetString()
-                            });
-                            break;
-
-                        case "integer":
-                            properties.Add(propName, new IntegerNumberProperty());
-                            break;
-
-                        case "long":
-                            properties.Add(propName, new LongNumberProperty());
-                            break;
-
-                        case "float":
-                            properties.Add(propName, new FloatNumberProperty());
-                            break;
-
-                        case "double":
-                            properties.Add(propName, new DoubleNumberProperty());
-                            break;
-
-                        case "keyword":
-                            properties.Add(propName, new KeywordProperty());
-                            break;
-
-                        case "boolean":
-                            properties.Add(propName, new BooleanProperty());
-                            break;
-
-                        case "date":
-                            properties.Add(propName, new DateProperty
-                            {
-                                Format = propValue.GetProperty("format").GetString()
-                            });
-                            break;
+                        textProp.Analyzer = analyzer.GetString();
                     }
-                }
+                    properties.Add(propName, textProp);
+                    break;
+
+                case "integer":
+                    properties.Add(propName, new IntegerNumberProperty());
+                    break;
+
+                case "long":
+                    properties.Add(propName, new LongNumberProperty());
+                    break;
+
+                case "float":
+                    properties.Add(propName, new FloatNumberProperty());
+                    break;
+
+                case "double":
+                    properties.Add(propName, new DoubleNumberProperty());
+                    break;
+
+                case "keyword":
+                    properties.Add(propName, new KeywordProperty());
+                    break;
+
+                case "boolean":
+                    properties.Add(propName, new BooleanProperty());
+                    break;
+
+                case "date":
+                    var dateProp = new DateProperty();
+                    if (propValue.TryGetProperty("format", out var format))
+                    {
+                        dateProp.Format = format.GetString();
+                    }
+                    properties.Add(propName, dateProp);
+                    break;
             }
         }
         return properties;
@@ -1520,7 +1569,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
     /// <summary>
     /// Adds or updates multiple documents in bulk for a single index.
     /// </summary>
-    public IElasticClientResponse AddUpdateBulk<T>(IEnumerable<T> docs, string index) where T : SaltMinerEntity
+    public IElasticClientResponse BulkAddUpdate<T>(IEnumerable<T> docs, string index) where T : SaltMinerEntity
     {
         Logger?.LogInformation("[AddUpdateBulk] Bulk operation for entity type {Name} initiated (EnableBulkAddErrorDiagnostics: {Enabled}).", docs.GetType().Name, ClientConfig.EnableBulkAddErrorDiagnostics);
 
@@ -1542,7 +1591,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
     /// <summary>
     /// Adds or updates multiple queue* documents in bulk (requires QueueScan, QueueAsset, or QueueIssue).
     /// </summary>
-    public IElasticClientResponse AddUpdateBulkQueue(IEnumerable<SaltMinerEntity> docs)
+    public IElasticClientResponse BulkQueueAddUpdate(IEnumerable<SaltMinerEntity> docs)
     {
         Logger?.LogInformation("[AddUpdateBulkQueue] Bulk operation for queue types initiated (EnableBulkAddErrorDiagnostics: {Enabled}).", ClientConfig.EnableBulkAddErrorDiagnostics);
 
@@ -1622,6 +1671,75 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         var response = ExecuteBulkRequest(operations);
         Logger?.LogInformation("[BulkUpdatePartialWithLocking] Bulk operation completed.  Success: {Success}, Affected: {Affected}", response.IsSuccessful, response.CountAffected);
         return response;
+    }
+
+#endregion
+
+#region Index Templates
+
+    public List<string> IndexTemplateGetList()
+    {
+        var response = ElasticClient.Indices.GetIndexTemplateAsync().Result;
+        if (response.IsValidResponse)
+            return response.IndexTemplates.Select(t => t.Name).ToList();
+        return [];
+    }
+
+    public IElasticClientResponse IndexTemplateAddUpdate(string templateName, string template)
+    {
+        Logger?.LogDebug("Add/Update template for {TemplateName}", templateName);
+        var result = ElasticClient.Transport.RequestAsync<PutIndexTemplateResponse>(HttpMethod.PUT, $"_index_template/{templateName}", PostData.String(template)).Result;
+        if (!result.IsValidResponse)
+        {
+            Logger?.LogWarning("Failed to add/update index template {Name}: {Error}", templateName, result.ElasticsearchServerError?.Error?.Reason ?? "Unknown error");
+            return EsClientResponse.BuildResponse(false, result.ElasticsearchServerError?.Error?.Reason ?? "Template update failed", 0);
+        }
+        return EsClientResponse.BuildResponse(result.Acknowledged, "Template updated", 1);
+    }
+
+    public IElasticClientResponse IndexTemplateExists(string templateName)
+    {
+        Logger?.LogDebug("Check for template {TemplateName}", templateName);
+        var rsp = ElasticClient.Transport.RequestAsync<Elastic.Clients.Elasticsearch.ExistsResponse>(HttpMethod.GET, $"_index_template/{templateName}").Result;
+        var status = rsp.ApiCallDetails?.HttpStatusCode ?? 0;
+        if (status == 404)
+        {
+            return EsClientResponse.BuildResponse(true, "Index template not found", 0);
+        }
+        if (rsp.IsValidResponse && rsp.Exists)
+        {
+            return EsClientResponse.BuildResponse(true, "Index template exists", 1);
+        }
+        return EsClientResponse.BuildResponse(false, "Index template check failed", 0);
+    }
+
+    public IElasticClientResponse IndexTemplateDelete(string templateName)
+    {
+        Logger?.LogDebug("Delete template {TemplateName}", templateName);
+        var rsp = ElasticClient.Transport.RequestAsync<DeleteIndexTemplateResponse>(HttpMethod.DELETE, $"_index_template/{templateName}").Result;
+        var status = rsp.ApiCallDetails?.HttpStatusCode ?? 0;
+        if (status == 404)
+            return EsClientResponse.BuildResponse(true, "Index template not found", 0);
+        if (rsp.IsValidResponse)
+            return EsClientResponse.BuildResponse(true, "Index template deleted", 1);
+        return EsClientResponse.BuildResponse(false, "Index template delete failed", 0);
+    }
+
+    public IElasticClientResponse<string> IndexTemplateGet(string templateName)
+    {
+        Logger?.LogDebug("Get template {TemplateName}", templateName);
+        var result = ElasticClient.Transport.RequestAsync<StringResponse>(HttpMethod.GET, $"_index_template/{templateName}").Result;
+        if (result.ApiCallDetails.HttpStatusCode == 404)
+        {
+            Logger?.LogDebug("Template {TemplateName} not found", templateName);
+            return EsClientResponse<string>.BuildResponse(true, "not found", 0);
+        }
+        if (result.ApiCallDetails.HttpStatusCode != 200)
+        {
+            Logger?.LogInformation("Failed to get index template {Name}: {Error}", templateName, result?.ApiCallDetails?.DebugInformation ?? "Unknown error");
+            return EsClientResponse<string>.BuildResponse(false, "failed", 0);
+        }
+        return EsClientResponse<string>.BuildResponse(true, result.Body, 1);
     }
 
 #endregion

@@ -67,7 +67,7 @@ public class BulkTests
         }
 
         // Act
-        var result = Client.AddUpdateBulk(entities, indexName);
+        var result = Client.BulkAddUpdate(entities, indexName);
         Assert.IsTrue(result.IsSuccessful, "Initial bulk insert failed");
         Assert.AreEqual(entityCount, result.CountAffected, "Not all entities were added");
 
@@ -78,7 +78,7 @@ public class BulkTests
         }
         
         // Act - Update same entities
-        result = Client.AddUpdateBulk(entities, indexName);
+        result = Client.BulkAddUpdate(entities, indexName);
 
         // Assert
         Assert.IsNotNull(result);
@@ -106,8 +106,8 @@ public class BulkTests
         }
 
         // Act
-        var result = Client.AddUpdateBulkQueue(queuedIssues);
-        Client.RefreshIndex(QueueIssue.GenerateIndex(), 500);
+        var result = Client.BulkQueueAddUpdate(queuedIssues);
+        Client.IndexRefresh(QueueIssue.GenerateIndex(), 500);
 
         // Assert
         Assert.IsTrue(result.IsSuccessful);
@@ -138,7 +138,7 @@ public class BulkTests
             entities.Add(entity);
             Client.AddUpdate(entity, indexName);
         }
-        Client.RefreshIndex(indexName, 500);
+        Client.IndexRefresh(indexName, 500);
 
         var script = "ctx._source.test_field = params.update";
         var updateObj = new { test_value = "updated" };
@@ -169,7 +169,7 @@ public class BulkTests
         var ids = entities.Select(e => e.Id).ToList();
 
         // Act
-        var result = Client.DeleteBulk<ThrowawayEntity>(ids, indexName);
+        var result = Client.BulkDelete<ThrowawayEntity>(ids, indexName);
 
         // Assert
         Assert.IsTrue(result.IsSuccessful);

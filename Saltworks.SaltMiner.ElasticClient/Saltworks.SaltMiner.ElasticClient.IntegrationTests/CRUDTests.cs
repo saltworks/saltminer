@@ -177,7 +177,7 @@ public class CrudTests
                 issues.Add(issue);
             }
 
-            Client.AddUpdateBulk(issues, indexName);
+            Client.BulkAddUpdate(issues, indexName);
             await Task.Delay(2000); // Will fail if search happens right after inserts
             request = new SearchRequest
             {
@@ -237,7 +237,7 @@ public class CrudTests
                 issues.Add(issue);
             }
 
-            var r = Client.AddUpdateBulk(issues, indexName);
+            var r = Client.BulkAddUpdate(issues, indexName);
             await Task.Delay(2000); //Will fail if count happens right after update
             var result = Client.Count<Issue>(request, indexName);
 
@@ -284,7 +284,7 @@ public class CrudTests
                 issues.Add(issue);
             }
 
-            Client.AddUpdateBulk(issues, indexName);
+            Client.BulkAddUpdate(issues, indexName);
 
             await Task.Delay(2000); //Will fail if search happens right after inserts
 
@@ -346,10 +346,10 @@ public class CrudTests
             var idx = ThrowawayEntity.GenerateIndex("test_updatebyquery");
             RegisterDeleteIndex(idx);
             // Clean up any existing data from previous test runs - won't fail if index doesn't exist
-            Client.DeleteIndex(idx);
+            Client.IndexDelete(idx);
             
-            var result = Client.AddUpdateBulk(queued, idx);
-            Client.RefreshIndex(idx, 1000);
+            var result = Client.BulkAddUpdate(queued, idx);
+            Client.IndexRefresh(idx, 1000);
 
             Assert.IsTrue(result.IsSuccessful, "Bulk insert failed");
             Assert.AreEqual(count, result.CountAffected, "Bulk insert count mismatch");
@@ -372,7 +372,7 @@ public class CrudTests
             Assert.AreEqual(oddCount, srch.CountAffected, $"Should find {oddCount} documents with name='{name}'");
 
             Client.UpdateByQuery(updateRequest, idx);
-            Client.RefreshIndex(idx, 500);
+            Client.IndexRefresh(idx, 500);
             
             // After update, search for old name should return 0
             srch = Client.Count<ThrowawayEntity>(searchRequest, idx);
@@ -401,7 +401,7 @@ public class CrudTests
             queueLogs.Add(queueLog);
             Client.AddUpdate(queueLog, indexName);
 
-            var result = Client.DeleteBulk<QueueLog>(queueLogs.Select(ql => ql.Id), indexName);
+            var result = Client.BulkDelete<QueueLog>(queueLogs.Select(ql => ql.Id), indexName);
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(2, result.CountAffected);
         }
@@ -436,7 +436,7 @@ public class CrudTests
             catch (Exception ex) { booboo = true; msg = ex.Message; }
             Assert.IsFalse(booboo, "DeleteByQuery had a boo-boo with no searchy stuff. Msg: {0}", msg);
             Assert.AreEqual(1, result.CountAffected);
-            Client.DeleteIndex(indexName);
+            Client.IndexDelete(indexName);
         }
 
         [TestMethod]
@@ -650,7 +650,7 @@ public class CrudTests
             var delete = Client.Delete<Snapshot>(result.Result.Document.Id, assetSnapshotIndex).CountAffected;
             Assert.AreEqual(1, delete);
 
-            var indexDelete = Client.DeleteIndex(assetSnapshotIndex).IsSuccessful;
+            var indexDelete = Client.IndexDelete(assetSnapshotIndex).IsSuccessful;
             Assert.IsTrue(indexDelete);
         }
 
