@@ -33,13 +33,13 @@ public class IndexTemplateTests
     }
 
     [TestMethod]
-    public void CheckIndexTemplateExists_ExistingTemplate()
+    public void IndexTemplateExists()
     {
         // Arrange
         var templateName = "queue_asset";
 
         // Act
-        var result = Client.CheckIndexTemplateExists(templateName);
+        var result = Client.IndexTemplateExists(templateName);
 
         // Assert
         Assert.IsNotNull(result);
@@ -47,7 +47,7 @@ public class IndexTemplateTests
     }
 
     [TestMethod]
-    public void GetIndexTemplate_RetrievesTemplate()
+    public void GetIndexTemplate()
     {
         // Arrange
         var templateName = "queue_asset";
@@ -62,7 +62,7 @@ public class IndexTemplateTests
     }
 
     [TestMethod]
-    public void AddUpdateIndexTemplate_CreatesTemplate()
+    public void AddUpdateIndexTemplate()
     {
         // Arrange
         var templateName = $"test_template_{Guid.NewGuid()}";
@@ -93,7 +93,7 @@ public class IndexTemplateTests
     }
 
     [TestMethod]
-    public void AddUpdateIndexPolicy_CreatesPolicy()
+    public void AddUpdateIndexPolicy()
     {
         // Arrange
         var policyName = $"test_policy_{Guid.NewGuid()}";

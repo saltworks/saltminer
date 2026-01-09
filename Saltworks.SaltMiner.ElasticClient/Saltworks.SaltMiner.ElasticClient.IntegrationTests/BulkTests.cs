@@ -46,6 +46,50 @@ public class BulkTests
     // Per-class index cleanup not needed; indices are cleaned up centrally in AssemblyHooks
 
     [TestMethod]
+    public void AddUpdateBulk_ThrowawayEntities()
+    {
+        // Arrange
+        var indexName = "test_addupdate_bulk_throwaway";
+        RegisterDeleteIndex(indexName);
+        
+        var entities = new List<ThrowawayEntity>();
+        var entityCount = 10;
+        
+        for (int i = 0; i < entityCount; i++)
+        {
+            var entity = new ThrowawayEntity 
+            { 
+                Id = i % 2 == 0 ? "" : Guid.NewGuid().ToString(), // Test auto-ID generation for some entities
+                Name = $"Entity_{i}",
+                Number = i
+            };
+            entities.Add(entity);
+        }
+
+        // Act
+        var result = Client.AddUpdateBulk(entities, indexName);
+        Assert.IsTrue(result.IsSuccessful, "Initial bulk insert failed");
+        Assert.AreEqual(entityCount, result.CountAffected, "Not all entities were added");
+
+        // Modify entities
+        foreach (var entity in entities)
+        {
+            entity.Name += "_Updated";
+        }
+        
+        // Act - Update same entities
+        result = Client.AddUpdateBulk(entities, indexName);
+
+        // Assert
+        Assert.IsNotNull(result);
+        Assert.IsTrue(result.IsSuccessful, $"Bulk operation failed: {result.Message}");
+        Assert.AreEqual(entityCount, result.CountAffected, "Not all entities were updated");
+        
+        // Verify all entities have IDs assigned
+        Assert.IsTrue(entities.All(e => !string.IsNullOrEmpty(e.Id)), "Some entities don't have IDs assigned");
+    }
+
+    [TestMethod]
     public async Task AddUpdateBulkQueueIssues()
     {
         // Arrange

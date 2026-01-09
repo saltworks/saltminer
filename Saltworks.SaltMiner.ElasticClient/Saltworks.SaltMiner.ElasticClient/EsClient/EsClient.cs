@@ -123,7 +123,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         return EsClientResponse.BuildResponse(ElasticClient.Indices.ExistsAsync(indexName).Result.Exists, "Index Exists", 0);
     }
 
-    public IElasticClientResponse CheckIndexTemplateExists(string templateName)
+    public IElasticClientResponse IndexTemplateExists(string templateName)
     {
         Logger?.LogDebug("Check for template {TemplateName}", templateName);
 
@@ -348,7 +348,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
 
         Logger?.LogDebug("DeleteByQuery for index: {IndexName} completed.", indexName);
 
-        return EsClientResponse<T>.BuildResponse(true, (long)response.Total);
+        return EsClientResponse<T>.BuildResponse(true, response.Total ?? 0);
     }
 
     public IElasticClientResponse DeleteIndex(string indexName)
@@ -630,7 +630,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         Query query = null;
         if ((searchRequest?.Filter?.FilterMatches?.Count ?? 0) > 0)
             query = CreateQueryFromRequest(searchRequest.Filter);
-        var sort = searchRequest.SortKeys.Select(x => new SortOptions { 
+        var sort = searchRequest?.SortKeys?.Select(x => new SortOptions { 
             Field = new FieldSort { 
                 Field = Field.FromString(x.Key.ToSnakeCase()), 
                 Order = x.Value ? SortOrder.Asc : SortOrder.Desc 
@@ -1560,7 +1560,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
             operations.Add(op);
         }
 
-        Logger.LogDebug("Attempting to index {Count} docs of type {Name} on index {Index}", docs.Count(), typeof(T).Name, index);
+        Logger.LogDebug("Attempting to index {Count} queue docs", docs.Count());
         var response = ExecuteBulkRequest(operations);
         Logger?.LogInformation("[AddUpdateBulkQueue] Bulk operation for entity type {Name} completed.  Success: {Success}, Affected: {Affected}", docs.GetType().Name, response.IsSuccessful, response.CountAffected);
         return response;

@@ -41,7 +41,7 @@ public class IndexTests
 			var indexName = "queue_asset";
 
 			// Act
-			var result = Client.CheckIndexTemplateExists(indexName);
+			var result = Client.IndexTemplateExists(indexName);
 
 			// Assert
 			Assert.IsTrue(result.IsSuccessful);

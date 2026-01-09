@@ -111,7 +111,7 @@ public interface IElasticClient
     /// </summary>
     /// <param name="templateName">Specify template name</param>
     /// <returns>A response object with IsSuccessful set based on whether the index has a template</returns>
-    IElasticClientResponse CheckIndexTemplateExists(string templateName);
+    IElasticClientResponse IndexTemplateExists(string templateName);
     /// <summary>
     /// Get Index Template
     /// </summary>

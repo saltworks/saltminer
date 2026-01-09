@@ -289,7 +289,7 @@ public class NestClient(ClientConfiguration configuration, ConnectionSettings co
         return NestClientResponse.BuildResponse(result.IsValid, null, 1);
     }
 
-    public IElasticClientResponse CheckIndexTemplateExists(string templateName)
+    public IElasticClientResponse IndexTemplateExists(string templateName)
     {
         Logger?.LogDebug("Check for template {TemplateName}", templateName);
         var result = ElasticClient.LowLevel.DoRequest<ExistsResponse>(HttpMethod.GET, $"_index_template/{templateName}");

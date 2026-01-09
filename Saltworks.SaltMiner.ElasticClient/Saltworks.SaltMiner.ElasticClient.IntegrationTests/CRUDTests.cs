@@ -327,6 +327,7 @@ public class CrudTests
         {
             var queued = new List<ThrowawayEntity>();
             var count = 5;
+            var oddCount = count % 2 == 0 ? count / 2 : (count / 2) + 1;
             var name = "odd";
             var newName = "oddball";
             var nameField = "name";
@@ -343,9 +344,12 @@ public class CrudTests
             }
 
             var idx = ThrowawayEntity.GenerateIndex("test_updatebyquery");
-            var result = Client.AddUpdateBulk(queued, idx);
             RegisterDeleteIndex(idx);
-            Client.RefreshIndex(idx, 500);
+            // Clean up any existing data from previous test runs - won't fail if index doesn't exist
+            Client.DeleteIndex(idx);
+            
+            var result = Client.AddUpdateBulk(queued, idx);
+            Client.RefreshIndex(idx, 1000);
 
             Assert.IsTrue(result.IsSuccessful, "Bulk insert failed");
             Assert.AreEqual(count, result.CountAffected, "Bulk insert count mismatch");
@@ -362,18 +366,24 @@ public class CrudTests
                 }
             };
 
-            var newSearch = Client.Count<ThrowawayEntity>(searchRequest, idx);
+            var srch = Client.Count<ThrowawayEntity>(searchRequest, idx);
 
-            Assert.IsTrue(newSearch.IsSuccessful);
-            Assert.AreEqual(count, newSearch.CountAffected);
-            Assert.AreEqual(newSearch.Results.First().Document.Name, name);
+            Assert.IsTrue(srch.IsSuccessful);
+            Assert.AreEqual(oddCount, srch.CountAffected, $"Should find {oddCount} documents with name='{name}'");
 
             Client.UpdateByQuery(updateRequest, idx);
             Client.RefreshIndex(idx, 500);
-            newSearch = Client.Count<ThrowawayEntity>(searchRequest, idx);
-
-            Assert.IsTrue(newSearch.IsSuccessful);
-            Assert.AreEqual(count, newSearch.CountAffected);
+            
+            // After update, search for old name should return 0
+            srch = Client.Count<ThrowawayEntity>(searchRequest, idx);
+            Assert.IsTrue(srch.IsSuccessful);
+            Assert.AreEqual(0, srch.CountAffected, "Should find 0 documents with name='odd' after update");
+            
+            // Search for new name should return oddCount
+            var newSearchRequest = new SearchRequest(nameField, newName, 5);
+            srch = Client.Count<ThrowawayEntity>(newSearchRequest, idx);
+            Assert.IsTrue(srch.IsSuccessful);
+            Assert.AreEqual(oddCount, srch.CountAffected, $"Should find {oddCount} documents with name='{newName}' after update");
         }
 
         [TestMethod]
