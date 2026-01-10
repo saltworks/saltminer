@@ -26,9 +26,7 @@ namespace Saltworks.SaltMiner.DataApi.Data;
         public static DataResponse<T> ToDataResponse<T>(this IElasticClientResponse<T> result) where T : class => new() 
         {
             Data = result?.Results.Select(r => r.Document) ?? new List<T>(),
-            PitPagingInfo = result?.PitPagingInfo,
             PagingInfo = result?.PagingInfo,
-            AfterKeys = result?.AfterKeys,
             Affected = result?.CountAffected ?? 0,
             Message = result?.Message,
             ErrorMessages = !result?.IsSuccessful == true ? new List<string> { result?.Message } : null,

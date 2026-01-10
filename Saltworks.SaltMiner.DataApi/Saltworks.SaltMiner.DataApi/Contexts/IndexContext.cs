@@ -36,7 +36,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         public virtual NoDataResponse DeleteIndex(string indexName)
         {
             Logger.LogInformation("DeleteIndex: '{indexName}'", indexName);
-            var result = ElasticClient.DeleteIndex(indexName);
+            var result = ElasticClient.IndexDelete(indexName);
             return result.ToNoDataResponse();
         }
 
@@ -59,7 +59,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         public virtual NoDataResponse RefreshIndex(string indexName)
         {
             Logger.LogInformation("RefreshIndex: '{indexName}'", indexName);
-            var result = ElasticClient.RefreshIndex(indexName);
+            var result = ElasticClient.IndexRefresh(indexName);
             return result.ToNoDataResponse();
         }
 
@@ -71,7 +71,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         public virtual NoDataResponse CheckForIndex(string indexName)
         {
             Logger.LogInformation("CheckForIndex: '{indexName}'", indexName);
-            var result = ElasticClient.CheckForIndex(indexName);
+            var result = ElasticClient.IndexExists(indexName);
             return result.ToNoDataResponse();
         }
     }

@@ -194,7 +194,7 @@ namespace Saltworks.SaltMiner.DataClient
         /// <returns>NoDataResponse with Count of the scans</returns>
         public NoDataResponse ScansCountByInventoryAssetKey(string inventoryKey)
         {
-            return CheckRetry(() => ApiClient.Get<NoDataResponse>($"scan/count/assetinv/{inventoryKey}")).Content;
+            return CheckRetry(() => ApiClient.Get<NoDataResponse>($"scan/count/inventoryasset/{inventoryKey}")).Content;
         }
 
         #endregion
@@ -513,12 +513,13 @@ namespace Saltworks.SaltMiner.DataClient
         }
 
         /// <summary>
-        /// Returns unread QueueLog messages, marking them read
+        /// Returns unread QueueLog messages, optionally marking them read
         /// </summary>
+        /// <param name="leaveUnread">If true, messages remain unread; if false (default), marks them as read</param>
         /// <returns>The requested messages</returns>
-        public DataResponse<QueueLog> QueueLogRead()
+        public DataResponse<QueueLog> QueueLogRead(bool leaveUnread = false)
         {
-            return ApiClient.Post<DataResponse<QueueLog>>($"queuelog/read", null).Content;
+            return ApiClient.Post<DataResponse<QueueLog>>($"queuelog/read?leaveUnread={leaveUnread}", null).Content;
         }
 
         #endregion
@@ -1004,7 +1005,7 @@ namespace Saltworks.SaltMiner.DataClient
         /// <summary>
         /// Returns count of issues grouped by asset type, source, source ID, and vulnerability name
         /// </summary>
-        /// <param name="searchRequest">Request supports PagingInfo.Size, PagingInfo.AfterKeys, and FilterMatches</param>
+        /// <param name="searchRequest">Request supports PagingInfo.Size, PagingInfo.AggregateKeys, and FilterMatches</param>
         /// <returns>A dictionary response of type string, double that represents the key values (joined with |) and counts</returns>
         public DataDictionaryResponse<string, Dictionary<string, double?>> SnapshotCounts(SearchRequest searchRequest)
         {
@@ -1852,6 +1853,15 @@ namespace Saltworks.SaltMiner.DataClient
         #region Role
 
         /// <summary>
+        /// Gets all roles without search criteria
+        /// </summary>
+        /// <returns>All roles in the system</returns>
+        public DataResponse<AppRole> RoleGetAll()
+        {
+            return CheckRetry(() => ApiClient.Get<DataResponse<AppRole>>("role/list")).Content;
+        }
+
+        /// <summary>
         /// Searches for role by filter(s)
         /// </summary>
         /// <param name="search">The filter request that defines the search parameters</param>
@@ -1860,6 +1870,16 @@ namespace Saltworks.SaltMiner.DataClient
         public DataResponse<AppRole> RoleSearch(SearchRequest search)
         {
             return CheckRetry(() => ApiClient.Post<DataResponse<AppRole>>($"role/search", search), true).Content;
+        }
+
+        /// <summary>
+        /// Updates multiple roles using query-based bulk update
+        /// </summary>
+        /// <param name="request">Update request with filter and update parameters</param>
+        /// <returns>Bulk response with count of affected documents</returns>
+        public BulkResponse RolesUpdateByQuery(UpdateQueryRequest<AppRole> request)
+        {
+            return CheckRetry(() => ApiClient.Post<BulkResponse>("role/bulk/query", request)).Content;
         }
 
         /// <summary>
@@ -1947,6 +1967,27 @@ namespace Saltworks.SaltMiner.DataClient
         #endregion
 
         #region Utility
+
+        /// <summary>
+        /// Posts a webhook payload to the specified source
+        /// </summary>
+        /// <param name="source">The webhook source identifier</param>
+        /// <param name="payload">The payload to send</param>
+        /// <returns>NoDataResponse indicating success or failure</returns>
+        public NoDataResponse WebhookPost(string source, object payload)
+        {
+            return CheckRetry(() => ApiClient.Post<NoDataResponse>($"utility/webhook/{source}", payload)).Content;
+        }
+
+        /// <summary>
+        /// Gets webhook queue items for the specified source
+        /// </summary>
+        /// <param name="source">The webhook source identifier</param>
+        /// <returns>Queue sync items for the webhook source</returns>
+        public DataResponse<QueueSyncItem> WebhookGet(string source)
+        {
+            return CheckRetry(() => ApiClient.Get<DataResponse<QueueSyncItem>>($"utility/webhook/{source}")).Content;
+        }
 
         /// <summary>
         /// Creates a backup of Elastic and creates a zip file of the data

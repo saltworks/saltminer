@@ -58,12 +58,29 @@ Create [ControllerChanges.md](Saltworks.SaltMiner.DataApi/ControllerChanges.md) 
 Audit [DataClient.cs](Saltworks.SaltMiner.DataClient/Saltworks.SaltMiner.DataClient/DataClient.cs) (2115 lines) for:
 - `PitPagingInfo` usages → replace with `PagingInfo`
 - Methods consuming obsolete response properties
+- If no controller changes made in DataApi then little to nothing will be needed
 
-### 2.2 IElasticClient Expanded Functionality Overloads
-Add method overloads for expanded `IElasticClient` functionality exposed through DataApi:
-- Additional parameters that were added to `IElasticClient` methods
+### 2.2 DataClient API Coverage Analysis & Expanded Functionality
+Compare DataClient methods to DataApi controller endpoints to identify gaps:
+
+**Step 1: API Coverage Analysis**
+- Extract all public methods from DataClient.cs
+- Extract all controller endpoints from DataApi Controllers/
+- Compare to identify:
+  - Missing DataClient methods for existing API endpoints
+  - Missing parameter overloads where controllers expose additional options
+  - Functionality gaps where API offers features not exposed in client
+
+**Step 2: Add Missing Methods & Overloads**
+- Add new DataClient methods for uncovered API endpoints
+- Add overloads for expanded `IElasticClient` functionality exposed through DataApi
+- Add overloads for controller endpoints with additional parameters
 - Preserve existing method signatures (add overloads, don't modify)
 - Keep DRY - new overloads call base implementation with defaults
+
+**Step 3: Document Additions**
+- Document all new methods and overloads in DataClientChanges.md
+- Note which are required for breaking changes vs. new functionality
 
 **Note:** This is separate from PagingInfo changes (2.1).
 

@@ -72,7 +72,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             //Ensure Index Exists in IndexMeta Index
             CheckForIndexMeta<Issue>(issueIndex);
 
-            return ElasticClient.AddUpdateBulk(request.Documents, issueIndex).ToBulkResponse();
+            return ElasticClient.BulkAddUpdate(request.Documents, issueIndex).ToBulkResponse();
         }
 
         public NoDataResponse DeleteByScan(string scanId, string assetType, string sourceType, string instance)

@@ -118,7 +118,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             //Ensure Index Exists in IndexMeta Index
             CheckForIndexMeta<T>(indexName);
 
-            return ElasticClient.AddUpdateBulk(request.Documents, indexName).ToBulkResponse();
+            return ElasticClient.BulkAddUpdate(request.Documents, indexName).ToBulkResponse();
         }
 
         public BulkResponse UpdateByQuery<T>(UpdateQueryRequest<T> request, string indexName) where T : SaltMinerEntity
@@ -180,7 +180,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                 TemplateName = templateName
             }, IndexMeta.GenerateIndex());
 
-            ElasticClient.FlushIndex(IndexMeta.GenerateIndex());
+            ElasticClient.IndexFlush(IndexMeta.GenerateIndex());
         }
     }
 }

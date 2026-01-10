@@ -59,8 +59,6 @@ namespace Saltworks.SaltMiner.Core.Data
     public class DataDictionaryResponse<T1, T2> : Response
     {
         public Dictionary<T1, T2> Results { get; set; }
-        [Obsolete("Use PagingInfo instead.")]
-        public PitPagingInfo PitPagingInfo { get; set; } = null;
         public PagingInfo PagingInfo { get; set; } = null;
         public DataDictionaryResponse(Dictionary<T1, T2> results, PagingInfo pagingInfo = null)
         {
@@ -94,9 +92,6 @@ namespace Saltworks.SaltMiner.Core.Data
     public class DataResponse<T> : Response where T : class
     {
         public virtual IEnumerable<T> Data { get; set; }
-        public IList<object> AfterKeys { get; set; }
-        [Obsolete("Use PagingInfo instead.")]
-        public PitPagingInfo PitPagingInfo { get; set; }
         public PagingInfo PagingInfo { get; set; }
         public DataResponse() { }
 

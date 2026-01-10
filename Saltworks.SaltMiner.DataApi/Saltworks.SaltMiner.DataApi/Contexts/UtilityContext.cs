@@ -43,7 +43,7 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
 
     public NoDataResponse GetElasticTaskCount()
     {
-        var rsp = ElasticClient.GetClusterTaskCountAsync().Result;
+        var rsp = ElasticClient.ClusterTaskCountGetAsync().Result;
         if (!rsp.IsSuccessful)
             throw new ApiException("Task count failed", 500);
         return new(rsp.CountAffected);
@@ -210,7 +210,7 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
             
             // call bulk update to "delete" these items
             // passing null updateObject, so update type doesn't matter
-            var bulkRsp = ElasticClient.UpdatePartialBulkWithLocking<QueueSyncItem, QueueSyncItem>(dtos, "ctx._source.state = 'deleted';", null);
+            var bulkRsp = ElasticClient.BulkUpdatePartialWithLocking<QueueSyncItem, QueueSyncItem>(dtos, "ctx._source.state = 'deleted';", null);
             
             // remove dtos that appear in the returned errors
             foreach (var id in bulkRsp.BulkErrorMessages?.Keys.ToList() ?? [])

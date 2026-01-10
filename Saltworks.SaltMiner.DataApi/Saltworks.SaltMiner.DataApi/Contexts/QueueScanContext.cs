@@ -64,7 +64,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                 item.LastUpdated = DateTime.UtcNow;
             }
 
-            return ElasticClient.AddUpdateBulk(request.Documents, QueueScanIndex).ToBulkResponse();
+            return ElasticClient.BulkAddUpdate(request.Documents, QueueScanIndex).ToBulkResponse();
         }
 
         public BulkResponse AddUpdateQueueBulk(QueueDataRequest request)
@@ -93,7 +93,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             }
 
             List<SaltMinerEntity> all = [];
-            return ElasticClient.AddUpdateBulkQueue(all
+            return ElasticClient.BulkQueueAddUpdate(all
                 .Concat(request.QueueScans)
                 .Concat(request.QueueAssets)
                 .Concat(request.QueueIssues)).ToBulkResponse();
@@ -243,7 +243,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             List<QueueScan> scans = [];
             if (!noFlush)
             {
-                ElasticClient.FlushIndex(QueueScanIndex);
+                ElasticClient.IndexFlush(QueueScanIndex);
                 Task.Delay(1000).Wait(); // wait for index to flush
             }
             while (true)
