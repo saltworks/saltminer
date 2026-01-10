@@ -167,15 +167,13 @@ namespace Saltworks.SaltMiner.DataApi.Data
                 return new ElasticAggResponse
                 {
                     Results = new(),
-                        PagingInfo = null,
-                        AfterKeys = null
+                        PagingInfo = null
                 };
             }
             return new ElasticAggResponse()
             {
                 Results = result.Results.Select(agg => new ElasticAggResult(agg.Document)).ToList(),
-                    PagingInfo = null,
-                    AfterKeys = null
+                    PagingInfo = null
             };
         }
 
@@ -217,15 +215,13 @@ namespace Saltworks.SaltMiner.DataApi.Data
                 return new ElasticAggResponse
                 {
                     Results = new(),
-                        PagingInfo = null,
-                        AfterKeys = null
+                        PagingInfo = null
                 };
             }
             return new ElasticAggResponse()
             {
                 Results = result.Results.Select(agg => new ElasticAggResult(agg.Document)).ToList(),
-                    PagingInfo = null,
-                    AfterKeys = null
+                    PagingInfo = null
             };
         }
 
@@ -324,10 +320,7 @@ namespace Saltworks.SaltMiner.DataApi.Data
 
         public ElasticAggResult Result { get; set; }
         public List<ElasticAggResult> Results { get; set; } = new();
-        [Obsolete("Use PagingInfo instead.")]
-        public PitPagingInfo PitPagingInfo { get; set; }
         public PagingInfo PagingInfo { get; set; }
-        public IList<object> AfterKeys { get; set; }
     }
 
     public class ElasticAggResult

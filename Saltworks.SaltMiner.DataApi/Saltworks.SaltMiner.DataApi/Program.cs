@@ -177,7 +177,7 @@ namespace Saltworks.SaltMiner.DataApi
             services.AddSingleton(typeof(ILogger<>), typeof(CustomLogger<>));
 
             ConfigureSwaggerServices(services, config);
-            services.AddNestClient(configureOptions =>
+            services.AddEsClient(configureOptions =>
             {
                 configureOptions.HttpScheme = config.ElasticHttpScheme;
                 configureOptions.ElasticSearchHost = [config.ElasticHost];

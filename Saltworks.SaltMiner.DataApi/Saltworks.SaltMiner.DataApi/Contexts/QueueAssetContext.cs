@@ -62,7 +62,7 @@ public class QueueAssetContext(ApiConfig config, IDataRepo dataRepository, IElas
         foreach(var doc in request.Documents)
             doc.LastUpdated = DateTime.UtcNow;
 
-        return ElasticClient.AddUpdateBulk(request.Documents, QueueAssetIndex).ToBulkResponse();
+        return ElasticClient.BulkAddUpdate(request.Documents, QueueAssetIndex).ToBulkResponse();
     }
 
     public DataItemResponse<QueueAsset> AddUpdate(DataItemRequest<QueueAsset> request)

@@ -100,7 +100,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                 queueIssue.LastUpdated = DateTime.UtcNow;
             }
 
-            return ElasticClient.AddUpdateBulk(request.Documents, QueueIssueIndex).ToBulkResponse();
+            return ElasticClient.BulkAddUpdate(request.Documents, QueueIssueIndex).ToBulkResponse();
         }
 
         public NoDataResponse Delete(string id)
