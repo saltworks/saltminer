@@ -42,27 +42,27 @@ namespace Saltworks.SaltMiner.DataApi.Data
 
         public NoDataResponse GetLicenseType()
         {
-            return ElasticClient.GetClusterLicenseLevel().ToNoDataResponse();
+            return ElasticClient.ClusterLicenseLevel().ToNoDataResponse();
         }
 
         public Tuple<T, ILockingInfo> UpdateWithLocking<T>(T entity, string index, ILockingInfo lockInfo) where T : SaltMinerEntity
         {
             lockInfo = lockInfo ?? throw new ArgumentNullException(nameof(lockInfo));
-            if (lockInfo is not ElasticLockingInfo<T>)
+            if (lockInfo is not ElasticLockingInfo)
             {
-                throw new ArgumentException("Incorrect type - expected ElasticLockingInfo<T>", nameof(lockInfo));
+                throw new ArgumentException("Incorrect type - expected ElasticLockingInfo", nameof(lockInfo));
             }
 
             Logger.LogDebug("UpdateWithLocking id {Id} initiated.", entity.Id);
             
-            var elasticLockInfo = lockInfo as ElasticLockingInfo<T>;
+            var elasticLockInfo = lockInfo as ElasticLockingInfo;
             var response = ElasticClient.UpdateWithLocking(entity, index, elasticLockInfo.Primary, elasticLockInfo.Sequence);
 
             Logger.LogDebug("UpdateWithLocking id {Id} complete.", entity.Id);
 
             if (response.IsSuccessful && response.Result != null)
             {
-                return new Tuple<T, ILockingInfo>(response.Result.Document, new ElasticLockingInfo<T>
+                return new Tuple<T, ILockingInfo>(response.Result.Document, new ElasticLockingInfo
                 {
                     Id = response.Result.Document.Id,
                     Primary = response.Result.Primary,
@@ -84,7 +84,7 @@ namespace Saltworks.SaltMiner.DataApi.Data
                 return null;
             }
 
-            return new Tuple<T, ILockingInfo>(response.Result.Document, new ElasticLockingInfo<T> { Primary = response.Result.Primary, Id = id, Sequence = response.Result.Sequence });
+            return new Tuple<T, ILockingInfo>(response.Result.Document, new ElasticLockingInfo { Primary = response.Result.Primary, Id = id, Sequence = response.Result.Sequence });
         }
 
         public DataResponse<T> Search<T>(string index, SearchRequest request) where T : SaltMinerEntity
@@ -120,34 +120,34 @@ namespace Saltworks.SaltMiner.DataApi.Data
                 throw new ArgumentNullException(nameof(dataIndex));
             }
 
-            Logger.LogDebug("Aggregation query on group field '{groupField}' and index '{dataIndex}' initiated.", groupField, dataIndex);
+            Logger.LogDebug("Aggregation query on group field '{GroupField}' and index '{DataIndex}' initiated.", groupField, dataIndex);
 
-            var resp = ElasticClient.SearchWithCompositeAgg(ra, request, dataIndex);
-            IEnumerable<ElasticAggResponse> results = resp.Results.Select(r => new ElasticAggResponse(r.Document)).ToList();
+            var result = ElasticClient.GetCompositeAggregate<Issue>(request, new[] { groupField }, alist, dataIndex);
+            IEnumerable<ElasticAggResponse> results = result.Results.Select(r => new ElasticAggResponse(r.Document)).ToList();
 
-            Logger.LogDebug("Aggregation query on group field '{bucketField}' and index '{dataIndex}' complete, {count} result(s).", ra.BucketField, dataIndex, results.Count());
+            Logger.LogDebug("Aggregation query on group field '{BucketField}' and index '{DataIndex}' complete, {Count} result(s).", ra.BucketField, dataIndex, results.Count());
 
             return results;
         }
 
-        public ElasticAggResponse EngagementIssueCountAggregates(string engagementId, PitPagingInfo pitPaging, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggregates, string indexName)
+        public ElasticAggResponse EngagementIssueCountAggregates(string engagementId, PagingInfo pager, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggList, string assetType)
         {
-            Logger.LogDebug("SnapshotAggregates with aggFields: {aggFields} initiated.", JsonSerializer.Serialize(sourceFields));
-            pitPaging.Size = (pitPaging.Size ?? 0) >= 1 ? pitPaging.Size : Config.ElasticDefaultResultSize;
+            Logger.LogDebug("SnapshotAggregates with aggFields: {AggFields} initiated.", JsonSerializer.Serialize(sourceFields));
+            pager.Size = (pager.Size ?? 0) >= 1 ? pager.Size : Config.ElasticDefaultResultSize;
 
-            if ((pitPaging.AggregateKeys?.Count ?? 0) == 0)
+            if ((pager.AggregateKeys?.Count ?? 0) == 0)
             {
-                pitPaging.AggregateKeys = new Dictionary<string, object>();
+                pager.AggregateKeys = new Dictionary<string, object>();
             }
 
-            foreach (var keyValuePair in pitPaging.AggregateKeys)
+            foreach (var keyValuePair in pager.AggregateKeys)
             {
-                pitPaging.AggregateKeys[keyValuePair.Key] = keyValuePair.Value.ToString(); // Make sure the object is a string inside
+                pager.AggregateKeys[keyValuePair.Key] = keyValuePair.Value.ToString(); // Make sure the object is a string inside
             }
 
             var request = new SearchRequest
             {
-                PitPagingInfo = pitPaging,
+                PagingInfo = pager,
                 Filter = new Filter
                 {
                     FilterMatches = new Dictionary<string, string>
@@ -158,45 +158,45 @@ namespace Saltworks.SaltMiner.DataApi.Data
                 }
             };
 
-            var result = ElasticClient.GetCompositeAggregate<Issue>(request, sourceFields, aggregates, indexName);
+            var result = ElasticClient.GetCompositeAggregate<Issue>(request, sourceFields, aggList, assetType);
 
-            Logger.LogDebug("SnapshotAggregates with sourceFields: {sourceFields} and aggregates: {aggs} complete. {count} results.", JsonSerializer.Serialize(sourceFields), aggregates, result?.Results?.Count() ?? 0);
+            Logger.LogDebug("SnapshotAggregates with sourceFields: {SourceFields} and aggregates: {Aggs} complete. {Count} results.", JsonSerializer.Serialize(sourceFields), aggList, result?.Results?.Count() ?? 0);
 
             if ((result?.Results?.Count() ?? 0) == 0)
             {
                 return new ElasticAggResponse
                 {
                     Results = new(),
-                    PitPagingInfo = result?.PitPagingInfo,
-                    AfterKeys = result?.AfterKeys
+                        PagingInfo = null,
+                        AfterKeys = null
                 };
             }
             return new ElasticAggResponse()
             {
                 Results = result.Results.Select(agg => new ElasticAggResult(agg.Document)).ToList(),
-                PitPagingInfo = result.PitPagingInfo,
-                AfterKeys = result.AfterKeys
+                    PagingInfo = null,
+                    AfterKeys = null
             };
         }
 
-        public ElasticAggResponse SnapshotAggregates(PitPagingInfo pitPaging, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggregates, string assetType)
+        public ElasticAggResponse SnapshotAggregates(PagingInfo pager, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggList, string assetType)
         {
-            Logger.LogDebug("SnapshotAggregates with aggFields: {aggFields} initiated.", JsonSerializer.Serialize(sourceFields));
-            pitPaging.Size = (pitPaging.Size ?? 0) >= 1 ? pitPaging.Size : Config.ElasticDefaultResultSize;
+            Logger.LogDebug("SnapshotAggregates with aggFields: {AggFields} initiated.", JsonSerializer.Serialize(sourceFields));
+            pager.Size = (pager.Size ?? 0) >= 1 ? pager.Size : Config.ElasticDefaultResultSize;
 
-            if ((pitPaging.AggregateKeys?.Count ?? 0) == 0)
+            if ((pager.AggregateKeys?.Count ?? 0) == 0)
             {
-                pitPaging.AggregateKeys = new Dictionary<string, object>();
+                pager.AggregateKeys = new Dictionary<string, object>();
             }
 
-            foreach (var keyValuePair in pitPaging.AggregateKeys)
+            foreach (var keyValuePair in pager.AggregateKeys)
             {
-                pitPaging.AggregateKeys[keyValuePair.Key] = keyValuePair.Value.ToString(); // Make sure the object is a string inside
+                pager.AggregateKeys[keyValuePair.Key] = keyValuePair.Value.ToString(); // Make sure the object is a string inside
             }
 
             var request = new SearchRequest
             {
-                PitPagingInfo = pitPaging,
+                PagingInfo = pager,
                 Filter = new Filter
                 {
                     AnyMatch = false,
@@ -208,30 +208,30 @@ namespace Saltworks.SaltMiner.DataApi.Data
                 }
             };
 
-            var result = ElasticClient.GetCompositeAggregate<Issue>(request, sourceFields, aggregates, "issues_active");
+            var result = ElasticClient.GetCompositeAggregate<Issue>(request, sourceFields, aggList, "issues_active");
 
-            Logger.LogDebug("SnapshotAggregates with sourceFields: {sourceFields} and aggregates: {aggs} complete. {count} results.", JsonSerializer.Serialize(sourceFields), aggregates, result?.Results?.Count() ?? 0);
+            Logger.LogDebug("SnapshotAggregates with sourceFields: {SourceFields} and aggregates: {Aggs} complete. {Count} results.", JsonSerializer.Serialize(sourceFields), aggList, result?.Results?.Count() ?? 0);
 
             if ((result?.Results?.Count() ?? 0) == 0)
             {
                 return new ElasticAggResponse
                 {
                     Results = new(),
-                    PitPagingInfo = result?.PitPagingInfo,
-                    AfterKeys = result?.AfterKeys
+                        PagingInfo = null,
+                        AfterKeys = null
                 };
             }
             return new ElasticAggResponse()
             {
                 Results = result.Results.Select(agg => new ElasticAggResult(agg.Document)).ToList(),
-                PitPagingInfo = result.PitPagingInfo,
-                AfterKeys = result.AfterKeys
+                    PagingInfo = null,
+                    AfterKeys = null
             };
         }
 
         public List<SaltMinerIndexData> GetMetadata(List<string> templateNames)
         {
-            var checkedIndices = ElasticClient.GetAllTemplates().Where(x => templateNames.Contains(x)).ToList();
+            var checkedIndices = ElasticClient.IndexTemplateGetList().Where(x => templateNames.Contains(x)).ToList();
 
             var result = new List<SaltMinerIndexData>();
 
@@ -264,9 +264,9 @@ namespace Saltworks.SaltMiner.DataApi.Data
             return result;
         }
 
-        public BulkResponse AddUpdateBulk<T>(IEnumerable<T> Documents, string indexName) where T : SaltMinerEntity
+        public BulkResponse AddUpdateBulk<T>(IEnumerable<T> docs, string indexName) where T : SaltMinerEntity
         {
-            return ElasticClient.AddUpdateBulk(Documents, indexName).ToBulkResponse();
+            return ElasticClient.BulkAddUpdate(docs, indexName).ToBulkResponse();
         }
 
         public NoDataResponse ActiveIssueAlias(string indexName, string alias)
@@ -276,36 +276,37 @@ namespace Saltworks.SaltMiner.DataApi.Data
 
         public string GetIndexMapping(string index)
         {
-            return ElasticClient.GetIndexMapping(index);
+            return ElasticClient.IndexMappingGet(index);
         }
 
-        public string GetIndexTemplate(string index)
+        public string GetIndexTemplate(string template)
         {
-            return ElasticClient.GetIndexTemplate(index);
+            var result = ElasticClient.IndexTemplateGet(template);
+            return result?.Result?.Document;
         }
 
-        public string SearchForJson(SearchRequest request, string index)
+        public string SearchForJson(SearchRequest request, string indexName)
         {
-            return ElasticClient.SearchForJson(request, index);
+            return ElasticClient.SearchForJson(request, indexName);
         }
 
         public IElasticClientResponse UpdateIndexTemplate(string templateName, string newTemplate)
         {
-            return ElasticClient.AddUpdateIndexTemplate(templateName, newTemplate);
+            return ElasticClient.IndexTemplateAddUpdate(templateName, newTemplate);
         }
 
         public IElasticClientResponse ReIndex(string indexName, string newIndexName)
         {
-            return ElasticClient.ReIndex(indexName, newIndexName);
+            return ElasticClient.IndexReindex(indexName, newIndexName);
         }
 
         public IElasticClientResponse DeleteIndex(string indexName)
         {
-            return ElasticClient.DeleteIndex(indexName);
+            return ElasticClient.IndexDelete(indexName);
         }
     }
 
-    public class ElasticLockingInfo<T> : ILockingInfo where T : SaltMinerEntity
+    public class ElasticLockingInfo : ILockingInfo
     {
         internal ElasticLockingInfo() { }
         public string Id { get; init; }

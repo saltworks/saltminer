@@ -321,7 +321,7 @@ namespace Saltworks.SaltMiner.DataApi
                 var kibanaClient = app.Services.GetRequiredService<KibanaContext>();
                 ProcessKibanaImport(config, kibanaClient);
 
-                if (!client.CheckIndexTemplateExists(config.TemplateToVerify).IsSuccessful)
+                if (!client.IndexTemplateExists(config.TemplateToVerify).IsSuccessful)
                 {
                     Log.Error("Index templates not found on ElasticSearch server '{ElasticHost}', checked for {TemplateToVerify}", config.ElasticHost, config.TemplateToVerify);
                     throw new ApiConfigurationException($"Index templates not found on ElasticSearch server '{config.ElasticHost}', checked for {config.TemplateToVerify}");
@@ -555,7 +555,7 @@ namespace Saltworks.SaltMiner.DataApi
                         {
                             var json = r.ReadToEnd().Replace("\r\n", "");
                             var policyName = Path.GetFileName(policy).Replace(".json", "");
-                            client.AddUpdateIndexPolicy(policyName, json);
+                            client.IndexPolicyAddUpdate(policyName, json);
                         }
                         failMsg = $"Failed when attempting to delete index policy file '{policy}'";
 
@@ -593,7 +593,7 @@ namespace Saltworks.SaltMiner.DataApi
                             var json = r.ReadToEnd().Replace("\r\n", "");
                             var templateName = Path.GetFileName(template).Replace(".json", "");
                            
-                            client.AddUpdateIndexTemplate(templateName, json);
+                            client.IndexTemplateAddUpdate(templateName, json);
                         }
                         failMsg = $"Failed when attempting to delete index template file '{template}'";
                        

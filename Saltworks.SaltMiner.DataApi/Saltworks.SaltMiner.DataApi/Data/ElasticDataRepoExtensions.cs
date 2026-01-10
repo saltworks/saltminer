@@ -14,13 +14,13 @@
 * ----
 */
 
-﻿using Saltworks.SaltMiner.Core.Data;
+using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.ElasticClient;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Saltworks.SaltMiner.DataApi.Data
-{
+namespace Saltworks.SaltMiner.DataApi.Data;
+
     public static class ElasticDataRepoExtensions
     {
         public static DataResponse<T> ToDataResponse<T>(this IElasticClientResponse<T> result) where T : class => new() 
@@ -74,4 +74,3 @@ namespace Saltworks.SaltMiner.DataApi.Data
             StatusCode = result?.HttpStatus ?? 500
         };
     }
-}
