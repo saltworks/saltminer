@@ -68,7 +68,9 @@ jobs:
       with:
         images: saltworks/saltminer
         tags: |
-          type=raw,value=python-${{ github.ref_name }}.{{date 'YYYYMMDD-HHmmss'}}
+          type=raw,value=python-${{ github.ref_name }}.${{ github.run_number }}
+          type=raw,value=python-${{ github.ref_name }}
+
         labels: |
           org.opencontainers.image.title=saltminer-python
           org.opencontainers.image.description=SaltMiner Python

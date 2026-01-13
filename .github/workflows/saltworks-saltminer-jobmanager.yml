@@ -89,7 +89,8 @@ jobs:
       with:
         images: saltworks/saltminer
         tags: |
-          type=raw,value=jobmanager-${{ github.ref_name }}.{{date 'YYYYMMDD-HHmmss'}}
+          type=raw,value=jobmanager-${{ github.ref_name }}.${{ github.run_number }}
+          type=raw,value=jobmanager-${{ github.ref_name }}
         labels: |
           org.opencontainers.image.title=saltminer-jobmanager
           org.opencontainers.image.description=SaltMiner JobManager

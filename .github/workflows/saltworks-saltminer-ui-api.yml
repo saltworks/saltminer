@@ -93,7 +93,8 @@ jobs:
       with:
         images: saltworks/saltminer
         tags: |
-          type=raw,value=ui-api-${{ github.ref_name }}.{{date 'YYYYMMDD-HHmmss'}}
+          type=raw,value=ui-api-${{ github.ref_name }}.${{ github.run_number }}
+          type=raw,value=ui-api-${{ github.ref_name }}
         labels: |
           org.opencontainers.image.title=saltminer-ui-api
           org.opencontainers.image.description=SaltMiner UI API

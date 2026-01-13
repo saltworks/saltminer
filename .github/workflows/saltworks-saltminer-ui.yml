@@ -70,7 +70,8 @@ jobs:
       with:
         images: saltworks/saltminer
         tags: |
-          type=raw,value=ui-${{ github.ref_name }}.{{date 'YYYYMMDD-HHmmss' tz='America/Chicago'}}
+          type=raw,value=ui-${{ github.ref_name }}.${{ github.run_number }}
+          type=raw,value=ui-${{ github.ref_name }}
         labels: |
           org.opencontainers.image.title=saltminer-ui
           org.opencontainers.image.description=SaltMiner UI
