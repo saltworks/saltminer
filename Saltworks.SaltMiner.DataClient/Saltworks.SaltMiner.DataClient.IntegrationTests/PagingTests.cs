@@ -91,6 +91,7 @@ public class PagingTests
         var pageCount = count / pageSize;
         var totalPages = 0;
         var testIndex = TestItem.GenerateIndex($"paging");
+        Helpers.RegisterDeleteIndex(testIndex);
         var bulkResponse = Helpers.BulkAddUpdateTestEntities(Client, testIndex, count, TestCategory);
         Assert.AreEqual(count, bulkResponse.Affected, $"Bulk insert failed during test setup: {bulkResponse.Message}");
         Client.RefreshIndex(testIndex);

@@ -39,13 +39,6 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
             Client = Helpers.GetDataClient<IssueTests>(Helpers.GetDataClientOptions(Helpers.GetConfig(false, true)));
         }
 
-        [ClassCleanup]
-        public static void CleanUp()
-        {
-            Helpers.CleanIndex(Client, "issue");
-            Helpers.CleanIndex(Client, "scan");
-        }
-
         [TestMethod]
         public void Issue_Validation_Error()
         {

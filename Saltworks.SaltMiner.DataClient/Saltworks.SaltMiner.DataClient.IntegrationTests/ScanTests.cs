@@ -17,7 +17,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Entities;
 using System.Linq;
-using System.Threading;
+using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.DataClient.IntegrationTests
 {
@@ -36,12 +36,6 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
             Client = Helpers.GetDataClient<ScanTests>(Helpers.GetDataClientOptions(Helpers.GetConfig(false, true)));
         }
 
-        [ClassCleanup]
-        public static void CleanUp()
-        {
-            Helpers.CleanIndex(Client, "scan");
-        }
-
         [TestMethod]
         public void Crud()
         {
@@ -51,17 +45,22 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
             var scan = Mock.Scan(sourceType);
             scan.Saltminer.Asset.SourceId = sourceId;
             scan.Id = string.Empty;
+            var scanIndex = Scan.GenerateIndex(scan.Saltminer.Asset.AssetType, scan.Saltminer.Asset.SourceType, scan.Saltminer.Asset.Instance);
+            Helpers.RegisterDeleteIndex(scanIndex);
 
             // Act
             scan = Client.ScanAddUpdate(scan).Data;
-            Thread.Sleep(2000); // wait for "save" to complete
+            Client.RefreshIndex(Scan.GenerateIndex(scan.Saltminer.Asset.AssetType, scan.Saltminer.Asset.SourceType, scan.Saltminer.Asset.Instance));
+            Task.Delay(2000).Wait(); // wait for "save" to complete
             var scanGet = Client.ScanGet(scan.Id, scan.Saltminer.Asset.AssetType, scan.Saltminer.Asset.SourceType, scan.Saltminer.Asset.Instance);
-            var scanSearch = Client.ScanSearch(Helpers.SearchRequest("Saltminer.Asset.SourceId", sourceId, scan.Saltminer.Asset.AssetType, sourceType));
+            var scanSearch1 = Client.ScanSearch(Helpers.SearchRequest("Saltminer.Asset.SourceId", sourceId, scan.Saltminer.Asset.AssetType, scan.Saltminer.Asset.SourceType, scan.Saltminer.Asset.Instance));
+            var scanSearch2 = Client.ScanSearch(Helpers.SearchRequest("Saltminer.Asset.SourceId", sourceId, scan.Saltminer.Asset.AssetType, scan.Saltminer.Asset.SourceType));
 
             // Assert
-            Assert.IsTrue(!string.IsNullOrEmpty(scan.Id), "Scan ID shouldn't be empty after adding it");
+            Assert.IsFalse(string.IsNullOrEmpty(scan.Id), "Scan ID shouldn't be empty after adding it");
             Assert.IsNotNull(scanGet, "Scan should exist and be GETable");
-            Assert.IsTrue(scanSearch.Data.Any(), "Search should return at least 1 result");
+            Assert.IsTrue(scanSearch1.Data.Any(), "Search should return at least 1 result with instance specified");
+            Assert.IsTrue(scanSearch2.Data.Any(), "Search should return at least 1 result with no instance specified");
 
             //Clean Up
             var scanDelete = Client.ScanDelete(scan.Id, scan.Saltminer.Asset.AssetType, scan.Saltminer.Asset.SourceType, scan.Saltminer.Asset.Instance);

@@ -112,39 +112,6 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
             };
         }
 
-        public static void CleanIndex(DataClient Client, string indexType)
-        {
-            var assetType = AssetType.Mocked.ToString();
-            var sourceType = "DataClient";
-
-            switch (indexType)
-            {
-                case "asset":
-                    Client.DeleteIndex(Asset.GenerateIndex(assetType, sourceType));
-                    break;
-                case "scan":
-                    Client.DeleteIndex(Scan.GenerateIndex(assetType, sourceType));
-                    break;
-                case "issue":
-                    Client.DeleteIndex(Issue.GenerateIndex(assetType, sourceType));
-                    break;
-            }
-
-            sourceType = "Mocked";
-            switch (indexType)
-            {
-                case "asset":
-                    Client.DeleteIndex(Asset.GenerateIndex(assetType, sourceType));
-                    break;
-                case "scan":
-                    Client.DeleteIndex(Scan.GenerateIndex(assetType, sourceType));
-                    break;
-                case "issue":
-                    Client.DeleteIndex(Issue.GenerateIndex(assetType, sourceType));
-                    break;
-            }
-        }
-
         /// <summary>
         /// Bulk adds/updates TestEntity documents to the specified index.
         /// </summary>
