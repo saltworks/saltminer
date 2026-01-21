@@ -19,6 +19,7 @@ using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.ElasticClient;
@@ -274,6 +275,14 @@ public interface IElasticClient
     /// <returns>The requested page of data (or empty set if no matches)</returns>
     /// <remarks>This version can handle "cold" searches, having a page > 1, but no AfterKeys in PagingInfo.  For subsequent pages, use the PagingInfo.NextPage() method.</remarks>
     IElasticClientResponse<T> Search<T>(string index, SearchRequest searchRequest) where T : SaltMinerEntity;
+    /// <summary>
+    /// Retrieves the specified (or first) page of data, building the query on the provided SearchRequest.
+    /// </summary>
+    /// <param name="index">Index to be searched</param>
+    /// <param name="searchRequest">Search request definition</param>
+    /// <returns>The requested page of data (or empty set if no matches)</returns>
+    /// <remarks>This version can handle "cold" searches, having a page > 1, but no AfterKeys in PagingInfo.  For subsequent pages, use the PagingInfo.NextPage() method.</remarks>
+    IElasticClientResponse<JsonObject> Search(string index, JsonSearchRequest searchRequest);
     /// <summary>
     /// Searches the specified index based on the passed search request, using low level json request
     /// </summary>

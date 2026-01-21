@@ -4,6 +4,13 @@
         <name>Saltworks.SaltMiner.DataApi</name>
     </assembly>
     <members>
+        <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.BulkAddUpdate(Saltworks.SaltMiner.Core.Data.JsonDataRequest,System.String)">
+            <summary>
+            Bulk Add/Update
+            </summary>
+            <param name="request">DataRequest containing documents to add/update</param>
+            <param name="index">The index name for which to add/update the documents</param>
+        </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.DeleteIndex(System.String)">
             <summary>
             Deletes Index by name

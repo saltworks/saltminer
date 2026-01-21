@@ -56,7 +56,7 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
             queueAsset = Client.QueueAssetAddUpdate(queueAsset).Data;
             var queueIssues = new List<QueueIssue>();
             var issueCount = 5;
-            var scrollInfo = new PitPagingInfo(5);
+            var scrollInfo = new PagingInfo(5);
 
             for (int i = 0; i < issueCount; i++)
             {
@@ -78,7 +78,7 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
                         }
                     }
                 },
-                PitPagingInfo = scrollInfo
+                PagingInfo = scrollInfo
             });
             //var qil2 = Client.QueueIssuesGetByQueueScan("7efcd3d6-fb84-4fc1-ba75-4d34e050565d");
 

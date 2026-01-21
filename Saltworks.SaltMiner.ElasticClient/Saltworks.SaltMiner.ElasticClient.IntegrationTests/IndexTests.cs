@@ -16,6 +16,9 @@
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
+using Saltworks.SaltMiner.ElasticClient.EsClient;
+using Saltworks.SaltMiner.Core.Data;
+using Saltworks.SaltMiner.Core.Entities;
 
 namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
 
@@ -68,7 +71,7 @@ public class IndexTests
 			var newIndexName = indexName + "_test87789";
 
 			// Act
-			var index = Client.IndexReindex(indexName, newIndexName);
+			Client.IndexReindex(indexName, newIndexName);
 			var result = Client.IndexExists(newIndexName);
 			Client.IndexDelete(newIndexName);
 
@@ -254,4 +257,62 @@ public class IndexTests
             try { Client.IndexDelete(tempIndex); }
             catch (Exception) { /* cleanup attempt */ }
         }
+
+		[TestMethod]
+		public void Search_WithJsonSearchRequest_ReturnsJsonResults()
+		{
+			var tempIndex = $"test_search_{Guid.NewGuid():N}";
+
+			var createResult = Client.IndexCreate(tempIndex);
+			Assert.IsTrue(createResult.IsSuccessful, $"IndexCreate failed: {createResult.Message}");
+			Client.IndexRefresh(tempIndex, 500);
+
+			var doc1 = new TestItem { Id = "doc1", Name = "alpha", Value = 1 };
+			var doc2 = new TestItem { Id = "doc2", Name = "beta", Value = 2 };
+			var doc3 = new TestItem { Id = "doc3", Name = "gamma", Value = 3 };
+
+			Assert.IsTrue(Client.AddUpdate(doc1, tempIndex).IsSuccessful);
+			Assert.IsTrue(Client.AddUpdate(doc2, tempIndex).IsSuccessful);
+			Assert.IsTrue(Client.AddUpdate(doc3, tempIndex).IsSuccessful);
+			Client.IndexRefresh(tempIndex, 500);
+
+			var searchRequest = new JsonSearchRequest
+			{
+				TypeName = typeof(TestItem).FullName,
+				Filter = new Filter(),
+				PagingInfo = new PagingInfo { Size = 10 },
+				SortKeys = new System.Collections.Generic.Dictionary<string, bool> { { "timestamp", true } }
+			};
+
+			var result = Client.Search(tempIndex, searchRequest);
+
+			Assert.IsNotNull(result, "Search result should not be null");
+			Assert.IsTrue(result.IsSuccessful, $"Search should succeed. Message: {result.Message}");
+			Assert.IsNotNull(result.Results, "Search results should not be null");
+			Assert.IsTrue(result.CountAffected >= 3, $"Expected at least 3 docs. Count: {result.CountAffected}");
+
+			try { Client.IndexDelete(tempIndex); }
+			catch (Exception) { /* cleanup attempt */ }
+		}
+
+		[TestMethod]
+		public void Search_WithInvalidType_ThrowsException()
+		{
+			var tempIndex = $"test_search_invalid_{Guid.NewGuid():N}";
+			Client.IndexCreate(tempIndex);
+			Client.IndexRefresh(tempIndex, 500);
+
+			var searchRequest = new JsonSearchRequest
+			{
+				TypeName = "NonExistentType",
+				PagingInfo = new PagingInfo { Size = 10 }
+			};
+
+			Assert.ThrowsException<EsClientException>(
+				() => Client.Search(tempIndex, searchRequest),
+				"Should throw EsClientException for invalid type");
+
+			try { Client.IndexDelete(tempIndex); }
+			catch (Exception) { /* cleanup attempt */ }
+		}
 }

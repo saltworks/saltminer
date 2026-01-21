@@ -10,6 +10,11 @@ public class EsClientResult<T> : IElasticClientDto<T> where T : class
     public long? Sequence { get; set; }
     public string Index { get; set; }
 
+    internal static IElasticClientDto<T> From(T doc, string index, long? primary = null, long? seq = null)
+    {
+        return new EsClientResult<T> { Document = doc, Index = index, Primary = primary, Sequence = seq };
+    }
+
     internal static IElasticClientDto<T> From(T doc, long? primary = null, long? seq = null)
     {
         return new EsClientResult<T> { Document = doc, Primary = primary, Sequence = seq };

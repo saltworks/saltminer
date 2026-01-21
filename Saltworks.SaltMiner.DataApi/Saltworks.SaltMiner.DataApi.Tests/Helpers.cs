@@ -31,7 +31,7 @@ namespace Saltworks.SaltMiner.DataApi.IntegrationTests
         public static IElasticClientFactory CreateElasticClientFactory(ApiConfig config)
         {
             var services = new ServiceCollection();
-            services.AddNestClient(configureOptions =>
+            services.AddEsClient(configureOptions =>
             {
                 configureOptions.HttpScheme = config.ElasticHttpScheme;
                 configureOptions.ElasticSearchHost = new string[] { config.ElasticHost };
@@ -42,7 +42,7 @@ namespace Saltworks.SaltMiner.DataApi.IntegrationTests
             
             var sp = services.BuildServiceProvider();
             
-            sp.UseNestClient();
+            sp.UseEsClient();
             
             return sp.GetRequiredService<IElasticClientFactory>();
         }

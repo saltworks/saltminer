@@ -20,6 +20,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -614,6 +615,69 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         }
 
         return EsClientResponse<T>.BuildResponse(response, searchRequest.PagingInfo, (response.ApiCallDetails.HttpStatusCode ?? 0) == 404);
+    }
+    
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "S3011:Make sure that this accessibility bypass is safe here.", Justification ="Made sure")]
+    public IElasticClientResponse<JsonObject> Search(string index, JsonSearchRequest searchRequest)
+    {
+        ArgumentNullException.ThrowIfNull(searchRequest);
+        ArgumentException.ThrowIfNullOrEmpty(index);
+
+        // Using TestItem as a way to get the Core assembly to then get the SaltMinerEntity type
+        if (typeof(TestItem).Assembly.GetType(searchRequest.TypeName) is not Type t || !typeof(SaltMinerEntity).IsAssignableFrom(t))
+        {
+            throw new EsClientException($"Invalid type '{searchRequest.TypeName}'");
+        }
+
+        // Get the generic Search<T> method
+        var searchMethod = typeof(EsClient).GetMethod(nameof(Search), 
+            [typeof(string), typeof(Core.Data.SearchRequest)]) ?? 
+            throw new EsClientException("Could not find Search<T> method");
+
+        // Make it generic with the runtime type
+        var genericSearchMethod = searchMethod.MakeGenericMethod(t);
+
+        // Convert JsonSearchRequest to SearchRequest
+        var request = searchRequest.ToSearchRequest();
+
+        // Invoke it
+        var result = genericSearchMethod.Invoke(this, [index, request]);
+
+        // Use the generic BuildResponse overload to convert to JsonObject response
+        // This works because result is IElasticClientResponse<T> where T : SaltMinerEntity
+        if (result != null)
+        {
+            // Get the BuildResponse<T> method and make it generic with the resolved type
+            var buildResponseMethod = typeof(EsClientResponse<JsonObject>).GetMethod(
+                nameof(EsClientResponse<JsonObject>.BuildResponse),
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static,
+                null,
+                [result.GetType()],
+                null);
+
+            if (buildResponseMethod == null)
+            {
+                // Try finding the generic method and making it concrete
+                var methods = typeof(EsClientResponse<JsonObject>).GetMethods(
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                
+                foreach (var method in methods)
+                {
+                    if (method.Name == "BuildResponse" && method.IsGenericMethodDefinition)
+                    {
+                        buildResponseMethod = method.MakeGenericMethod(t);
+                        break;
+                    }
+                }
+            }
+
+            if (buildResponseMethod != null)
+            {
+                return (IElasticClientResponse<JsonObject>)buildResponseMethod.Invoke(null, [result]);
+            }
+        }
+
+        throw new EsClientException($"Search invocation failed.");
     }
 
     public string SearchForJson(Core.Data.SearchRequest searchRequest, string indexName)
@@ -1237,7 +1301,6 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         return queries;
     }
 
-
     private SearchRequest<T> CreateSearchRequest<T>(Core.Data.SearchRequest searchRequest, string indexName)
     {
         var index = Indices.Index(indexName);
@@ -1380,7 +1443,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
 
     private static Query CreateQueryFromRequest(Core.Data.Filter filter)
     {
-        if (filter != null)
+        if (filter != null && (filter.FilterMatches?.Count ?? 0) > 0)
         {
             var queries = BuildListQueryContainer(filter);
             return new ConstantScoreQuery() { Filter = filter.AnyMatch ? new BoolQuery() { Should = queries } : new BoolQuery() { Must = queries } };
@@ -1702,6 +1765,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         Logger?.LogDebug("Check for template {TemplateName}", templateName);
         var rsp = ElasticClient.Transport.RequestAsync<Elastic.Clients.Elasticsearch.ExistsResponse>(HttpMethod.GET, $"_index_template/{templateName}").Result;
         var status = rsp.ApiCallDetails?.HttpStatusCode ?? 0;
+        Logger?.LogDebug("Template check response: Status={Status}, IsValidResponse={IsValid}, Exists={Exists}", status, rsp.IsValidResponse, rsp.Exists);
         if (status == 404)
         {
             return EsClientResponse.BuildResponse(true, "Index template not found", 0);
@@ -1710,6 +1774,8 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         {
             return EsClientResponse.BuildResponse(true, "Index template exists", 1);
         }
+        var errorMsg = $"Index template check failed - Status: {status}, IsValid: {rsp.IsValidResponse}, Exists: {rsp.Exists}";
+        Logger?.LogError("{Msg}{Ex}", errorMsg, $", Exception: {rsp.ApiCallDetails?.OriginalException?.Message ?? "Unknown"}");
         return EsClientResponse.BuildResponse(false, "Index template check failed", 0);
     }
 

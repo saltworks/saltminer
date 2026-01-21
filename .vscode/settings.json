@@ -1,0 +1,6 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "dotnet run": true,
+        ".\\run-test.ps1": true
+    }
+}

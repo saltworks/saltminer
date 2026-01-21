@@ -8,6 +8,8 @@ using Saltworks.SaltMiner.Core.Entities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Saltworks.SaltMiner.ElasticClient.EsClient;
 
@@ -37,7 +39,7 @@ public class EsClientResponse : IElasticClientResponse
 
 public class EsClientAggregateResponse : EsClientResponse, IElasticClientAggregateResponse
 {
-    public Elastic.Clients.Elasticsearch.Aggregations.AggregateDictionary Aggregations { get; set; }
+    public AggregateDictionary Aggregations { get; set; }
 }
 
 public class EsClientBucketResponse : EsClientResponse, IElasticClientResponse<ElasticClientCompositeAggregate>
@@ -180,6 +182,36 @@ public class EsClientResponse<T> : EsClientResponse, IElasticClientResponse<T> w
         };
     }
 
+    private static IElasticClientDto<JsonObject> ToJsonObjectDto<TEntity>(IElasticClientDto<TEntity> dto) where TEntity : SaltMinerEntity
+    {
+        if (dto == null) return null;
+        var jsonDoc = JsonSerializer.SerializeToNode(dto.Document, JsonSerializerOptions.Web).AsObject();
+        return EsClientResult<JsonObject>.From(jsonDoc, dto.Index, dto.Primary, dto.Sequence);
+    }
+
+    internal static IElasticClientResponse<JsonObject> BuildResponse(IElasticClientResponse<SaltMinerEntity> response)
+    {
+        return new EsClientResponse<JsonObject> {
+            Results = response.Results?.Select(ToJsonObjectDto),
+            Result = response.Result != null ? ToJsonObjectDto(response.Result) : null,
+            IsSuccessful = response.IsSuccessful,
+            Message = response.Message,
+            CountAffected = response.CountAffected,
+            PagingInfo = response.PagingInfo
+        };
+    }
+
+    internal static IElasticClientResponse<JsonObject> BuildResponse<TEntity>(IElasticClientResponse<TEntity> response) where TEntity : SaltMinerEntity
+    {
+        return new EsClientResponse<JsonObject> {
+            Results = response.Results?.Select(ToJsonObjectDto),
+            Result = response.Result != null ? ToJsonObjectDto(response.Result) : null,
+            IsSuccessful = response.IsSuccessful,
+            Message = response.Message,
+            CountAffected = response.CountAffected,
+            PagingInfo = response.PagingInfo
+        };
+    }
     internal static IElasticClientResponse<T> BuildResponse(T doc, UpdateResponse<T> response) => SingleItemResponse(response, doc);
 
     internal static IElasticClientResponse<T> BuildResponse(T doc, IndexResponse response) => SingleItemResponse(response, doc);
@@ -216,7 +248,10 @@ public class EsClientResponse<T> : EsClientResponse, IElasticClientResponse<T> w
             PagingInfo = pagingInfo
         };
         rsp.PagingInfo.CurrentAfterKeys = pagingInfo.NextAfterKeys;
-        rsp.PagingInfo.NextAfterKeys = response.Hits.LastOrDefault()?.Sort?.Cast<object>().ToList();
+        // Only set NextAfterKeys if we got a full page of results (more results may exist)
+        // If we got fewer results than requested, we're at the end, so set to null
+        var hasMoreResults = response.Hits.Count >= pagingInfo.Size;
+        rsp.PagingInfo.NextAfterKeys = hasMoreResults ? response.Hits.LastOrDefault()?.Sort?.Cast<object>().ToList() : null;
         rsp.PagingInfo.PitPagingToken = response.PitId;
         if (string.IsNullOrEmpty(rsp.PagingInfo.PitPagingToken) && pagingInfo.EnablePit)
             rsp.PagingInfo.EnablePit = false;

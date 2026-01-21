@@ -14,17 +14,22 @@
 * ----
 */
 
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Util;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
 
 namespace Saltworks.SaltMiner.DataClient.IntegrationTests
 {
     public static class Helpers
     {
+        private static readonly ConcurrentBag<string> _indicesToDelete = new();
 
         public static DataClient GetDataClient<T>(DataClientOptions options) where T: class
         {
@@ -64,7 +69,7 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
 
         public static Config GetConfig(bool admin = false, bool manager = false)
         {
-            var config = System.Text.Json.JsonSerializer.Deserialize<Config>(System.IO.File.ReadAllText("settings.json"));
+            var config = JsonSerializer.Deserialize<Config>(File.ReadAllText("settings.json"));
             
             if (manager)
             {
@@ -111,7 +116,6 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
         {
             var assetType = AssetType.Mocked.ToString();
             var sourceType = "DataClient";
-            var instance = "UnitTest";
 
             switch (indexType)
             {
@@ -138,6 +142,74 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
                 case "issue":
                     Client.DeleteIndex(Issue.GenerateIndex(assetType, sourceType));
                     break;
+            }
+        }
+
+        /// <summary>
+        /// Bulk adds/updates TestEntity documents to the specified index.
+        /// </summary>
+        /// <param name="client">DataClient instance to use for the operation.</param>
+        /// <param name="index">The index where the entities will be added or updated.</param>
+        /// <param name="count">The number of entities to add or update.</param>
+        /// <param name="category">The category to assign to all entities.</param>
+        public static NoDataResponse BulkAddUpdateTestEntities(DataClient client, string index, int count, string category = "") =>
+            BulkAddUpdateTestEntities(client, index, count, x => category);
+
+        /// <summary>
+        /// Bulk adds/updates TestEntity documents to the specified index.
+        /// </summary>
+        /// <param name="client">DataClient instance to use for the operation.</param>
+        /// <param name="index">The index where the entities will be added or updated.</param>
+        /// <param name="count">The number of entities to add or update.</param>
+        /// <param name="categoryFn">Function to assign category to entities based on their index.</param>
+        public static NoDataResponse BulkAddUpdateTestEntities(DataClient client, string index, int count, Func<int, string> categoryFn = null)
+        {
+            var entities = new List<TestItem>();
+            for (int i = 0; i < count; i++)
+            {
+                entities.Add(new TestItem
+                {
+                    Name = $"Test Item {i + 1}",
+                    Value = i + 1,
+                    Date = DateTime.UtcNow.AddDays(-i),
+                    Category = categoryFn != null ? categoryFn(i) : ""
+                });
+            }
+            return client.IndexBulk(new JsonDataRequest 
+            { 
+                TypeName = typeof(TestItem).FullName, 
+                Documents = entities.Select(e => JsonSerializer.SerializeToNode(e).AsObject())
+            }, index);
+        }
+
+        /// <summary>
+        /// Register an index for deletion at the end of the test run.
+        /// </summary>
+        public static void RegisterDeleteIndex(string index)
+        {
+            if (!string.IsNullOrWhiteSpace(index))
+                _indicesToDelete.Add(index);
+        }
+
+        /// <summary>
+        /// Deletes all indices registered via RegisterDeleteIndex. Safe to call multiple times.
+        /// </summary>
+        public static void CleanupRegisteredIndices()
+        {
+            var config = GetConfig(admin: true);
+            var options = GetDataClientOptions(config);
+            var client = GetDataClient<AssemblyHooks>(options);
+
+            while (_indicesToDelete.TryTake(out var idx))
+            {
+                try
+                {
+                    client.DeleteIndex(idx);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error deleting index {idx}: {ex.Message}");
+                }
             }
         }
     }

@@ -14,19 +14,56 @@
 * ----
 */
 
-﻿using Saltworks.SaltMiner.DataApi.Models;
+using Saltworks.SaltMiner.DataApi.Models;
 using Saltworks.SaltMiner.DataApi.Data;
 using Saltworks.SaltMiner.Core.Data;
 using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.ElasticClient;
-using Saltworks.SaltMiner.Core.Util;
+using Saltworks.SaltMiner.Core.Entities;
+using System.Linq;
+using System;
+using System.Text.Json;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts
 {
-    public class IndexContext : ContextBase
+    public class IndexContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<IndexContext> logger) : 
+        ContextBase(config, dataRepository, factory, logger)
     {
-        public IndexContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<AssetContext> logger) : base(config, dataRepository, factory, logger)
-        { }
+
+        /// <summary>
+        /// Bulk Add/Update
+        /// </summary>
+        /// <param name="request">DataRequest containing documents to add/update</param>
+        /// <param name="index">The index name for which to add/update the documents</param>
+        public virtual NoDataResponse BulkAddUpdate(JsonDataRequest request, string index)
+        {
+            // Using TestItem as a way to get the Core assembly to then get the SaltMinerEntity type
+            if (typeof(TestItem).Assembly.GetType(request.TypeName) is not Type t || !typeof(SaltMinerEntity).IsAssignableFrom(t))
+            {
+                throw new ApiValidationException($"Invalid type '{request.TypeName}'");
+            }
+            if (request?.Documents == null || !request.Documents.Any())
+                throw new ApiValidationMissingArgumentException("Missing/invalid documents");
+
+            Logger.LogInformation("BulkAddUpdate: {Count} docs for type '{Type}'", request.Documents.Count(), request.TypeName);
+
+            var result = ElasticClient.BulkAddUpdate(request.Documents.Select(x => x.Deserialize(t, JsonSerializerOptions.Web) as SaltMinerEntity), index);
+            return result.ToNoDataResponse();
+        }
+
+        public virtual JsonDataResponse Search(JsonSearchRequest request, string indexName)
+        {
+            if (string.IsNullOrEmpty(request.TypeName))
+                throw new ApiValidationMissingArgumentException("Search request TypeName required.");
+            Logger.LogInformation("Search: type '{Type}'", request.TypeName);
+            var searchResponse = ElasticClient.Search(indexName, request);
+            return new JsonDataResponse
+            {
+                TypeName = request.TypeName,
+                Data = searchResponse.Results.Select(d => d.Document),
+                PagingInfo = searchResponse.PagingInfo
+            };
+        }
 
         /// <summary>
         /// Deletes Index by name
@@ -35,7 +72,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         /// <returns>NoDataResponse with boolean indicating success</returns>
         public virtual NoDataResponse DeleteIndex(string indexName)
         {
-            Logger.LogInformation("DeleteIndex: '{indexName}'", indexName);
+            Logger.LogInformation("DeleteIndex: '{IndexName}'", indexName);
             var result = ElasticClient.IndexDelete(indexName);
             return result.ToNoDataResponse();
         }
@@ -47,7 +84,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         /// <returns>NoDataResponse with boolean indicating success</returns>
         public virtual NoDataResponse ActiveIssueAlias(string indexName)
         {
-            Logger.LogInformation("ActiveIssueAlias: '{indexName}'", indexName);
+            Logger.LogInformation("ActiveIssueAlias: '{IndexName}'", indexName);
             return DataRepo.ActiveIssueAlias(indexName, Config.DataIssueIndexDefaultAlias.Replace("[indexName]", indexName));
         }
 
@@ -58,7 +95,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         /// <returns>NoDataResponse with boolean indicating success</returns>
         public virtual NoDataResponse RefreshIndex(string indexName)
         {
-            Logger.LogInformation("RefreshIndex: '{indexName}'", indexName);
+            Logger.LogInformation("RefreshIndex: '{IndexName}'", indexName);
             var result = ElasticClient.IndexRefresh(indexName);
             return result.ToNoDataResponse();
         }
@@ -70,7 +107,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         /// <returns>NoDataResponse with boolean indicating success</returns>
         public virtual NoDataResponse CheckForIndex(string indexName)
         {
-            Logger.LogInformation("CheckForIndex: '{indexName}'", indexName);
+            Logger.LogInformation("CheckForIndex: '{IndexName}'", indexName);
             var result = ElasticClient.IndexExists(indexName);
             return result.ToNoDataResponse();
         }

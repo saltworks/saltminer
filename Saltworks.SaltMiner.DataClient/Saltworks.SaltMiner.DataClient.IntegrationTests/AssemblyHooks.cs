@@ -16,14 +16,17 @@
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
+namespace Saltworks.SaltMiner.DataClient.IntegrationTests;
 
+/// <summary>
+/// Assembly-level test hooks for integration test cleanup.
+/// </summary>
 public class AssemblyHooks
 {
     protected AssemblyHooks() { }
     
-    [AssemblyCleanup()]
-    public static void Cleanup(TestContext _)
+    [AssemblyCleanup]
+    public static void Cleanup(TestContext testContext)
     {
         // Centralized cleanup for any registered indices
         Helpers.CleanupRegisteredIndices();

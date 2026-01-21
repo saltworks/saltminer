@@ -310,7 +310,7 @@ namespace Saltworks.SaltMiner.DataApi
 
             try
             {
-                app.UseNestClient();
+                app.UseEsClient();
                 var factory = app.Services.GetRequiredService<IElasticClientFactory>();
                 var client = factory.CreateClient();
                 var licenseContext = app.Services.GetRequiredService<LicenseContext>();
@@ -321,7 +321,8 @@ namespace Saltworks.SaltMiner.DataApi
                 var kibanaClient = app.Services.GetRequiredService<KibanaContext>();
                 ProcessKibanaImport(config, kibanaClient);
 
-                if (!client.IndexTemplateExists(config.TemplateToVerify).IsSuccessful)
+                var templateCheck = client.IndexTemplateExists(config.TemplateToVerify);
+                if (!templateCheck.IsSuccessful || templateCheck.CountAffected == 0)
                 {
                     Log.Error("Index templates not found on ElasticSearch server '{ElasticHost}', checked for {TemplateToVerify}", config.ElasticHost, config.TemplateToVerify);
                     throw new ApiConfigurationException($"Index templates not found on ElasticSearch server '{config.ElasticHost}', checked for {config.TemplateToVerify}");

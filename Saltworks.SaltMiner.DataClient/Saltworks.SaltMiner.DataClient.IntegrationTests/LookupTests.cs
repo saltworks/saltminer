@@ -53,7 +53,7 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
                 {
                     FilterMatches = new Dictionary<string, string>()
                 },
-                PitPagingInfo = new PitPagingInfo(10)
+                PagingInfo = new PagingInfo(10)
             });
 
             Assert.IsNotNull(search.Data);

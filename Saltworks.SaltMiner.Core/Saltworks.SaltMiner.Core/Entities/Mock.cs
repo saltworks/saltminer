@@ -849,6 +849,7 @@ namespace Saltworks.SaltMiner.Core.Entities
                     },
                     Customer = "Customer",
                     Name = "Name",
+                    Subtype = "PenTest",
                     PublishDate = DateTime.UtcNow,
                     Status = EnumExtensions.GetDescription(EngagementStatus.Queued)
                 },

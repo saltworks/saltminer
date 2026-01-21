@@ -16,30 +16,21 @@
 
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.ElasticClient;
-using System.Collections.Generic;
 using System.Linq;
 
 namespace Saltworks.SaltMiner.DataApi.Data;
 
     public static class ElasticDataRepoExtensions
     {
+        private const string ERROR = "Error";
         public static DataResponse<T> ToDataResponse<T>(this IElasticClientResponse<T> result) where T : class => new() 
         {
-            Data = result?.Results.Select(r => r.Document) ?? new List<T>(),
+            Data = result?.Results.Select(r => r.Document) ?? [],
             PagingInfo = result?.PagingInfo,
             Affected = result?.CountAffected ?? 0,
             Message = result?.Message,
-            ErrorMessages = !result?.IsSuccessful == true ? new List<string> { result?.Message } : null,
-            ErrorType = !result?.IsSuccessful == true ? "Elastic" : null,
-            StatusCode = result?.HttpStatus ?? 500
-        };
-
-        public static NoDataResponse ToNoDataResponse<T>(this IElasticClientResponse<T> result) where T : class => new()
-        {
-            Affected = result?.CountAffected ?? 0,
-            Message = result?.Message,
-            ErrorMessages = !result?.IsSuccessful == true ? new List<string> { result?.Message } : null,
-            ErrorType = !result?.IsSuccessful == true ? "Elastic" : null,
+            ErrorMessages = !result?.IsSuccessful == true ? new() { result?.Message } : null,
+            ErrorType = !result?.IsSuccessful == true ? ERROR : null,
             StatusCode = result?.HttpStatus ?? 500
         };
 
@@ -47,8 +38,8 @@ namespace Saltworks.SaltMiner.DataApi.Data;
         {
             Affected = result?.CountAffected ?? 0,
             Message = result?.Message,
-            ErrorMessages = !result?.IsSuccessful == true ? new List<string> { result?.Message } : null,
-            ErrorType = !result?.IsSuccessful == true ? "Elastic" : null,
+            ErrorMessages = !result?.IsSuccessful == true ? new() { result?.Message } : null,
+            ErrorType = !result?.IsSuccessful == true ? ERROR : null,
             StatusCode = result?.HttpStatus ?? 500,
             Data = result?.Result?.Document
         };
@@ -57,18 +48,27 @@ namespace Saltworks.SaltMiner.DataApi.Data;
         {
             Affected = result?.CountAffected ?? 0,
             Message = result?.Message,
-            ErrorMessages = !result?.IsSuccessful == true ? new List<string> { "Please see Bulk Errors" } : null,
-            ErrorType = !result?.IsSuccessful == true ? "Elastic" : null,
+            ErrorMessages = !result?.IsSuccessful == true ? new() { "Please see Bulk Errors" } : null,
+            ErrorType = !result?.IsSuccessful == true ? ERROR : null,
             StatusCode = result?.HttpStatus ?? 500,
             BulkErrors = result?.BulkErrorMessages
+        };
+
+        public static NoDataResponse ToNoDataResponse<T>(this IElasticClientResponse<T> result) where T : class => new()
+        {
+            Affected = result?.CountAffected ?? 0,
+            Message = result?.Message,
+            ErrorMessages = !result?.IsSuccessful == true ? new() { result?.Message } : null,
+            ErrorType = !result?.IsSuccessful == true ? ERROR : null,
+            StatusCode = result?.HttpStatus ?? 500
         };
 
         public static NoDataResponse ToNoDataResponse(this IElasticClientResponse result) => new()
         {
             Affected = result?.CountAffected ?? 0,
             Message = result?.Message,
-            ErrorMessages = !result?.IsSuccessful == true ? new List<string> { result?.Message } : null,
-            ErrorType = !result?.IsSuccessful == true ? "Elastic" : null,
+            ErrorMessages = !result?.IsSuccessful == true ? new() { result?.Message } : null,
+            ErrorType = !result?.IsSuccessful == true ? ERROR : null,
             StatusCode = result?.HttpStatus ?? 500
         };
     }

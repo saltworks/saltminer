@@ -28,7 +28,6 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
     public class IssueTests
     {
         private static DataClient Client = null;
-        private PitPagingInfo PagingInfo = null;
 
         [ClassInitialize]
         public static void Initialize(TestContext context)

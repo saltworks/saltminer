@@ -14,49 +14,65 @@
 * ----
 */
 
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.DataApi.Contexts;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.DataApi.Authentication;
+using Saltworks.SaltMiner.Core.Entities;
 
-namespace Saltworks.SaltMiner.DataApi.Controllers
+namespace Saltworks.SaltMiner.DataApi.Controllers;
+
+[Route("[controller]")]
+[Produces("application/json")]
+[Auth]
+[ApiController]
+public class IndexController(IndexContext context, ILogger<IndexController> logger) : ApiControllerBase(context, logger)
 {
-    [Route("[controller]")]
-    [Produces("application/json")]
-    [Auth]
-    [ApiController]
-    public class IndexController : ApiControllerBase
+    private IndexContext Context => ContextBase as IndexContext;
+
+    [HttpDelete("{indexName}")]
+    [Auth(Role.Admin)]
+    [ProducesResponseType(typeof(NoDataResponse), 200)]
+    public ActionResult<NoDataResponse> DeleteIndex(string indexName)
     {
-        private IndexContext Context => ContextBase as IndexContext;
+        return Ok(Context.DeleteIndex(indexName));
+    }
 
-        public IndexController(IndexContext context, ILogger<IndexController> logger) : base(context, logger)
-        {
-        }
+    [HttpPost("refresh/{indexName}")]
+    [ProducesResponseType(typeof(NoDataResponse), 200)]
+    public ActionResult RefreshIndex(string indexName)
+    {
+        return Ok(Context.RefreshIndex(indexName));
+    }
 
-        [HttpDelete("{indexName}")]
-        [Auth(Role.Admin)]
-        public ActionResult<NoDataResponse> DeleteIndex(string indexName)
-        {
-            return Ok(Context.DeleteIndex(indexName));
-        }
+    [HttpPost("alias/active-issue/{indexName}")]
+    [ProducesResponseType(typeof(NoDataResponse), 200)]
+    public ActionResult ActiveIssueAlias(string indexName)
+    {
+        return Ok(Context.ActiveIssueAlias(indexName));
+    }
 
-        [HttpPost("refresh/{indexName}")]
-        public ActionResult RefreshIndex(string indexName)
-        {
-            return Ok(Context.RefreshIndex(indexName));
-        }
+    [HttpPost("exist/{indexName}")]
+    [ProducesResponseType(typeof(NoDataResponse), 200)]
+    public ActionResult IndexExists(string indexName)
+    {
+        return Ok(Context.CheckForIndex(indexName));
+    }
 
-        [HttpPost("alias/active-issue/{indexName}")]
-        public ActionResult ActiveIssueAlias(string indexName)
-        {
-            return Ok(Context.ActiveIssueAlias(indexName));
-        }
+    [HttpPost("bulk/{indexName}")]
+    [Auth(Role.Admin)]
+    [ProducesResponseType(typeof(NoDataResponse), 200)]
+    public ActionResult<NoDataResponse> Bulk(string indexName, [FromBody] JsonDataRequest request)
+    {
+        return Ok(Context.BulkAddUpdate(request, indexName));
+    }
 
-        [HttpPost("exist/{indexName}")]
-        public ActionResult IndexExist(string indexName)
-        {
-            return Ok(Context.CheckForIndex(indexName));
-        }
+    [HttpPost("search/{indexName}")]
+    [Auth(Role.Admin)]
+    [ProducesResponseType(typeof(JsonDataResponse), 200)]
+    public ActionResult<JsonDataResponse> Search(string indexName, [FromBody] JsonSearchRequest request)
+    {
+        return Ok(Context.Search(request, indexName));
     }
 }
