@@ -111,9 +111,9 @@ namespace Saltworks.SaltMiner.Manager.Helpers
         {
             request.PagingInfo = response.PagingInfo.NextPage();
 
-            if (!string.IsNullOrEmpty(request.PitPagingInfo?.PagingToken))
+            if (!string.IsNullOrEmpty(request.PagingInfo?.PitPagingToken))
             {
-                request.PitPagingInfo = response.PitPagingInfo;
+                request.PagingInfo = response.PagingInfo;
             }
             return request;
         }

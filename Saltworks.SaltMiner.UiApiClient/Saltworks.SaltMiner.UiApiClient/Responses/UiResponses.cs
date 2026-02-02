@@ -30,7 +30,7 @@ namespace Saltworks.SaltMiner.UiApiClient.Responses
         public UiDataResponse(IEnumerable<T> data) : base(data) { }
         public UiDataResponse(IEnumerable<T> data, PagingInfo pagingInfo, IEnumerable<FieldFilter> sortOptions = null) : base(data, pagingInfo) 
         {
-            Pager = new(pagingInfo.Size, pagingInfo.Page)
+            Pager = new(pagingInfo.Size ?? 0, pagingInfo.Page)
             {
                 Total = Convert.ToInt32(pagingInfo.TotalHits)
             };

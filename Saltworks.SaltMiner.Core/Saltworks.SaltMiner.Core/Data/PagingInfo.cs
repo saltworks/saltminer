@@ -95,40 +95,4 @@ namespace Saltworks.SaltMiner.Core.Data
             CurrentAfterKeys = NextAfterKeys,
         };
     }
-
-    [Obsolete("Use PagingInfo instead.")]
-    public class PitPagingInfo
-    {
-        public PitPagingInfo() { }
-
-        public PitPagingInfo(int? size, bool enabled = false, Dictionary<string, bool> sortFilters = null)
-        {
-            Size = size;
-            Enabled = enabled;
-            SortFilters = sortFilters;
-        }
-
-        public PitPagingInfo(int? size, bool enabled, string token, Dictionary<string, bool> sortFilters = null)
-        {
-            Size = size;
-            Enabled = enabled;
-            PagingToken = token;
-            SortFilters = sortFilters;
-        }
-
-        public PitPagingInfo(int? size, bool enabled, Dictionary<string, object> aggregateKeys, Dictionary<string, bool> sortFilters = null)
-        {
-            Size = size;
-            Enabled = enabled;
-            AggregateKeys = aggregateKeys;
-            SortFilters = sortFilters;
-        }
-
-        public int? Total { get; set; }
-        public int? Size { get; set; }
-        public bool Enabled { get; set; } = false;
-        public string PagingToken { get; set; } = null;
-        public Dictionary<string, object> AggregateKeys { get; set; }
-        public Dictionary<string, bool> SortFilters { get; set; }
-    }
 }

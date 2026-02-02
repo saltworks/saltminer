@@ -188,12 +188,12 @@ public class EsClientResponse<T> : EsClientResponse, IElasticClientResponse<T> w
         var jsonDoc = JsonSerializer.SerializeToNode(dto.Document, JsonSerializerOptions.Web).AsObject();
         return EsClientResult<JsonObject>.From(jsonDoc, dto.Index, dto.Primary, dto.Sequence);
     }
-
+    
     internal static IElasticClientResponse<JsonObject> BuildResponse(IElasticClientResponse<SaltMinerEntity> response)
     {
         return new EsClientResponse<JsonObject> {
-            Results = response.Results?.Select(ToJsonObjectDto),
-            Result = response.Result != null ? ToJsonObjectDto(response.Result) : null,
+            Results = response.Results?.Select(d => ToJsonObjectDto<SaltMinerEntity>(d)).ToList() ?? new List<IElasticClientDto<JsonObject>>(),
+            Result = response.Result != null ? ToJsonObjectDto<SaltMinerEntity>(response.Result) : null,
             IsSuccessful = response.IsSuccessful,
             Message = response.Message,
             CountAffected = response.CountAffected,
@@ -204,8 +204,8 @@ public class EsClientResponse<T> : EsClientResponse, IElasticClientResponse<T> w
     internal static IElasticClientResponse<JsonObject> BuildResponse<TEntity>(IElasticClientResponse<TEntity> response) where TEntity : SaltMinerEntity
     {
         return new EsClientResponse<JsonObject> {
-            Results = response.Results?.Select(ToJsonObjectDto),
-            Result = response.Result != null ? ToJsonObjectDto(response.Result) : null,
+            Results = response.Results?.Select(dto => ToJsonObjectDto<TEntity>(dto)).ToList() ?? new List<IElasticClientDto<JsonObject>>(),
+            Result = response.Result != null ? ToJsonObjectDto<TEntity>(response.Result) : null,
             IsSuccessful = response.IsSuccessful,
             Message = response.Message,
             CountAffected = response.CountAffected,

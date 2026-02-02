@@ -72,7 +72,7 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
 
             Logger.LogDebug("Reading job queue and updating scheduler");
 
-            var request = new SearchRequest { PitPagingInfo = new() };
+            var request = new SearchRequest { PagingInfo = new() };
             var jobQueue = DataClient.ServiceJobSearch(request);
 
             if (jobQueue?.Data == null || !jobQueue.Data.Any())

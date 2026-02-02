@@ -19,6 +19,9 @@ using System;
 using Saltworks.SaltMiner.ElasticClient.EsClient;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
 
@@ -134,13 +137,21 @@ public class IndexTests
             // Arrange
             var mapping = MAPPING;
             var index = "test-index";
+			var error = "";
 
             // Act
-            Client.IndexCreate(index, mapping);
-            Client.IndexDelete(index);
+			try 
+			{
+				Client.IndexCreate(index, mapping);
+				Client.IndexDelete(index);
+			}
+			catch (Exception ex) 
+			{
+				error = ex.Message;
+			}
 
             // Assert
-            Assert.IsTrue(true, "No exceptions up to this point == good");
+            Assert.IsEmpty(error, "Shouldn't have failed with error: " + error);
         }
 
         public const string MAPPING = @"
@@ -281,7 +292,7 @@ public class IndexTests
 				TypeName = typeof(TestItem).FullName,
 				Filter = new Filter(),
 				PagingInfo = new PagingInfo { Size = 10 },
-				SortKeys = new System.Collections.Generic.Dictionary<string, bool> { { "timestamp", true } }
+				SortKeys = new Dictionary<string, bool> { { "timestamp", true } }
 			};
 
 			var result = Client.Search(tempIndex, searchRequest);
@@ -314,5 +325,94 @@ public class IndexTests
 
 			try { Client.IndexDelete(tempIndex); }
 			catch (Exception) { /* cleanup attempt */ }
+		}
+
+		[TestMethod]
+		public void PitPaging()
+		{
+			// Arrange
+			var count = 100;
+			var pageSize = 3;
+			var testIndex = TestItem.GenerateIndex($"pit_paging");
+			Helpers.RegisterDeleteIndex(testIndex);
+			
+			// Create index with proper mapping
+			Client.IndexCreate(testIndex);
+			Client.IndexRefresh(testIndex, 500);
+
+			// Bulk insert test data
+			var testItems = new List<TestItem>();
+			for (int i = 0; i < count; i++)
+			{
+				testItems.Add(new TestItem
+				{
+					Id = $"test-item-{i}",
+					Name = $"Test Item {i + 1}",
+					Value = i + 1,
+					Date = DateTime.UtcNow.AddDays(-i),
+					Category = "PitPagingTest"
+				});
+			}
+			var bulkResponse = Client.BulkAddUpdate(testItems, testIndex);
+			Assert.IsTrue(bulkResponse.IsSuccessful, $"Bulk insert failed during test setup: {bulkResponse.Message}");
+			Assert.AreEqual(count, bulkResponse.CountAffected, $"Expected {count} documents inserted");
+			Client.IndexRefresh(testIndex, 500);
+			Task.Delay(500).Wait(); // Wait for indexing
+
+			// Act - paginate through results using PIT
+			var processed = 0;
+			var request = new SearchRequest
+			{
+				Filter = new()
+				{
+					FilterMatches = new Dictionary<string, string> { { "category", "PitPagingTest" } }
+				},
+				PagingInfo = new PagingInfo(pageSize) { EnablePit = true }
+			};
+
+			var response = Client.Search<TestItem>(testIndex, request);
+			Assert.IsTrue(response.IsSuccessful, $"Initial search failed: {response.Message}");
+			
+			var pitId = response.PagingInfo.PitPagingToken;
+			Assert.IsFalse(string.IsNullOrEmpty(pitId), "PIT ID should be set after first search");
+
+			try
+			{
+				while (response.Results.Any())
+				{
+					foreach (var entity in response.Results)
+					{
+						processed++;
+						Console.WriteLine($"Processed item {processed}: {entity.Document.Name} (ID: {entity.Document.Id})");
+					}
+					
+					// Check if we have more pages
+					if (response.PagingInfo.NextAfterKeys == null)
+					{
+						Console.WriteLine("No more pages - NextAfterKeys is null");
+						break;
+					}
+
+					request.PagingInfo = response.PagingInfo.NextPage();
+					Console.WriteLine($"Fetching next page. PIT token: {request.PagingInfo.PitPagingToken?.Substring(0, Math.Min(20, request.PagingInfo.PitPagingToken?.Length ?? 0))}...");
+					response = Client.Search<TestItem>(testIndex, request);
+					Assert.IsTrue(response.IsSuccessful, $"Paging search failed: {response.Message}");
+					Assert.IsTrue(processed <= count, $"Processed more entities ({processed}) than expected ({count}).");
+				}
+
+				// Assert
+				Assert.AreEqual(count, processed, $"Expected {count} entities but processed {processed}");
+			}
+			finally
+			{
+				// Clean up PIT
+				if (!string.IsNullOrEmpty(pitId))
+				{
+					Console.WriteLine($"Closing PIT: {pitId.Substring(0, Math.Min(20, pitId.Length))}...");
+					var closeResult = Client.ClosePitSearch(pitId);
+					Assert.IsTrue(closeResult.IsSuccessful, $"Failed to close PIT: {closeResult.Message}");
+					Console.WriteLine("PIT closed successfully");
+				}
+			}
 		}
 }

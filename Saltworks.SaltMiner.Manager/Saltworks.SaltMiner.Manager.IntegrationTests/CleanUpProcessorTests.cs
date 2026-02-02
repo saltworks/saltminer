@@ -102,7 +102,7 @@ namespace Saltworks.SaltMiner.Manager.IntegrationTests
             Assert.IsTrue(queueScanReponse.Data != null);
 
             var seachReqest = new SearchRequest() { 
-                PitPagingInfo = new PitPagingInfo(1, false),
+                PagingInfo = new PagingInfo(1),
                 Filter = new Filter
                 {
                     FilterMatches = new Dictionary<string, string>
@@ -117,7 +117,7 @@ namespace Saltworks.SaltMiner.Manager.IntegrationTests
             Assert.IsTrue(queueAssetReponse.Data.Any());
 
             seachReqest = new SearchRequest() { 
-                PitPagingInfo = new PitPagingInfo(1, false),
+                PagingInfo = new PagingInfo(1),
                 Filter = new Filter
                 {
                     FilterMatches = new Dictionary<string, string>

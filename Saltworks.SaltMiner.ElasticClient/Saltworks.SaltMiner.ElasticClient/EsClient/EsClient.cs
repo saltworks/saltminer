@@ -629,55 +629,40 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
             throw new EsClientException($"Invalid type '{searchRequest.TypeName}'");
         }
 
-        // Get the generic Search<T> method
-        var searchMethod = typeof(EsClient).GetMethod(nameof(Search), 
-            [typeof(string), typeof(Core.Data.SearchRequest)]) ?? 
-            throw new EsClientException("Could not find Search<T> method");
-
-        // Make it generic with the runtime type
-        var genericSearchMethod = searchMethod.MakeGenericMethod(t);
-
         // Convert JsonSearchRequest to SearchRequest
         var request = searchRequest.ToSearchRequest();
 
-        // Invoke it
-        var result = genericSearchMethod.Invoke(this, [index, request]);
+        // Directly query Elasticsearch with the type and convert results
+        var searchMethod = typeof(EsClient).GetMethod(nameof(Search), 
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance,
+            null,
+            [typeof(string), typeof(Core.Data.SearchRequest)],
+            null) ?? throw new EsClientException("Could not find Search method");
 
-        // Use the generic BuildResponse overload to convert to JsonObject response
-        // This works because result is IElasticClientResponse<T> where T : SaltMinerEntity
-        if (result != null)
+        var genericMethod = searchMethod.MakeGenericMethod(t);
+        
+        object result;
+        try
         {
-            // Get the BuildResponse<T> method and make it generic with the resolved type
-            var buildResponseMethod = typeof(EsClientResponse<JsonObject>).GetMethod(
-                nameof(EsClientResponse<JsonObject>.BuildResponse),
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static,
-                null,
-                [result.GetType()],
-                null);
-
-            if (buildResponseMethod == null)
-            {
-                // Try finding the generic method and making it concrete
-                var methods = typeof(EsClientResponse<JsonObject>).GetMethods(
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-                
-                foreach (var method in methods)
-                {
-                    if (method.Name == "BuildResponse" && method.IsGenericMethodDefinition)
-                    {
-                        buildResponseMethod = method.MakeGenericMethod(t);
-                        break;
-                    }
-                }
-            }
-
-            if (buildResponseMethod != null)
-            {
-                return (IElasticClientResponse<JsonObject>)buildResponseMethod.Invoke(null, [result]);
-            }
+            result = genericMethod.Invoke(this, [index, request]);
+        }
+        catch (Exception ex)
+        {
+            throw new EsClientException($"Search<{t.Name}> invocation failed: {ex.InnerException?.Message ?? ex.Message}", ex);
         }
 
-        throw new EsClientException($"Search invocation failed.");
+        if (result == null)
+            throw new EsClientException("Search returned null");
+
+        var buildResponse = typeof(EsClientResponse<JsonObject>)
+            .GetMethods(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+            .FirstOrDefault(m => m.Name == "BuildResponse" && m.IsGenericMethodDefinition && m.GetParameters().Length == 1)
+            ?? throw new EsClientException("Could not find JsonObject BuildResponse converter");
+
+        var jsonResponse = buildResponse.MakeGenericMethod(t).Invoke(null, [result]) as IElasticClientResponse<JsonObject>
+            ?? throw new EsClientException("Search result conversion failed");
+
+        return jsonResponse;
     }
 
     public string SearchForJson(Core.Data.SearchRequest searchRequest, string indexName)
@@ -1304,13 +1289,27 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
     private SearchRequest<T> CreateSearchRequest<T>(Core.Data.SearchRequest searchRequest, string indexName)
     {
         var index = Indices.Index(indexName);
-        var queryRequest = new SearchRequest<T>(index);
-
+        
         searchRequest.PagingInfo ??= new();
         if (searchRequest.PagingInfo.Size < 1)
             searchRequest.PagingInfo.Size = ClientConfig.DefaultPageSize;
         if (searchRequest.PagingInfo.Page <= 1)
             searchRequest.PagingInfo.CurrentAfterKeys = null;
+
+        // When using PIT, we should NOT specify the index in the SearchRequest
+        // because the PIT ID already contains the index information
+        SearchRequest<T> queryRequest;
+        if (searchRequest.PagingInfo.EnablePit && !string.IsNullOrEmpty(searchRequest.PagingInfo.PitPagingToken))
+        {
+            // For subsequent PIT requests, don't specify index
+            queryRequest = new SearchRequest<T>();
+        }
+        else
+        {
+            // For initial request or non-PIT requests, specify index
+            queryRequest = new SearchRequest<T>(index);
+        }
+
         queryRequest.Size = searchRequest.PagingInfo.Size;
 
         if (searchRequest.PagingInfo.EnablePit)
@@ -1806,6 +1805,42 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
             return EsClientResponse<string>.BuildResponse(false, "failed", 0);
         }
         return EsClientResponse<string>.BuildResponse(true, result.Body, 1);
+    }
+
+    public IElasticClientResponse ClosePitSearch(string pitId)
+    {
+        if (string.IsNullOrEmpty(pitId))
+        {
+            Logger?.LogWarning("ClosePit called with null or empty pitId");
+            return EsClientResponse.BuildResponse(false, "Invalid PIT ID", 0);
+        }
+
+        try
+        {
+            Logger?.LogDebug("Closing PIT: {PitId}", pitId.Substring(0, Math.Min(20, pitId.Length)));
+            var request = new ClosePointInTimeRequest
+            {
+                Id = pitId
+            };
+            var response = ElasticClient.ClosePointInTimeAsync(request).Result;
+            
+            if (response.IsValidResponse)
+            {
+                Logger?.LogDebug("PIT closed successfully");
+                return EsClientResponse.BuildResponse(true, "PIT closed", 1);
+            }
+            else
+            {
+                var errorMsg = response.ElasticsearchServerError?.Error?.Reason ?? "Unknown error";
+                Logger?.LogWarning("Failed to close PIT: {Error}", errorMsg);
+                return EsClientResponse.BuildResponse(false, $"Failed to close PIT: {errorMsg}", 0);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogError(ex, "Exception closing PIT: {Message}", ex.Message);
+            return EsClientResponse.BuildResponse(false, $"Exception closing PIT: {ex.Message}", 0);
+        }
     }
 
 #endregion

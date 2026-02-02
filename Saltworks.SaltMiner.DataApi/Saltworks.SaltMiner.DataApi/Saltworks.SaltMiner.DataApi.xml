@@ -420,7 +420,10 @@
             <summary>
             Returns issue counts grouped by severity for engagement
             </summary>
-            <param name="request">Request supports PagingInfo.Size, PagingInfo.ScrollKeys, and FilterMatches</param>
+            <param name="assetType">Asset type for the target issues</param>
+            <param name="id">Engagement ID</param>
+            <param name="instance">Pentest instance for the target issues</param>
+            <param name="sourceType">Pentest source type</param>
             <returns>A dictionary response of type string, double that represents the key values (joined with |) and counts</returns>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.Status(System.String,System.String)">

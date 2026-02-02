@@ -69,7 +69,7 @@ namespace Saltworks.SaltMiner.UiApiClient.Helpers
                 {
                     FilterMatches = new Dictionary<string, string> { { "Saltminer.Engagement.Name", name } }
                 },
-                PitPagingInfo = new PitPagingInfo(1)
+                PagingInfo = new PagingInfo(1)
             });
             if (dataResponse.Success)
             {
@@ -97,7 +97,7 @@ namespace Saltworks.SaltMiner.UiApiClient.Helpers
                     { "Saltminer.Engagement.Id", engagementId }
                 }
                 },
-                PitPagingInfo = new PitPagingInfo(1)
+                PagingInfo = new PagingInfo(1)
             });
             if (dataResponse.Success)
             {

@@ -161,9 +161,9 @@ namespace Saltworks.SaltMiner.JobManager.Helpers
         public static SearchRequest NextRequest<T>(this SearchRequest request, DataResponse<T> response) where T: class
         {
             request.PagingInfo = response.PagingInfo;
-            if (!string.IsNullOrEmpty(request.PitPagingInfo?.PagingToken))
+            if (!string.IsNullOrEmpty(request.PagingInfo?.PitPagingToken))
             {
-                request.PitPagingInfo = response.PitPagingInfo;
+                request.PagingInfo = response.PagingInfo;
             }
             
             if ((request.PagingInfo?.Page ?? 0) > 0)

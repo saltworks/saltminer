@@ -166,7 +166,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         [HttpDelete("group/{id}")]
         public ActionResult<NoDataResponse> DeleteGroup(string id)
         {
-            Logger.LogInformation("Delete action called for group id '{id}'", id);
+            Logger.LogInformation("Delete action called for group id '{Id}'", id);
 
             return Ok(Context.DeleteGroup(id));
         }
@@ -174,7 +174,10 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <summary>
         /// Returns issue counts grouped by severity for engagement
         /// </summary>
-        /// <param name="request">Request supports PagingInfo.Size, PagingInfo.ScrollKeys, and FilterMatches</param>
+        /// <param name="assetType">Asset type for the target issues</param>
+        /// <param name="id">Engagement ID</param>
+        /// <param name="instance">Pentest instance for the target issues</param>
+        /// <param name="sourceType">Pentest source type</param>
         /// <returns>A dictionary response of type string, double that represents the key values (joined with |) and counts</returns>
         [ProducesResponseType(200, Type = typeof(DataDictionaryResponse<string, long?>))]
         [HttpGet("{id}/{assetType}/{sourceType}/{instance}/issue/counts")]

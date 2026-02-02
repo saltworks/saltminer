@@ -18,7 +18,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Extensions;
 
 public static class GeneralExtensions
 {
-    public static string SearchUIPagingLoggerMessage(string entity, int count, int size, int page)
+    public static string SearchUIPagingLoggerMessage(string entity, int count, int? size, int page)
     {
         return $"Search {entity}:  count of filters {count}, with size {size} and page '{page}'";
     }

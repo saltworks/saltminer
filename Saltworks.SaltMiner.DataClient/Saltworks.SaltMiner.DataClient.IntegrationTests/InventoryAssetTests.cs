@@ -17,7 +17,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Entities;
 using System.Linq;
-using System.Threading;
+using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.DataClient.IntegrationTests
 {
@@ -33,7 +33,7 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
             {
                 return;
             }
-            Client = Helpers.GetDataClient<InventoryAssetTests>(Helpers.GetDataClientOptions(Helpers.GetConfig(false, true)));
+            Client = Helpers.GetDataClient<InventoryAssetTests>(Helpers.GetDataClientOptions(Helpers.GetConfig(true, false)));
         }
 
         [TestMethod]
@@ -49,13 +49,14 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
 
             // Act
             var a1 = Client.InventoryAssetAddUpdate(a).Data;
-            Thread.Sleep(2000); // wait for "save" to complete
+            Client.RefreshIndex(InventoryAsset.GenerateIndex());
+            Task.Delay(2000).Wait(); // wait for "save" to complete
             var a2 = Client.InventoryAssetGet(a1.Id);
-            var r = Client.InventoryAssetSearch(Helpers.SearchRequest("Saltminer.AssetInv.Name", name));
+            var r = Client.InventoryAssetSearch(Helpers.SearchRequest("Name", name));
 
             // Assert
-            Assert.IsTrue(!string.IsNullOrEmpty(a1.Id), "AssetInventory ID shouldn't be empty after adding it");
-            Assert.IsNotNull(a2, "AssetInventory should exist and be GETable");
+            Assert.IsFalse(string.IsNullOrEmpty(a1.Id), "InventoryAsset ID shouldn't be empty after adding it");
+            Assert.IsNotNull(a2, "InventoryAsset should exist and be GETable");
             Assert.IsTrue(r.Data.Any(), "Search should return at least 1 result");
 
             //Clean Up

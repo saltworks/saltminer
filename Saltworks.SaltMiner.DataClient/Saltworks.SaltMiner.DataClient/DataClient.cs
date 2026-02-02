@@ -323,7 +323,7 @@ public class DataClient : IDisposable
     }
 
     /// <summary>
-    /// Unlocks queue scans that have been locked via prior <see cref="QueueScanUpdateStatus(string, QueueScan.QueueScanStatus, string)"/> calls
+    /// Unlocks queue scans that have been locked via prior <see cref="QueueScanUpdateStatus"/> calls
     /// </summary>
     /// <param name="lockId">Lock ID to find and unlock</param>
     /// <param name="resetProcessing">If set and queue scan is in Processing state, reset to Pending</param>
@@ -1202,6 +1202,7 @@ public class DataClient : IDisposable
     /// Gets Grouped Parent Engagement
     /// </summary>
     /// <param name="id">The current engagement Id</param>
+    /// <param name="groupId">The current engagement group Id</param>
     /// <returns>Success Engagement with success flag</returns>
     public NoDataResponse SetHistoricalIssues(string id, string groupId)
     {

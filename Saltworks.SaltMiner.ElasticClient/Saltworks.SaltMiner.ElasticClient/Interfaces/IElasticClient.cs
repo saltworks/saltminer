@@ -414,4 +414,10 @@ public interface IElasticClient
     /// Gets basic cluster information to verify connectivity (equivalent to GET /_cluster).
     /// </summary>
     IElasticClientResponse GetClusterInfo();
+    /// <summary>
+    /// Closes a Point-in-Time (PIT) search context to free up resources.
+    /// </summary>
+    /// <param name="pitId">The PIT ID to close</param>
+    /// <returns>A response object indicating success</returns>
+    IElasticClientResponse ClosePitSearch(string pitId);
 }

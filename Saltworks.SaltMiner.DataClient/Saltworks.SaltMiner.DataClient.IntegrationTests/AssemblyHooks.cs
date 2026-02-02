@@ -26,7 +26,7 @@ public class AssemblyHooks
     protected AssemblyHooks() { }
     
     [AssemblyCleanup]
-    public static void Cleanup(TestContext testContext)
+    public static void Cleanup()
     {
         // Centralized cleanup for any registered indices
         Helpers.CleanupRegisteredIndices();

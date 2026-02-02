@@ -22,6 +22,8 @@ using Saltworks.SaltMiner.ElasticClient;
 using Saltworks.SaltMiner.Core.Entities;
 using System.Linq;
 using System;
+using System.Collections.Generic;
+using System.Reflection;
 using System.Text.Json;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts
@@ -47,7 +49,24 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             Logger.LogInformation("BulkAddUpdate: {Count} docs for type '{Type}'", request.Documents.Count(), request.TypeName);
 
-            var result = ElasticClient.BulkAddUpdate(request.Documents.Select(x => x.Deserialize(t, JsonSerializerOptions.Web) as SaltMinerEntity), index);
+            // Deserialize documents to their correct type and create a strongly-typed list
+            var listType = typeof(List<>).MakeGenericType(t);
+            var deserializedDocs = Activator.CreateInstance(listType) as System.Collections.IList
+                ?? throw new ApiValidationException("Failed to create typed list");
+            
+            foreach (var doc in request.Documents)
+            {
+                var deserialized = doc.Deserialize(t, JsonSerializerOptions.Web);
+                deserializedDocs.Add(deserialized);
+            }
+
+            // Use reflection to call the generic BulkAddUpdate<T> method with the correct type
+            // This preserves the derived type information instead of casting to SaltMinerEntity
+            var method = typeof(IElasticClient).GetMethod(nameof(IElasticClient.BulkAddUpdate)) ?? throw new ApiValidationException("Could not find BulkAddUpdate method");
+            var genericMethod = method.MakeGenericMethod(t);
+            var result = (IElasticClientResponse)genericMethod.Invoke(ElasticClient, [deserializedDocs, index])
+                ?? throw new ApiValidationException("BulkAddUpdate returned null");
+
             return result.ToNoDataResponse();
         }
 
@@ -57,12 +76,15 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                 throw new ApiValidationMissingArgumentException("Search request TypeName required.");
             Logger.LogInformation("Search: type '{Type}'", request.TypeName);
             var searchResponse = ElasticClient.Search(indexName, request);
-            return new JsonDataResponse
+            var rsp = new JsonDataResponse
             {
                 TypeName = request.TypeName,
                 Data = searchResponse.Results.Select(d => d.Document),
-                PagingInfo = searchResponse.PagingInfo
+                PagingInfo = searchResponse.PagingInfo,
+                StatusCode = searchResponse.HttpStatus,
+                ErrorMessages = searchResponse.IsSuccessful ? [] : [searchResponse.Message]
             };
+            return rsp;
         }
 
         /// <summary>

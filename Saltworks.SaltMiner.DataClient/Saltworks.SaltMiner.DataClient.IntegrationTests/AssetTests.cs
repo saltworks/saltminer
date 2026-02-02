@@ -41,13 +41,13 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
         public void Crud()
         {
             // Arrange
-            var source = "Fortify1231";
             var sourceType = "DataClient";
             var instance = "UnitTest";
             var sourceId = "F1231";
             var asset = Mock.Asset(sourceType);
             asset.Id = string.Empty;
-            asset.Saltminer.Asset.Instance = source;
+            // Ensure instance matches the index we will query against
+            asset.Saltminer.Asset.Instance = instance;
             asset.Saltminer.Asset.SourceType = sourceType;
             asset.Saltminer.Asset.SourceId = sourceId;
             var assetIndex = Asset.GenerateIndex(asset.Saltminer.Asset.AssetType, sourceType, instance);

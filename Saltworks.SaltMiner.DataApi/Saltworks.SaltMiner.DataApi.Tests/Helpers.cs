@@ -34,7 +34,7 @@ namespace Saltworks.SaltMiner.DataApi.IntegrationTests
             services.AddEsClient(configureOptions =>
             {
                 configureOptions.HttpScheme = config.ElasticHttpScheme;
-                configureOptions.ElasticSearchHost = new string[] { config.ElasticHost };
+                configureOptions.ElasticSearchHost = [ config.ElasticHost ];
                 configureOptions.Port = config.ElasticPort;
                 configureOptions.Username = config.ElasticUsername;
                 configureOptions.Password = config.ElasticPassword;

@@ -58,7 +58,7 @@ public class PagingTests
         {
             Filter = new()
             {
-                FilterMatches = new Dictionary<string, string> { { "Category", TestCategory } }
+                FilterMatches = new Dictionary<string, string> { { "category", TestCategory } }
             },
             PagingInfo = new PagingInfo(pageSize) { EnablePit = true }
         };
@@ -75,6 +75,7 @@ public class PagingTests
             request.PagingInfo = response.PagingInfo.NextPage();
             response = Client.IndexSearch<TestItem>(request, testIndex);
             Assert.IsTrue(response.Success, $"Paging search failed: {response.Message}");
+            Assert.IsTrue(processed <= count, "Processed more entities than expected.");
         }
         
         // Assert
@@ -98,7 +99,10 @@ public class PagingTests
         Task.Delay(500).Wait(); // Wait for indexing
 
         // Act - paginate through results
-        var searchRequest = new SearchRequest(new(pageSize));
+        var searchRequest = new SearchRequest(new(pageSize))
+        {
+            SortKeys = new() { { "id", true } }
+        };
         var response = Client.IndexSearch<TestItem>(searchRequest, testIndex);
         while (response?.Data != null && response.Data.Any())
         {

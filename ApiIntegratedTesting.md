@@ -33,7 +33,7 @@ Start the API as a **managed separate process** (not in a terminal) while runnin
 
 ### Step 1: Create Test Runner Script
 
-Create `run-api-integrated-test.ps1` in your test project directory:
+Create `ai-run-api-test.ps1` in your test project directory (script name should begin with "ai-"):
 
 ```powershell
 # Integration Test Runner - Starts API, runs tests, stops API
