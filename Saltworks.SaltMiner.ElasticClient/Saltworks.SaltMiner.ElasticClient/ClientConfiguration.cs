@@ -65,6 +65,7 @@ public class ClientConfiguration
     public string DefaultPagingTimeout { get; set; } = "2m";
     /// <summary>
     /// Sets the maximum number of documents to retrieve from Elasticsearch for a "cold" search (one that has no AfterKeys, but is past page 1).
+    /// Defaults to 10,000 which is also the maximum number of documents Elasticsearch will return in a single query.
     /// </summary>
     public int MaxIndexDocsForPaging { get; set; } = 10000;
     /// <summary>
