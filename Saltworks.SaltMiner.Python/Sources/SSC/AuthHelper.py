@@ -119,12 +119,13 @@ class AuthHelper(object):
 
         if haveWork:
             # Add needed roles
-            logging.info("Adding/updating elasticsearch roles")
-            pl.Progress(1, "Adding/updating elasticsearch roles", len(attrUsers))
+            doing = "Adding/updating elasticsearch roles"
+            logging.info(doing)
+            pl.Progress(1, doing, len(attrUsers))
             count = 1
             for a in attrUsers.keys():
                 if count == 1 or count % 100 == 0:
-                    pl.Progress(count, "Adding/updating elasticsearch roles")
+                    pl.Progress(count, doing)
                 logging.debug(f"Adding role '{rolePrefix}{a}'")
                 tdict = {}
                 if 'tdict' in attrUsers[a].keys() and attrUsers[a]['tdict']:
@@ -133,12 +134,13 @@ class AuthHelper(object):
                 count += 1
 
             # Adding needed role mappings
-            logging.info("Adding/updating elasticsearch role mappings")
-            pl.Progress(1, "Adding/updating elasticsearch role mappings", len(attrUsers))
+            doing = "Adding/updating elasticsearch role mappings"
+            logging.info(doing)
+            pl.Progress(1, doing, len(attrUsers))
             count = 1
             for a in attrUsers.keys():
                 if count == 1 or count % 100 == 0:
-                    pl.Progress(count, "Adding/updating elasticsearch role mappings")
+                    pl.Progress(count, doing)
                 logging.debug(f"Adding role mapping '{roleMappingPrefix}{a}'")
                 roles = [f"{rolePrefix}{a}"]
                 if self.__GlobalRoleName:
@@ -148,13 +150,14 @@ class AuthHelper(object):
         # end if
 
         # Find and remove roles & mappings that shouldn't be present
-        logging.info("Removing unneeded elasticsearch roles/role mappings")
+        doing = "Removing unneeded elasticsearch roles & mappings"
+        logging.info(doing)
         rList = es.GetRoles()
-        pl.Progress(1, "Removing unneeded elasticsearch roles & mappings", len(rList.keys()))
+        pl.Progress(1, doing, len(rList.keys()))
         count = 1
         for r in rList.keys():
             if count == 1 or count % 100 == 0:
-                pl.Progress(count, "Looking for (and removing) unneeded elasticsearch roles & mappings")
+                pl.Progress(count, doing)
             ra = r.replace(rolePrefix, "")
             if r.startswith(rolePrefix) and ra not in attrUsers.keys():
                 logging.debug(f"Removing role '{r}' and role mapping '{roleMappingPrefix + ra}'")
@@ -182,7 +185,7 @@ class AuthHelper(object):
             users = []
             try:
                 users = self.__Ssc.GetProjectVersionUsers(e['projectVersionId'])
-            except SscClientException as ex:
+            except SscClientException:
                 logging.error("Failed to get users/groups for project version %s. Skipping...", e['projectVersionId'])
                 continue
             e['users'] = []
@@ -205,18 +208,25 @@ class AuthHelper(object):
         attrUsers = {}
         count = 1
         for e in pvList:
-            if count == 1 or count % 10 == 0:
+            if count == 1 or count % 100 == 0:
                 pl.Progress(count, "Data optimization")
             a = e['attribute']
             if a:
+                usersOrGroups = False
                 if a not in attrUsers.keys():
                     attrUsers[a] = { "users": [], "groups": [], "tdict": { "rkey": a } }
-                for u in e['users']:
-                    if u not in attrUsers[a]['users']:
-                        attrUsers[a]['users'].append(u)
-                for u in e['groups']:
-                    if u not in attrUsers[a]['groups']:
-                        attrUsers[a]['groups'].append(u)
+                if 'users' in e:
+                    usersOrGroups = True
+                    for u in e['users']:
+                        if u not in attrUsers[a]['users']:
+                            attrUsers[a]['users'].append(u)
+                if 'groups' in e:
+                    usersOrGroups = True
+                    for u in e['groups']:
+                        if u not in attrUsers[a]['groups']:
+                            attrUsers[a]['groups'].append(u)
+                if not usersOrGroups:
+                    logging.warning("No users or groups found for attribute value '%s' in project version %s", a, e['projectVersionId'])
             count += 1
         # eliminate empties (no users/groups assigned)
         newD = {}
