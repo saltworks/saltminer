@@ -14,57 +14,49 @@
 * ----
 */
 
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Entities;
 using System;
-using System.Threading;
+using System.Threading.Tasks;
 
-namespace Saltworks.SaltMiner.DataClient.IntegrationTests
+namespace Saltworks.SaltMiner.DataClient.IntegrationTests;
+[TestClass]
+public class LicenseTests
 {
-    [TestClass]
-    public class LicenseTests
+    private static DataClient Client = null;
+
+    [ClassInitialize]
+    public static void Initialize(TestContext context)
     {
-        private static DataClient Client = null;
+        if (context == null)
+            return;
+        Client = Helpers.GetDataClient<LicenseTests>(Helpers.GetDataClientOptions(Helpers.GetConfig(false, true)));
+    }
 
-        [ClassInitialize]
-        public static void Initialize(TestContext context)
+    [TestMethod]
+    public void CRUDTest()
+    {
+        var license = new License
         {
-            if (context == null)
-            {
-                return;
-            }
-
-            Client = Helpers.GetDataClient<LicenseTests>(Helpers.GetDataClientOptions(Helpers.GetConfig(false, true)));
+            Hash = "hash",
+            LicenseInfo = new LicenseInfo(),
+        };
+        try
+        {
+            Client.DeleteLicense();
+        }
+        catch(Exception)
+        {
+            // Ignore exceptions.
         }
 
-        [TestMethod]
-        public void CRUDTest()
-        {
-            var license = new License
-            {
-                Hash = "hash",
-                LicenseInfo = new LicenseInfo(),
-            };
-            try
-            {
-                Client.DeleteLicense();
-            }
-            catch(Exception ex)
-            {
-                //Deleteing if there.
-            }
-
-            Thread.Sleep(2000);
-
-            var licenseResponse = Client.GetLicense();
-
-            Assert.IsNull(licenseResponse.Data);
-            
-            Client.AddLicense(license);
-            Thread.Sleep(2000);
-            licenseResponse = Client.GetLicense();
-
-            Assert.IsNotNull(licenseResponse.Data);
-        }
+        Task.Delay(500).Wait();
+        var licenseResponse = Client.GetLicense();
+        Assert.IsNull(licenseResponse.Data);
+        Client.AddLicense(license);
+        Client.RefreshIndex(License.GenerateIndex());
+        Task.Delay(500).Wait();
+        licenseResponse = Client.GetLicense();
+        Assert.IsNotNull(licenseResponse.Data);
     }
 }

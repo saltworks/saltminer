@@ -86,13 +86,13 @@ namespace Saltworks.SaltMiner.JobManager.Processor.CleanUp
                     },
                     AnyMatch = false
                 },
-                PitPagingInfo = new PitPagingInfo(Config.CleanupProcessorBatchSize, false)
+                PagingInfo = new PagingInfo(Config.CleanupProcessorBatchSize)
             };
 
             if (RunConfig.ListOnly)
             {
                 // for listing only, just query all and display the count. Job queue should never be too big
-                jobQueueRequest.PitPagingInfo = null;
+                jobQueueRequest.PagingInfo = null;
                 var outdatedJobQueuesList = DataClient.JobSearch(jobQueueRequest).Data.ToList();
                 Logger.LogInformation("{count} job queue(s) with status '{status}' will be removed", outdatedJobQueuesList.Count, jobStatus.ToString("g"));
             }

@@ -92,22 +92,23 @@ namespace Saltworks.SaltMiner.DataApi.Data
         /// <param name="aggList">List to use for aggregations</param>
         /// <param name="assetType">Type of asset to query (* should work)</param>
         /// <returns>Result set including the keys and counts for the keys, as well as scroll information for getting the next batch</returns>
-        ElasticAggResponse SnapshotAggregates(PitPagingInfo pager, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggList, string assetType);
+        ElasticAggResponse SnapshotAggregates(PagingInfo pager, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggList, string assetType);
 
         /// <summary>
         /// Returns snapshot aggregates for the given grouping fields and asset type
         /// </summary>
+        /// <param name="engagementId">Engagement Id to filter on</param>
         /// <param name="pager">Returns next batch of data if the ScrollKeys are included</param>
         /// <param name="sourceFields">Composite Source fields to use for aggregation</param>
         /// <param name="aggList">List to use for aggregations</param>
         /// <param name="assetType">Type of asset to query (* should work)</param>
         /// <returns>Result set including the keys and counts for the keys, as well as scroll information for getting the next batch</returns>
-        ElasticAggResponse EngagementIssueCountAggregates(string engagementId, PitPagingInfo pager, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggList, string assetType);
+        ElasticAggResponse EngagementIssueCountAggregates(string engagementId, PagingInfo pager, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggList, string assetType);
 
         /// <summary>
         /// Returns an entity of type T from the datasource by its id, including locking info needed to call UpdateWithLockingInfo
         /// </summary>
-        /// <seealso cref="UpdateWithLocking{T}(T, string, ILockingInfo{T})"/>
+        /// <seealso cref="UpdateWithLocking{T}(T, string, ILockingInfo)"/>
         /// <typeparam name="T">Type of entity in the datasource</typeparam>
         /// <param name="id">The identifier for the entity to be retrieved</param>
         /// <param name="indexName">The index for the entity to be retrieved</param>

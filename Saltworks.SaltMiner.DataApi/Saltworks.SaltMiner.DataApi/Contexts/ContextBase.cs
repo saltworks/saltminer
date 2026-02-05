@@ -118,7 +118,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             //Ensure Index Exists in IndexMeta Index
             CheckForIndexMeta<T>(indexName);
 
-            return ElasticClient.AddUpdateBulk(request.Documents, indexName).ToBulkResponse();
+            return ElasticClient.BulkAddUpdate(request.Documents, indexName).ToBulkResponse();
         }
 
         public BulkResponse UpdateByQuery<T>(UpdateQueryRequest<T> request, string indexName) where T : SaltMinerEntity
@@ -141,7 +141,12 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             var entity = ElasticClient.Get<T>(id, indexName).ToDataItemResponse();
             if (entity == null || !entity.Success || entity.Data == null)
             {
-                throw new ApiResourceNotFoundException($"{typeof(T).Name} not found for Id '{id}'.");
+                if (entity.StatusCode == 404)
+                    throw new ApiResourceNotFoundException($"{typeof(T).Name} not found for Id '{id}'.");
+                Logger.LogError("Request failed with status {Status} - error message(s): {Msg}", entity.StatusCode, entity.ErrorMessages);
+                if (entity.StatusCode == 400)
+                    throw new ApiValidationException("Invalid request.");
+                throw new ApiException($"Request failed.");
             }
 
             return entity;
@@ -180,7 +185,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                 TemplateName = templateName
             }, IndexMeta.GenerateIndex());
 
-            ElasticClient.FlushIndex(IndexMeta.GenerateIndex());
+            ElasticClient.IndexFlush(IndexMeta.GenerateIndex());
         }
     }
 }

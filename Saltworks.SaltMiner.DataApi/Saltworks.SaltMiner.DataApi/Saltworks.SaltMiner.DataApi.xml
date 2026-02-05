@@ -4,6 +4,19 @@
         <name>Saltworks.SaltMiner.DataApi</name>
     </assembly>
     <members>
+        <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.BulkAddUpdate(Saltworks.SaltMiner.Core.Data.JsonDataRequest,System.String)">
+            <summary>
+            Bulk Add/Update
+            </summary>
+            <param name="request">DataRequest containing documents to add/update</param>
+            <param name="index">The index name for which to add/update the documents</param>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.ClosePitSearch(System.String)">
+            <summary>
+            Closes PIT search in elasticsearch
+            </summary>
+            <param name="id">PIT ID</param>
+        </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.DeleteIndex(System.String)">
             <summary>
             Deletes Index by name
@@ -413,7 +426,10 @@
             <summary>
             Returns issue counts grouped by severity for engagement
             </summary>
-            <param name="request">Request supports PagingInfo.Size, PagingInfo.ScrollKeys, and FilterMatches</param>
+            <param name="assetType">Asset type for the target issues</param>
+            <param name="id">Engagement ID</param>
+            <param name="instance">Pentest instance for the target issues</param>
+            <param name="sourceType">Pentest source type</param>
             <returns>A dictionary response of type string, double that represents the key values (joined with |) and counts</returns>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.Status(System.String,System.String)">
@@ -1315,7 +1331,7 @@
             </summary>
             <returns>The Index Template Json</returns>
         </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.SnapshotAggregates(Saltworks.SaltMiner.Core.Data.PitPagingInfo,System.Collections.Generic.IEnumerable{System.String},System.Collections.Generic.IEnumerable{Saltworks.SaltMiner.ElasticClient.IElasticClientRequestAggregate},System.String)">
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.SnapshotAggregates(Saltworks.SaltMiner.Core.Data.PagingInfo,System.Collections.Generic.IEnumerable{System.String},System.Collections.Generic.IEnumerable{Saltworks.SaltMiner.ElasticClient.IElasticClientRequestAggregate},System.String)">
             <summary>
             Returns snapshot aggregates for the given grouping fields and asset type
             </summary>
@@ -1325,10 +1341,11 @@
             <param name="assetType">Type of asset to query (* should work)</param>
             <returns>Result set including the keys and counts for the keys, as well as scroll information for getting the next batch</returns>
         </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.EngagementIssueCountAggregates(System.String,Saltworks.SaltMiner.Core.Data.PitPagingInfo,System.Collections.Generic.IEnumerable{System.String},System.Collections.Generic.IEnumerable{Saltworks.SaltMiner.ElasticClient.IElasticClientRequestAggregate},System.String)">
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.EngagementIssueCountAggregates(System.String,Saltworks.SaltMiner.Core.Data.PagingInfo,System.Collections.Generic.IEnumerable{System.String},System.Collections.Generic.IEnumerable{Saltworks.SaltMiner.ElasticClient.IElasticClientRequestAggregate},System.String)">
             <summary>
             Returns snapshot aggregates for the given grouping fields and asset type
             </summary>
+            <param name="engagementId">Engagement Id to filter on</param>
             <param name="pager">Returns next batch of data if the ScrollKeys are included</param>
             <param name="sourceFields">Composite Source fields to use for aggregation</param>
             <param name="aggList">List to use for aggregations</param>
@@ -1339,7 +1356,7 @@
             <summary>
             Returns an entity of type T from the datasource by its id, including locking info needed to call UpdateWithLockingInfo
             </summary>
-            <seealso cref="!:UpdateWithLocking&lt;T&gt;(T, string, ILockingInfo&lt;T&gt;)"/>
+            <seealso cref="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.UpdateWithLocking``1(``0,System.String,Saltworks.SaltMiner.DataApi.Data.ILockingInfo)"/>
             <typeparam name="T">Type of entity in the datasource</typeparam>
             <param name="id">The identifier for the entity to be retrieved</param>
             <param name="indexName">The index for the entity to be retrieved</param>

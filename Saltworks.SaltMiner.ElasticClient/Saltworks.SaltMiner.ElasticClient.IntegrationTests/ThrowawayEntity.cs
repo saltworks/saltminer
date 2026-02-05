@@ -14,12 +14,12 @@
 * ----
 */
 
-﻿using Saltworks.SaltMiner.Core.Entities;
+using Saltworks.SaltMiner.Core.Entities;
 
-namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
+namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
+public class ThrowawayEntity: SaltMinerEntity
 {
-    public class ThrowawayEntity: SaltMinerEntity
-    {
-        public static string GenerateIndex(string index) => index;
-    }
+    public string Name { get; set; }
+    public int Number { get; set; }
+    public static string GenerateIndex(string index) => index;
 }

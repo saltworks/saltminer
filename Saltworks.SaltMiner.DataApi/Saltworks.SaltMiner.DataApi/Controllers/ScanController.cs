@@ -73,10 +73,10 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <response code="200">Returns the requested object</response>
         [ProducesResponseType(200, Type = typeof(DataResponse<Scan>))]
         [Auth(Role.Manager, Role.Admin, Role.Pentester, Role.PentesterViewer)]
-        [HttpGet("{id}/{assetType}/{sourceType}/{configName}")]
+        [HttpGet("{id}/{assetType}/{sourceType}/{instance}")]
         public ActionResult<DataItemResponse<Scan>> Get(string id, string assetType, string sourceType, string instance)
         {
-            Logger.LogInformation("Get action called for id '{id}', type '{assetType}', and source type '{sourceType}', and instance '{instance}'", id, assetType, sourceType, instance);
+            Logger.LogInformation("Get action called for id '{Id}', type '{AssetType}', and source type '{SourceType}', and instance '{Instance}'", id, assetType, sourceType, instance);
             
             return Ok(Context.Get<Scan>(id, Scan.GenerateIndex(assetType, sourceType, instance)));
         }
@@ -127,7 +127,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         [HttpDelete("{id}/{assetType}/{sourceType}/{instance}")]
         public ActionResult<NoDataResponse> Delete(string id, string assetType, string sourceType, string instance)
         {
-            Logger.LogInformation("Delete action called for id '{id}', type '{assetType}', and source type '{sourceType}', and instance '{instance}'", id, assetType, sourceType, instance);
+            Logger.LogInformation("Delete action called for id '{Id}', type '{AssetType}', and source type '{SourceType}', and instance '{Instance}'", id, assetType, sourceType, instance);
         
             return Ok(Context.Delete<Scan>(id, Scan.GenerateIndex(assetType, sourceType, instance)));
         }
@@ -143,7 +143,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         [HttpGet("count/asset/{assetId}")]
         public ActionResult<NoDataResponse> CountByAssetId(string assetId)
         {
-            Logger.LogInformation("Count of scans action called for Asset ID '{assetId}'", assetId);
+            Logger.LogInformation("Count of scans action called for Asset ID '{AssetId}'", assetId);
 
 
             return Ok(Context.CountByAssetId(assetId));

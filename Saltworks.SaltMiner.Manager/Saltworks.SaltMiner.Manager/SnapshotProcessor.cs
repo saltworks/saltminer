@@ -32,7 +32,7 @@ namespace Saltworks.SaltMiner.Manager
         private static DateTime Today = DateTime.UtcNow;
         private static bool IsDaily = Today.Day != 1;
         private SnapshotRuntimeConfig RuntimeConfig;
-        private PitPagingInfo BucketPagingInfo;
+        private PagingInfo BucketPagingInfo;
 
         public SnapshotProcessor
         (
@@ -68,7 +68,7 @@ namespace Saltworks.SaltMiner.Manager
             
             var search = new SearchRequest 
             {
-                PitPagingInfo = BucketPagingInfo, 
+                PagingInfo = BucketPagingInfo, 
                 Filter = new()
                 {
                     FilterMatches = new()
@@ -82,7 +82,7 @@ namespace Saltworks.SaltMiner.Manager
             
             var result = DataClient.SnapshotCounts(search);
 
-            BucketPagingInfo = result.PitPagingInfo;
+            BucketPagingInfo = result.PagingInfo;
 
             return result.Results;
         }
@@ -106,7 +106,7 @@ namespace Saltworks.SaltMiner.Manager
                 var batchCount = 0;
                 var retries = 0;
                 
-                BucketPagingInfo = new PitPagingInfo(Config.SnapshotProcessorApiBatchSize);
+                BucketPagingInfo = new PagingInfo(Config.SnapshotProcessorApiBatchSize);
                 
                 var firstBatch = true;
                 

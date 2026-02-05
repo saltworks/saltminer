@@ -190,7 +190,7 @@ public class EngagementContext(ApiConfig config, IDataRepo dataRepository, IElas
         {
             var index = Issue.GenerateIndex(assetType, sourceType, instance);
 
-            var response = DataRepo.EngagementIssueCountAggregates(engagemnetId, new PitPagingInfo(), sourceFields, aggList, index);
+            var response = DataRepo.EngagementIssueCountAggregates(engagemnetId, new PagingInfo(), sourceFields, aggList, index);
             var resultDict = new Dictionary<string, long?>();
 
             foreach (var composite in response.Results)
@@ -204,7 +204,7 @@ public class EngagementContext(ApiConfig config, IDataRepo dataRepository, IElas
         {
             var index = QueueIssue.GenerateIndex();
 
-            var response = DataRepo.EngagementIssueCountAggregates(engagemnetId, new PitPagingInfo(), sourceFields, aggList, index);
+            var response = DataRepo.EngagementIssueCountAggregates(engagemnetId, new PagingInfo(), sourceFields, aggList, index);
             var resultDict = new Dictionary<string, long?>();
 
             foreach (var composite in response.Results)

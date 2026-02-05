@@ -14,61 +14,63 @@
 * ----
 */
 
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Saltworks.SaltMiner.ElasticClient.EsClient;
 using System;
 
-namespace Saltworks.SaltMiner.ElasticClient
+namespace Saltworks.SaltMiner.ElasticClient;
+public static class ConfigureClientExtensions
 {
-    public static class ConfigureClientExtensions
+    #region EsClient Client...from the dept of redundancy dept
+    public static void AddEsClient(this IServiceCollection services)
     {
-        public static void AddNestClient(this IServiceCollection services)
-        {
-            AddNestClient(services, null);
-        }
-
-        public static void AddNestClient(this IServiceCollection services, Action<ClientConfiguration> configureOptions)
-        {
-
-            var options = new ClientConfiguration();
-            configureOptions?.Invoke(options);
-            services.AddSingleton<IElasticClientFactory>(new NestClientFactory(options));
-        }
-
-        /// <summary>
-        /// Configures the Elasticsearch NestClient.
-        /// </summary>
-        /// <param name="services"></param>
-        public static void UseNestClient(this IServiceProvider services)
-        {
-            ILogger<IElasticClient> logger;
-            try
-            {
-                logger = services.GetRequiredService<ILogger<IElasticClient>>();
-            }
-            catch (Exception)
-            {
-                // ignore any problem getting a logger
-                logger = null;
-            }
-
-            var factory = services.GetRequiredService<IElasticClientFactory>();
-            if (!factory.Configuration.VerifySsl)
-            {
-                logger?.LogWarning("SSL verify is disabled for Elasticsearch connections.  This is insecure and not a recommended configuration.");
-            }
-            factory.Logger = logger;
-            logger?.LogDebug("Registered NestClient for use.");
-        }
-
-        public static void UseNestClient(this Microsoft.AspNetCore.Builder.IApplicationBuilder builder)
-        {
-            builder.ApplicationServices.UseNestClient();
-        }
-
-        public static void Configure(Microsoft.AspNetCore.Builder.IApplicationBuilder app, ILogger<NestClient> logger)
-        {
-            app.UseNestClient();
-        }
+        AddEsClient(services, null);
     }
+
+    public static void AddEsClient(this IServiceCollection services, Action<ClientConfiguration> configureOptions)
+    {
+
+        var options = new ClientConfiguration();
+        configureOptions?.Invoke(options);
+        services.AddSingleton<IElasticClientFactory>(new EsClientFactory(options));
+    }
+
+    /// <summary>
+    /// Configures the Elasticsearch EsClient.
+    /// </summary>
+    /// <param name="services"></param>
+    public static void UseEsClient(this IServiceProvider services)
+    {
+        ILogger<IElasticClient> logger;
+        try
+        {
+            logger = services.GetRequiredService<ILogger<IElasticClient>>();
+        }
+        catch (Exception)
+        {
+            // ignore any problem getting a logger
+            logger = null;
+        }
+
+        var factory = services.GetRequiredService<IElasticClientFactory>();
+        if (!factory.Configuration.VerifySsl)
+        {
+            logger?.LogWarning("SSL verify is disabled for Elasticsearch connections.  This is insecure and not a recommended configuration.");
+        }
+        factory.Logger = logger;
+        logger?.LogDebug("Registered EsClient for use.");
+    }
+
+    public static void UseEsClient(this Microsoft.AspNetCore.Builder.IApplicationBuilder builder)
+    {
+        builder.ApplicationServices.UseEsClient();
+    }
+
+    public static void Configure(Microsoft.AspNetCore.Builder.IApplicationBuilder app, ILogger<EsClient.EsClient> logger)
+    {
+        app.UseEsClient();
+    }
+
+    #endregion
 }

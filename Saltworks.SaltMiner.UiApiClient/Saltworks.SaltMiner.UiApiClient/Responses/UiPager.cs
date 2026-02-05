@@ -47,7 +47,7 @@ namespace Saltworks.SaltMiner.UiApiClient.Responses
         public UiPager(PagingInfo dataPager, Dictionary<string, bool> sortFilters = null)
         {
             Total = Convert.ToInt32(dataPager?.TotalHits);
-            Size = dataPager.Size;
+            Size = dataPager?.Size ?? 0;
             Page = dataPager.Page;
             SortFilters = sortFilters ?? [];
         }

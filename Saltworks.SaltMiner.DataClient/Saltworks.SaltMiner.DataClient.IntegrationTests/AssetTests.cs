@@ -18,6 +18,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Entities;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.DataClient.IntegrationTests
 {
@@ -36,29 +37,26 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
             Client = Helpers.GetDataClient<AssetTests>(Helpers.GetDataClientOptions(Helpers.GetConfig(false, true)));
         }
 
-        [ClassCleanup]
-        public static void CleanUp()
-        {
-            Helpers.CleanIndex(Client, "asset");
-        }
-
         [TestMethod]
         public void Crud()
         {
             // Arrange
-            var source = "Fortify1231";
             var sourceType = "DataClient";
             var instance = "UnitTest";
             var sourceId = "F1231";
             var asset = Mock.Asset(sourceType);
             asset.Id = string.Empty;
-            asset.Saltminer.Asset.Instance = source;
+            // Ensure instance matches the index we will query against
+            asset.Saltminer.Asset.Instance = instance;
             asset.Saltminer.Asset.SourceType = sourceType;
             asset.Saltminer.Asset.SourceId = sourceId;
+            var assetIndex = Asset.GenerateIndex(asset.Saltminer.Asset.AssetType, sourceType, instance);
+            Helpers.RegisterDeleteIndex(assetIndex);
 
             // Act
             var asset1 = Client.AssetAddUpdate(asset).Data;
-            Thread.Sleep(2000); // wait for "save" to complete
+            Client.RefreshIndex(Asset.GenerateIndex(asset.Saltminer.Asset.AssetType, sourceType, instance));
+            Task.Delay(2000).Wait(); // wait for "save" to complete
             var asset2 = Client.AssetGet(asset1.Id, asset.Saltminer.Asset.AssetType, sourceType, instance);
             var response = Client.AssetSearch(Helpers.SearchRequest("Saltminer.Asset.SourceId", sourceId, asset.Saltminer.Asset.AssetType, sourceType, instance));
 

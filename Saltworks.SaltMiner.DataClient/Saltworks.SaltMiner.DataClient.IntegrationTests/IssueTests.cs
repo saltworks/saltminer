@@ -28,7 +28,6 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
     public class IssueTests
     {
         private static DataClient Client = null;
-        private PitPagingInfo PagingInfo = null;
 
         [ClassInitialize]
         public static void Initialize(TestContext context)
@@ -38,13 +37,6 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
                 return;
             }
             Client = Helpers.GetDataClient<IssueTests>(Helpers.GetDataClientOptions(Helpers.GetConfig(false, true)));
-        }
-
-        [ClassCleanup]
-        public static void CleanUp()
-        {
-            Helpers.CleanIndex(Client, "issue");
-            Helpers.CleanIndex(Client, "scan");
         }
 
         [TestMethod]

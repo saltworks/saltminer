@@ -14,36 +14,36 @@
 * ----
 */
 
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Entities;
 using System;
 using System.ComponentModel.DataAnnotations;
 
-namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
+namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
+
+[TestClass]
+public class ExceptionTests
 {
-    [TestClass]
-    public class ExceptionTests
+    private static IElasticClient Client = null;
+
+    [ClassInitialize]
+    public static void Initialize(TestContext context)
     {
-        private static IElasticClient Client = null;
+        Helpers.ValidateSettingsAndConnect();
+        var c = Helpers.SettingsConfig();
+        Client = Helpers.GetElasticClient(c);
+    }
 
-        [ClassInitialize]
-        public static void Initialize(TestContext context)
+    [TestMethod]
+    public void Entity_Not_Found()
+    {
+        try
         {
-            var c = Helpers.SettingsConfig();
-            Client = Helpers.GetElasticClient(c);
+            var index = Issue.GenerateIndex("nope", "sonatype");
         }
-
-        [TestMethod]
-        public void Entity_Not_Found()
+        catch(Exception ex)
         {
-            try
-            {
-                var index = Issue.GenerateIndex("nope", "sonatype");
-            }
-            catch(Exception ex)
-            {
-                Assert.IsTrue(ex != null);
-            }
+            Assert.IsTrue(ex != null);
         }
     }
 }

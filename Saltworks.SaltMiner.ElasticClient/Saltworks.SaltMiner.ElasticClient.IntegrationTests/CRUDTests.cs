@@ -14,7 +14,7 @@
 * ----
 */
 
-﻿using System.Linq;
+using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Entities;
 using System;
@@ -22,43 +22,24 @@ using System.Collections.Generic;
 using Saltworks.SaltMiner.Core.Data;
 using System.Threading.Tasks;
 
-namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
+namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
+
+[TestClass]
+public class CrudTests
 {
-    [TestClass]
-    public class CRUDTests
+    private const string SOURCE_TYPE = "ElasticClient";
+    private static IElasticClient Client = null;
+    private static void RegisterDeleteIndex(string index) => Helpers.RegisterDeleteIndex(index);
+
+    [ClassInitialize]
+    public static void Initialize(TestContext _)
     {
-        private const string SOURCE_TYPE = "ElasticClient";
-        private static IElasticClient Client = null;
-        private static readonly List<string> _indicesToDelete = [];
+        Helpers.ValidateSettingsAndConnect();
+        var c = Helpers.SettingsConfig();
+        Client = Helpers.GetElasticClient(c);
+    }
 
-        private static void RegisterDeleteIndex(string index)
-        {
-            if (!_indicesToDelete.Contains(index))
-                _indicesToDelete.Add(index);
-        }
-
-        [ClassCleanup(ClassCleanupBehavior.EndOfClass)]
-        public static void Cleanup()
-        {
-            foreach (var index in _indicesToDelete)
-            {
-                try
-                {
-                    Client.DeleteIndex(index);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error deleting index {index}: {ex.Message}");
-                }
-            }
-        }
-
-        [ClassInitialize]
-        public static void Initialize(TestContext _)
-        {
-            var c = Helpers.SettingsConfig();
-            Client = Helpers.GetElasticClient(c);
-        }
+    // Per-class index cleanup not needed; indices are cleaned up centrally in AssemblyHooks
 
         [TestMethod]
         public void FuzzySearchTest()
@@ -76,7 +57,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 }
             };
 
-            var results = Client.Search<Engagement>(request, Engagement.GenerateIndex());
+            var results = Client.Search<Engagement>(Engagement.GenerateIndex(), request);
             Assert.IsTrue(results.IsSuccessful);
         }
 
@@ -143,17 +124,18 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
         [TestMethod]
         public void SimpleSearchTest()
         {
-            var result = Client.Search<IndexMeta>(new SearchRequest
+            var idx = ThrowawayEntity.GenerateIndex("Test_SimpleSearch");
+            RegisterDeleteIndex(idx);
+            var result = Client.Search<ThrowawayEntity>(idx, new SearchRequest
             {
                 Filter = new Filter
                 {
                     FilterMatches = new Dictionary<string, string>
                         {
-                            { "index", "queue_issue" }
+                            { "index", idx }
                         },
                 },
-            }, IndexMeta.GenerateIndex());
-
+            });
             Assert.IsNotNull(result);
         }
 
@@ -195,7 +177,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 issues.Add(issue);
             }
 
-            Client.AddUpdateBulk(issues, indexName);
+            Client.BulkAddUpdate(issues, indexName);
             await Task.Delay(2000); // Will fail if search happens right after inserts
             request = new SearchRequest
             {
@@ -203,9 +185,9 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 {
                     FilterMatches = kvps
                 },
-                PitPagingInfo = new PitPagingInfo(10)
+                PagingInfo = new PagingInfo(10) { EnablePit = true }
             };
-            var result = Client.Search<Issue>(request, indexName);
+            var result = Client.Search<Issue>(indexName, request);
  
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(10, result.Results.Count());
@@ -255,7 +237,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 issues.Add(issue);
             }
 
-            var r = Client.AddUpdateBulk(issues, indexName);
+            var r = Client.BulkAddUpdate(issues, indexName);
             await Task.Delay(2000); //Will fail if count happens right after update
             var result = Client.Count<Issue>(request, indexName);
 
@@ -277,7 +259,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             RegisterDeleteIndex(indexName);
             var kvps = new Dictionary<string, string>() {
                 { "Saltminer.Asset.Name", "SearchWithScrollingTest" },
-                { "Vulnerability.Severity", "Critically" }
+                { "Vulnerability.Severity", "Critical" }
             };
 
 
@@ -297,12 +279,12 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             {
                 var issue = Mock.Issue(sourceType);
                 issue.Id = "";
-                issue.Vulnerability.Severity = "Critically";
+                issue.Vulnerability.Severity = "Critical";
                 issue.Saltminer.Asset.Name = "SearchWithScrollingTest";
                 issues.Add(issue);
             }
 
-            Client.AddUpdateBulk(issues, indexName);
+            Client.BulkAddUpdate(issues, indexName);
 
             await Task.Delay(2000); //Will fail if search happens right after inserts
 
@@ -313,163 +295,95 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 {
                     FilterMatches = kvps
                 },
-                PitPagingInfo = new PitPagingInfo(5, true)
+                PagingInfo = new PagingInfo(5) { EnablePit = true }
             };
-            var result = Client.Search<Issue>(request, indexName);
+            var result = Client.Search<Issue>(indexName, request);
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(5, result.Results.Count());
 
-            request.AfterKeys = result.AfterKeys;
-            request.PitPagingInfo = result.PitPagingInfo;
-            result = Client.Search<Issue>(request, indexName);
+            request.PagingInfo = result.PagingInfo.NextPage();
+            result = Client.Search<Issue>(indexName, request);
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(5, result.Results.Count());
 
-            request.AfterKeys = result.AfterKeys;
-            request.PitPagingInfo = result.PitPagingInfo;
-            result = Client.Search<Issue>(request, indexName);
+            request.PagingInfo = result.PagingInfo.NextPage();
+            result = Client.Search<Issue>(indexName, request);
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(5, result.Results.Count());
 
-            request.AfterKeys = result.AfterKeys;
-            request.PitPagingInfo = result.PitPagingInfo;
-            result = Client.Search<Issue>(request, indexName);
+            request.PagingInfo = result.PagingInfo.NextPage();
+            result = Client.Search<Issue>(indexName, request);
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(0, result.Results.Count());
 
             //Clean Up
-            request.PitPagingInfo = null;
+            request.PagingInfo = null;
             var issueDelete = Client.DeleteByQuery<Issue>(request, indexName).CountAffected;
             Assert.AreEqual(issueCount, issueDelete);
         }
 
         [TestMethod]
-        public async Task AddUpdateBulkQueueIssues()
+        public async Task UpdateByQuery()
         {
-            var queuedIssues = new List<QueueIssue>();
-            var issueCount = 5;
-            var scanId = Guid.NewGuid().ToString();
+            var queued = new List<ThrowawayEntity>();
+            var count = 5;
+            var oddCount = count % 2 == 0 ? count / 2 : (count / 2) + 1;
+            var name = "odd";
+            var newName = "oddball";
+            var nameField = "name";
 
-            for (var index = 0; index < issueCount; index++)
+            foreach (var i in Enumerable.Range(1, count).ToArray())
             {
-                var qi = Mock.QueueIssue();
-                qi.Id = "";
-                qi.Saltminer.QueueScanId = scanId;
-                queuedIssues.Add(qi);
+                var itm = new ThrowawayEntity
+                {
+                    Number = i,
+                    Id = "",
+                    Name = i % 2 == 0 ? "even" : "odd"
+                };
+                queued.Add(itm);
             }
 
-            var result = Client.AddUpdateBulk(queuedIssues, QueueIssue.GenerateIndex());
-            await Task.Delay(2000); // gimme a sec or two to save that
+            var idx = ThrowawayEntity.GenerateIndex("test_updatebyquery");
+            RegisterDeleteIndex(idx);
+            // Clean up any existing data from previous test runs - won't fail if index doesn't exist
+            Client.IndexDelete(idx);
+            
+            var result = Client.BulkAddUpdate(queued, idx);
+            Client.IndexRefresh(idx, 1000);
 
-            Assert.IsTrue(result.IsSuccessful);
-            Assert.AreEqual(issueCount, result.CountAffected);
+            Assert.IsTrue(result.IsSuccessful, "Bulk insert failed");
+            Assert.AreEqual(count, result.CountAffected, "Bulk insert count mismatch");
 
-            //Clean Up
-            var issueDelete = Client.DeleteByQuery<QueueIssue>(new SearchRequest
+            var searchRequest = new SearchRequest(nameField, name, 5);
+            var updateRequest = new UpdateQueryRequest<ThrowawayEntity>
             {
                 Filter = new()
                 {
-                    FilterMatches = new Dictionary<string, string> { { "saltminer.queue_scan_id", scanId } }
-                }
-            }, QueueIssue.GenerateIndex());
-            Assert.AreEqual(issueCount, issueDelete.CountAffected);
-        }
-
-        [TestMethod]
-        public async Task UpdateByQueryueueIssues()
-        {
-            var queuedIssues = new List<QueueIssue>();
-            var issueCount = 5;
-            var scanId = Guid.NewGuid().ToString();
-            var name = "test";
-            var newName = "NewName";
-            var location = "test";
-            var newLocaion = "NewLocation";
-
-            for (var index = 0; index < issueCount; index++)
-            {
-                var qi = Mock.QueueIssue();
-                qi.Id = "";
-                qi.Saltminer.QueueScanId = scanId;
-                qi.Vulnerability.Name = name;
-                qi.Vulnerability.LocationFull = name;
-                qi.Vulnerability.Location = location;
-                qi.Vulnerability.RemovedDate = DateTime.UtcNow;
-                qi.Vulnerability.IsSuppressed = true;
-                qi.Vulnerability.FoundDate = DateTime.UtcNow;
-                qi.Saltminer.Engagement.Attributes = null;
-               
-                queuedIssues.Add(qi);
-            }
-
-            var result = Client.AddUpdateBulk(queuedIssues, QueueIssue.GenerateIndex());
-            await Task.Delay(2000); // gimme a sec or two to save that
-
-            Assert.IsTrue(result.IsSuccessful);
-            Assert.AreEqual(issueCount, result.CountAffected);
-
-            var searchRequest = new SearchRequest
-            {
-                Filter = new()
-                {
-                    FilterMatches = new Dictionary<string, string> { { "saltminer.queue_scan_id", scanId } }
-                }
-            };
-
-            var updateRequest = new UpdateQueryRequest<QueueIssue>
-            {
-                Filter = new()
-                {
-                    FilterMatches = new Dictionary<string, string> { { "saltminer.queue_scan_id", scanId } }
+                    FilterMatches = new Dictionary<string, string> { { nameField, name } }
                 },
                 ScriptUpdates = new Dictionary<string, object> { 
-                    { "Vulnerability.Name", newName }, 
-                    { "Vulnerability.LocationFull", newName }, 
-                    { "Vulnerability.Location", newLocaion }, 
-                    { "Vulnerability.RemovedDate", null }, 
-                    { "Vulnerability.IsSuppressed", false },
-                    { "Vulnerability.FoundDate", DateTime.UtcNow },
-                    { "Saltminer.Engagement.Attributes", new Dictionary<string, string> { { "Eddie", "test" } } }
+                    { nameField, newName }
                 }
             };
 
-            var newIssues = Client.Search<QueueIssue>(searchRequest, QueueIssue.GenerateIndex());
+            var srch = Client.Count<ThrowawayEntity>(searchRequest, idx);
 
-            Assert.IsTrue(newIssues.IsSuccessful);
-            Assert.AreEqual(issueCount, newIssues.CountAffected);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.Name, name);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.Location, location);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.LocationFull, name);
-            Assert.IsTrue(newIssues.Results.First().Document.Vulnerability.RemovedDate != null);
-            Assert.IsTrue(newIssues.Results.First().Document.Vulnerability.IsSuppressed);
-            Assert.IsFalse(newIssues.Results.First().Document.Vulnerability.IsActive);
-            Assert.IsNull(newIssues.Results.First().Document.Saltminer.Engagement.Attributes);
+            Assert.IsTrue(srch.IsSuccessful);
+            Assert.AreEqual(oddCount, srch.CountAffected, $"Should find {oddCount} documents with name='{name}'");
 
-            Client.UpdateByQuery<QueueIssue>(updateRequest, QueueIssue.GenerateIndex());
-
-            Client.RefreshIndex(QueueIssue.GenerateIndex());
-
-            newIssues = Client.Search<QueueIssue>(searchRequest, QueueIssue.GenerateIndex());
-
-            Assert.IsTrue(newIssues.IsSuccessful);
-            Assert.AreEqual(issueCount, newIssues.CountAffected);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.Name, newName);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.Location, newLocaion);
-            Assert.AreEqual(newIssues.Results.First().Document.Vulnerability.LocationFull, newName);
-            Assert.IsTrue(newIssues.Results.First().Document.Vulnerability.RemovedDate == null);
-            Assert.AreEqual(1, newIssues.Results.First().Document.Saltminer.Engagement.Attributes.Count);
-            Assert.IsFalse(newIssues.Results.First().Document.Vulnerability.IsSuppressed);
-            Assert.IsTrue(newIssues.Results.First().Document.Vulnerability.IsActive);
-
-            //Clean Up
-            var issueDelete = Client.DeleteByQuery<QueueIssue>(new SearchRequest
-            {
-                Filter = new()
-                {
-                    FilterMatches = new Dictionary<string, string> { { "saltminer.queue_scan_id", scanId } }
-                }
-            }, QueueIssue.GenerateIndex());
-            Assert.AreEqual(issueCount, issueDelete.CountAffected);
+            Client.UpdateByQuery(updateRequest, idx);
+            Client.IndexRefresh(idx, 500);
+            
+            // After update, search for old name should return 0
+            srch = Client.Count<ThrowawayEntity>(searchRequest, idx);
+            Assert.IsTrue(srch.IsSuccessful);
+            Assert.AreEqual(0, srch.CountAffected, "Should find 0 documents with name='odd' after update");
+            
+            // Search for new name should return oddCount
+            var newSearchRequest = new SearchRequest(nameField, newName, 5);
+            srch = Client.Count<ThrowawayEntity>(newSearchRequest, idx);
+            Assert.IsTrue(srch.IsSuccessful);
+            Assert.AreEqual(oddCount, srch.CountAffected, $"Should find {oddCount} documents with name='{newName}' after update");
         }
 
         [TestMethod]
@@ -487,7 +401,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             queueLogs.Add(queueLog);
             Client.AddUpdate(queueLog, indexName);
 
-            var result = Client.DeleteBulk<QueueLog>(queueLogs.Select(ql => ql.Id), indexName);
+            var result = Client.BulkDelete<QueueLog>(queueLogs.Select(ql => ql.Id), indexName);
             Assert.IsTrue(result.IsSuccessful);
             Assert.AreEqual(2, result.CountAffected);
         }
@@ -522,7 +436,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             catch (Exception ex) { booboo = true; msg = ex.Message; }
             Assert.IsFalse(booboo, "DeleteByQuery had a boo-boo with no searchy stuff. Msg: {0}", msg);
             Assert.AreEqual(1, result.CountAffected);
-            Client.DeleteIndex(indexName);
+            Client.IndexDelete(indexName);
         }
 
         [TestMethod]
@@ -736,7 +650,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             var delete = Client.Delete<Snapshot>(result.Result.Document.Id, assetSnapshotIndex).CountAffected;
             Assert.AreEqual(1, delete);
 
-            var indexDelete = Client.DeleteIndex(assetSnapshotIndex).IsSuccessful;
+            var indexDelete = Client.IndexDelete(assetSnapshotIndex).IsSuccessful;
             Assert.IsTrue(indexDelete);
         }
 
@@ -767,16 +681,73 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                 ["Saltminer.Scan.ScanDate"] = "2021-10-18||2021-10-18",
                 ["Saltminer.Scan.SourceType"] = sourceTpye,
             };
-            var results = Client.Search<QueueScan>(new SearchRequest
+            var results = Client.Search<QueueScan>(QueueScan.GenerateIndex(), new SearchRequest
             {
                 Filter = new()
                 {
                     FilterMatches = kvps
                 },
-                PitPagingInfo = new PitPagingInfo(300)
-            }, QueueScan.GenerateIndex());
+                PagingInfo = new PagingInfo(300) { EnablePit = true }
+            });
 
             Assert.IsNotNull(results);
         }
+
+        [TestMethod]
+        public async Task UpdateByQuery_WithStringQuery()
+        {
+            var sourceType = SOURCE_TYPE;
+            var issue = Mock.Issue(sourceType);
+            var indexName = Issue.GenerateIndex(issue.Saltminer.Asset.AssetType, issue.Saltminer.Asset.SourceType, issue.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(indexName);
+            
+            // Add test document
+            issue.Saltminer.Low = 1;
+            Client.AddUpdate(issue, indexName);
+            await Task.Delay(1000);
+
+            // Act
+            var updateScript = "ctx._source.saltminer_low = 5";
+            var result = Client.UpdateByQuery<Issue>("*", indexName, updateScript);
+
+            // Assert
+            Assert.IsNotNull(result);
+            Assert.IsTrue(result.IsSuccessful);
+            Assert.IsTrue(result.CountAffected > 0);
+
+            // Clean Up
+            Client.DeleteByQuery<Issue>(new SearchRequest(), indexName);
+        }
+
+        [TestMethod]
+        public async Task UpdateByQuery_WithRequest()
+        {
+            var sourceType = SOURCE_TYPE;
+            var issue = Mock.Issue(sourceType);
+            var indexName = Issue.GenerateIndex(issue.Saltminer.Asset.AssetType, issue.Saltminer.Asset.SourceType, issue.Saltminer.Asset.Instance);
+            RegisterDeleteIndex(indexName);
+            
+            // Add test document
+            issue.Saltminer.Medium = 3;
+            Client.AddUpdate(issue, indexName);
+            await Task.Delay(1000);
+
+            // Act
+            var updateRequest = new UpdateQueryRequest<Issue>
+            {
+                Filter = new()
+                {
+                    FilterMatches = new Dictionary<string, string> { { "saltminer.asset.name", issue.Saltminer.Asset.Name } }
+                },
+                ScriptUpdates = new Dictionary<string, object> { { "Saltminer.Medium", 10 } }
+            };
+            var result = Client.UpdateByQuery<Issue>(updateRequest, indexName);
+
+            // Assert
+            Assert.IsNotNull(result);
+            Assert.IsTrue(result.IsSuccessful);
+
+            // Clean Up
+            Client.DeleteByQuery<Issue>(new SearchRequest(), indexName);
+        }
     }
-}

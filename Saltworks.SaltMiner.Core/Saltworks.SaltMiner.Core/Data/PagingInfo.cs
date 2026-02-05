@@ -14,7 +14,6 @@
 * ----
 */
 
-using System;
 using System.Collections.Generic;
 
 namespace Saltworks.SaltMiner.Core.Data
@@ -22,7 +21,7 @@ namespace Saltworks.SaltMiner.Core.Data
     public class PagingInfo
     {
         public PagingInfo() { }
-        public PagingInfo(int size)
+        public PagingInfo(int? size)
         {
             Size = size;
         }
@@ -31,9 +30,13 @@ namespace Saltworks.SaltMiner.Core.Data
         /// </summary>
         public int Page { get; set; } = 1;
         /// <summary>
+        /// Hits returned in current page 
+        /// </summary>
+        public long? CurrentHits { get; set; } = null;
+        /// <summary>
         /// Total hits as reported by Elasticsearch
         /// </summary>
-        public long? TotalHits { get; set; }
+        public long? TotalHits { get; set; } = null;
         /// <summary>
         /// Total pages of results, computed by math (TotalHits / Size), rounding any remainder up
         /// </summary>
@@ -57,9 +60,9 @@ namespace Saltworks.SaltMiner.Core.Data
         /// </summary>
         public bool TotalHitsWereTruncated { get; set; } = false;
         /// <summary>
-        /// Page size - should not exceed 10,000.  If set to 0, will use default from configuration.
+        /// Page size - should not exceed 10,000.  If set to 0 or null, will use default from configuration.
         /// </summary>
-        public int Size { get; set; } = 0;
+        public int? Size { get; set; } = null;
         /// <summary>
         /// Enables Elasticsearch PIT (Point In Time) paging to ensure consistent results over multiple search request pages.
         /// </summary>
@@ -77,54 +80,41 @@ namespace Saltworks.SaltMiner.Core.Data
         /// </summary>
         public List<object> CurrentAfterKeys { get; set; }
         /// <summary>
+        /// Keys used for current aggregate request - speeds up page requests when available.
+        /// </summary>
+        public Dictionary<string, object> AggregateKeys { get; set; }
+        public bool IsLastPage() {
+            if (Page == -1 || (NextAfterKeys == null && CurrentAfterKeys != null))
+                return true;
+            if (CurrentHits.HasValue && Size.HasValue && CurrentHits < Size)
+                return true;
+            if (((TotalHitsCanBeTruncated && !TotalHitsWereTruncated) || !TotalHitsCanBeTruncated) && 
+                    TotalPages.HasValue && Page >= TotalPages)
+                return true;
+            return false;
+        }
+        /// <summary>
         /// Returns a PagingInfo object representing a next page request, just add to your SearchRequest and fire it off.
         /// </summary>
-        public PagingInfo NextPage() => new()
+        public PagingInfo NextPage()
         {
-            Page = Page + 1,
-            TotalHits = TotalHits,
-            TotalHitsCanBeTruncated = TotalHitsCanBeTruncated,
-            Size = Size,
-            EnablePit = EnablePit,
-            PitPagingToken = PitPagingToken,
-            NextAfterKeys = [],
-            CurrentAfterKeys = NextAfterKeys,
-        };
-    }
-
-    [Obsolete("Use PagingInfo instead.")]
-    public class PitPagingInfo
-    {
-        public PitPagingInfo() { }
-
-        public PitPagingInfo(int? size, bool enabled = false, Dictionary<string, bool> sortFilters = null)
-        {
-            Size = size;
-            Enabled = enabled;
-            SortFilters = sortFilters;
+            var next = new PagingInfo()
+            {
+                Page = Page > 0 ? Page + 1 : Page,
+                TotalHits = TotalHits,
+                TotalHitsCanBeTruncated = TotalHitsCanBeTruncated,
+                Size = Size,
+                EnablePit = EnablePit,
+                PitPagingToken = PitPagingToken,
+                NextAfterKeys = null,
+                CurrentAfterKeys = NextAfterKeys
+            };
+            if (IsLastPage())
+            {
+                // We've reached the last page - signal no more pages
+                next.Page = -1;
+            }
+            return next;
         }
-
-        public PitPagingInfo(int? size, bool enabled, string token, Dictionary<string, bool> sortFilters = null)
-        {
-            Size = size;
-            Enabled = enabled;
-            PagingToken = token;
-            SortFilters = sortFilters;
-        }
-
-        public PitPagingInfo(int? size, bool enabled, Dictionary<string, object> aggregateKeys, Dictionary<string, bool> sortFilters = null)
-        {
-            Size = size;
-            Enabled = enabled;
-            AggregateKeys = aggregateKeys;
-            SortFilters = sortFilters;
-        }
-
-        public int? Total { get; set; }
-        public int? Size { get; set; }
-        public bool Enabled { get; set; } = false;
-        public string PagingToken { get; set; } = null;
-        public Dictionary<string, object> AggregateKeys { get; set; }
-        public Dictionary<string, bool> SortFilters { get; set; }
     }
 }

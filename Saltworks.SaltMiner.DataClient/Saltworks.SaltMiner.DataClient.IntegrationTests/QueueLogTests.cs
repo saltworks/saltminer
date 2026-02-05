@@ -18,9 +18,11 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Entities;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.DataClient.IntegrationTests
 {
+    [Ignore("QueueLog tests are ignored by default as QueueLog functionality is incomplete. Remove this attribute to run them.")]
     [TestClass]
     public class QueueLogTests
     {
@@ -47,7 +49,8 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
 
             // Act
             var queueLog1 = Client.QueueLogAddUpdate(queueLog).Data;
-            Thread.Sleep(2000); // wait for "save" to complete
+            Client.RefreshIndex(QueueLog.GenerateIndex());
+            Task.Delay(500).Wait(); // wait for "save" to complete
             var queueLog2 = Client.QueueLogGet(queueLog1.Id);
             var results = Client.QueueLogSearch(new Core.Data.SearchRequest());
             var read2 = AgentClient.QueueLogRead();

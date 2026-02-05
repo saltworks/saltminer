@@ -19,6 +19,7 @@ using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Extensions;
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace Saltworks.SaltMiner.Core.Data
@@ -42,6 +43,12 @@ namespace Saltworks.SaltMiner.Core.Data
         public IEnumerable<QueueIssue> QueueIssues { get; set; }
     }
     
+    public class JsonDataRequest
+    {
+        public IEnumerable<JsonObject> Documents { get; set; }
+        public string TypeName { get; set; }
+    }
+
     /// <summary>
     /// Use to request an operation over multiple entities
     /// </summary>
@@ -210,17 +217,14 @@ namespace Saltworks.SaltMiner.Core.Data
 
     }
 
-    /// <summary>
-    /// Used to perform a search (or continue it)
-    /// </summary>
-    public class SearchRequest
+    public abstract class SearchRequestBase
     {
-        public SearchRequest() { }
-        public SearchRequest(PagingInfo paging)
+        protected SearchRequestBase() { }
+        protected SearchRequestBase(PagingInfo paging)
         {
             PagingInfo = paging;
         }
-        public SearchRequest(string filterField, string filterValue, int size = 0)
+        protected SearchRequestBase(string filterField, string filterValue, int size = 0)
         {
             Filter = new();
             Filter.AddSimpleFilterMatch(filterField, filterValue);
@@ -228,12 +232,43 @@ namespace Saltworks.SaltMiner.Core.Data
                 PagingInfo = new() { Size = size };
         }
 
-        public SearchRequest(string filterField, string filterValue, PagingInfo pagingInfo)
+        protected SearchRequestBase(string filterField, string filterValue, PagingInfo pagingInfo)
         {
             Filter = new();
             Filter.AddSimpleFilterMatch(filterField, filterValue);
             PagingInfo = pagingInfo;
         }
+
+        /// <summary>
+        /// Filter(s) to apply to search
+        /// </summary>
+        public Filter Filter { get; set; } = new();
+
+        /// <summary>
+        /// Dictionary&lt;sort field, is ascending&gt; for sorting
+        /// </summary>
+        public Dictionary<string, bool> SortKeys { get; set; }
+
+        /// <summary>
+        /// Pagination Information
+        /// </summary>
+        public PagingInfo PagingInfo { get; set; } = null;
+
+        /// <summary>
+        /// If set, includes concurrency information in results (sequence num, primary term)
+        /// </summary>
+        public bool IncludeConcurrencyInfo { get; set; } = false;
+    }
+    
+    /// <summary>
+    /// Used to perform a search (or continue it)
+    /// </summary>
+    public class SearchRequest : SearchRequestBase
+    {
+        public SearchRequest() { }
+        public SearchRequest(PagingInfo paging) : base(paging) {}
+        public SearchRequest(string filterField, string filterValue, int size = 0) : base(filterField, filterValue, size) {}
+        public SearchRequest(string filterField, string filterValue, PagingInfo pagingInfo) : base(filterField, filterValue, pagingInfo) {}
 
         /// <summary>
         /// Possible filter by asset type
@@ -247,27 +282,29 @@ namespace Saltworks.SaltMiner.Core.Data
         /// Possible filter by asset type
         /// </summary>
         public string SourceType { get; set; }
+    }
 
-        public Filter Filter { get; set; } = new();
-        /// <summary>
-        /// Dictionary&lt;sort field, is ascending&gt; for sorting
-        /// </summary>
-        public Dictionary<string, bool> SortKeys { get; set; }
+    public class JsonSearchRequest : SearchRequestBase
+    {
+        public JsonSearchRequest() { }
+        public JsonSearchRequest(PagingInfo paging) : base(paging) { }
+        public JsonSearchRequest(string filterField, string filterValue, int size = 0) : base(filterField, filterValue, size) { }
+        public JsonSearchRequest(string filterField, string filterValue, PagingInfo pagingInfo) : base(filterField, filterValue, pagingInfo) { }
+
+        public SearchRequest ToSearchRequest()
+        {
+            return new SearchRequest
+            {
+                Filter = Filter,
+                SortKeys = SortKeys,
+                PagingInfo = PagingInfo,
+                IncludeConcurrencyInfo = IncludeConcurrencyInfo
+            };
+        }
 
         /// <summary>
-        /// Pagination information
+        /// The entity type to return from the search
         /// </summary>
-        [Obsolete("Use PagingInfo instead.")]
-        public PitPagingInfo PitPagingInfo { get; set; } = null;
-
-        /// <summary>
-        /// Pagination Information
-        /// </summary>
-        public PagingInfo PagingInfo { get; set; } = null;
-
-        /// <summary>
-        /// If set, includes concurrency information in results (sequence num, primary term)
-        /// </summary>
-        public bool IncludeConcurrencyInfo { get; set; } = false;
+        public string TypeName { get; set; }
     }
 }

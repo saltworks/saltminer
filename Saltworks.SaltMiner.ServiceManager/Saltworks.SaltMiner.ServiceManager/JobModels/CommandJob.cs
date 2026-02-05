@@ -77,7 +77,7 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
 
                 if (jobName == "ServiceManager")
                 {
-                    var request = new SearchRequest { PitPagingInfo = new() };
+                    var request = new SearchRequest { PagingInfo = new() };
                     var jobQueue = DataClient.ServiceJobSearch(request);
                     foreach (var job in jobQueue.Data)
                     {
