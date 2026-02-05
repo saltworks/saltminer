@@ -18,6 +18,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using System;
+using System.Threading.Tasks;
 using System.Linq;
 
 namespace Saltworks.SaltMiner.DataClient.IntegrationTests
@@ -74,7 +75,7 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
             Assert.IsTrue(refreshResponse.Success, "Index refresh failed");
             
             // Give Elasticsearch a moment to complete the refresh
-            System.Threading.Tasks.Task.Delay(5000).Wait();
+            Task.Delay(5000).Wait();
             
             // Verify the index exists
             var existsResponse = Client.CheckForIndex(testIndex);
@@ -90,19 +91,6 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
             var searchResponse = adminClient.IndexSearch<TestItem>(searchRequest, testIndex);
             
             Assert.IsTrue(searchResponse.Success, "Search failed");
-            
-            // TODO: TEMPORARY DEBUGGING - Remove after testing
-            // If no data found, check Elasticsearch directly for debugging
-            if (!searchResponse.Data.Any())
-            {
-                Console.WriteLine($"\n[Search Debug] TypeName used: {typeof(TestItem).FullName}");
-                Console.WriteLine($"[Search Debug] Index: {testIndex}");
-                Console.WriteLine($"[Search Debug] Filter: {(searchRequest.Filter?.FilterMatches?.Count ?? 0)} matches");
-                Console.WriteLine($"[Search Debug] Search response data count: {searchResponse.Data.Count()}");
-                Console.WriteLine($"[Search Debug] Search paging info: {searchResponse.PagingInfo?.Page}/{searchResponse.PagingInfo?.Size}");
-                AiHelper.CheckElasticsearchData(testIndex);
-            }
-            
             Assert.AreEqual(testCount, searchResponse.Data.Count(), "Should find all items");
             
             // CRITICAL: Verify that the Category field is populated (proves proper serialization)
