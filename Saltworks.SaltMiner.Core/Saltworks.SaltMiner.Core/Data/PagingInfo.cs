@@ -14,7 +14,6 @@
 * ----
 */
 
-using System;
 using System.Collections.Generic;
 
 namespace Saltworks.SaltMiner.Core.Data
@@ -31,9 +30,13 @@ namespace Saltworks.SaltMiner.Core.Data
         /// </summary>
         public int Page { get; set; } = 1;
         /// <summary>
+        /// Hits returned in current page 
+        /// </summary>
+        public long? CurrentHits { get; set; } = null;
+        /// <summary>
         /// Total hits as reported by Elasticsearch
         /// </summary>
-        public long? TotalHits { get; set; }
+        public long? TotalHits { get; set; } = null;
         /// <summary>
         /// Total pages of results, computed by math (TotalHits / Size), rounding any remainder up
         /// </summary>
@@ -80,19 +83,38 @@ namespace Saltworks.SaltMiner.Core.Data
         /// Keys used for current aggregate request - speeds up page requests when available.
         /// </summary>
         public Dictionary<string, object> AggregateKeys { get; set; }
+        public bool IsLastPage() {
+            if (Page == -1 || (NextAfterKeys == null && CurrentAfterKeys != null))
+                return true;
+            if (CurrentHits.HasValue && Size.HasValue && CurrentHits < Size)
+                return true;
+            if (((TotalHitsCanBeTruncated && !TotalHitsWereTruncated) || !TotalHitsCanBeTruncated) && 
+                    TotalPages.HasValue && Page >= TotalPages)
+                return true;
+            return false;
+        }
         /// <summary>
         /// Returns a PagingInfo object representing a next page request, just add to your SearchRequest and fire it off.
         /// </summary>
-        public PagingInfo NextPage() => new()
+        public PagingInfo NextPage()
         {
-            Page = Page + 1,
-            TotalHits = TotalHits,
-            TotalHitsCanBeTruncated = TotalHitsCanBeTruncated,
-            Size = Size,
-            EnablePit = EnablePit,
-            PitPagingToken = PitPagingToken,
-            NextAfterKeys = [],
-            CurrentAfterKeys = NextAfterKeys,
-        };
+            var next = new PagingInfo()
+            {
+                Page = Page > 0 ? Page + 1 : Page,
+                TotalHits = TotalHits,
+                TotalHitsCanBeTruncated = TotalHitsCanBeTruncated,
+                Size = Size,
+                EnablePit = EnablePit,
+                PitPagingToken = PitPagingToken,
+                NextAfterKeys = null,
+                CurrentAfterKeys = NextAfterKeys
+            };
+            if (IsLastPage())
+            {
+                // We've reached the last page - signal no more pages
+                next.Page = -1;
+            }
+            return next;
+        }
     }
 }

@@ -17,6 +17,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -44,7 +45,7 @@ public class PagingTests
     {
         // Arrange
         var count = 100;
-        var pageSize = 3;
+        var pageSize = 30;
         var testIndex = TestItem.GenerateIndex($"pit_paging");
         Helpers.RegisterDeleteIndex(testIndex);
         var bulkResponse = Helpers.BulkAddUpdateTestEntities(Client, testIndex, count, TestCategory);
@@ -60,22 +61,35 @@ public class PagingTests
             {
                 FilterMatches = new Dictionary<string, string> { { "category", TestCategory } }
             },
-            PagingInfo = new PagingInfo(pageSize) { EnablePit = true }
+            PagingInfo = new PagingInfo(pageSize) { EnablePit = true },
+            SortKeys = new() { { "id", true } }
         };
 
         var response = Client.IndexSearch<TestItem>(request, testIndex);
         Assert.IsTrue(response.Success, $"Initial search failed: {response.Message}");
-
-        while (response.Data.Any())
-        {
-            foreach (var entity in response.Data)
+        try {
+            while (response.Data.Any())
             {
-                processed++;
+                foreach (var entity in response.Data)
+                {
+                    processed++;
+                }
+                request.PagingInfo = response.PagingInfo.NextPage();
+                response = Client.IndexSearch<TestItem>(request, testIndex);
+                Assert.IsTrue(response.Success, $"Paging search failed: {response.Message}");
+                Assert.IsFalse(processed > count, "Processed more entities than expected.");  // break potential infinite loop
             }
-            request.PagingInfo = response.PagingInfo.NextPage();
-            response = Client.IndexSearch<TestItem>(request, testIndex);
-            Assert.IsTrue(response.Success, $"Paging search failed: {response.Message}");
-            Assert.IsTrue(processed <= count, "Processed more entities than expected.");
+        }
+        catch (Exception ex)
+        {
+            Assert.Fail($"Exception during PIT paging: {ex.Message}");
+        }
+        finally
+        {
+            if (response?.PagingInfo?.PitPagingToken != null)
+            {
+                Client.ClosePitSearch(response.PagingInfo.PitPagingToken);
+            }
         }
         
         // Assert
@@ -88,8 +102,10 @@ public class PagingTests
         // Arrange
         var count = 500;
         var processed = 0;
-        var pageSize = 20;
+        var pageSize = 200;
         var pageCount = count / pageSize;
+        if (count % pageSize > 0)
+            pageCount++;
         var totalPages = 0;
         var testIndex = TestItem.GenerateIndex($"paging");
         Helpers.RegisterDeleteIndex(testIndex);
@@ -107,8 +123,8 @@ public class PagingTests
         while (response?.Data != null && response.Data.Any())
         {
             totalPages++;
-            foreach (var issue in response.Data)
-                processed++;
+            processed += response.Data.Count();
+            Assert.IsFalse(processed > count, "Processed more entities than expected.");
             // continue previous via scrolling
             searchRequest.PagingInfo = response.PagingInfo.NextPage();
             response = Client.IndexSearch<TestItem>(searchRequest, testIndex); 

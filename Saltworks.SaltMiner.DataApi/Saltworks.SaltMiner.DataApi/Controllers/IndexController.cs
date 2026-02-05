@@ -75,4 +75,12 @@ public class IndexController(IndexContext context, ILogger<IndexController> logg
     {
         return Ok(Context.Search(request, indexName));
     }
+
+    [HttpDelete("search/pit/{id}")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(NoDataResponse), 200)]
+    public ActionResult<NoDataResponse> ClosePitSearch(string id)
+    {
+        return Ok(Context.ClosePitSearch(id));
+    }
 }

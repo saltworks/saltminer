@@ -33,6 +33,7 @@ public class DataClient : IDisposable
     public ApiClient ApiClient { get; }
     private ILogger Logger { get; }
     public DataClientConfig RunConfig { get; }
+    private static JsonSerializerOptions _jsonSerializerOptions = new(JsonSerializerDefaults.Web);
 
     #region Ctor
 
@@ -1138,10 +1139,15 @@ public class DataClient : IDisposable
         var r = CheckRetry(() => ApiClient.Post<JsonDataResponse>($"index/search/{indexName}", jSrch), true).Content;
         var result = new DataResponse<T>
         {
-            Data = r.Data.Select(d => d.Deserialize<T>()),
+            Data = r.Data.Select(d => d.Deserialize<T>(_jsonSerializerOptions)),
             PagingInfo = r.PagingInfo
         };
         return result;
+    }
+
+    public NoDataResponse ClosePitSearch(string pitId)
+    {
+        return CheckRetry(() => ApiClient.Delete<NoDataResponse>($"index/search/pit/{pitId}")).Content;
     }
 
     #endregion

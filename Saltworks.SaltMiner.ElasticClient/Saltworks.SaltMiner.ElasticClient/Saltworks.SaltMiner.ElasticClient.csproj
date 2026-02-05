@@ -32,9 +32,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Elastic.Clients.Elasticsearch" Version="8.19.13" />
-    <PackageReference Include="NEST.JsonNetSerializer" Version="7.17.5" />
-    <PackageReference Include="System.Text.Json" Version="9.0.3" />
+    <PackageReference Include="Elastic.Clients.Elasticsearch" Version="8.19.14" />
+    <PackageReference Include="System.Text.Json" Version="10.0.2" />
   </ItemGroup>
 
   <ItemGroup>

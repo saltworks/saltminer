@@ -1,7 +1,8 @@
 {
     "chat.tools.terminal.autoApprove": {
         "dotnet run": true,
-        ".\\run-test.ps1": true,
-        "dotnet test": true
+        "dotnet build": true,
+        "dotnet test": true,
+        ".\\ai-run-api-test.ps1": true
     }
 }

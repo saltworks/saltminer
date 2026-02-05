@@ -14,7 +14,6 @@
 * ----
 */
 
-using Nest;
 using Saltworks.SaltMiner.DataApi.Contexts;
 using System;
 using System.Collections.Generic;

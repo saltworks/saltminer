@@ -79,6 +79,25 @@ When working with unit test suites:
    - Fix and re-run: That specific class until it passes
    - Move to: Next failing class (if any)
 
+### Debugging Strategy
+
+**For Integration Test Failures:**
+
+1. **If API server is NOT running:** Use `ai-run-api-test.ps1` to start API and run tests together
+   - This automatically captures API server logs alongside test output
+   - Easier to correlate test assertions with API behavior
+
+2. **If you suspect data layer issues:**
+   - Check if ElasticClient unit tests pass (lowest layer test)
+   - Use `AiHelper.CheckElasticsearchData()` to verify data exists in Elasticsearch
+   - If data exists but API returns nothing, problem is in DataAPI layer (Controller/Context)
+   - If data doesn't exist, problem is in ElasticClient or Index creation
+
+3. **If response format/structure is unexpected:**
+   - Verify the mapping in Elasticsearch matches test expectations
+   - Use `AiHelper.CheckElasticsearchData()` to inspect actual field structure of documents
+   - Check for nested objects or unexpected transformations
+
 ## Test Index Management Pattern
 
 ### RegisterDeleteIndex Pattern

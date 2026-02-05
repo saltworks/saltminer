@@ -54,6 +54,7 @@ public class LicenseTests
         var licenseResponse = Client.GetLicense();
         Assert.IsNull(licenseResponse.Data);
         Client.AddLicense(license);
+        Client.RefreshIndex(License.GenerateIndex());
         Task.Delay(500).Wait();
         licenseResponse = Client.GetLicense();
         Assert.IsNotNull(licenseResponse.Data);

@@ -21,7 +21,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.OpenApi.Models;
 using Saltworks.SaltMiner.ConfigurationWizard;
 using Saltworks.SaltMiner.ConsoleApp.Core;
 using Saltworks.SaltMiner.Core.Entities;
@@ -34,7 +33,6 @@ using Saltworks.SaltMiner.ElasticClient;
 using Saltworks.Utility.ApiHelper;
 using Serilog;
 using System;
-using System.Collections.Generic;
 using System.CommandLine;
 using System.Diagnostics;
 using System.IO;
@@ -44,14 +42,17 @@ using System.Threading.Tasks;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Elasticsearch.Net;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.OpenApi;
+using Elastic.Transport;
+using Saltworks.SaltMiner.ElasticClient.EsClient;
 
 namespace Saltworks.SaltMiner.DataApi
 {
     public static class Program
     {
         private const string API_SETTINGS_FILE = "appsettings.json";
+        private const string API_CONFIG_SECTION = "ApiConfig";
         const string LOCATOR_FILE_NAME = "ConfigLocator.json";
         const string DUMP_CONFIG_FILE_NAME = "ConfigDump.json";
         private static bool KestrelAllowRemote = false;
@@ -96,12 +97,13 @@ namespace Saltworks.SaltMiner.DataApi
             var cryptoVerb = new Command("crypto", "Encryption helper");
 
             //Crypto Generate SUB CMD
+            const string VTG = "Value to Generate";
             var cryptoGenerateVerb = new Command("Generate", "Generates up to 5 values given those values using the configured Generateion keys.");
-            var cryptoGenerateArgument1 = new Argument<string>("value1", "Value to Generate.");
-            var cryptoGenerateArgument2 = new Argument<string>("value2", "Value to Generate.");
-            var cryptoGenerateArgument3 = new Argument<string>("value3", "Value to Generate.");
-            var cryptoGenerateArgument4 = new Argument<string>("value4", "Value to Generate.");
-            var cryptoGenerateArgument5 = new Argument<string>("value5", "Value to Generate.");
+            var cryptoGenerateArgument1 = new Argument<string>("value1", VTG);
+            var cryptoGenerateArgument2 = new Argument<string>("value2", VTG);
+            var cryptoGenerateArgument3 = new Argument<string>("value3", VTG);
+            var cryptoGenerateArgument4 = new Argument<string>("value4", VTG);
+            var cryptoGenerateArgument5 = new Argument<string>("value5", VTG);
            
             cryptoGenerateVerb.Add(cryptoGenerateArgument1);
             cryptoGenerateVerb.Add(cryptoGenerateArgument2);
@@ -114,12 +116,13 @@ namespace Saltworks.SaltMiner.DataApi
             }, cryptoGenerateArgument1, cryptoGenerateArgument2, cryptoGenerateArgument3, cryptoGenerateArgument4, cryptoGenerateArgument5);
 
             //Crypto Encrypt SUB CMD
+            const string VTE = "Value to encrypt.";
             var cryptoEncryptVerb = new Command("encrypt", "Encrypts up to 5 values given those values using the configured encryption keys.");
-            var cryptoEncryptArgument1 = new Argument<string>("value1", "Value to encrypt.");
-            var cryptoEncryptArgument2 = new Argument<string>("value2", "Value to encrypt.");
-            var cryptoEncryptArgument3 = new Argument<string>("value3", "Value to encrypt.");
-            var cryptoEncryptArgument4 = new Argument<string>("value4", "Value to encrypt.");
-            var cryptoEncryptArgument5 = new Argument<string>("value5", "Value to encrypt.");
+            var cryptoEncryptArgument1 = new Argument<string>("value1", VTE);
+            var cryptoEncryptArgument2 = new Argument<string>("value2", VTE);
+            var cryptoEncryptArgument3 = new Argument<string>("value3", VTE);
+            var cryptoEncryptArgument4 = new Argument<string>("value4", VTE);
+            var cryptoEncryptArgument5 = new Argument<string>("value5", VTE);
            
             cryptoEncryptVerb.Add(cryptoEncryptArgument1);
             cryptoEncryptVerb.Add(cryptoEncryptArgument2);
@@ -226,23 +229,9 @@ namespace Saltworks.SaltMiner.DataApi
                     Scheme = "Bearer",
                 });
 
-                c.AddSecurityRequirement(new OpenApiSecurityRequirement()
+                c.AddSecurityRequirement(doc => new OpenApiSecurityRequirement()
                 {
-                    {
-                        new OpenApiSecurityScheme
-                        {
-                            Reference = new OpenApiReference
-                            {
-                                Type = ReferenceType.SecurityScheme,
-                                Id = "Bearer"
-                            },
-                            Scheme = "oauth2",
-                            Name = "Bearer",
-                            In = ParameterLocation.Header
-
-                        },
-                        new List<string>()
-                    }
+                    [new OpenApiSecuritySchemeReference("Bearer", doc)] = []
                 });
 
                 // Set the comments path for the Swagger JSON and UI.
@@ -537,6 +526,7 @@ namespace Saltworks.SaltMiner.DataApi
         private static void ProcessOneTimeDataItems(ApiConfig config, IElasticClient client)
         {
             var failMsg = "";
+            const string JE = ".json";
 
             // Index Policies
             try
@@ -549,13 +539,13 @@ namespace Saltworks.SaltMiner.DataApi
                     var policies = Directory.GetFiles(dir).ToList();
                     Log.Debug("Found {Count} index policy(s).", policies.Count);
 
-                    foreach (var policy in policies.Where(t => t.ToLower().EndsWith(".json")))
+                    foreach (var policy in policies.Where(t => t.ToLower().EndsWith(JE)))
                     {
                         failMsg = $"Failed processing index policy '{policy}'";
                         using (var r = new StreamReader(policy))
                         {
                             var json = r.ReadToEnd().Replace("\r\n", "");
-                            var policyName = Path.GetFileName(policy).Replace(".json", "");
+                            var policyName = Path.GetFileName(policy).Replace(JE, "");
                             client.IndexPolicyAddUpdate(policyName, json);
                         }
                         failMsg = $"Failed when attempting to delete index policy file '{policy}'";
@@ -586,13 +576,13 @@ namespace Saltworks.SaltMiner.DataApi
                     var templates = Directory.GetFiles(dir).ToList();
                     Log.Debug("Found {Count} index template(s).", templates.Count);
 
-                    foreach (var template in templates.Where(t => t.ToLower().EndsWith(".json")))
+                    foreach (var template in templates.Where(t => t.ToLower().EndsWith(JE)))
                     {
                         failMsg = $"Failed processing index template '{template}'";
                         using (var r = new StreamReader(template))
                         {
                             var json = r.ReadToEnd().Replace("\r\n", "");
-                            var templateName = Path.GetFileName(template).Replace(".json", "");
+                            var templateName = Path.GetFileName(template).Replace(JE, "");
                            
                             client.IndexTemplateAddUpdate(templateName, json);
                         }
@@ -624,10 +614,10 @@ namespace Saltworks.SaltMiner.DataApi
                     var seeds = Directory.GetFiles(dir).ToList();
                     Log.Debug("Found {Count} data seed file(s).", seeds.Count);
 
-                    foreach (var seed in seeds.Where(t => t.ToLower().EndsWith(".json")))
+                    foreach (var seed in seeds.Where(t => t.ToLower().EndsWith(JE)))
                     {
                         failMsg = $"Failed to parse file name for file '{seed}'";
-                        var pair = Path.GetFileName(seed).Replace(".json", "").Split('@');
+                        var pair = Path.GetFileName(seed).Replace(JE, "").Split('@');
                         if (pair.Length != 2)
                         {
                             throw new ArgumentException("File name for seed should be in the form of [Class]@[elastic_index].json");
@@ -687,14 +677,14 @@ namespace Saltworks.SaltMiner.DataApi
                     var roles = Directory.GetFiles(dir).ToList();
                     Log.Debug("Found {Count} role(s).", roles.Count);
 
-                    foreach (var role in roles.Where(t => t.ToLower().EndsWith(".json")))
+                    foreach (var role in roles.Where(t => t.ToLower().EndsWith(JE)))
                     {
                         failMsg = $"Failed processing role '{role}'";
                         
                         using (var r = new StreamReader(role))
                         {
                             var json = r.ReadToEnd().Replace("\r\n", "");
-                            var roleName = Path.GetFileName(role).Replace(".json", "");
+                            var roleName = Path.GetFileName(role).Replace(JE, "");
                             client.UpsertRole(roleName, json);
                         }
                         failMsg = $"Failed when attempting to delete role file '{role}'";
@@ -732,14 +722,14 @@ namespace Saltworks.SaltMiner.DataApi
                         Log.Debug("Found {Count} enrichment(s).", enrichments.Count);
                     }
 
-                    foreach (var enrichment in enrichments.Where(t => t.ToLower().EndsWith(".json")))
+                    foreach (var enrichment in enrichments.Where(t => t.ToLower().EndsWith(JE)))
                     {
                         failMsg = $"Failed processing enrichment '{enrichment}'";
 
                         using (var r = new StreamReader(enrichment))
                         {
                             var json = r.ReadToEnd().Replace("\r\n", "");
-                            var fileName = Path.GetFileName(enrichment).Replace(".json", "");
+                            var fileName = Path.GetFileName(enrichment).Replace(JE, "");
                             if (!fileName.Contains('@'))
                             {
                                 throw new ImportEnrichmentException("Enrichment file name invalid, should be [index]@[enrichment-name].json (no brackets).");
@@ -751,18 +741,7 @@ namespace Saltworks.SaltMiner.DataApi
 
                             Log.Information("Processing enrichment {Name}", enrichmentName);
 
-                            try
-                            {
-                                client.CreateEnrichment(enrichmentName, indexName, json);
-                            }
-                            catch (ElasticsearchClientException ex)
-                            {
-                                if (ex.Message.Contains("resource_already_exists_exception"))
-                                {
-                                    Log.Warning(ex, "Enrichment {Name} already exists.  Will attempt to re-execute.", enrichmentName);
-                                }
-                            }
-
+                            client.CreateEnrichment(enrichmentName, indexName, json);
                             client.ExecuteEnrichPolicy(enrichmentName);
                         }
 
@@ -799,7 +778,7 @@ namespace Saltworks.SaltMiner.DataApi
                         Log.Debug("Found {Count} ingest pipeline(s).", pipelines.Count);
                     }
 
-                    foreach (var pipeline in pipelines.Where(t => t.ToLower().EndsWith(".json")))
+                    foreach (var pipeline in pipelines.Where(t => t.ToLower().EndsWith(JE)))
                     {
                         failMsg = $"Failed processing ingest pipeline '{pipeline}'";
                      
@@ -811,7 +790,7 @@ namespace Saltworks.SaltMiner.DataApi
                         using (var r = new StreamReader(pipeline))
                         {
                             var json = r.ReadToEnd().Replace("\r\n", "");
-                            var fileName = Path.GetFileName(pipeline).Replace(".json", "");
+                            var fileName = Path.GetFileName(pipeline).Replace(JE, "");
                             var pipelineName = fileName.Split("@");
                            
                             Log.Information("Processing ingest pipeline {PipelineName}", pipelineName[1]);
@@ -865,10 +844,10 @@ namespace Saltworks.SaltMiner.DataApi
                 .Build();
 
             // Get kestrel options from config
-            if (configuration.GetSection("ApiConfig").Exists())
+            if (configuration.GetSection(API_CONFIG_SECTION).Exists())
             {
-                KestrelAllowRemote = configuration.GetSection("ApiConfig").GetValue<bool>("KestrelAllowRemote");
-                KestrelPort = configuration.GetSection("ApiConfig").GetValue<int>("KestrelPort");
+                KestrelAllowRemote = configuration.GetSection(API_CONFIG_SECTION).GetValue<bool>("KestrelAllowRemote");
+                KestrelPort = configuration.GetSection(API_CONFIG_SECTION).GetValue<int>("KestrelPort");
 
                 if (KestrelPort <= 0)
                 {
@@ -928,7 +907,7 @@ namespace Saltworks.SaltMiner.DataApi
 
                 webapp.Run();
             }
-            catch (ElasticsearchClientException ex)
+            catch (TransportException ex)
             {
                 var inner = "";
                 var innerEx = ex.InnerException;
@@ -940,7 +919,7 @@ namespace Saltworks.SaltMiner.DataApi
                 switch (ex.FailureReason)
                 {
                     case PipelineFailure.SniffFailure:
-                        Log.Fatal(ex, "Elasticsearch may be misconfigured - connection sniffing attempted {Host}:{Port} but {ElasticHost}:{ElasticPort} is configured", ex.Request.Uri.Host, ex.Request.Uri.Port, config.ElasticHost, config.ElasticPort);
+                        Log.Fatal(ex, "Elasticsearch may be misconfigured - connection sniffing attempted {Host}:{Port} but {ElasticHost}:{ElasticPort} is configured", ex.Endpoint.Node.Uri.Host, ex.Endpoint.Node.Uri.Port, config.ElasticHost, config.ElasticPort);
                         break;
                     case PipelineFailure.PingFailure:
                         Log.Fatal(ex, "Elasticsearch may be misconfigured - ping was unsuccessful ({Msg})", ex.Message);
@@ -1023,7 +1002,7 @@ namespace Saltworks.SaltMiner.DataApi
         {
             ApiConfig config = new();
 
-            ConsoleAppUtils.BindConfigFromSettingsFile(API_SETTINGS_FILE, config, "ApiConfig");
+            ConsoleAppUtils.BindConfigFromSettingsFile(API_SETTINGS_FILE, config, API_CONFIG_SECTION);
 
             if (string.IsNullOrEmpty(config.EncryptionKey) || string.IsNullOrEmpty(config.EncryptionIv))
             {

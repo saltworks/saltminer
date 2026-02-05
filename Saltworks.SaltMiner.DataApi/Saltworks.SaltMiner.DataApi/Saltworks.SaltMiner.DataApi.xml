@@ -11,6 +11,12 @@
             <param name="request">DataRequest containing documents to add/update</param>
             <param name="index">The index name for which to add/update the documents</param>
         </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.ClosePitSearch(System.String)">
+            <summary>
+            Closes PIT search in elasticsearch
+            </summary>
+            <param name="id">PIT ID</param>
+        </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.DeleteIndex(System.String)">
             <summary>
             Deletes Index by name

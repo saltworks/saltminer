@@ -140,7 +140,7 @@ public class BulkTests
         }
         Client.IndexRefresh(indexName, 500);
 
-        var script = "ctx._source.test_field = params.update";
+        var script = "ctx._source.test_field = params.update.test_value";
         var updateObj = new { test_value = "updated" };
 
         // Act

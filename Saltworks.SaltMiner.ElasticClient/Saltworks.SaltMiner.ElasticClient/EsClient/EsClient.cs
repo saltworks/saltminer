@@ -585,6 +585,8 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         Logger?.LogDebug("Search initiated.");
         var request = CreateSearchRequest<T>(searchRequest, index);
         SearchResponse<T> response = null;
+        if (searchRequest.PagingInfo.Page == -1) // Invalid page or passed end of results
+            return EsClientResponse<T>.BuildResponse(response, searchRequest.PagingInfo);
         try
         {
             response = ElasticClient.SearchAsync<T>(request).Result;
@@ -598,6 +600,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
 
         // Set paging info, then do a separate count query if needed for larger sets
         searchRequest.PagingInfo.TotalHits = response.Total;
+        searchRequest.PagingInfo.CurrentHits = response.Hits.Count;
         searchRequest.PagingInfo.TotalHitsWereTruncated = response.HitsMetadata?.Total?.Value1?.Relation.Equals(TotalHitsRelation.Gte) ?? false;
         if (searchRequest.PagingInfo.TotalHitsWereTruncated && !searchRequest.PagingInfo.TotalHitsCanBeTruncated)
         {

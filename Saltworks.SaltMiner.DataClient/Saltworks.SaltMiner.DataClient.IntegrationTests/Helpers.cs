@@ -143,7 +143,8 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
                     Name = $"Test Item {i + 1}",
                     Value = i + 1,
                     Date = DateTime.UtcNow.AddDays(-i),
-                    Category = categoryFn != null ? categoryFn(i) : ""
+                    Category = categoryFn != null ? categoryFn(i) : "",
+                    Id = $"{i:D4}"
                 });
             }
             return client.IndexBulk(new JsonDataRequest 

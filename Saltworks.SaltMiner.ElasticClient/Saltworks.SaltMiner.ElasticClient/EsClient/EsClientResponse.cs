@@ -1,6 +1,5 @@
 ﻿using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Aggregations;
-using Elastic.Clients.Elasticsearch.Nodes;
 using Elastic.Transport.Products.Elasticsearch;
 using Saltworks.Common.Data;
 using Saltworks.SaltMiner.Core.Data;
@@ -116,6 +115,18 @@ public class EsClientResponse<T> : EsClientResponse, IElasticClientResponse<T> w
     {
     }
 
+    private static EsClientResponse<T> EndPagingResponse(PagingInfo paging) =>
+        new()
+        {
+            Message = "",
+            IsSuccessful = true,
+            CountAffected = 0,
+            HttpStatus = 200,
+            Results = [],
+            AfterKeys = paging.CurrentAfterKeys,
+            PagingInfo = paging
+        };
+
     private static EsClientResponse<T> SingleItemResponse(UpdateResponse<T> response, T doc)
     {
         var r = BaseResponse(response);
@@ -189,11 +200,14 @@ public class EsClientResponse<T> : EsClientResponse, IElasticClientResponse<T> w
         return EsClientResult<JsonObject>.From(jsonDoc, dto.Index, dto.Primary, dto.Sequence);
     }
     
+    // Don't remove - referenced by reflection
     internal static IElasticClientResponse<JsonObject> BuildResponse(IElasticClientResponse<SaltMinerEntity> response)
     {
+        if (response == null || response.PagingInfo.Page == -1) // passed last page
+            return EsClientResponse<JsonObject>.EndPagingResponse(new() { Page = -1 });
         return new EsClientResponse<JsonObject> {
-            Results = response.Results?.Select(d => ToJsonObjectDto<SaltMinerEntity>(d)).ToList() ?? new List<IElasticClientDto<JsonObject>>(),
-            Result = response.Result != null ? ToJsonObjectDto<SaltMinerEntity>(response.Result) : null,
+            Results = response.Results?.Select(d => ToJsonObjectDto(d)).ToList() ?? [],
+            Result = response.Result != null ? ToJsonObjectDto(response.Result) : null,
             IsSuccessful = response.IsSuccessful,
             Message = response.Message,
             CountAffected = response.CountAffected,
@@ -201,11 +215,14 @@ public class EsClientResponse<T> : EsClientResponse, IElasticClientResponse<T> w
         };
     }
 
+    // Don't remove - referenced by reflection
     internal static IElasticClientResponse<JsonObject> BuildResponse<TEntity>(IElasticClientResponse<TEntity> response) where TEntity : SaltMinerEntity
     {
+        if (response == null || response.PagingInfo.Page == -1) // passed last page
+            return EsClientResponse<JsonObject>.EndPagingResponse(new() { Page = -1 });
         return new EsClientResponse<JsonObject> {
-            Results = response.Results?.Select(dto => ToJsonObjectDto<TEntity>(dto)).ToList() ?? new List<IElasticClientDto<JsonObject>>(),
-            Result = response.Result != null ? ToJsonObjectDto<TEntity>(response.Result) : null,
+            Results = response.Results?.Select(dto => ToJsonObjectDto(dto)).ToList() ?? [],
+            Result = response.Result != null ? ToJsonObjectDto(response.Result) : null,
             IsSuccessful = response.IsSuccessful,
             Message = response.Message,
             CountAffected = response.CountAffected,
@@ -222,6 +239,8 @@ public class EsClientResponse<T> : EsClientResponse, IElasticClientResponse<T> w
 
     internal static IElasticClientResponse<T> BuildResponse(SearchResponse<T> response, PagingInfo pagingInfo, bool skipResponseMessage = false)
     {
+        if (response == null && pagingInfo.Page == -1) // passed last page
+            return EndPagingResponse(pagingInfo);
         var msg = "";
         var success = response.IsValidResponse;
 

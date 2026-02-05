@@ -88,6 +88,21 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         }
 
         /// <summary>
+        /// Closes PIT search in elasticsearch
+        /// </summary>
+        /// <param name="id">PIT ID</param>
+        public virtual NoDataResponse ClosePitSearch(string id)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(id);
+            Logger.LogInformation("Closing PIT search with ID '{Id}'", id);
+            var rsp = ElasticClient.ClosePitSearch(id);
+            if (rsp.IsSuccessful)
+                return new NoDataResponse(1, "");
+            else
+                return new NoDataResponse(rsp.HttpStatus, "Elasticsearch", "Failed to close point in time search context.");
+        }
+
+        /// <summary>
         /// Deletes Index by name
         /// </summary>
         /// <param name="indexName">The indexName of the entity to return</param>

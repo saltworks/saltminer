@@ -532,7 +532,7 @@ class AppVulsProcessor(object):
                             # Set Removed Indicator and Date based on Issue Status since no Removed Date in FOD
                             if Issue["status"] == "Fix Validated":
                                 # default to last scan date for this assessment type if the scan has been removed
-                                holdremoveddate = lastAssessmentDate
+                                holdremoveddate = Issue['scanCompletedDate']
                             else:
                                 holdremoveddate = None
 

@@ -14,28 +14,71 @@
 * ----
 */
 
-﻿using Elasticsearch.Net;
-using Nest;
-using Nest.JsonNetSerializer;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
+using Elastic.Transport;
+using System;
+using System.IO;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
-
-namespace Saltworks.SaltMiner.ElasticClient
+namespace Saltworks.SaltMiner.ElasticClient;
+public class SnakeCaseSerializer : Serializer
 {
+    private static readonly JsonSerializerOptions defaultSerializerOptions = new() 
+    { 
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never,
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+    };
+    private static readonly JsonSerializerOptions indentedSerializerOptions = new () 
+    { 
+        WriteIndented = true,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never,
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+    };
 
-    public class SnakeCustomJsonNetSerializer : ConnectionSettingsAwareSerializerBase
+    public SnakeCaseSerializer() { }
+
+    public override object Deserialize(Type type, Stream stream)
     {
-        public SnakeCustomJsonNetSerializer(IElasticsearchSerializer builtinSerializer, IConnectionSettingsValues connectionSettings)
-            : base(builtinSerializer, connectionSettings) { }
+        return JsonSerializer.Deserialize(stream, type, defaultSerializerOptions);
+    }
 
-        protected override JsonSerializerSettings CreateJsonSerializerSettings() =>
-            new JsonSerializerSettings
-            {
-                NullValueHandling = NullValueHandling.Include
-            };
+    public override T Deserialize<T>(Stream stream)
+    {
+        return JsonSerializer.Deserialize<T>(stream, defaultSerializerOptions);
+    }
 
-        protected override void ModifyContractResolver(ConnectionSettingsAwareContractResolver resolver) =>
-            resolver.NamingStrategy = new SnakeCaseNamingStrategy();
+    public override async ValueTask<object> DeserializeAsync(Type type, Stream stream, CancellationToken cancellationToken = default)
+    {
+        return await JsonSerializer.DeserializeAsync(stream, type, defaultSerializerOptions, cancellationToken);
+    }
+
+    public override async ValueTask<T> DeserializeAsync<T>(Stream stream, CancellationToken cancellationToken = default)
+    {
+        return await JsonSerializer.DeserializeAsync<T>(stream, defaultSerializerOptions, cancellationToken);
+    }
+
+    public override void Serialize<T>(T data, Stream stream, SerializationFormatting formatting = SerializationFormatting.None)
+    {
+        var options = formatting == SerializationFormatting.Indented  ? indentedSerializerOptions : defaultSerializerOptions;
+        JsonSerializer.Serialize(stream, data, options);
+    }
+
+    public override void Serialize(object data, Type type, Stream stream, SerializationFormatting formatting = SerializationFormatting.None, CancellationToken cancellationToken = default)
+    {
+        var options = formatting == SerializationFormatting.Indented  ? indentedSerializerOptions : defaultSerializerOptions;
+        JsonSerializer.Serialize(stream, data, type, options);
+    }
+
+    public override async Task SerializeAsync<T>(T data, Stream stream, SerializationFormatting formatting = SerializationFormatting.None, CancellationToken cancellationToken = default)
+    {
+        var options = formatting == SerializationFormatting.Indented  ? indentedSerializerOptions : defaultSerializerOptions;
+        await JsonSerializer.SerializeAsync(stream, data, options, cancellationToken);
+    }
+
+    public override async Task SerializeAsync(object data, Type type, Stream stream, SerializationFormatting formatting = SerializationFormatting.None, CancellationToken cancellationToken = default)
+    {
+        var options = formatting == SerializationFormatting.Indented  ? indentedSerializerOptions : defaultSerializerOptions;
+        await JsonSerializer.SerializeAsync(stream, data, type, options, cancellationToken);
     }
 }
