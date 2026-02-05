@@ -58,7 +58,6 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
             // Act
             var snapshot1 = Client.SnapshotAddUpdate(snapshot).Data;
             Client.RefreshIndex(Snapshot.GenerateIndex(snapshot.Saltminer.Asset.AssetType, daily));
-            var t = typeof(Task);
             Task.Delay(500).Wait(); // wait for "save" to complete
             var search = Helpers.SearchRequest("SnapshotDate", sdate.ToString("O"), snapshot.Saltminer.Asset.AssetType, null);
             Assert.AreEqual(2, search.Filter.FilterMatches.Count);
