@@ -1228,7 +1228,7 @@ class ElasticSearchUtilsScroller(object):
         self.Index = index
         self.ScrollSize = scrollSize
         self.ScrollTimeout = scrollTimeout
-        self.AfterKeys = None
+        self.AfterKeys = None if not queryBody.get('search_after', None) else queryBody['search_after']
         self.QueryBody = queryBody
         self.IncludeLockingInfo = False
         self.TotalHits = 0
