@@ -80,7 +80,7 @@ class SscUtilities:
         
             response = self.restClient.post('/api/v1/tokens', json=typeToken)
             authToken = json.loads(response.text)['data']['token']
-            print(authToken)
+            
 
             _headers = {'Accept':'application/json',
                 'Content-Type':'application/json;charset=UTF-8',
