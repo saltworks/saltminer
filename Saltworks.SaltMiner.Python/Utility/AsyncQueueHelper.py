@@ -1,6 +1,6 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* Copyright (c) 2026 Saltworks Security, LLC
 *
 * Use of this software is governed by the Business Source License included
 * in the LICENSE file.
@@ -97,7 +97,7 @@ class AsyncQueueHelper(object):
         self.__Es.DeleteByQuery(self.__PriorityIndex, body, ignoreMissingIndex=True)
         logging.info("Cleared async priority reservations for target type '%s' and instance '%s'.", self.__TargetType, self.__TargetInstance)
 
-    def ClearSyncQueue(self, completed=True, locked=False):
+    def ClearAsyncQueue(self, completed=True, locked=False):
         '''
         Clears all sync items from queue, optionally including those that are completed or locked
         '''
@@ -119,7 +119,7 @@ class AsyncQueueHelper(object):
         self.__Es.DeleteByQuery(self.__Index, body, ignoreMissingIndex=True)
         logging.debug("Cleared async queue for target type '%s' and instance '%s'.", self.__TargetType, self.__TargetInstance)
 
-    def GetSyncQueueCurrent(self):
+    def GetAsyncQueueCurrent(self):
         '''
         Returns all target IDs currently in the queue where completed not set, including any that are locked.
         This can be used as an exclusion list to avoid duplicates in the queue.
@@ -150,7 +150,7 @@ class AsyncQueueHelper(object):
         logging.debug("%s incomplete target ID(s) in the queue for target type '%s'.", len(lst), self.__TargetType)
         return lst
 
-    def GetSyncQueueBatch(self):
+    def GetAsyncQueueBatch(self):
         '''
         Returns a tuple containing a single batch of update queue docs (only 1 per ID), and a count of the total hits (if over 10k, then 10k will be returned).
         We assume these will be completed using CompleteSyncQueue() before getting the next batch.
@@ -190,7 +190,7 @@ class AsyncQueueHelper(object):
             ret.append(dto)
         return ret, r['aggregations']['total_count']['value']
 
-    def __GetSyncQueueDto(self, dto):
+    def __GetAsyncQueueDto(self, dto):
         sqdto = dto
         if isinstance(sqdto, dict):
             if '_source' in sqdto.keys():
@@ -221,7 +221,7 @@ class AsyncQueueHelper(object):
             scroller.GetNext()
 
     def SetInProgress(self, dto):
-        sqdto = self.__GetSyncQueueDto(dto)
+        sqdto = self.__GetAsyncQueueDto(dto)
         doc = sqdto.AsyncQueueDoc
         if doc.LockId and doc.LockId != self.__SessionId and GeneralUtility.ParseDate(doc.Locked, True) > (datetime.datetime.utcnow() - datetime.timedelta(days=self.__LockDaysOld)) and not doc.Completed:
             logging.info("Async queue doc for target %s:%s:%s not eligible for lock (lock id: '%s', locked: '%s').", self.__TargetType, self.__TargetInstance, doc.TargetId, doc.LockId, doc.Locked)
@@ -236,7 +236,7 @@ class AsyncQueueHelper(object):
             return None
 
     def SetComplete(self, dto):
-        sqdto = self.__GetSyncQueueDto(dto)
+        sqdto = self.__GetAsyncQueueDto(dto)
         doc = sqdto.AsyncQueueDoc
         if not doc.LockId or doc.LockId != self.__SessionId or doc.Completed:
             logging.info("Async queue doc for target %s:%s:%s not eligible for completion with lock id '%s'.", self.__TargetType, self.__TargetInstance, doc.TargetId, doc.LockId)
@@ -284,7 +284,7 @@ class AsyncQueueHelper(object):
         if permanent == True and not priority:
             raise ValueError("If permanent set, must include priority")
         if skipExisting:
-            self.__LoadExclusions = self.GetSyncQueueCurrent()
+            self.__LoadExclusions = self.GetAsyncQueueCurrent()
         self.__LoadPriorityReservations()
         dt = datetime.datetime.now(datetime.UTC).isoformat()
         prmList = []
