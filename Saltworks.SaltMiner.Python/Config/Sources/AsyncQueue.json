@@ -1,0 +1,7 @@
+{
+  "_Comments": "Async queue operational settings shared across all sources.",
+  "Source": "AsyncQueue",
+  "AsyncQueueBatchSize": 500,
+  "AsyncQueueRetentionDays": 1,
+  "AsyncQueueLockRetentionDays": 1
+}
