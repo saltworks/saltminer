@@ -95,7 +95,7 @@ class AsyncQueueHelper(object):
           }
         }
         self.__Es.DeleteByQuery(self.__PriorityIndex, body, ignoreMissingIndex=True)
-        logging.info("Cleared sync priority reservations for target type '%s' and instance '%s'.", self.__TargetType, self.__TargetInstance)
+        logging.info("Cleared async priority reservations for target type '%s' and instance '%s'.", self.__TargetType, self.__TargetInstance)
 
     def ClearSyncQueue(self, completed=True, locked=False):
         '''
@@ -117,7 +117,7 @@ class AsyncQueueHelper(object):
         if not locked == True:
             body['query']['bool']['must_not'].append({ "exists": { "field": "lock_id" } })
         self.__Es.DeleteByQuery(self.__Index, body, ignoreMissingIndex=True)
-        logging.debug("Cleared sync queue for target type '%s' and instance '%s'.", self.__TargetType, self.__TargetInstance)
+        logging.debug("Cleared async queue for target type '%s' and instance '%s'.", self.__TargetType, self.__TargetInstance)
 
     def GetSyncQueueCurrent(self):
         '''
@@ -179,7 +179,7 @@ class AsyncQueueHelper(object):
           },
           "sort": [ "priority", "created" ]
         }
-        logging.debug("Getting next sync queue batch (qty %s)", self.__BatchSize)
+        logging.debug("Getting next async queue batch (qty %s)", self.__BatchSize)
         self.__LoadPriorityReservations()
         r = self.__Es.Search(self.__Index, body, self.__BatchSize, False, True)
         if not r or not "aggregations" in r.keys():
@@ -224,7 +224,7 @@ class AsyncQueueHelper(object):
         sqdto = self.__GetSyncQueueDto(dto)
         doc = sqdto.AsyncQueueDoc
         if doc.LockId and doc.LockId != self.__SessionId and GeneralUtility.ParseDate(doc.Locked, True) > (datetime.datetime.utcnow() - datetime.timedelta(days=self.__LockDaysOld)) and not doc.Completed:
-            logging.info("Sync queue doc for target %s:%s:%s not eligible for lock (lock id: '%s', locked: '%s').", self.__TargetType, self.__TargetInstance, doc.TargetId, doc.LockId, doc.Locked)
+            logging.info("Async queue doc for target %s:%s:%s not eligible for lock (lock id: '%s', locked: '%s').", self.__TargetType, self.__TargetInstance, doc.TargetId, doc.LockId, doc.Locked)
             return None
         doc.Locked = datetime.datetime.utcnow().isoformat()
         doc.LockId = self.__SessionId
@@ -239,7 +239,7 @@ class AsyncQueueHelper(object):
         sqdto = self.__GetSyncQueueDto(dto)
         doc = sqdto.AsyncQueueDoc
         if not doc.LockId or doc.LockId != self.__SessionId or doc.Completed:
-            logging.info("Sync queue doc for target %s:%s:%s not eligible for completion with lock id '%s'.", self.__TargetType, self.__TargetInstance, doc.TargetId, doc.LockId)
+            logging.info("Async queue doc for target %s:%s:%s not eligible for completion with lock id '%s'.", self.__TargetType, self.__TargetInstance, doc.TargetId, doc.LockId)
             return None
         doc.LockId = None
         doc.Completed = datetime.datetime.utcnow().isoformat()
