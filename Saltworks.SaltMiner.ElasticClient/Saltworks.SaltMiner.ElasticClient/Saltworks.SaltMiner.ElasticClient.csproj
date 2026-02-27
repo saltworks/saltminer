@@ -2,7 +2,6 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -38,12 +37,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Update="Saltworks.SaltMiner.ElasticClient.xml">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
   </ItemGroup>
 
 </Project>

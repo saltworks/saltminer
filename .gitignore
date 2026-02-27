@@ -37,3 +37,4 @@ Saltworks.SaltMiner.Python/sm-run-config-location.json
 
 # AI testing
 ai-*.ps1
+*.http
