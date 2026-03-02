@@ -62,7 +62,7 @@ public class UiApiConfig : ConfigBase
     public static string AppVersion => "3.2.0";
     public bool KestrelAllowRemote { get; set; } = false; // file loaded and referenced manually not referenced by model
     public int KestrelPort { get; set; } = 5001; // file loaded and referenced manually not referenced by model
-    public int KestrelMaxRequestSizeMb { get; set; } = 100; // file loaded and referenced manually not referenced by model
+    public int KestrelMaxRequestSizeMb { get; set; } = 100;
     /// <summary>
     /// Don't reference this directly, use BaseContext.KibanaBaseUrl instead.
     /// </summary>

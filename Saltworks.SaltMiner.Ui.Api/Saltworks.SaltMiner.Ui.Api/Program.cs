@@ -30,6 +30,7 @@ using Saltworks.SaltMiner.Ui.Api.Models;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Ui.Api.Extensions;
 using Saltworks.SaltMiner.UiApiClient;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 namespace Saltworks.SaltMiner.Ui.Api;
 public static class Program
@@ -122,6 +123,8 @@ public static class Program
     {
         builder.Services.AddControllers();
 
+        builder.Services.Configure<KestrelServerOptions>(opt => opt.Limits.MaxRequestBodySize = config.KestrelMaxRequestSizeMb * 1024 * 1024);
+        
         var types = Assembly.GetExecutingAssembly()
             .GetTypes()
             .Where(x => x.BaseType == typeof(ContextBase));
@@ -331,16 +334,12 @@ public static class Program
         // Get kestrel options from config
         var kar = false;
         var kp = 5001;
-        var kmr = 100;
         if (configuration.GetSection(API_SETTINGS_APP_SECTION).Exists())
         {
             kar = configuration.GetSection(API_SETTINGS_APP_SECTION).GetValue<bool>("KestrelAllowRemote");
             kp = configuration.GetSection(API_SETTINGS_APP_SECTION).GetValue<int>("KestrelPort");
-            kmr = configuration.GetSection(API_SETTINGS_APP_SECTION).GetValue<int>("KestrelMaxRequestSizeMb");
             if (kp <= 0)
                 kp = 5001;
-            if (kmr <= 0)
-                kmr = 100;
         }
 
         // Set Serilog to write stuff to trace if it encounters errors internally
@@ -361,7 +360,6 @@ public static class Program
             var config = new UiApiConfig(configuration, configuration.GetValue<string>("FullPathSettingsFile"));
             var builder = WebApplication.CreateBuilder(args);
             builder.WebHost.ConfigureKestrel(o => {
-                o.Limits.MaxRequestBodySize = kmr * 1024 * 1024; // convert from MB to bytes
                 if (kar)
                 {
                     Log.Information("Kestrel remote enabled, port {Port}", kp);
