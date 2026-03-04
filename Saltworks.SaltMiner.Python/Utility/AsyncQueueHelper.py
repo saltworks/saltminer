@@ -17,6 +17,7 @@
 import datetime
 import logging
 import uuid
+import json
 
 from Utility.GeneralUtility import GeneralUtility
 
@@ -177,7 +178,7 @@ class AsyncQueueHelper(object):
               "minimum_should_match": 1
             }
           },
-          "sort": [ "priority", "created" ]
+          "sort": [ "priority", "created", "target_id" ]
         }
         logging.debug("Getting next async queue batch (qty %s)", self.__BatchSize)
         self.__LoadPriorityReservations()
