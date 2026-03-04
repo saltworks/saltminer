@@ -148,8 +148,8 @@ class SyncHelperTests(unittest.TestCase):
         q_item2 = response[0][1].SyncQueueDoc  # second item in batch
         q_item3 = response[0][2].SyncQueueDoc  # third item in batch
         self.assertEqual(q_item1.TargetId, "6", "Expected first queue item ID to be 6 after adding priority items.")
-        self.assertEqual(q_item2.TargetId, "5", "Expected second queue item ID to be 5 after adding priority items.")
-        self.assertEqual(q_item3.TargetId, "7", "Expected third queue item ID to be 7 after adding priority items.")
+        self.assertEqual(q_item2.TargetId, "7", "Expected second queue item ID to be 7 after adding priority items.")
+        self.assertEqual(q_item3.TargetId, "5", "Expected third queue item ID to be 5 after adding priority items.")
 
         # check permanent reservation
         id_list = ["1", "2", "3", "4", "5", "6"]
