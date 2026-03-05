@@ -90,5 +90,5 @@ public class ApiConfig: ConfigBase
     public bool EnableWebhooks { get; set; } = false;
     public bool EnableWebhookSecurity { get; set; } = true;
     public Dictionary<string, string> WebhookSecrets { get; set; } = [];
-    public int WebhookBatchSize { get; set; } = 100;
+    public int WebhookBatchSize { get; set; } = 1000;
 }

@@ -349,8 +349,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             InstanceId = DataClient.RegisterNewManagerInstanceId().Message;
             Logger.LogInformation("Queue processor instance {Instance} configured for sourceType '{SourceType}', queue scan ID '{QueueScanId}', limit {Limit}, and listOnly {ListOnly}",
                 InstanceId,
-                (string.IsNullOrEmpty(RunConfig.SourceType) ? "[all]" : RunConfig.SourceType),
-                (string.IsNullOrEmpty(RunConfig.QueueScanId) ? "[all]" : RunConfig.QueueScanId),
+                string.IsNullOrEmpty(RunConfig.SourceType) ? "[all]" : RunConfig.SourceType,
+                string.IsNullOrEmpty(RunConfig.QueueScanId) ? "[all]" : RunConfig.QueueScanId,
                 RunConfig.Limit, RunConfig.ListOnly);
 
             Task.WaitAll(GetAsync(), ProcessAsync(), FinishAsync());
@@ -527,7 +527,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         if (queueScan == null || queueScan.Saltminer == null)
             throw new ArgumentNullException(nameof(queueScan), "Queue scan or saltminer section null.");
 
-        Logger.LogInformation("Getting Queue Assets...");
+        Logger.LogDebug("Getting Queue Assets...");
 
         if (!string.IsNullOrEmpty(queueScan.Saltminer.Engagement?.Id))
         {
@@ -571,7 +571,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             throw new ManagerValidationException($"{validationErrors.Count} validation error(s) were thrown when attempting to process queue scan ID {queueScan.Id}");
         }
 
-        Logger.LogInformation("Getting Queue History Scans...");
+        Logger.LogDebug("Getting Queue History Scans...");
         var queueHistoryScans = GetQueueHistoryScans(queueScan.Id);
         Logger.LogInformation("{Count} Queue History Scans Found", queueHistoryScans.Count);
 
@@ -587,6 +587,17 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         {
             var isNoScan = IsNoScan(queueScan.Saltminer.Scan.ReportId);
 
+            // If queueScan is older than most recent scan then skip processing.  
+            // This can happen when multiple manager instances process queues out of FIFO order.
+            // If history shows this we can then skip processing this scan because it's already updated.
+            var at = queueScan.Saltminer.Scan.AssessmentType;
+            var latest = queueHistoryScans.Where(x => x.Saltminer.Scan.AssessmentType == at).OrderByDescending(x => x.Timestamp).FirstOrDefault();
+            if (latest != null && queueScan.Timestamp < latest.Timestamp)
+            {
+                Logger.LogInformation("Queue scan timestamp '{QTime}' is older than most recent history scan timestamp '{HTime}' for assessment type '{At}', skipping processing for this asset.  This can occur when multiple manager instances are running and processing out of FIFO order.",
+                    queueScan.Timestamp, latest.Timestamp, at);
+                continue;
+            }
             result = ProcessScan(queueScan, queueAsset, isNoScan);
             if (result == null)  // null means we don't process history or issues (retiring asset, etc.)
             {
@@ -719,6 +730,12 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         if (!isNoScan)
         {
             var existingScan = GetScan(queueAsset.Saltminer.Asset.SourceType, queueAsset.Saltminer.Asset.SourceId, queueScan.Saltminer.Scan.ReportId, queueAsset.Saltminer.Asset.AssetType);
+            if (existingScan != null && existingScan.Saltminer.Scan.ScanDate > queueScan.Saltminer.Scan.ScanDate)
+            {
+                Logger.LogInformation("Existing scan date '{SDate}' is newer than queue scan date '{QDate}' for report ID '{ReportId}', skipping processing for this scan.  This can occur when multiple manager instances are running and processing out of FIFO order.",
+                    existingScan.Saltminer.Scan.ScanDate, queueScan.Saltminer.Scan.ScanDate, queueScan.Saltminer.Scan.ReportId);
+                return null;
+            }
             scan = Translate(queueScan, queueAsset, existingScan);
             scan.Saltminer.InventoryAsset.Key = queueAsset.Saltminer.InventoryAsset.Key;
 

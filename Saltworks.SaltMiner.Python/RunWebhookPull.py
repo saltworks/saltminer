@@ -94,8 +94,8 @@ while curLoop < maxLoops:
         didSomething = True
         for evt in payload['events']:
             if 'projectVersionId' in evt:
-                event = "?" if not 'event' in evt else evt['event']
-                user = "?" if not 'username' in evt else evt['username']
+                event = "?" if 'event' not in evt else evt['event']
+                user = "?" if 'username' not in evt else evt['username']
                 logging.info("[Webhook Pull] SSC update event '%s' found for project version %s, tagged with username %s.", event, evt['projectVersionId'], user)
                 sscId = evt['projectVersionId']
                 if sscId not in sscInactives:
