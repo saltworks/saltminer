@@ -19,12 +19,8 @@ using Saltworks.SaltMiner.DataApi.Data;
 using Saltworks.SaltMiner.Core.Data;
 using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.ElasticClient;
-using Saltworks.SaltMiner.Core.Entities;
 using System.Linq;
 using System;
-using System.Collections.Generic;
-using System.Reflection;
-using System.Text.Json;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts
 {
@@ -39,34 +35,14 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         /// <param name="index">The index name for which to add/update the documents</param>
         public virtual NoDataResponse BulkAddUpdate(JsonDataRequest request, string index)
         {
-            // Using TestItem as a way to get the Core assembly to then get the SaltMinerEntity type
-            if (typeof(TestItem).Assembly.GetType(request.TypeName) is not Type t || !typeof(SaltMinerEntity).IsAssignableFrom(t))
-            {
-                throw new ApiValidationException($"Invalid type '{request.TypeName}'");
-            }
             if (request?.Documents == null || !request.Documents.Any())
                 throw new ApiValidationMissingArgumentException("Missing/invalid documents");
+            if (string.IsNullOrEmpty(request.TypeName))
+                throw new ApiValidationMissingArgumentException("Missing/invalid type name");
 
             Logger.LogInformation("BulkAddUpdate: {Count} docs for type '{Type}'", request.Documents.Count(), request.TypeName);
 
-            // Deserialize documents to their correct type and create a strongly-typed list
-            var listType = typeof(List<>).MakeGenericType(t);
-            var deserializedDocs = Activator.CreateInstance(listType) as System.Collections.IList
-                ?? throw new ApiValidationException("Failed to create typed list");
-            
-            foreach (var doc in request.Documents)
-            {
-                var deserialized = doc.Deserialize(t, JsonSerializerOptions.Web);
-                deserializedDocs.Add(deserialized);
-            }
-
-            // Use reflection to call the generic BulkAddUpdate<T> method with the correct type
-            // This preserves the derived type information instead of casting to SaltMinerEntity
-            var method = typeof(IElasticClient).GetMethod(nameof(IElasticClient.BulkAddUpdate)) ?? throw new ApiValidationException("Could not find BulkAddUpdate method");
-            var genericMethod = method.MakeGenericMethod(t);
-            var result = (IElasticClientResponse)genericMethod.Invoke(ElasticClient, [deserializedDocs, index])
-                ?? throw new ApiValidationException("BulkAddUpdate returned null");
-
+            var result = ElasticClient.BulkAddUpdate(request.Documents, request.TypeName, index);
             return result.ToNoDataResponse();
         }
 

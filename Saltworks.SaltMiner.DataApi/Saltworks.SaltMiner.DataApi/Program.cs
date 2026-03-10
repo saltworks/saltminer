@@ -523,15 +523,15 @@ namespace Saltworks.SaltMiner.DataApi
             }
         }
 
-        private static void ProcessOneTimeDataItems(ApiConfig config, IElasticClient client)
+        #region One-time stuff
+        
+        private static void ProcessIndexPolicies(ApiConfig config, IElasticClient client)
         {
-            var failMsg = "";
+            var failMsg = "Failed to list index policy path files";
             const string JE = ".json";
-
             // Index Policies
             try
             {
-                failMsg = "Failed to list index policy path files";
 
                 var dir = GetDirectory(config.DataIndexPolicyPath);
                 if (!string.IsNullOrEmpty(dir))
@@ -564,12 +564,15 @@ namespace Saltworks.SaltMiner.DataApi
             {
                 Log.Error(ex, failMsg);
             }
+        }
 
+        private static void ProcessIndexTemplates(ApiConfig config, IElasticClient client)
+        {
             // Index Templates
+            var failMsg = "Failed to list index template path files";
+            const string JE = ".json";
             try
             {
-                failMsg = "Failed to list index template path files";
-                
                 var dir = GetDirectory(config.DataIndexTemplatePath);
                 if (!string.IsNullOrEmpty(dir))
                 {
@@ -602,7 +605,12 @@ namespace Saltworks.SaltMiner.DataApi
             {
                 Log.Error(ex, failMsg);
             }
+        }
 
+        private static void ProcessSeeds(ApiConfig config, IElasticClient client)
+        {
+            var failMsg = "Failed to list seed path files";
+            const string JE = ".json";
             // Seeds
             try
             {
@@ -623,12 +631,8 @@ namespace Saltworks.SaltMiner.DataApi
                             throw new ArgumentException("File name for seed should be in the form of [Class]@[elastic_index].json");
                         }
                        
-                        var name = pair[0];
+                        var typeName = pair[0];
                         var index = pair[1];
-                        
-                        failMsg = $"Failed determining saltminer entity type for name '{name}'";
-                        
-                        var type = typeof(SaltMinerEntity).Assembly.GetType($"{typeof(SaltMinerEntity).Namespace}.{name}", false, true) ?? throw new ArgumentException("Seed data type could not be determined");
                         var count = 0;
 
                         #pragma warning disable S1854 // Unused assignments should be removed - these are only useless when no exceptions occur
@@ -639,10 +643,8 @@ namespace Saltworks.SaltMiner.DataApi
                             var jarray = JsonNode.Parse(r.BaseStream).AsArray();
                             foreach (var jelm in jarray)
                             {
-                                failMsg = $"Failure deserializing data to type '{type.Name}' on element number {count} from seed file '{seed}'";
-                                var entity = JsonSerializer.Deserialize(jelm, type, new JsonSerializerOptions{ PropertyNameCaseInsensitive = true });
-                                failMsg = $"Failure sending data update - type '{type.Name}' on element number {count} from seed file '{seed}'";
-                                client.AddUpdate(entity as SaltMinerEntity, index);
+                                failMsg = $"Failure sending data update - type '{typeName}' on element number {count} from seed file '{seed}'";
+                                client.AddUpdate(jelm.AsObject(), typeName, index);
                                 count++;
                             }
                         }
@@ -651,7 +653,7 @@ namespace Saltworks.SaltMiner.DataApi
 
                         File.Delete(seed);
                         
-                        Log.Information("Processed '{Name}' seed file - {Count} addition(s) to index '{Index}'", name, count, index);
+                        Log.Information("Processed '{Name}' seed file - {Count} addition(s) to index '{Index}'", typeName, count, index);
                     }
 
                     Log.Information("Processed {Count} seed file(s).", seeds.Count);
@@ -665,11 +667,15 @@ namespace Saltworks.SaltMiner.DataApi
             {
                 Log.Error(ex, failMsg);
             }
+        }
 
+        private static void ProcessRoles(ApiConfig config, IElasticClient client)
+        {
+            const string JE = ".json";
+            var failMsg = "Failed to list role path files";
             // Roles
             try
             {
-                failMsg = "Failed to list role path files";
                
                 var dir = GetDirectory(config.DataRolesPath);
                 if (!string.IsNullOrEmpty(dir))
@@ -703,12 +709,15 @@ namespace Saltworks.SaltMiner.DataApi
             {
                 Log.Error(ex, failMsg);
             }
+        }
 
+        private static void ProcessEnrichments(ApiConfig config, IElasticClient client)
+        {
+            var failMsg = "Failed to list enrichment path files";
+            const string JE = ".json";
             // Enrichments
             try
             {
-                failMsg = "Failed to list enrichment path files";
-                
                 var dir = GetDirectory(config.DataEnrichmentPath);
                 if (!string.IsNullOrEmpty(dir))
                 {
@@ -760,32 +769,30 @@ namespace Saltworks.SaltMiner.DataApi
             {
                 Log.Error(ex, failMsg);
             }
+        }
 
+        private static void ProcessPipelines(ApiConfig config, IElasticClient client)
+        {
+            const string JE = ".json";
+            var failMsg = "Failed to list ingest pipeline path files";
             // Ingest pipelines
             try
             {
-                failMsg = "Failed to list ingest pipeline path files";
                 var dir = GetDirectory(config.DataIngestPipelinePath);
                 if (!string.IsNullOrEmpty(dir))
                 {
                     var pipelines = Directory.GetFiles(dir).OrderBy(f => f).ToList();
                     if (pipelines.Count > 0)
-                    {
                         Log.Information("Found {Count} ingest pipeline(s).", pipelines.Count);
-                    }
                     else
-                    {
                         Log.Debug("Found {Count} ingest pipeline(s).", pipelines.Count);
-                    }
 
                     foreach (var pipeline in pipelines.Where(t => t.ToLower().EndsWith(JE)))
                     {
                         failMsg = $"Failed processing ingest pipeline '{pipeline}'";
                      
                         if (!pipeline.Contains('@'))
-                        {
                             throw new ImportPipelineException("Ingest pipeline file name invalid, should be [sequence]@[ingest-pipeline-name].json (no brackets).");
-                        }
                         
                         using (var r = new StreamReader(pipeline))
                         {
@@ -821,6 +828,18 @@ namespace Saltworks.SaltMiner.DataApi
                 Log.Error(ex, failMsg);
             }
         }
+
+        private static void ProcessOneTimeDataItems(ApiConfig config, IElasticClient client)
+        {
+            ProcessIndexPolicies(config, client);
+            ProcessIndexTemplates(config, client);
+            ProcessSeeds(config, client);
+            ProcessRoles(config, client);
+            ProcessEnrichments(config, client);
+            ProcessPipelines(config, client);
+        }
+
+        #endregion
 
         private static ApiConfig InitConfigAndLogging()
         {

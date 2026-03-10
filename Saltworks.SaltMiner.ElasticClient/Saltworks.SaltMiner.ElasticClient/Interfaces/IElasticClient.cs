@@ -160,6 +160,15 @@ public interface IElasticClient
     /// <returns>A response object with the added document, including concurrency information</returns>
     IElasticClientResponse<T> AddUpdate<T>(T doc, string index) where T : SaltMinerEntity;
     /// <summary>
+    /// Add or update (upsert) document from JSON with dynamic type resolution
+    /// </summary>
+    /// <param name="doc">JsonObject document to add or update</param>
+    /// <param name="typeName">Full or simple type name of a SaltMinerEntity derivative (e.g., "Asset" or "Saltworks.SaltMiner.Core.Entities.Asset")</param>
+    /// <param name="index">Specify index</param>
+    /// <returns>A response object indicating success</returns>
+    /// <remarks>Only use this method for dynamic scenarios and edge cases; it will be slower than the strongly typed version and doesn't support some of the niceties like automatic index selection based on type.</remarks>
+    IElasticClientResponse AddUpdate(JsonObject doc, string typeName, string index);
+    /// <summary>
     /// Runs a scripted update in bulk, passing in parameter objects for each item to be updated and the script to apply to all
     /// </summary>
     /// <typeparam name="T1">SaltMinerEntity type of the entities to be updated</typeparam>
@@ -185,7 +194,16 @@ public interface IElasticClient
     /// <param name="docs">Documents to add or update</param>
     /// <param name="index">Specify index</param>
     /// <returns>A response object containing a success flag and number of affected documents</returns>
+    /// <remarks>Only use this method for dynamic scenarios and edge cases; it will be slower than the strongly typed version and doesn't support some of the niceties like automatic index selection based on type.</remarks>
     IElasticClientResponse BulkAddUpdate<T>(IEnumerable<T> docs, string index) where T : SaltMinerEntity;
+    /// <summary>
+    /// Add or update (upsert) multiple documents from JSON with dynamic type resolution
+    /// </summary>
+    /// <param name="docs">JsonObject documents to add or update</param>
+    /// <param name="typeName">Full or simple type name of a SaltMinerEntity derivative (e.g., "Asset" or "Saltworks.SaltMiner.Core.Entities.Asset")</param>
+    /// <param name="index">Specify index</param>
+    /// <returns>A response object containing a success flag and number of affected documents</returns>
+    IElasticClientResponse BulkAddUpdate(IEnumerable<JsonObject> docs, string typeName, string index);
     /// <summary>
     /// Bulk update passed docs, using locking and partial update
     /// </summary>
