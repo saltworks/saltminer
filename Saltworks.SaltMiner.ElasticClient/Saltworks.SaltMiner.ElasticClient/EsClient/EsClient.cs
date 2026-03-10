@@ -507,7 +507,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         var response = ElasticClient.SearchAsync<T>(request).Result;
         var result = response.Aggregations?.GetComposite(cname);
 
-        Logger.LogDebug("GetAggregateBucketList: {Count} bucket(s)", result?.Buckets.Count ?? 0);
+        Logger.LogDebug("GetCompositeAggregate: {Count} bucket(s)", result?.Buckets.Count ?? 0);
 
         return EsClientBucketResponse.BuildBucketResponse(true, result);
     }

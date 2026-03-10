@@ -132,12 +132,12 @@ namespace Saltworks.SaltMiner.DataApi.Data
 
         public ElasticAggResponse EngagementIssueCountAggregates(string engagementId, PagingInfo pager, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggList, string assetType)
         {
-            Logger.LogDebug("SnapshotAggregates with aggFields: {AggFields} initiated.", JsonSerializer.Serialize(sourceFields));
+            Logger.LogDebug("EngagementIssueCountAggregates with aggFields: {AggFields} initiated.", JsonSerializer.Serialize(sourceFields));
             pager.Size = (pager.Size ?? 0) >= 1 ? pager.Size : Config.ElasticDefaultResultSize;
 
             if ((pager.AggregateKeys?.Count ?? 0) == 0)
             {
-                pager.AggregateKeys = new Dictionary<string, object>();
+                pager.AggregateKeys = [];
             }
 
             foreach (var keyValuePair in pager.AggregateKeys)
@@ -160,14 +160,14 @@ namespace Saltworks.SaltMiner.DataApi.Data
 
             var result = ElasticClient.GetCompositeAggregate<Issue>(request, sourceFields, aggList, assetType);
 
-            Logger.LogDebug("SnapshotAggregates with sourceFields: {SourceFields} and aggregates: {Aggs} complete. {Count} results.", JsonSerializer.Serialize(sourceFields), aggList, result?.Results?.Count() ?? 0);
+            Logger.LogDebug("EngagementIssueCountAggregates with sourceFields: {SourceFields} and aggregates: {Aggs} complete. {Count} results.", JsonSerializer.Serialize(sourceFields), aggList, result?.Results?.Count() ?? 0);
 
             if ((result?.Results?.Count() ?? 0) == 0)
             {
                 return new ElasticAggResponse
                 {
-                    Results = new(),
-                        PagingInfo = null
+                    Results = [],
+                    PagingInfo = null
                 };
             }
             return new ElasticAggResponse()
