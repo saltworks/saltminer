@@ -50,39 +50,37 @@ public class EsClientBucketResponse : EsClientResponse, IElasticClientResponse<E
     {
         //Composite aggregate result structure processing
         var results = new List<ElasticClientCompositeAggregate>();
+        var empty = new EsClientBucketResponse { IsSuccessful = true };
 
-        if (agg?.Buckets?.Count > 0)
+        if (agg?.Buckets?.Count == 0)
+            return empty;
+        foreach (var b in agg.Buckets)
         {
-            foreach (var b in agg.Buckets)
-            {
-                var key = string.Join("|", b.Key.Select(kvp => kvp.Value.ToString()?.Replace("|", "{P}") ?? ""));
-                var aggs = new Dictionary<string, double?>();
+            var key = string.Join("|", b.Key.Select(kvp => kvp.Value.ToString()?.Replace("|", "{P}") ?? ""));
+            var aggs = new Dictionary<string, double?>();
 
-                if ((b.Aggregations?.Count ?? 0) > 0)
+            if ((b.Aggregations?.Count ?? 0) > 0)
+            {
+                foreach (var kvp in b.Aggregations)
                 {
-                    foreach (var kvp in b.Aggregations)
+                    if (kvp.Value is SimpleValueAggregate valueAgg)
                     {
-                        if (kvp.Value is SimpleValueAggregate valueAgg)
-                        {
-                            aggs.Add(kvp.Key, valueAgg.Value);
-                        }
+                        aggs.Add(kvp.Key, valueAgg.Value);
                     }
                 }
-
-                var result = new ElasticClientCompositeAggregate
-                {
-                    BucketKey = key,
-                    DocCount = b.DocCount,
-                    Aggregates = aggs
-                };
-                results.Add(result);
             }
+
+            var result = new ElasticClientCompositeAggregate
+            {
+                BucketKey = key,
+                DocCount = b.DocCount,
+                Aggregates = aggs
+            };
+            results.Add(result);
         }
 
         if (results.Count == 0)
-        {
-            return new EsClientBucketResponse { IsSuccessful = true };
-        }
+            return empty;
 
         return new EsClientBucketResponse
         {
