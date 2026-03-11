@@ -120,22 +120,27 @@ class ElasticClient(object):
         logging.info(f"Elastic client initialized.  Using host(s) {hosts}, port {port}, scheme {scheme}")
 
 
-    def ResilientSearch(self, index, body, size=None, scrollTimeout=None, afterKeys=None, includeLockingInfo=False, requestTimeout=None):
+    def ResilientSearch(self, index, body, size=None, scrollTimeout=None, afterKeys=None, includeLockingInfo=False, requestTimeout=None, pitId=None, pitKeepAlive="5m"):
         '''
         Calls ES search, trapping and then retrying for connection exceptions
 
         Parameters:
-        index - Index to query.  Can use wildcards.
+        index - Index to query.  Can use wildcards.  Ignored when pitId is provided (PIT encodes the index).
         body - Query body.  Expected to be json format.  If None passed, will return all data.
         size - Number of docs to return (also scroll size if using scroll).
         scrollTimeout - If included, sets the length of time for the scroll id to be persisted.  "30s" for example.
         afterKeys - If included, used as search_after keys in query.
         includeLockingInfo - If set, return sequence number and primary term with each result for use with locking updates.
         requestTimeout - If set, override elastic client default request timeout. "30" for example.
+        pitId - If provided, attaches a Point In Time context to the search for consistent pagination.
+                Use OpenPit() to obtain a pit_id, and ClosePit() when done.  When using PIT, index is ignored.
+                The updated pit_id is available in the response at response["pit_id"].
+        pitKeepAlive - How long to extend the PIT on each call, e.g. "5m".  Only used when pitId is provided.
 
-        NOTE: if scrollTimeout included, will create a scroll ID on the server, which can be expensive for larger data sets but 
+        NOTE: if scrollTimeout included, will create a scroll ID on the server, which can be expensive for larger data sets but
         will also lock the results in consistency (new data inserted during scroll will not affect results).  For larger data
         pagination, leave scrollTimeout empty and use afterKeys instead.  If both are present both will be used which may cause an error.
+        NOTE: pitId and scrollTimeout are mutually exclusive in Elasticsearch.
         '''
         if self.__RetryCount == self.__RetryMaxAttempts:
             self.__RetryCount = 0
@@ -153,7 +158,10 @@ class ElasticClient(object):
 
             # Build the search parameters for ES 8.x (no body duplication)
             search_args = {**body}
-            search_args["index"] = index
+            if pitId:
+                search_args["pit"] = {"id": pitId, "keep_alive": pitKeepAlive}
+            else:
+                search_args["index"] = index
             if size:
                 search_args["size"] = size
             if scrollTimeout:
@@ -188,7 +196,7 @@ class ElasticClient(object):
             self.__RetryCount += 1
             logging.error("API connection error during search operation - [%s] %s, retrying in %s secs...", type(e).__name__, str(e), wait)
             time.sleep(wait)
-            return self.ResilientSearch(index, body, size, scrollTimeout, afterKeys, includeLockingInfo)
+            return self.ResilientSearch(index, body, size, scrollTimeout, afterKeys, includeLockingInfo, pitId=pitId, pitKeepAlive=pitKeepAlive)
 
     def BulkSendBatch(self, index=None, doc=None, docId=None, action="index", batchSize=None):
         '''
@@ -457,19 +465,22 @@ class ElasticClient(object):
             self.ic.put_index_template(name=templateName, **body, **params)
 
 
-    def GetIndex(self, indexName, sort=None, limit=1000):
+    def GetIndex(self, indexName, sort=None, limit=1000, pitId=None, pitKeepAlive="5m"):
         '''
         Simple query of a single index, returning up to [limit] (max of 1000) rows, optionally after sorting.
 
         sort parameter should be comma-separated list of <field>:<direction> pairs.
 
+        :pitId: If provided, attaches a Point In Time context.  indexName is ignored when pitId is set.
+                The response will contain a "pit_id" field with the updated pit_id.
+        :pitKeepAlive: How long to extend the PIT on each call, e.g. "5m".  Only used when pitId is provided.
         '''
         if (limit < 1 or limit > 1000):
             limit = 1000
         if sort:
-            return self.ResilientSearch(body={ "size": limit, "sort": sort }, index=indexName)
+            return self.ResilientSearch(body={ "size": limit, "sort": sort }, index=indexName, pitId=pitId, pitKeepAlive=pitKeepAlive)
         else:
-            return self.ResilientSearch(body={ "size": limit }, index=indexName)
+            return self.ResilientSearch(body={ "size": limit }, index=indexName, pitId=pitId, pitKeepAlive=pitKeepAlive)
 
     def RunQuery(self, indexToQuery, queryBody):
         self.__App.Deprecated("ElasticClient.RunQuery", "ElasticClient.RunQuery() is deprecated, please use Search() instead.")
@@ -492,6 +503,33 @@ class ElasticClient(object):
         for f in filters:
             DictUtils.GetValue(body, 'query.bool.must').append({ "match": { f: filters[f] } })
         return self.ResilientSearch(index, body)
+
+    def OpenPit(self, index, keepAlive="5m"):
+        '''
+        Opens a Point In Time (PIT) context for consistent paginated searches.
+
+        A PIT locks a view of the index at the moment it is opened, so concurrent writes will not
+        affect results during pagination.  Use search_after (via ResilientSearch's afterKeys param)
+        for efficient deep pagination with a PIT.
+
+        Parameters:
+        :index: Index (or index pattern) to open the PIT for.
+        :keepAlive: How long the PIT should remain open between calls, e.g. "5m".  Defaults to "5m".
+
+        Returns the pit_id string.  Pass this to ResilientSearch, Search, or GetIndex via pitId,
+        and call ClosePit() when done to free server resources.
+        '''
+        response = self.es.open_point_in_time(index=index, keep_alive=keepAlive)
+        return response["id"]
+
+    def ClosePit(self, pitId):
+        '''
+        Closes a previously opened Point In Time context, freeing server resources.
+
+        Parameters:
+        :pitId: The pit_id string returned by OpenPit() or from a search response's "pit_id" field.
+        '''
+        self.es.close_point_in_time(id=pitId)
 
     def ClearScroll(self, scrollId):
         '''
@@ -685,23 +723,27 @@ class ElasticClient(object):
             time.sleep(wait)
             return self.Get(index, docId)
     
-    def Search(self, index, queryBody=None, size=20, navToData=True, includeLockingInfo=False, requestTimeout=None):
+    def Search(self, index, queryBody=None, size=20, navToData=True, includeLockingInfo=False, requestTimeout=None, pitId=None, pitKeepAlive="5m"):
         '''
         Searches elastic for matching docs, returning a max of [size] results.  Not intended for paged results.
 
         Parameters:
-        :index: the index to search
+        :index: the index to search.  Ignored when pitId is provided (PIT encodes the index).
         :queryBody: elasticsearch query
         :size: the number of documents to return
         :navToData: returns response['hits']['hits'] to "jump" to the data portion - if you are doing aggregations, this value must be set to False to get buckets back
         :includeLockingInfo: if set, returns sequence number and primary terms in document results, used for locking operations
         :requestTimeout: If set, override elastic client default request timeout. "30" for example.
+        :pitId: If provided, attaches a Point In Time context for consistent pagination.  When navToData=True,
+                returns a (hits, pit_id) tuple instead of a plain list so callers can track the updated pit_id.
+        :pitKeepAlive: How long to extend the PIT on each call, e.g. "5m".  Only used when pitId is provided.
         '''
-        response = self.ResilientSearch(index, queryBody, size, includeLockingInfo=includeLockingInfo, requestTimeout=requestTimeout)
+        response = self.ResilientSearch(index, queryBody, size, includeLockingInfo=includeLockingInfo, requestTimeout=requestTimeout, pitId=pitId, pitKeepAlive=pitKeepAlive)
         if navToData:
-            if not response or not 'hits' in response.keys() or 'hits' not in response['hits'] or not response['hits']['hits']:
-                return None
-            return response['hits']['hits']
+            if not response or 'hits' not in response or 'hits' not in response['hits'] or not response['hits']['hits']:
+                return (None, response.get("pit_id") if response else None) if pitId else None
+            hits = response['hits']['hits']
+            return (hits, response.get("pit_id", pitId)) if pitId else hits
         else:
             return response
     

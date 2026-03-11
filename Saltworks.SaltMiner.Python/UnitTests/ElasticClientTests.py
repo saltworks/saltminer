@@ -664,6 +664,114 @@ class ElasticClientTests(unittest.TestCase):
             except Exception as e:
                 logging.info(f"[TEST CLEANUP FAILURE] {module}:test_aliases: {e}")
 
+    def test_pit_open_close(self):
+        """Test OpenPit returns a pit_id string and ClosePit closes it without error."""
+        idx = self._get_test_index_name()
+        self.es.DeleteIndex(idx)
+        try:
+            self.es.IndexWithId(idx, "1", {"id": 1, "name": "test"})
+            self.es.FlushIndex(idx)
+
+            pit_id = self.es.OpenPit(idx)
+            self.assertIsNotNone(pit_id, "OpenPit should return a pit_id")
+            self.assertIsInstance(pit_id, str, "pit_id should be a string")
+            self.assertGreater(len(pit_id), 0, "pit_id should not be empty")
+
+            self.es.ClosePit(pit_id)
+            logging.info(f"[TEST SUCCESS] {module}:test_pit_open_close")
+        finally:
+            try:
+                self.es.DeleteIndex(idx)
+            except Exception:
+                pass
+
+    def test_resilient_search_with_pit(self):
+        """Test ResilientSearch accepts pitId and returns a response with pit_id."""
+        idx = self._get_test_index_name()
+        self.es.DeleteIndex(idx)
+        try:
+            for i in range(1, 6):
+                self.es.IndexWithId(idx, str(i), {"id": i, "name": f"doc_{i}"})
+            self.es.FlushIndex(idx)
+
+            pit_id = self.es.OpenPit(idx)
+            try:
+                response = self.es.ResilientSearch(None, {}, size=10, pitId=pit_id, pitKeepAlive="1m")
+                self.assertIsNotNone(response, "ResilientSearch with pit should return a response")
+                self.assertIn("pit_id", response, "Response should contain pit_id when using PIT")
+                hits = response.get("hits", {}).get("hits", [])
+                self.assertGreater(len(hits), 0, "Should return documents when searching with PIT")
+                updated_pit_id = response["pit_id"]
+                self.assertIsInstance(updated_pit_id, str, "Updated pit_id should be a string")
+            finally:
+                self.es.ClosePit(pit_id)
+
+            logging.info(f"[TEST SUCCESS] {module}:test_resilient_search_with_pit")
+        finally:
+            try:
+                self.es.DeleteIndex(idx)
+            except Exception:
+                pass
+
+    def test_search_with_pit_returns_tuple(self):
+        """Test Search with pitId returns (hits, pit_id) tuple."""
+        idx = self._get_test_index_name()
+        self.es.DeleteIndex(idx)
+        try:
+            for i in range(1, 4):
+                self.es.IndexWithId(idx, str(i), {"id": i, "name": f"doc_{i}"})
+            self.es.FlushIndex(idx)
+
+            pit_id = self.es.OpenPit(idx)
+            try:
+                result = self.es.Search(None, size=10, pitId=pit_id, pitKeepAlive="1m")
+                self.assertIsInstance(result, tuple, "Search with pitId should return a tuple")
+                self.assertEqual(len(result), 2, "Tuple should have 2 elements: (hits, pit_id)")
+                hits, new_pit_id = result
+                self.assertIsNotNone(hits, "hits should not be None")
+                self.assertIsInstance(hits, list, "hits should be a list")
+                self.assertGreater(len(hits), 0, "Should return documents")
+                self.assertIsNotNone(new_pit_id, "new_pit_id should not be None")
+                self.assertIsInstance(new_pit_id, str, "new_pit_id should be a string")
+            finally:
+                self.es.ClosePit(pit_id)
+
+            # Verify Search without pitId still returns a plain list (no regression)
+            plain_result = self.es.Search(idx, size=10)
+            self.assertIsInstance(plain_result, list, "Search without pitId should still return a list")
+
+            logging.info(f"[TEST SUCCESS] {module}:test_search_with_pit_returns_tuple")
+        finally:
+            try:
+                self.es.DeleteIndex(idx)
+            except Exception:
+                pass
+
+    def test_getindex_with_pit(self):
+        """Test GetIndex with pitId returns raw response containing pit_id."""
+        idx = self._get_test_index_name()
+        self.es.DeleteIndex(idx)
+        try:
+            for i in range(1, 4):
+                self.es.IndexWithId(idx, str(i), {"id": i, "name": f"doc_{i}"})
+            self.es.FlushIndex(idx)
+
+            pit_id = self.es.OpenPit(idx)
+            try:
+                response = self.es.GetIndex(None, pitId=pit_id, pitKeepAlive="1m")
+                self.assertIsNotNone(response, "GetIndex with pitId should return a response")
+                self.assertIn("pit_id", response, "Response should contain pit_id when using PIT")
+            finally:
+                self.es.ClosePit(pit_id)
+
+            logging.info(f"[TEST SUCCESS] {module}:test_getindex_with_pit")
+        finally:
+            try:
+                self.es.DeleteIndex(idx)
+            except Exception:
+                pass
+
+
 if __name__ == '__main__':
     unittest.main()
 
