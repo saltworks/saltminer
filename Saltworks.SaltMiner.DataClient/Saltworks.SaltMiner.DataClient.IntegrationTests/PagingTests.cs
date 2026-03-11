@@ -14,6 +14,7 @@
 * ----
 */
 
+using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
@@ -128,6 +129,48 @@ public class PagingTests
             // continue previous via scrolling
             searchRequest.PagingInfo = response.PagingInfo.NextPage();
             response = Client.IndexSearch<TestItem>(searchRequest, testIndex); 
+        }
+
+        Assert.AreEqual(count, processed, $"Expected {count} entities but found {processed}");
+        Assert.AreEqual(pageCount, totalPages, $"Expected {pageCount} pages but found {totalPages}");
+    }
+
+    [TestMethod]
+    public void Ui_Paging()
+    {
+        // Arrange
+        var count = 500;
+        var processed = 0;
+        var pageSize = 200;
+        var pageCount = count / pageSize;
+        if (count % pageSize > 0)
+            pageCount++;
+        var totalPages = 0;
+        var testIndex = TestItem.GenerateIndex($"ui-paging");
+        Helpers.RegisterDeleteIndex(testIndex);
+        var bulkResponse = Helpers.BulkAddUpdateTestEntities(Client, testIndex, count, TestCategory);
+        Assert.AreEqual(count, bulkResponse.Affected, $"Bulk insert failed during test setup: {bulkResponse.Message}");
+        Client.RefreshIndex(testIndex);
+        Task.Delay(500).Wait(); // Wait for indexing
+
+        // Act - paginate through results
+        var searchRequest = new SearchRequest(new(pageSize))
+        {
+            SortKeys = new() { { "id", true } },
+            PagingInfo = new PagingInfo(pageSize)
+        };
+        var response = Client.IndexSearch<TestItem>(searchRequest, testIndex);
+        var lastPageFirstValue = "----";
+        while (response?.Data != null && response.Data.Any())
+        {
+            Assert.AreNotEqual(response.Data.First().Name, lastPageFirstValue, "First item should not be same as the previous page.");
+            lastPageFirstValue = response.Data.First().Name;
+            totalPages++;
+            processed += response.Data.Count();
+            Assert.IsFalse(processed > count, "Processed more entities than expected.");
+            // continue previous via scrolling with only page number (no keys)
+            searchRequest.PagingInfo = new PagingInfo(pageSize) { Page = searchRequest.PagingInfo.Page + 1 };
+            response = Client.IndexSearch<TestItem>(searchRequest, testIndex);
         }
 
         Assert.AreEqual(count, processed, $"Expected {count} entities but found {processed}");

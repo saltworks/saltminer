@@ -1391,6 +1391,14 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
             queryRequest.SearchAfter = ScrubPagingAfterKeys(searchRequest.PagingInfo.CurrentAfterKeys);
             queryRequest.From = 0;
         }
+        else if (searchRequest.PagingInfo.Page > 1)
+        {
+            // For page-based pagination (without search_after keys), calculate From offset
+            // Page 1 = From 0, Page 2 = From Size, Page 3 = From (Size * 2), etc.
+            queryRequest.From = (searchRequest.PagingInfo.Page - 1) * searchRequest.PagingInfo.Size;
+            Logger.LogDebug("Page-based pagination: Page {Page}, From {From}, Size {Size}", 
+                searchRequest.PagingInfo.Page, queryRequest.From, searchRequest.PagingInfo.Size);
+        }
 
         queryRequest.Query = CreateQueryFromRequest(searchRequest.Filter);
 
