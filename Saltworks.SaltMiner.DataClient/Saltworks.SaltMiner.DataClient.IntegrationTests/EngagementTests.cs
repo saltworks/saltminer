@@ -40,6 +40,16 @@ public class EngagementTests
     }
 
     [TestMethod]
+    public void TempCounts()
+    {
+        var srcType = SourceType.Pentest.ToString("g");
+        var aType = AssetType.Pen.ToString("g");
+        var instance = "Pentest";
+        var summaryNoIssues = Client.EngagementIssueCounts("d6943cef-b0ba-41b5-b8c1-6fb3d7bb5ea3", aType, srcType, instance);
+        Assert.IsNotNull(summaryNoIssues.Data);
+    }
+
+    [TestMethod]
     public void SummaryCounts()
     {
         var eid = "";
@@ -68,6 +78,9 @@ public class EngagementTests
             qasset.Saltminer.Asset.AssetType = aType;
             qasset.Saltminer.Asset.Instance = instance;
             qasset = Client.QueueAssetAddUpdate(qasset).Data;
+
+            // Act
+            var summaryNoIssues = Client.EngagementIssueCounts(engagement.Id, aType, srcType, instance);
             foreach (var severity in new[] { "Critical", "High", "Medium", "Low", "Info" })
             {
                 var qissue = Mock.QueueIssue();
@@ -80,16 +93,18 @@ public class EngagementTests
             }
             Client.RefreshIndex(QueueIssue.GenerateIndex());
 
-            // Act
-            var summary = Client.EngagementIssueCounts(engagement.Id, aType, srcType, instance);
+            var summaryWithIssues = Client.EngagementIssueCounts(engagement.Id, aType, srcType, instance);
 
             // Assert
-            Assert.IsNotNull(summary.Data);
-            Assert.AreEqual(5, summary.Data.Count, "Response should contain counts for all 5 severity levels");
+            Assert.IsNotNull(summaryNoIssues.Data);
+            Assert.AreEqual(0, summaryNoIssues.Data.Count, "Summary should be empty when there are no issues");
+
+            Assert.IsNotNull(summaryWithIssues.Data);
+            Assert.AreEqual(5, summaryWithIssues.Data.Count, "Response should contain counts for all 5 severity levels");
             foreach (var severity in new[] { "Critical", "High", "Medium", "Low", "Info" })
             {
-                Assert.IsTrue(summary.Data.ContainsKey(severity), $"Summary is missing severity: {severity}");
-                Assert.AreEqual(1, summary.Data[severity], $"Expected 1 issue for severity {severity} but found {summary.Data[severity]}");
+                Assert.IsTrue(summaryWithIssues.Data.ContainsKey(severity), $"Summary is missing severity: {severity}");
+                Assert.AreEqual(1, summaryWithIssues.Data[severity], $"Expected 1 issue for severity {severity} but found {summaryWithIssues.Data[severity]}");
             }
         
         }
