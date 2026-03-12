@@ -66,6 +66,7 @@ maxLoops = app.Settings.Get("main", "WebhookMaxBatches", MAX_LOOPS)
 
 # Let's go
 sscIds = []
+seenSscIds = []
 foundSome = False
 if maxLoops > MAX_LOOPS:
     logging.warning("[Webhook Pull] WebhookMaxBatches set to %s, but max supported currently are %s, which will be used.", maxLoops, MAX_LOOPS)
@@ -98,10 +99,14 @@ while curLoop < maxLoops:
                 user = "?" if 'username' not in evt else evt['username']
                 logging.info("[Webhook Pull] SSC update event '%s' found for project version %s, tagged with username %s.", event, evt['projectVersionId'], user)
                 sscId = evt['projectVersionId']
-                if sscId not in sscInactives:
-                    sscIds.append(sscId)
-                else:
+                if sscId in sscInactives:
                     logging.info("[Webhook Pull] SSC projectVersion ID %s is inactive and will not be syned.", sscId)
+                    continue
+                if sscId not in seenSscIds:
+                    sscIds.append(sscId)
+                    seenSscIds.append(sscId)
+                else:
+                    logging.debug("[Webhook Pull] SSC projectVersion ID %s already queued for update, skipping.", sscId)
             else:
                 logging.error("[Webhook Pull] SSC update event may be malformed (missing projectVersionId), encountered in webhook (queue sync item) ID %s. Skipping.", dataItm['id'])
 
@@ -116,4 +121,5 @@ while curLoop < maxLoops:
         logging.info("[Webhook Pull] %s total SSC IDs to queue for updates.", len(sscIds))
         sqh.InsertQueueBatch(sscIds, force=True)
     curLoop += 1
+# end while
 logging.warning("[Webhook Pull] Max data loops occurred (%s), stopping processing.", maxLoops)
