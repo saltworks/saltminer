@@ -120,6 +120,7 @@ while curLoop < maxLoops:
     if len(sscIds) > 0:
         logging.info("[Webhook Pull] %s total SSC IDs to queue for updates.", len(sscIds))
         sqh.InsertQueueBatch(sscIds, force=True)
+        sscIds = []
     curLoop += 1
 # end while
 logging.warning("[Webhook Pull] Max data loops occurred (%s), stopping processing.", maxLoops)
