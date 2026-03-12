@@ -88,6 +88,9 @@ namespace Saltworks.SaltMiner.Core.Data
                 return true;
             if (CurrentHits.HasValue && Size.HasValue && CurrentHits < Size)
                 return true;
+            // If we got all results (CurrentHits >= TotalHits), we're on the last page
+            if (CurrentHits.HasValue && TotalHits.HasValue && CurrentHits >= TotalHits)
+                return true;
             if (((TotalHitsCanBeTruncated && !TotalHitsWereTruncated) || !TotalHitsCanBeTruncated) && 
                     TotalPages.HasValue && Page >= TotalPages)
                 return true;

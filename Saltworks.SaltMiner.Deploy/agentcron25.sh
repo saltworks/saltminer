@@ -1,7 +1,7 @@
 #!/bin/bash
 export SALTMINER_2_CONFIG_PATH=/etc/saltworks/saltminer-2.5.0
 cd /usr/share/saltworks/saltminer-2.5.0
-source .venv/bin/activate
+source /usr/share/saltworks/.venv/bin/activate
 fl=/tmp/sm-agent25.lock
 touch -a "$fl"
 

@@ -1,10 +1,8 @@
-# Elasticsearch Direct Access for Integration Testing
-
-This document describes the helper utility pattern for AI to connect directly to Elasticsearch during integration test debugging.
+# Elasticsearch Direct Access for Debugging (AI Agent Guide)
 
 ## Overview
 
-During integration test debugging, it's often necessary to verify data directly in Elasticsearch to diagnose issues where the API layer may not be returning expected results. This document outlines the pattern for creating and using helper methods that access Elasticsearch directly via HTTP.
+When debugging integration tests, directly accessing Elasticsearch verifies data state when the API layer returns unexpected results. This document outlines the AiHelper pattern for diagnostic Elasticsearch access.
 
 ## AiHelper Class Pattern
 
@@ -151,4 +149,9 @@ As test infrastructure evolves, document additional methods here:
 - Mapping validation
 - Template verification
 
-Maintain this file as the single source of truth for AI-assisted Elasticsearch debugging utilities.
+## Related Documentation
+
+- [architecture.md](architecture.md) - Application architecture and data flow layers
+- [api-integrated-testing.md](api-integrated-testing.md) - Running integration tests with live API
+- [test-debugging.md](test-debugging.md) - Test debugging strategies
+- [dotnet-debug.md](dotnet-debug.md) - API endpoint debugging approach

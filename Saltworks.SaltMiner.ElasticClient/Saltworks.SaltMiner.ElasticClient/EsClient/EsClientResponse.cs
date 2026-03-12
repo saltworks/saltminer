@@ -4,7 +4,6 @@ using Elastic.Transport.Products.Elasticsearch;
 using Saltworks.Common.Data;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -49,49 +48,49 @@ public class EsClientBucketResponse : EsClientResponse, IElasticClientResponse<E
 
     internal static IElasticClientResponse<ElasticClientCompositeAggregate> BuildBucketResponse(bool isSuccessful, CompositeAggregate agg)
     {
-        throw new NotImplementedException("Composite aggregates are not yet implemented.");
-        // Composite aggregate result structure processing
-        // var results = new List<ElasticClientCompositeAggregate>();
+        //Composite aggregate result structure processing
+        var results = new List<ElasticClientCompositeAggregate>();
+        var empty = new EsClientBucketResponse { IsSuccessful = true };
 
-        // if (agg?.Buckets?.Count > 0)
-        // {
-        //     foreach (var b in agg.Buckets)
-        //     {
-        //         var key = string.Join("|", b.Key.Select(kvp => kvp.Value?.ToString()?.Replace("|", "{P}") ?? ""));
-        //         var aggs = new Dictionary<string, double?>();
-                
-        //         foreach (var kvp in b.Aggregations ?? new AggregateDictionary())
-        //         {
-        //             if (kvp.Value is ValueAggregate valueAgg)
-        //             {
-        //                 aggs.Add(kvp.Key, valueAgg.Value);
-        //             }
-        //         }
-                
-        //         var result = new ElasticClientCompositeAggregate 
-        //         { 
-        //             BucketKey = key, 
-        //             DocCount = b.DocCount ?? 0, 
-        //             Aggregates = aggs 
-        //         };
-        //         results.Add(result);
-        //     }
-        // }
+        if (agg?.Buckets?.Count == 0)
+            return empty;
+        foreach (var b in agg.Buckets)
+        {
+            var key = string.Join("|", b.Key.Select(kvp => kvp.Value.ToString()?.Replace("|", "{P}") ?? ""));
+            var aggs = new Dictionary<string, double?>();
 
-        // if (results.Count == 0)
-        // {
-        //     return new EsClientBucketResponse { IsSuccessful = true };
-        // }
+            if ((b.Aggregations?.Count ?? 0) > 0)
+            {
+                foreach (var kvp in b.Aggregations)
+                {
+                    if (kvp.Value is SimpleValueAggregate valueAgg)
+                    {
+                        aggs.Add(kvp.Key, valueAgg.Value);
+                    }
+                }
+            }
 
-        // return new EsClientBucketResponse
-        // {
-        //     IsSuccessful = isSuccessful,
-        //     Results = results.Select(r => EsClientResult<ElasticClientCompositeAggregate>.From(r)),
-        //     PagingInfo = new PagingInfo 
-        //     { 
-        //         AggregateKeys = agg?.AfterKey?.ToDictionary(k => k.Key, v => v.Value) 
-        //     }
-        // };
+            var result = new ElasticClientCompositeAggregate
+            {
+                BucketKey = key,
+                DocCount = b.DocCount,
+                Aggregates = aggs
+            };
+            results.Add(result);
+        }
+
+        if (results.Count == 0)
+            return empty;
+
+        return new EsClientBucketResponse
+        {
+            IsSuccessful = isSuccessful,
+            Results = results.Select(r => EsClientResult<ElasticClientCompositeAggregate>.From(r)),
+            PagingInfo = new PagingInfo
+            {
+                AggregateKeys = agg?.AfterKey?.ToDictionary(k => k.Key, v => v.Value.Value)
+            }
+        };
     }
 
     internal static IElasticClientAggregateResponse BuildResponseBucketAgg(bool isSuccessful, AggregateDictionary aggs)

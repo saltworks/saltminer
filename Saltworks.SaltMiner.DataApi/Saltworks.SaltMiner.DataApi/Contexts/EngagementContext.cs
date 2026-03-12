@@ -172,7 +172,7 @@ public class EngagementContext(ApiConfig config, IDataRepo dataRepository, IElas
         return new NoDataResponse(issueCount);
     }
 
-    public DataItemResponse<Dictionary<string, long?>> IssueCounts(string engagemnetId, string assetType, string sourceType, string instance)
+    public DataItemResponse<Dictionary<string, long?>> IssueCounts(string engagementId, string assetType, string sourceType, string instance)
     {
         var sourceFields = new List<string>
         {
@@ -183,14 +183,14 @@ public class EngagementContext(ApiConfig config, IDataRepo dataRepository, IElas
 
         var aggList = sumAggFields.Select(x => ElasticClient.BuildRequestAggregate(x, x, ElasticAggregateType.Sum)).ToList();
 
-        var engagement = Get<Engagement>(engagemnetId, EngagementIndex);
+        var engagement = Get<Engagement>(engagementId, EngagementIndex);
 
         if(engagement.Data.Saltminer.Engagement.Status == EnumExtensions.GetDescription(EngagementStatus.Published) ||
             engagement.Data.Saltminer.Engagement.Status == EnumExtensions.GetDescription(EngagementStatus.Historical))
         {
             var index = Issue.GenerateIndex(assetType, sourceType, instance);
 
-            var response = DataRepo.EngagementIssueCountAggregates(engagemnetId, new PagingInfo(), sourceFields, aggList, index);
+            var response = DataRepo.EngagementIssueCountAggregates(engagementId, new PagingInfo(), sourceFields, aggList, index);
             var resultDict = new Dictionary<string, long?>();
 
             foreach (var composite in response.Results)
@@ -204,7 +204,7 @@ public class EngagementContext(ApiConfig config, IDataRepo dataRepository, IElas
         {
             var index = QueueIssue.GenerateIndex();
 
-            var response = DataRepo.EngagementIssueCountAggregates(engagemnetId, new PagingInfo(), sourceFields, aggList, index);
+            var response = DataRepo.EngagementIssueCountAggregates(engagementId, new PagingInfo(), sourceFields, aggList, index);
             var resultDict = new Dictionary<string, long?>();
 
             foreach (var composite in response.Results)
@@ -218,7 +218,7 @@ public class EngagementContext(ApiConfig config, IDataRepo dataRepository, IElas
 
     public NoDataResponse UpdateStatus(string id, string status)
     {
-        Logger.LogInformation("UpdateStatus for id '{id}' and status '{status}'", id, status);
+        Logger.LogInformation("UpdateStatus for id '{Id}' and status '{Status}'", id, status);
 
         IsValidStatus(status);
 

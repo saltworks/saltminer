@@ -1191,7 +1191,7 @@ public class DataClient : IDisposable
     /// <returns>true if successful</returns>
     public NoDataResponse EngagementUpdateStatus(string id, EngagementStatus newStatus)
     {
-        return CheckRetry(() => ApiClient.Get<NoDataResponse>($"engagement/status/{id}/{newStatus.ToString("g")}")).Content;
+        return CheckRetry(() => ApiClient.Get<NoDataResponse>($"engagement/status/{id}/{newStatus:g}")).Content;
     }
 
     /// <summary>
@@ -2043,7 +2043,7 @@ public class DataClient : IDisposable
         return ex;
     }
 
-    private ApiClientResponse<T> CheckRetry<T>(Func<ApiClientResponse<T>> retry, bool skipRetry = false) where T : Response
+    private ApiClientResponse<T> CheckRetry<T>(Func<ApiClientResponse<T>> retry, bool skipRetry = true) where T : Response
     {
         try
         {
@@ -2056,7 +2056,7 @@ public class DataClient : IDisposable
 
     }
 
-    private async Task<ApiClientResponse<T>> CheckRetryAsync<T>(Func<Task<ApiClientResponse<T>>> retry, bool skipRetry = false, bool logBadRequestError=true) where T : Response
+    private async Task<ApiClientResponse<T>> CheckRetryAsync<T>(Func<Task<ApiClientResponse<T>>> retry, bool skipRetry = true, bool logBadRequestError=true) where T : Response
     {
         ApiClientResponse<T> response = null;
         ApiClientException aex = null;
@@ -2117,6 +2117,9 @@ public class DataClient : IDisposable
 
             if (statusCode < HttpStatusCode.InternalServerError)
                 throw new DataClientResponseException(msg, response);
+
+            if (skipRetry)
+                break;
 
             Logger.LogError("{Msg}", msg);
             Logger.LogInformation("Retry {Cur}/{Count} after {DelaySec} sec delay...", i + 1, RunConfig.ApiClientRetryCount, RunConfig.ApiClientRetryDelaySec);

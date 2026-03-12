@@ -45,7 +45,12 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
     public IElasticClientResponse<T> AddUpdate<T>(T doc, string index) where T : SaltMinerEntity
     {
         Logger?.LogDebug("AddUpdate {Name} initiated.", doc.GetType().Name);
-        ArgumentNullException.ThrowIfNullOrEmpty(index);
+        ArgumentException.ThrowIfNullOrEmpty(index);
+        if (typeof(T) == typeof(SaltMinerEntity))
+        {
+            Logger.LogError("AddUpdate called with base type SaltMinerEntity, which will cause loss of information.  Use derived type instead.");
+            throw new EsClientException("Must be derived type of SaltMinerEntity, not SaltMinerEntity itself.");
+        }
 
         if (string.IsNullOrEmpty(doc.Id))
         {
@@ -71,6 +76,50 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
             return r;
         }
         return EsClientResponse<T>.BuildResponse(doc, indexResponse);
+    }
+
+    public IElasticClientResponse AddUpdate(JsonObject doc, string typeName, string index)
+    {
+        Logger?.LogDebug("AddUpdate (JsonObject) for type {TypeName} initiated.", typeName);
+        ArgumentException.ThrowIfNullOrEmpty(index);
+        ArgumentException.ThrowIfNullOrEmpty(typeName);
+        ArgumentNullException.ThrowIfNull(doc);
+
+        var (entityType, entity) = DeserializeJsonToEntity(doc, typeName);
+        
+        // Use reflection to call the generic AddUpdate<T> method with the correct type
+        var method = typeof(IElasticClient).GetMethod(nameof(IElasticClient.AddUpdate), [typeof(SaltMinerEntity), typeof(string)]) 
+            ?? GetType().GetMethod(nameof(AddUpdate), 1, [Type.MakeGenericMethodParameter(0), typeof(string)])
+            ?? throw new EsClientException("Could not find AddUpdate method");
+        var genericMethod = method.MakeGenericMethod(entityType);
+        var result = genericMethod.Invoke(this, [entity, index]) as IElasticClientResponse
+            ?? throw new EsClientException("AddUpdate returned null");
+
+        return EsClientResponse.BuildResponse(result.IsSuccessful, result.Message, result.CountAffected);
+    }
+
+    /// <summary>
+    /// Resolves type name to a SaltMinerEntity type and deserializes a JsonObject to that type.
+    /// </summary>
+    /// <param name="doc">The JsonObject to deserialize</param>
+    /// <param name="typeName">Full or simple type name (e.g., "Asset" or "Saltworks.SaltMiner.Core.Entities.Asset")</param>
+    /// <returns>A tuple containing the resolved Type and the deserialized entity</returns>
+    private static (Type entityType, SaltMinerEntity entity) DeserializeJsonToEntity(JsonObject doc, string typeName)
+    {
+        // Try to resolve the type - first try as full name, then as simple name in the Core.Entities namespace
+        var entityType = typeof(SaltMinerEntity).Assembly.GetType(typeName, throwOnError: false, ignoreCase: true)
+            ?? typeof(SaltMinerEntity).Assembly.GetType($"{typeof(SaltMinerEntity).Namespace}.{typeName}", throwOnError: false, ignoreCase: true)
+            ?? throw new EsClientException($"Invalid type '{typeName}' - must be a SaltMinerEntity derivative");
+
+        if (!typeof(SaltMinerEntity).IsAssignableFrom(entityType))
+        {
+            throw new EsClientException($"Type '{typeName}' is not a SaltMinerEntity derivative");
+        }
+
+        var entity = doc.Deserialize(entityType, JsonSerializerOptions.Web) as SaltMinerEntity
+            ?? throw new EsClientException($"Failed to deserialize document to type '{typeName}'");
+
+        return (entityType, entity);
     }
 
     public IElasticClientResponse IndexPolicyAddUpdate(string policyName, string policy)
@@ -458,7 +507,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         var response = ElasticClient.SearchAsync<T>(request).Result;
         var result = response.Aggregations?.GetComposite(cname);
 
-        Logger.LogDebug("GetAggregateBucketList: {Count} bucket(s)", result?.Buckets.Count ?? 0);
+        Logger.LogDebug("GetCompositeAggregate: {Count} bucket(s)", result?.Buckets.Count ?? 0);
 
         return EsClientBucketResponse.BuildBucketResponse(true, result);
     }
@@ -482,8 +531,8 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
 
     public IElasticClientResponse RegisterBackupRepository(string backupRepoName, string backupLocation)
     {
-        ArgumentNullException.ThrowIfNullOrEmpty(backupRepoName);
-        ArgumentNullException.ThrowIfNullOrEmpty(backupLocation);
+        ArgumentException.ThrowIfNullOrEmpty(backupRepoName);
+        ArgumentException.ThrowIfNullOrEmpty(backupLocation);
         var repo = new SharedFileSystemRepository(new(backupLocation));
         var registerRequest = new CreateRepositoryRequest(backupRepoName, repo);
         var response = ElasticClient.Snapshot.CreateRepositoryAsync(registerRequest).Result;
@@ -501,8 +550,8 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         var message = string.Empty;
         string ok = "";
 
-        ArgumentNullException.ThrowIfNullOrEmpty(sourceIndex);
-        ArgumentNullException.ThrowIfNullOrEmpty(destinationIndex);
+        ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
+        ArgumentException.ThrowIfNullOrEmpty(destinationIndex);
         var srcResponse = ElasticClient.Indices.ExistsAsync(Indices.Index(sourceIndex)).Result;
         Elastic.Clients.Elasticsearch.IndexManagement.ExistsResponse dstResponse = null;
         ok = srcResponse.IsValidResponse && srcResponse.Exists ? "" : "Source index invalid/missing.";
@@ -1342,6 +1391,14 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
             queryRequest.SearchAfter = ScrubPagingAfterKeys(searchRequest.PagingInfo.CurrentAfterKeys);
             queryRequest.From = 0;
         }
+        else if (searchRequest.PagingInfo.Page > 1)
+        {
+            // For page-based pagination (without search_after keys), calculate From offset
+            // Page 1 = From 0, Page 2 = From Size, Page 3 = From (Size * 2), etc.
+            queryRequest.From = (searchRequest.PagingInfo.Page - 1) * searchRequest.PagingInfo.Size;
+            Logger.LogDebug("Page-based pagination: Page {Page}, From {From}, Size {Size}", 
+                searchRequest.PagingInfo.Page, queryRequest.From, searchRequest.PagingInfo.Size);
+        }
 
         queryRequest.Query = CreateQueryFromRequest(searchRequest.Filter);
 
@@ -1651,6 +1708,53 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         var response = ExecuteBulkRequest(operations);
         Logger?.LogInformation("[AddUpdateBulk] Bulk operation for entity type {Name} completed.  Success: {Success}, Affected: {Affected}", docs.GetType().Name, response.IsSuccessful, response.CountAffected);
         return response;
+    }
+
+    /// <summary>
+    /// Adds or updates multiple documents from JSON in bulk for a single index with dynamic type resolution.
+    /// </summary>
+    public IElasticClientResponse BulkAddUpdate(IEnumerable<JsonObject> docs, string typeName, string index)
+    {
+        Logger?.LogInformation("[BulkAddUpdate] Bulk operation for JSON type {TypeName} initiated (EnableBulkAddErrorDiagnostics: {Enabled}).", typeName, ClientConfig.EnableBulkAddErrorDiagnostics);
+        ArgumentException.ThrowIfNullOrEmpty(index);
+        ArgumentException.ThrowIfNullOrEmpty(typeName);
+        ArgumentNullException.ThrowIfNull(docs);
+
+        if (!docs.Any())
+        {
+            return EsClientResponse.BuildResponse(true, "No documents to process", 0);
+        }
+
+        // Resolve the type once for all documents
+        var entityType = typeof(SaltMinerEntity).Assembly.GetType(typeName, throwOnError: false, ignoreCase: true)
+            ?? typeof(SaltMinerEntity).Assembly.GetType($"{typeof(SaltMinerEntity).Namespace}.{typeName}", throwOnError: false, ignoreCase: true)
+            ?? throw new EsClientException($"Invalid type '{typeName}' - must be a SaltMinerEntity derivative");
+
+        if (!typeof(SaltMinerEntity).IsAssignableFrom(entityType))
+        {
+            throw new EsClientException($"Type '{typeName}' is not a SaltMinerEntity derivative");
+        }
+
+        // Deserialize all documents to their correct type and create a strongly-typed list
+        var listType = typeof(List<>).MakeGenericType(entityType);
+        var deserializedDocs = Activator.CreateInstance(listType) as System.Collections.IList
+            ?? throw new EsClientException("Failed to create typed list");
+
+        foreach (var doc in docs)
+        {
+            var entity = doc.Deserialize(entityType, JsonSerializerOptions.Web) as SaltMinerEntity
+                ?? throw new EsClientException($"Failed to deserialize document to type '{typeName}'");
+            deserializedDocs.Add(entity);
+        }
+
+        // Use reflection to call the generic BulkAddUpdate<T> method with the correct type
+        var method = typeof(IElasticClient).GetMethod(nameof(IElasticClient.BulkAddUpdate), 1, [typeof(IEnumerable<>).MakeGenericType(Type.MakeGenericMethodParameter(0)), typeof(string)])
+            ?? throw new EsClientException("Could not find BulkAddUpdate method");
+        var genericMethod = method.MakeGenericMethod(entityType);
+        var result = genericMethod.Invoke(this, [deserializedDocs, index]) as IElasticClientResponse
+            ?? throw new EsClientException("BulkAddUpdate returned null");
+
+        return result;
     }
 
     /// <summary>
