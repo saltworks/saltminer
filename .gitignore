@@ -1,4 +1,5 @@
 **/*/.DS_Store
+.vscode/
 **/*/.vscode
 **/*/[Oo]bj/
 **/*/[Dd]ebug/
@@ -38,3 +39,4 @@ Saltworks.SaltMiner.Python/sm-run-config-location.json
 # AI testing
 ai-*.ps1
 *.http
+

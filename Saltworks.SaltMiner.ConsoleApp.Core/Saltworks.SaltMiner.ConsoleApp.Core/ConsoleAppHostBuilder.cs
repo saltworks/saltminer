@@ -151,7 +151,7 @@ namespace Saltworks.SaltMiner.ConsoleApp.Core
             catch (Exception ex)
             {
                 Log(LogLevel.Error, $"Error building configuration: {ex.Message}");
-                throw new ConfigurationException("Error building configuration.");
+                throw new ConfigurationException("Error building configuration.", ex);
             }
         }
 

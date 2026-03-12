@@ -21,6 +21,7 @@ using System;
 using System.Collections.Generic;
 using Saltworks.SaltMiner.Core.Data;
 using System.Threading.Tasks;
+using System.ComponentModel.DataAnnotations;
 
 namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
 
@@ -42,7 +43,7 @@ public class CrudTests
     // Per-class index cleanup not needed; indices are cleaned up centrally in AssemblyHooks
 
     [TestMethod]
-    public void FuzzySearchTest()
+    public void FuzzySearch()
     {
         var kvp = new Dictionary<string, string>
         {
@@ -62,7 +63,7 @@ public class CrudTests
     }
 
     [TestMethod]
-    public void QueueScanAddTest()
+    public void QueueScanAdd()
     {
         var json = @"
         {
@@ -122,7 +123,7 @@ public class CrudTests
     }
 
     [TestMethod]
-    public void SimpleSearchTest()
+    public void SimpleSearch()
     {
         var idx = ThrowawayEntity.GenerateIndex("Test_SimpleSearch");
         RegisterDeleteIndex(idx);
@@ -140,7 +141,7 @@ public class CrudTests
     }
 
     [TestMethod]
-    public async Task SearchWithUiPagingTest()
+    public async Task Search_UiPaging()
     {
         var count = 51;
         var pageSize = 10;
@@ -192,7 +193,42 @@ public class CrudTests
     }
 
     [TestMethod]
-    public async Task SearchTest()
+    public async Task Search_UiPage_Null_Paging_Next()
+    {
+        var count = 1;
+        var testIndex = TestItem.GenerateIndex($"ui_paging_test2");
+        RegisterDeleteIndex(testIndex);
+        var docs = new List<TestItem>();
+
+        for (var i = 0; i < count; i++)
+        {
+            var doc = new TestItem()
+            {
+                Name = $"TestItem_{i}",
+                Category = "UiPagingTest"
+            };
+            docs.Add(doc);
+        }
+
+        var rsp = Client.BulkAddUpdate(docs, testIndex);
+        Assert.AreEqual(count, rsp.CountAffected, $"Bulk insert failed during test setup: {rsp.Message}");
+        Client.IndexRefresh(testIndex);
+        await Task.Delay(500); // Wait for indexing
+
+        var searchRequest = new SearchRequest();
+        var response = Client.Search<TestItem>(testIndex, searchRequest);
+        Assert.IsNotNull(response);
+        Assert.IsTrue(response.IsSuccessful);
+        Assert.IsTrue(response.Result == null && (response.Results?.Count() ?? 0) == 1, "Expected exactly 1 result on first page when no paging info provided.");
+        searchRequest.PagingInfo = response.PagingInfo.NextPage();
+        response = Client.Search<TestItem>(testIndex, searchRequest);
+        Assert.IsNotNull(response);
+        Assert.IsTrue(response.IsSuccessful);
+        Assert.IsTrue(response.Result == null && (response.Results?.Count() ?? 0) == 0, "Expected no result on second page when no paging info provided.");
+    }
+
+    [TestMethod]
+    public async Task Search()
     {
         var sourceType = SOURCE_TYPE;
         var mockIssue = Mock.Issue(sourceType);
@@ -258,7 +294,7 @@ public class CrudTests
     }
 
     [TestMethod]
-    public async Task CountTest()
+    public async Task Count()
     {
         var sourceType = SOURCE_TYPE;
         var mockIssue = Mock.Issue(sourceType);
@@ -303,7 +339,7 @@ public class CrudTests
     }
 
     [TestMethod]
-    public async Task SearchWithScrollingTest()
+    public async Task SearchWithScrolling()
     {
         var sourceType = "ElasticClient";
         var mockIssue = Mock.Issue(sourceType);
@@ -475,7 +511,7 @@ public class CrudTests
     }
 
     [TestMethod]
-    public void DeleteByQueryNoFilterTest()
+    public void DeleteByQueryNoFilter()
     {
         var indexName = "throwaway";
         var request = new SearchRequest(); // crux of the test, will it break with no search stuff?
@@ -492,7 +528,7 @@ public class CrudTests
     }
 
     [TestMethod]
-    public void DeleteByQueryTest()
+    public void DeleteByQuery()
     {
         var sourceType = SOURCE_TYPE;
         var issue = Mock.Issue(sourceType);
