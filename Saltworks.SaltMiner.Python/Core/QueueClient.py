@@ -21,7 +21,7 @@ import json
 
 from Utility.GeneralUtility import GeneralUtility
 
-class AsyncQueueHelper(object):
+class QueueClient(object):
     def __init__(self, appSettings):
         '''
         Setup the class
@@ -30,7 +30,7 @@ class AsyncQueueHelper(object):
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
 
         app = appSettings.Application
-        logging.debug("AsyncQueueHelper init")
+        logging.debug("QueueClient init")
 
         self.__TargetType = None
         self.__TargetInstance = None
@@ -47,7 +47,7 @@ class AsyncQueueHelper(object):
         self.__PriorityReservations = {}
         self.__SessionId = uuid.uuid4()
         self.__DefaultPriority = 5
-        logging.debug("AsyncQueueHelper init complete.")
+        logging.debug("QueueClient init complete.")
 
     @property
     def BatchSize(self):
@@ -126,7 +126,7 @@ class AsyncQueueHelper(object):
         This can be used as an exclusion list to avoid duplicates in the queue.
         '''
         if not self.__Es.IndexExists(self.__Index):
-            raise AsyncQueueHelperException("Unable to return sync queue items, index '%s' does not exist.", self.__Index)
+            raise QueueClientException("Unable to return sync queue items, index '%s' does not exist.", self.__Index)
         body = {
           "query": {
             "bool": {
@@ -157,7 +157,7 @@ class AsyncQueueHelper(object):
         We assume these will be completed using CompleteSyncQueue() before getting the next batch.
         '''
         if not self.__Es.IndexExists(self.__Index):
-            raise AsyncQueueHelperException("Unable to return sync queue items, index '%s' does not exist.", self.__Index)
+            raise QueueClientException("Unable to return sync queue items, index '%s' does not exist.", self.__Index)
         body = {
           "aggs": {
             "total_count": { "value_count": { "field": self.__IdField } }
@@ -187,7 +187,7 @@ class AsyncQueueHelper(object):
             return None, None
         ret = []
         for item in r['hits']['hits']:
-            dto = AsyncQueueDto(item)
+            dto = QueueClientDto(item)
             ret.append(dto)
         return ret, r['aggregations']['total_count']['value']
 
@@ -195,9 +195,9 @@ class AsyncQueueHelper(object):
         sqdto = dto
         if isinstance(sqdto, dict):
             if '_source' in sqdto.keys():
-                sqdto = AsyncQueueDto(dto)
-        if not isinstance(sqdto, AsyncQueueDto):
-            raise AsyncQueueHelperException("Invalid value for dto, expected AsyncQueueDto, or a dict that can be turned into a AsyncQueueDto.")
+                sqdto = QueueClientDto(dto)
+        if not isinstance(sqdto, QueueClientDto):
+            raise QueueClientException("Invalid value for dto, expected AsyncQueueDto, or a dict that can be turned into a AsyncQueueDto.")
         return sqdto
 
     def __LoadPriorityReservations(self, lazy=True):
@@ -223,7 +223,7 @@ class AsyncQueueHelper(object):
 
     def SetInProgress(self, dto):
         sqdto = self.__GetAsyncQueueDto(dto)
-        doc = sqdto.AsyncQueueDoc
+        doc = sqdto.QueueClientDoc
         if doc.LockId and doc.LockId != self.__SessionId and GeneralUtility.ParseDate(doc.Locked, True) > (datetime.datetime.utcnow() - datetime.timedelta(days=self.__LockDaysOld)) and not doc.Completed:
             logging.info("Async queue doc for target %s:%s:%s not eligible for lock (lock id: '%s', locked: '%s').", self.__TargetType, self.__TargetInstance, doc.TargetId, doc.LockId, doc.Locked)
             return None
@@ -238,7 +238,7 @@ class AsyncQueueHelper(object):
 
     def SetComplete(self, dto):
         sqdto = self.__GetAsyncQueueDto(dto)
-        doc = sqdto.AsyncQueueDoc
+        doc = sqdto.QueueClientDoc
         if not doc.LockId or doc.LockId != self.__SessionId or doc.Completed:
             logging.info("Async queue doc for target %s:%s:%s not eligible for completion with lock id '%s'.", self.__TargetType, self.__TargetInstance, doc.TargetId, doc.LockId)
             return None
@@ -294,7 +294,7 @@ class AsyncQueueHelper(object):
             sid = str(i)
             curPriority = priority if priority else self.__DefaultPriority
             if permanent:
-                doc = AsyncQueuePriorityDoc.New(sid, self.__TargetType, self.__TargetInstance, priority, dt)
+                doc = QueueClientPriorityDoc.New(sid, self.__TargetType, self.__TargetInstance, priority, dt)
                 self.__PriorityReservations[sid] = curPriority
                 prmList.append(self.__Es.BulkInsertDocument(self.__PriorityIndex, doc.Dto(), doc.Key))
             else:
@@ -303,7 +303,7 @@ class AsyncQueueHelper(object):
             if sid in self.__LoadExclusions:
                 logging.debug("Target ID %s already exists in queue for target type '%s', skipping", i, self.__TargetType)
                 continue
-            doc = AsyncQueueDoc.New(sid, self.__TargetType, self.__TargetInstance, curPriority, dt, force=force).Dto()
+            doc = QueueClientDoc.New(sid, self.__TargetType, self.__TargetInstance, curPriority, dt, force=force).Dto()
             wrkList.append(self.__Es.BulkInsertDocument(self.__Index, doc, None, "create"))
         if len(prmList):
             rsp = self.__Es.BulkInsert(prmList, raiseErrors=False)
@@ -329,7 +329,7 @@ class AsyncQueueHelper(object):
         self.__Es.DeleteByQuery(self.__Index, body, wait = False)
 
 
-class AsyncQueuePriorityDoc(object):
+class QueueClientPriorityDoc(object):
     def __init__(self, dictObj=None):
         self.__targetId = None
         self.__targetType = None
@@ -341,7 +341,7 @@ class AsyncQueuePriorityDoc(object):
 
     @staticmethod
     def New(targetId, targetType, instance, priority, created):
-        return AsyncQueuePriorityDoc({
+        return QueueClientPriorityDoc({
             "target_id": targetId,
             "target_type": targetType,
             "target_instance": instance,
@@ -378,7 +378,7 @@ class AsyncQueuePriorityDoc(object):
 
     @property
     def Key(self):
-        return AsyncQueuePriorityDoc.GenKey(self.__targetId, self.__targetType, self.__instance)
+        return QueueClientPriorityDoc.GenKey(self.__targetId, self.__targetType, self.__instance)
 
     @property
     def TargetId(self):
@@ -420,7 +420,7 @@ class AsyncQueuePriorityDoc(object):
     def Created(self, value):
         self.__created = value
 
-class AsyncQueueDoc(object):
+class QueueClientDoc(object):
     def __init__(self, dictObj=None):
         self.__targetId = None
         self.__targetType = None
@@ -436,7 +436,7 @@ class AsyncQueueDoc(object):
 
     @staticmethod
     def New(targetId, targetType, instance, priority, created, completed=None, locked=None, lockId=None, force=False):
-        return AsyncQueueDoc({
+        return QueueClientDoc({
             "target_id": targetId,
             "target_type": targetType,
             "target_instance": instance,
@@ -551,21 +551,21 @@ class AsyncQueueDoc(object):
     def LockId(self, value):
         self.__lockId = value
 
-class AsyncQueueDto(object):
+class QueueClientDto(object):
     def __init__(self, dto=None):
         self.__doc = None
         self.__seq = None
         self.__pri = None
         self.__id = None
         if dto:
-            self.AsyncQueueDoc = AsyncQueueDoc(dto['_source'])
+            self.QueueClientDoc = QueueClientDoc(dto['_source'])
             self.SequenceNumber = dto['_seq_no']
             self.PrimaryTerm = dto['_primary_term']
             self.Id = dto['_id']
 
     def Dto(self):
         return {
-            '_source': self.AsyncQueueDoc.Dto(),
+            '_source': self.QueueClientDoc.Dto(),
             '_seq_no': self.SequenceNumber,
             '_primary_term': self.PrimaryTerm
         }
@@ -589,11 +589,11 @@ class AsyncQueueDto(object):
         self.__id = value
 
     @property
-    def AsyncQueueDoc(self):
+    def QueueClientDoc(self):
         return self.__doc
 
-    @AsyncQueueDoc.setter
-    def AsyncQueueDoc(self, value: AsyncQueueDoc):
+    @QueueClientDoc.setter
+    def QueueClientDoc(self, value: QueueClientDoc):
         self.__doc = value
 
     @property
@@ -612,5 +612,5 @@ class AsyncQueueDto(object):
     def PrimaryTerm(self, value):
         self.__pri = value
 
-class AsyncQueueHelperException(Exception):
+class QueueClientException(Exception):
     pass
