@@ -256,8 +256,7 @@ class Agent():
 
     def _fetch_from_es(self) -> int:
         """Fetch a batch of pending items from ES for each source and enqueue them. Returns total enqueued."""
-        total = 0
-        scroller = self._es.SearchScroll()
+        self.queue_client.search_n_lock()
 
     def _start_workers(self):
         """Start worker threads."""
