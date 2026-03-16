@@ -72,8 +72,12 @@ class SscClient(object):
         self.__App.LogDebug("SscClient initialization complete.  RestClient params - url: '{}', username: '{}', verify: {}".format(appSettings.GetSource(sourceName, 'BaseUrl'), appSettings.GetSource(sourceName, 'Username'), appSettings.GetSource(sourceName, 'SslVerify')))
 
     @property
-    def BaseUrl(self):
+    def BaseUrl(self) -> str:
         return self.__Client.BaseUrl
+    
+    @property
+    def SourceName(self) -> str:
+        return self.__SourceName
 
     def __Logout(self, isRetry=False):
         if not self.__AuthTokenInfo:

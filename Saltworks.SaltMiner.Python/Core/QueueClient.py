@@ -20,11 +20,25 @@ import uuid
 import json
 
 from Utility.GeneralUtility import GeneralUtility
+from .Application import Application
+
+# Use cases:
+# 1. Search for and lock a "bite" for a particular index pattern
+# def Search(body:dict, size:int, lock_id:str) -> list
+# body can include custom query as well as custom sort, but better not mess with the schema
+# 2. Queue up new stuff
+# 3. Status updates (for my locked item, provide a status/stage/reason update)
+# 4. Complete - status = complete or error, also accept stage / reason / error info
+
 
 class QueueClient(object):
-    def __init__(self, appSettings):
+    def __init__(self, app:Application, idx_pattern:str):
         '''
         Setup the class
+
+        Params
+        :app: Application
+        :idx_pattern: Index pattern to be used with this instance of client.  Ex: "sm_queue_sync", or "sync" both will become "sm_queue_sync*"
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")

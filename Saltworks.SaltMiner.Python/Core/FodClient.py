@@ -97,6 +97,10 @@ class FodClient(object):
     @property
     def ApiMaxLimit(self):
         return self.__ApiMaxLimit
+    
+    @property
+    def SourceName(self) -> str:
+        return self.__SourceName
 
     #region Requests Mini-Client
     # ***********************************************************************************************************
