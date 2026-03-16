@@ -22,218 +22,214 @@ using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.DataClient;
 using Saltworks.SaltMiner.ServiceManager.JobModels;
 
-namespace Saltworks.SaltMiner.ServiceManager.Helpers
-{
-    public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataClient.DataClient> dataClientFactory, IJobStatusService jobStatusService)
-    {
-        private readonly ILogger Logger = logger;
-        private readonly DataClient.DataClient DataClient = dataClientFactory.GetClient();
-        private readonly IJobStatusService JobStatusService = jobStatusService;
+namespace Saltworks.SaltMiner.ServiceManager.Helpers;
 
-        /// <summary>
-        /// Write service job types from config into sys_lookups ServiceJobCommandOptions doc
-        /// </summary>
-        public void UpdateServiceJobTypes(ServiceManagerConfig config)
+public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataClient.DataClient> dataClientFactory, IJobStatusService jobStatusService)
+{
+    private readonly ILogger Logger = logger;
+    private readonly DataClient.DataClient DataClient = dataClientFactory.GetClient();
+    private readonly IJobStatusService JobStatusService = jobStatusService;
+
+    /// <summary>
+    /// Write service job types from config into sys_lookups ServiceJobCommandOptions doc
+    /// </summary>
+    public void UpdateServiceJobTypes(ServiceManagerConfig config)
+    {
+        var srch = new SearchRequest
         {
-            var srch = new SearchRequest
+            Filter = new()
             {
-                Filter = new()
+                FilterMatches = new()
                 {
-                    FilterMatches = new()
-                    {
-                        { "type", "ServiceJobCommandOptions" }
-                    }
+                    { "type", "ServiceJobCommandOptions" }
                 }
-            };
-            var rsp = DataClient.LookupSearch(srch);
-            var lookup = rsp.Data?.FirstOrDefault();
-            if (!rsp.Success || lookup == null)
-            {
-                Logger.LogError("Failed to read service job options lookup from sys_lookups.");
-                return;
             }
-            lookup.Values.Clear();
-            foreach (var c in config.AllowedExecutables.Select(x => x.Key).OrderBy(x => x))
-            {
-                if (!lookup.Values.Any(x => x.Value == c))
-                    lookup.Values.Add(new() { Display = c, Value = c, Order = lookup.Values.Count + 1 });
-            }
-            var rsp2 = DataClient.LookupAddUpdate(lookup);
-            if (!rsp2.Success)
-                Logger.LogError("Failed to update service job options lookup in sys_lookups ([{Code}] {Msg}).", rsp2.StatusCode, rsp2.Message);
+        };
+        var rsp = DataClient.LookupSearch(srch);
+        var lookup = rsp.Data?.FirstOrDefault();
+        if (!rsp.Success || lookup == null)
+        {
+            Logger.LogError("Failed to read service job options lookup from sys_lookups.");
+            return;
+        }
+        lookup.Values.Clear();
+        foreach (var c in config.AllowedExecutables.Select(x => x.Key).OrderBy(x => x).Distinct())
+        {
+            lookup.Values.Add(new() { Display = c, Value = c, Order = lookup.Values.Count + 1 });
+        }
+        var rsp2 = DataClient.LookupAddUpdate(lookup);
+        if (!rsp2.Success)
+            Logger.LogError("Failed to update service job options lookup in sys_lookups ([{Code}] {Msg}).", rsp2.StatusCode, rsp2.Message);
+    }
+
+    /// <summary>
+    /// Pull service job configs from datastore and creates service jobs based on their configured schedule
+    /// </summary>
+    public async Task ScheduleServiceJobs(IScheduler scheduler, JobKey heartbeatJobKey, JobKey monitoringJobKey, ServiceManagerConfig config, CancellationToken cancelToken = default)
+    {
+        var queueJobKeys = new List<JobKey>();
+
+        Logger.LogDebug("Reading job queue and updating scheduler");
+
+        var request = new SearchRequest { PagingInfo = new() };
+        var jobQueue = DataClient.ServiceJobSearch(request);
+
+        if (jobQueue?.Data == null || !jobQueue.Data.Any())
+        {
+            Logger.LogInformation("No jobs were found to schedule");
+            return;
         }
 
-        /// <summary>
-        /// Pull service job configs from datastore and creates service jobs based on their configured schedule
-        /// </summary>
-        public async Task ScheduleServiceJobs(IScheduler scheduler, JobKey heartbeatJobKey, JobKey monitoringJobKey, ServiceManagerConfig config, CancellationToken cancelToken = default)
+        // schedule jobs found in queue
+        foreach (var job in jobQueue.Data.Where(j => ServiceJobType.Command.ToString("g") == j.Type))
         {
-            var queueJobKeys = new List<JobKey>();
-
-            Logger.LogDebug("Reading job queue and updating scheduler");
-
-            var request = new SearchRequest { PagingInfo = new() };
-            var jobQueue = DataClient.ServiceJobSearch(request);
-
-            if (jobQueue?.Data == null || !jobQueue.Data.Any())
-            {
-                Logger.LogInformation("No jobs were found to schedule");
-                return;
-            }
-
-            // schedule jobs found in queue
-            foreach (var job in jobQueue.Data.Where(j => ServiceJobType.Command.ToString("g") == j.Type))
-            {
-                try
-                {
-                    if (!config.IsValidJobType(job.Option))
-                    {
-                        Logger.LogError("Invalid option '{SvcType}' in service manager config, skipping...", job.Option);
-                        if (job.Status != ServiceJobStatus.Failed.ToString("g"))
-                        {
-                            job.Status = ServiceJobStatus.Failed.ToString("g");
-                            job.Message = $"'{job.Option}' is an invalid option in service manager config";
-                            DataClient.ServiceJobAddUpdate(job);
-                        }
-                        continue;
-                    }
-
-                    var key = $"{job.Option}|{job.Id}";
-                    var jobKey = new JobKey(key);
-                    var jobStatus = JobStatusService.GetStatus(jobKey.Name);
-
-                    if(job.Cancel)
-                    {
-                        job.Cancel = false;
-                        job.Status = ServiceJobStatus.Ready.ToString("g");
-                        DataClient.ServiceJobAddUpdate(job);
-                        await scheduler.Interrupt(jobKey, cancelToken);
-                    }
-
-                    if (job.Disabled)
-                    {
-                        if (await scheduler.CheckExists(jobKey, cancelToken))
-                        {
-                            await scheduler.DeleteJob(jobKey, cancelToken);
-                            JobStatusService.RemoveStatus(jobKey.Name);
-                            job.NextRunTime = new DateTime();
-                            DataClient.ServiceJobAddUpdate(job);
-                        }
-                        Logger.LogInformation("The {JobName} job is disabled and currently removed from the schedule.", job.Name);
-                        continue;
-                    }
-
-                    if (job.RunNow)
-                    {
-                        job.RunNow = false;
-                        DataClient.ServiceJobAddUpdate(job);
-                        await scheduler.TriggerJob(jobKey, new()
-                        {
-                            { "serviceJobName", job.Name }
-                        },cancelToken);
-
-                        Logger.LogInformation("The {JobName} job is scheduled to run immediately.", job.Name);
-                    }
-
-                    var queueJobKey = await CommandJob.AddCronCommand(scheduler, job.Name, job.Option, job.Id, job.Schedule, job.Parameters, Logger);
-                    if (queueJobKey != null)
-                    {
-                        queueJobKeys.Add(queueJobKey);
-                    }
-
-                    bool updateJob = false;
-
-                    // Need to get and update next run time from trigger
-                    var associatedTriggers = scheduler.GetTriggersOfJob(jobKey, cancelToken).Result;
-                    if (associatedTriggers.Count > 0)
-                    {
-                        var nextScheduledRunTime = associatedTriggers.FirstOrDefault().GetNextFireTimeUtc().GetValueOrDefault().UtcDateTime;
-                        job.NextRunTime = job.NextRunTime?.ToUniversalTime();
-                        if (!nextScheduledRunTime.Equals(job.NextRunTime))
-                        {
-                            job.NextRunTime = nextScheduledRunTime;
-                            updateJob = true;
-                        }
-                    }
-
-                    if (jobStatus.LastRunTime != null)
-                    {
-                        job.LastRunTime = job.LastRunTime?.ToUniversalTime();
-                        if (!jobStatus.LastRunTime.Equals(job.LastRunTime))
-                        {
-                            
-                            job.LastRunTime = jobStatus?.LastRunTime;
-                            updateJob = true;
-                        }
-                    }
-
-                    if (!jobStatus.Status.Equals(job.Status ?? string.Empty))
-                    {
-                        job.Status = jobStatus.Status;
-                        updateJob = true;
-                    }
-
-                    if (!jobStatus.ErrorMessage.Equals(job.Message ?? string.Empty))
-                    {
-                        job.Message = jobStatus.ErrorMessage ?? string.Empty;
-                        updateJob = true;
-                    }
-                        
-
-                    if (updateJob) DataClient.ServiceJobAddUpdate(job);
-
-                    if (cancelToken.IsCancellationRequested)
-                    {
-                        break;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // don't stop just because this one failed, but log it
-                    Logger.LogError(ex, "Error reading service job with ID '{Id}' and type '{Type}': [{ExType}] {ExMsg}", job?.Id ?? "unknown", job?.Option ?? "unknown", ex.GetType().Name, ex.Message);
-                }
-            }
-
             try
-            { 
-                // Check for scheduled jobs that are not in the queue - delete stale job
-                // Note: jobs and triggers can belong to groups (default group is DEFAULT), so the hierarchy to get jobs starts at groups
-                var jobGroups = await scheduler.GetJobGroupNames(cancelToken);
-                var jobCount = 0;
-
-                foreach (var group in jobGroups)
+            {
+                if (!config.IsValidJobType(job.Option))
                 {
-                    var groupMatcher = GroupMatcher<JobKey>.GroupContains(group);
-                    var scheduledJobKeys = await scheduler.GetJobKeys(groupMatcher, cancelToken);
-
-                    jobCount += scheduledJobKeys.Count;
-
-                    var excludedJobs = scheduledJobKeys.Where(x => !queueJobKeys.Exists(y => y.Name == x.Name) && x.Name != heartbeatJobKey.Name && x.Name != monitoringJobKey.Name);
-                    foreach (var excludedJob in excludedJobs)
+                    Logger.LogError("Invalid option '{SvcType}' in service manager config, skipping...", job.Option);
+                    if (job.Status != ServiceJobStatus.Failed.ToString("g"))
                     {
-                        Logger.LogInformation("Job {ExcludedJobName} as been deleted from service jobs. Removing from scheduler", excludedJob.Name);
+                        job.Status = ServiceJobStatus.Failed.ToString("g");
+                        job.Message = $"'{job.Option}' is an invalid option in service manager config";
+                        DataClient.ServiceJobAddUpdate(job);
+                    }
+                    continue;
+                }
 
-                        jobCount--;
-                        try
-                        {
-                            await scheduler.DeleteJob(excludedJob, cancelToken);
-                            JobStatusService.RemoveStatus(excludedJob.Name);
-                        }
-                        catch(Exception ex)
-                        {
-                            // log error but keep rolling
-                            Logger.LogError(ex, "Failed to deleted old service job with key '{Key}'.", excludedJob?.Name ?? "unknown");
-                        }
+                var key = $"{job.Option}|{job.Id}";
+                var jobKey = new JobKey(key);
+                var jobStatus = JobStatusService.GetStatus(jobKey.Name);
+
+                if(job.Cancel)
+                {
+                    job.Cancel = false;
+                    job.Status = ServiceJobStatus.Ready.ToString("g");
+                    DataClient.ServiceJobAddUpdate(job);
+                    await scheduler.Interrupt(jobKey, cancelToken);
+                }
+
+                if (job.Disabled)
+                {
+                    if (await scheduler.CheckExists(jobKey, cancelToken))
+                    {
+                        await scheduler.DeleteJob(jobKey, cancelToken);
+                        JobStatusService.RemoveStatus(jobKey.Name);
+                        job.NextRunTime = new DateTime();
+                        DataClient.ServiceJobAddUpdate(job);
+                    }
+                    Logger.LogInformation("The {JobName} job is disabled and currently removed from the schedule.", job.Name);
+                    continue;
+                }
+
+                if (job.RunNow)
+                {
+                    job.RunNow = false;
+                    DataClient.ServiceJobAddUpdate(job);
+                    await scheduler.TriggerJob(jobKey, new()
+                    {
+                        { "serviceJobName", job.Name }
+                    },cancelToken);
+
+                    Logger.LogInformation("The {JobName} job is scheduled to run immediately.", job.Name);
+                }
+
+                var queueJobKey = await CommandJob.AddCronCommand(scheduler, job.Name, job.Option, job.Id, job.Schedule, job.Parameters, Logger);
+                if (queueJobKey != null)
+                {
+                    queueJobKeys.Add(queueJobKey);
+                }
+
+                bool updateJob = false;
+
+                // Need to get and update next run time from trigger
+                var associatedTriggers = scheduler.GetTriggersOfJob(jobKey, cancelToken).Result;
+                if (associatedTriggers.Count > 0)
+                {
+                    var nextScheduledRunTime = associatedTriggers.FirstOrDefault().GetNextFireTimeUtc().GetValueOrDefault().UtcDateTime;
+                    job.NextRunTime = job.NextRunTime?.ToUniversalTime();
+                    if (!nextScheduledRunTime.Equals(job.NextRunTime))
+                    {
+                        job.NextRunTime = nextScheduledRunTime;
+                        updateJob = true;
                     }
                 }
-                Logger.LogInformation("Job refresh - {Count} job(s) scheduled", jobCount);
+
+                if (jobStatus.LastRunTime != null)
+                {
+                    job.LastRunTime = job.LastRunTime?.ToUniversalTime();
+                    if (!jobStatus.LastRunTime.Equals(job.LastRunTime))
+                    {
+                        
+                        job.LastRunTime = jobStatus?.LastRunTime;
+                        updateJob = true;
+                    }
+                }
+
+                if (!jobStatus.Status.Equals(job.Status ?? string.Empty))
+                {
+                    job.Status = jobStatus.Status;
+                    updateJob = true;
+                }
+
+                if (!jobStatus.ErrorMessage.Equals(job.Message ?? string.Empty))
+                {
+                    job.Message = jobStatus.ErrorMessage ?? string.Empty;
+                    updateJob = true;
+                }
+                    
+
+                if (updateJob) DataClient.ServiceJobAddUpdate(job);
+
+                if (cancelToken.IsCancellationRequested)
+                {
+                    break;
+                }
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error removing obsolete service job(s): [{ExName}] {ExMsg}", ex.GetType().Name, ex.Message);
+                // don't stop just because this one failed, but log it
+                Logger.LogError(ex, "Error reading service job with ID '{Id}' and type '{Type}': [{ExType}] {ExMsg}", job?.Id ?? "unknown", job?.Option ?? "unknown", ex.GetType().Name, ex.Message);
             }
         }
+
+        try
+        { 
+            // Check for scheduled jobs that are not in the queue - delete stale job
+            // Note: jobs and triggers can belong to groups (default group is DEFAULT), so the hierarchy to get jobs starts at groups
+            var jobGroups = await scheduler.GetJobGroupNames(cancelToken);
+            var jobCount = 0;
+
+            foreach (var group in jobGroups)
+            {
+                var groupMatcher = GroupMatcher<JobKey>.GroupContains(group);
+                var scheduledJobKeys = await scheduler.GetJobKeys(groupMatcher, cancelToken);
+
+                jobCount += scheduledJobKeys.Count;
+
+                var excludedJobs = scheduledJobKeys.Where(x => !queueJobKeys.Exists(y => y.Name == x.Name) && x.Name != heartbeatJobKey.Name && x.Name != monitoringJobKey.Name);
+                foreach (var excludedJob in excludedJobs)
+                {
+                    Logger.LogInformation("Job {ExcludedJobName} as been deleted from service jobs. Removing from scheduler", excludedJob.Name);
+
+                    jobCount--;
+                    try
+                    {
+                        await scheduler.DeleteJob(excludedJob, cancelToken);
+                        JobStatusService.RemoveStatus(excludedJob.Name);
+                    }
+                    catch(Exception ex)
+                    {
+                        // log error but keep rolling
+                        Logger.LogError(ex, "Failed to deleted old service job with key '{Key}'.", excludedJob?.Name ?? "unknown");
+                    }
+                }
+            }
+            Logger.LogInformation("Job refresh - {Count} job(s) scheduled", jobCount);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error removing obsolete service job(s): [{ExName}] {ExMsg}", ex.GetType().Name, ex.Message);
+        }
     }
-
-
 }
