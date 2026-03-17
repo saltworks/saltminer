@@ -1,0 +1,9 @@
+{
+    "Source": "Axonius",
+    "SourceName": "Axonius",
+    "Enabled": false,
+    "Url": "",
+    "ApiKey": "",
+    "ApiSecret": "",
+    "QueryIds": []
+}
