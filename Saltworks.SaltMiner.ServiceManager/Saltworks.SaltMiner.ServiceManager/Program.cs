@@ -41,7 +41,7 @@ namespace Saltworks.SaltMiner.ServiceManager
         private const string SERVICE_MANAGER_SETTINGS_FILE = "ServiceManagerSettings.json";
         private const string SERVICE_MANAGER_SETTINGS_APP_SECTION = "ServiceManagerConfig";
         private const string SERVICE_MANAGER_SETTINGS_LOG_SECTION = "LogConfig";
-        private const string LOCATOR_FILE_NAME = "ConfigLocator.json";
+        internal const string LOCATOR_FILE_NAME = "ConfigLocator.json";
         private const string CONFIG_ENV_VARIABLE = "SALTMINER_SERVICEMANAGER_CONFIG_PATH";
         // Generate a cancellation token that can be used by longer running tasks to cancel on break or for other reasons
         private static readonly CancellationTokenSource CancelTokenSource = new();
@@ -52,7 +52,7 @@ namespace Saltworks.SaltMiner.ServiceManager
         {
             if (args.Length == 0)
             {
-                args = new string[] { "service" };
+                args = [ "service" ];
             }
 
             var mutex = new Mutex(false, "SaltMinerServiceManager");
@@ -67,7 +67,6 @@ namespace Saltworks.SaltMiner.ServiceManager
             catch
             {
                 mutex.Close();
-                mutex = null;
             }
 
             Console.CancelKeyPress += delegate (object sender, ConsoleCancelEventArgs e)
@@ -161,7 +160,7 @@ namespace Saltworks.SaltMiner.ServiceManager
                         catch (Exception ex)
                         {
                             var msg = $"Error in service initialization: {ex.Message}";
-                            logger.LogCritical(ex, msg);
+                            logger.LogCritical(ex, "{Msg}", msg);
                             throw new InitializationException(msg, ex);
                         }
                     },

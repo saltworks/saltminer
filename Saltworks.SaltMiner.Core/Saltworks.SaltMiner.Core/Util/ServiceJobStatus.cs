@@ -29,6 +29,10 @@ namespace Saltworks.SaltMiner.Core.Util
         [Description("Failed")]
         Failed,
         [Description("Ready")]
-        Ready
+        Ready,
+        [Description("Changes Pending")]
+        Pending,
+        [Description("Cancelled")]
+        Cancelled
     }
 }

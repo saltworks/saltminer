@@ -66,7 +66,7 @@ public class ServiceManager : BackgroundService, IConsoleAppHost
                 Logger.LogInformation("Service starting.  Data API client is using base url '{DataApiBaseUrl}'", Config.DataApiBaseUrl);
                 var runconfig = ServiceRuntimeConfig.FromArgs(args);
                 Logger.LogInformation("Writing service job types to lookup index");
-                ScheduleData.UpdateServiceJobTypes(Config);
+                ScheduleData.UpdateServiceJobTypes();
                 ExecuteAsync(runconfig.CancelToken).Wait();
             }
 
@@ -98,13 +98,9 @@ public class ServiceManager : BackgroundService, IConsoleAppHost
             // Run configured processors
             while (!stoppingToken.IsCancellationRequested)
             {
-                await ScheduleData.ScheduleServiceJobs(Sched, hkey, mkey, Config, stoppingToken);
-                
+                await ScheduleData.ScheduleServiceJobs(Sched, hkey, mkey, stoppingToken);
                 if (!Sched.IsStarted)
-                {
                     await Sched.Start(stoppingToken);
-                }
-                
                 await Task.Delay(Config.ServiceProcessorIntervals["Scheduler"] * 1000, stoppingToken);
             }
         }
