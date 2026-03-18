@@ -39,8 +39,8 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
         IJobStatusService jobStatusService) : IJob
     {
         internal const string SVC_JOB_NAME = "serviceJobName";
-        private const string OUTCOME_SUCCESS = "success";
-        private const string OUTCOME_FAILURE = "failure";
+        private readonly string OUTCOME_SUCCESS = JobOutcome.Success.ToString("g");
+        private readonly string OUTCOME_FAILURE = JobOutcome.Failure.ToString("g");
         private readonly ServiceManagerConfig Config = config;
         private readonly ILogger Logger = logger;
         private readonly EventLogger EventLogger = eventLogger;

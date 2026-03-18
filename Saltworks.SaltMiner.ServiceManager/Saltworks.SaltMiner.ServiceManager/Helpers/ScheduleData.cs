@@ -77,6 +77,7 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
         var jobKey = new JobKey(key);
         var jobStatus = JobStatusService.GetStatus(jobKey.Name);
 
+        // we assume we aren't on first run if we are cancelling, so should already exist in scheduler
         if (job.Cancel)
         {
             job.Cancel = false;
@@ -84,6 +85,7 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             await scheduler.Interrupt(jobKey, cancelToken);
         }
 
+        // disabling can happen on first or subsequent runs
         if (job.Disabled)
         {
             if (await scheduler.CheckExists(jobKey, cancelToken))
@@ -97,6 +99,10 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             return null;
         }
 
+        // if we made it here, the job should be active - add/update in scheduler
+        var queueJobKey = await CommandJob.AddCronCommand(scheduler, job.Name, job.Option, job.Id, job.Schedule, job.Parameters, Logger);
+
+        // run now can't happen if the job is unscheduled, so it should have already been added to the scheduler
         if (job.RunNow)
         {
             job.RunNow = false;
@@ -107,9 +113,14 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             Logger.LogInformation("The {JobName} job is scheduled to run immediately.", job.Name);
         }
 
-        var queueJobKey = await CommandJob.AddCronCommand(scheduler, job.Name, job.Option, job.Id, job.Schedule, job.Parameters, Logger);
-
+        // use this to indicate status changed or scheduled/run time changes found
         bool updateJob = false;
+
+        if (!jobStatus.Status.Equals(job.Status ?? string.Empty))
+        {
+            job.Status = jobStatus.Status;
+            updateJob = true;
+        }
 
         // Need to get and update next run time from trigger
         var associatedTriggers = scheduler.GetTriggersOfJob(jobKey, cancelToken).Result;
@@ -134,12 +145,6 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             }
         }
 
-        if (!jobStatus.Status.Equals(job.Status ?? string.Empty))
-        {
-            job.Status = jobStatus.Status;
-            updateJob = true;
-        }
-
         if (!jobStatus.ErrorMessage.Equals(job.Message ?? string.Empty))
         {
             job.Message = jobStatus.ErrorMessage ?? string.Empty;
@@ -151,7 +156,7 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
     }
 
     /// <summary>
-    /// Pull service job Configs from datastore and creates service jobs based on their Configured schedule
+    /// Called every X seconds, pull service job Configs from datastore and creates service jobs based on their Configured schedule
     /// </summary>
     public async Task ScheduleServiceJobs(IScheduler scheduler, JobKey heartbeatJobKey, JobKey monitoringJobKey, CancellationToken cancelToken = default)
     {

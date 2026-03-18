@@ -43,12 +43,12 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
                 foreach (var executingJob in executingJobs.Where(x => x.JobDetail.Key.Name != "Monitoring|0" && x.JobDetail.Key.Name != "Heartbeat|0"))
                 {
                     var elapsedTime = string.Format("{0:D2}:{1:D2}:{2:D2}", executingJob.JobRunTime.Hours, executingJob.JobRunTime.Minutes, executingJob.JobRunTime.Seconds);
-                    var logMsg = $"Job {executingJob.JobDetail.JobDataMap.GetString("serviceJobName")} is still in progress. Elapsed time: {elapsedTime}";
-                    EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.InProgress, LogSeverity.Information, logMsg, "success");
-                    Logger.LogInformation($"[Monitoring] {logMsg} ");
+                    var logMsg = $"[Monitoring] Job {executingJob.JobDetail.JobDataMap.GetString("serviceJobName")} is still in progress.";
+                    var eLogMsg = $"Job still in progress. Elapsed time: {elapsedTime}";
+                    EventLogger.Log(executingJob.JobDetail.Key, executingJob.JobDetail.JobDataMap, EventStatus.InProgress, LogSeverity.Information, eLogMsg, JobOutcome.InProgress.ToString("g"));
+                    Logger.LogInformation("{Msg}", logMsg);
                 }
             });
-            
         }
 
         internal static async Task<JobKey> AddMonitoring(IScheduler scheduler, int intervalSeconds)
