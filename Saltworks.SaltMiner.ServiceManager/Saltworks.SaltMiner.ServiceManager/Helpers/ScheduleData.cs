@@ -92,6 +92,7 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             {
                 await scheduler.DeleteJob(jobKey, cancelToken);
                 JobStatusService.RemoveStatus(jobKey.Name);
+                job.Status = "";
                 job.NextRunTime = default;
             }
             Logger.LogInformation("The {JobName} job is disabled and currently removed from the schedule.", job.Name);
