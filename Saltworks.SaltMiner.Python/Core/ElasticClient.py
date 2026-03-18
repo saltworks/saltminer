@@ -76,6 +76,7 @@ class ElasticClient(object):
             "Content-Type": "application/vnd.elasticsearch+json; compatible-with=9"
         }
         hosts = [host_setting] if not isinstance(host_setting, list) else host_setting
+        hosts = list(dict.fromkeys(hosts))  # remove duplicates while preserving order
 
         try:
             # in case we get a string and not a bool try to manage it
