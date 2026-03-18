@@ -99,19 +99,10 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             return null;
         }
 
+        // job.RunNow handled after time updates
+
         // if we made it here, the job should be active - add/update in scheduler
         var queueJobKey = await CommandJob.AddCronCommand(scheduler, job.Name, job.Option, job.Id, job.Schedule, job.Parameters, Logger);
-
-        // run now can't happen if the job is unscheduled, so it should have already been added to the scheduler
-        if (job.RunNow)
-        {
-            job.RunNow = false;
-            await scheduler.TriggerJob(jobKey, new()
-                {
-                    { CommandJob.SVC_JOB_NAME, job.Name }
-                }, cancelToken);
-            Logger.LogInformation("The {JobName} job is scheduled to run immediately.", job.Name);
-        }
 
         // use this to indicate status changed or scheduled/run time changes found
         bool updateJob = false;
@@ -143,6 +134,20 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
                 job.LastRunTime = jobStatus?.LastRunTime;
                 updateJob = true;
             }
+        }
+
+        // run now can't happen if the job is unscheduled, so it should have already been added to the scheduler
+        // we also have to hold off triggering until date stuff has been figured to avoid our "run now" trigger muddying dates
+        if (job.RunNow)
+        {
+            job.RunNow = false;
+            job.LastRunTime = DateTime.UtcNow;
+            updateJob = true;
+            await scheduler.TriggerJob(jobKey, new()
+                {
+                    { CommandJob.SVC_JOB_NAME, job.Name }
+                }, cancelToken);
+            Logger.LogInformation("The {JobName} job is scheduled to run immediately.", job.Name);
         }
 
         if (!jobStatus.ErrorMessage.Equals(job.Message ?? string.Empty))
