@@ -137,12 +137,21 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
         {
             job.RunNow = false;
             job.LastRunTime = DateTime.UtcNow;
+            job.Status = ServiceJobStatus.Running.ToString("g");
             updateJob = true;
-            await scheduler.TriggerJob(jobKey, new()
-                {
-                    { CommandJob.SVC_JOB_NAME, job.Name }
-                }, cancelToken);
-            Logger.LogInformation("The {JobName} job is scheduled to run immediately.", job.Name);
+            var runningJobs = await scheduler.GetCurrentlyExecutingJobs(cancelToken);
+            if (!runningJobs.Any(x => x.JobDetail.Key == jobKey))
+            {
+                await scheduler.TriggerJob(jobKey, new()
+                    {
+                        { CommandJob.SVC_JOB_NAME, job.Name }
+                    }, cancelToken);
+                Logger.LogInformation("The {JobName} job is scheduled to run immediately.", job.Name);
+            }
+            else
+            {
+                Logger.LogInformation("The {JobName} job is scheduled to run immediately, but is already running and will not be run again.", job.Name);
+            }
         }
 
         if (!jobStatus.Status.Equals(job.Status ?? string.Empty))
