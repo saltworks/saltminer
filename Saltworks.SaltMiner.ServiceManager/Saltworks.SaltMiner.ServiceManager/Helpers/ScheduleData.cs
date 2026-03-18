@@ -108,18 +108,6 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
         // use this to indicate status changed or scheduled/run time changes found
         bool updateJob = false;
 
-        if (!jobStatus.Status.Equals(job.Status ?? string.Empty))
-        {
-            job.Status = jobStatus.Status;
-            updateJob = true;
-        }
-        // if nothing else updates status, clear pending
-        if (job.Status == ServiceJobStatus.Pending.ToString("g"))
-        {
-            job.Status = "";
-            updateJob = true;
-        }
-
         // Need to get and update next run time from trigger
         var associatedTriggers = scheduler.GetTriggersOfJob(jobKey, cancelToken).Result;
         if (associatedTriggers.Count > 0)
@@ -155,6 +143,19 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
                     { CommandJob.SVC_JOB_NAME, job.Name }
                 }, cancelToken);
             Logger.LogInformation("The {JobName} job is scheduled to run immediately.", job.Name);
+        }
+
+        if (!jobStatus.Status.Equals(job.Status ?? string.Empty))
+        {
+            job.Status = jobStatus.Status;
+            updateJob = true;
+        }
+
+        // if nothing else updates status, clear pending
+        if (job.Status == ServiceJobStatus.Pending.ToString("g"))
+        {
+            job.Status = "";
+            updateJob = true;
         }
 
         if (!jobStatus.ErrorMessage.Equals(job.Message ?? string.Empty))
