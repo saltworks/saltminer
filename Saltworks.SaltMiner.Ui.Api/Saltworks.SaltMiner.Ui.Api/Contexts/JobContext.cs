@@ -57,7 +57,6 @@ public class JobContext(IServiceProvider services, ILogger<JobContext> logger) :
     {
         queue.User ??= user.UserName;
         queue.UserFullName ??= user.FullName;
-        queue.Status = Job.JobStatus.Pending.ToString("g");  // tell job manager there's an update to process
 
         var result = DataClient.JobAddUpdate(queue);
 
