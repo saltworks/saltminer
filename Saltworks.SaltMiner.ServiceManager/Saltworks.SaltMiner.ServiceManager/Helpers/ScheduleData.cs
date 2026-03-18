@@ -113,6 +113,12 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             job.Status = jobStatus.Status;
             updateJob = true;
         }
+        // if nothing else updates status, clear pending
+        if (job.Status == ServiceJobStatus.Pending.ToString("g"))
+        {
+            job.Status = "";
+            updateJob = true;
+        }
 
         // Need to get and update next run time from trigger
         var associatedTriggers = scheduler.GetTriggersOfJob(jobKey, cancelToken).Result;
