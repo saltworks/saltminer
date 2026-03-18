@@ -69,8 +69,8 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             return null;
         }
 
-        // if no changes needed, bug out
-        if (job.Status != ServiceJobStatus.Pending.ToString("g"))
+        // if no changes needed, bug out (if we missed a run time, we need to process an update to catch it up)
+        if (job.Status != ServiceJobStatus.Pending.ToString("g") && (!job.NextRunTime.HasValue || job.NextRunTime.Value > DateTime.UtcNow))
             return JobKey.Create(job.Name);
 
         var key = $"{job.Option}|{job.Id}";
