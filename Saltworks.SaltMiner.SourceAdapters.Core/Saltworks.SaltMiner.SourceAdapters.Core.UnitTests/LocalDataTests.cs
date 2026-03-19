@@ -40,7 +40,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.UnitTests
             LocalData.SetDbConnection(DBCONNECT);
         }
 
-        [ClassCleanup(ClassCleanupBehavior.EndOfClass)]
+        [ClassCleanup]
         public static void Cleanup()
         {
             LocalData.Dispose();

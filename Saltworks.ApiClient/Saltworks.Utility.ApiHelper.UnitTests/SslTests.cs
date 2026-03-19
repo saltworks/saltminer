@@ -14,7 +14,7 @@
 * ----
 */
 
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.Utility.ApiHelper.UnitTests.Helpers;
 
 namespace Saltworks.Utility.ApiHelper.UnitTests
@@ -24,9 +24,13 @@ namespace Saltworks.Utility.ApiHelper.UnitTests
     public class SslTests
     {
         [TestMethod]
-        [SkipTestOnBuildServer]
         public void BadCert_Fail()
         {
+            if (SkipTestOnBuildServerAttribute.IsRunningOnBuildServer())
+            {
+                Assert.Inconclusive("Test skipped: running on build server");
+            }
+
             // Arrange
             var c = ApiClientFactory.CreateApiClient<MethodTests>("https://wrong.host.badssl.com", true);
 
@@ -40,9 +44,13 @@ namespace Saltworks.Utility.ApiHelper.UnitTests
         }
 
         [TestMethod]
-        [SkipTestOnBuildServer]
         public void BadCert_Ignore()
         {
+            if (SkipTestOnBuildServerAttribute.IsRunningOnBuildServer())
+            {
+                Assert.Inconclusive("Test skipped: running on build server");
+            }
+
             // Arrange
             var c = ApiClientFactory.CreateApiClient<MethodTests>("https://wrong.host.badssl.com", false);
 

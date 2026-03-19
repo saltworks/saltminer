@@ -118,7 +118,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.IntegrationTests
             // Arrange
             var client = new CheckmarxOneClient(ClientFactory.CreateApiClient(), Config.CheckmarxOneConfig, NullLogger.Instance);
             // Act
-            var rsp = client.GetApplicationsAsync();
+            var rsp = client.GetApplicationsAsync(1, 0);
             //Assert
             Assert.IsNotNull(rsp);
 

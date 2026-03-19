@@ -46,7 +46,7 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
             queueScan.Saltminer.Internal.QueueStatus = QueueScan.QueueScanStatus.Loading.ToString("g");
 
             // Act
-            Assert.ThrowsException<DataClientResponseException>(() => Client.QueueScanAddUpdate(queueScan));
+            Assert.Throws<DataClientResponseException>(() => Client.QueueScanAddUpdate(queueScan));
             
         }
 

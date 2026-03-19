@@ -37,7 +37,7 @@ public class AggregationTests
             _indicesToDelete.Add(index);
     }
 
-    [ClassCleanup(ClassCleanupBehavior.EndOfClass)]
+    [ClassCleanup]
     public static void Cleanup()
     {
         foreach (var index in _indicesToDelete)

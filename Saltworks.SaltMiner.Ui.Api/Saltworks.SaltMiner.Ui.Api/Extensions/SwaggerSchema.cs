@@ -14,7 +14,7 @@
 * ----
 */
 
-﻿using Microsoft.OpenApi.Models;
+﻿using Microsoft.OpenApi;
 using Saltworks.SaltMiner.UiApiClient.ViewModels;
 using Swashbuckle.AspNetCore.SwaggerGen;
 

@@ -15,7 +15,7 @@
 */
 
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using Saltworks.SaltMiner.Ui.Api.Contexts;
 using Saltworks.SaltMiner.ConsoleApp.Core;
 using Saltworks.SaltMiner.Core.Util;
@@ -188,26 +188,11 @@ public static class Program
                 Type = SecuritySchemeType.ApiKey,
                 Scheme = "Bearer",
             });
-
             c.DocumentFilter<SwaggerSchema.AdditionalSchemasDocumentFilter>();
 
-            c.AddSecurityRequirement(new OpenApiSecurityRequirement()
+            c.AddSecurityRequirement(doc => new OpenApiSecurityRequirement()
             {
-                {
-                    new OpenApiSecurityScheme
-                    {
-                        Reference = new OpenApiReference
-                        {
-                            Type = ReferenceType.SecurityScheme,
-                            Id = "Bearer"
-                        },
-                        Scheme = "oauth2",
-                        Name = "Bearer",
-                        In = ParameterLocation.Header
-
-                    },
-                    new List<string>()
-                }
+                [new OpenApiSecuritySchemeReference("Bearer", doc)] = []
             });
 
             // Set the comments path for the Swagger JSON and UI.

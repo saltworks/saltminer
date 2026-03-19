@@ -40,12 +40,10 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Saltworks.SaltMiner.DataApi.Authentication;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.OpenApi;
 using Elastic.Transport;
-using Saltworks.SaltMiner.ElasticClient.EsClient;
 
 namespace Saltworks.SaltMiner.DataApi
 {

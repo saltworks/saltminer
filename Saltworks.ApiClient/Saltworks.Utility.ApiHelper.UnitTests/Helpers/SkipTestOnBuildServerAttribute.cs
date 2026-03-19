@@ -14,25 +14,13 @@
 * ----
 */
 
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 
 namespace Saltworks.Utility.ApiHelper.UnitTests.Helpers
 {
     public class SkipTestOnBuildServerAttribute : TestMethodAttribute
     {
-        public override TestResult[] Execute(ITestMethod testMethod)
-        {
-            if (!IsRunningOnBuildServer())
-            {
-                return base.Execute(testMethod);
-            }
-            else
-            {
-                return new TestResult[] { new TestResult { Outcome = UnitTestOutcome.Inconclusive } };
-            }
-        }
-
         public static bool IsRunningOnBuildServer()
         {
             return bool.TryParse(Environment.GetEnvironmentVariable("IsRunningOnBuildServer"), out var buildServerFlag) ? buildServerFlag : false;

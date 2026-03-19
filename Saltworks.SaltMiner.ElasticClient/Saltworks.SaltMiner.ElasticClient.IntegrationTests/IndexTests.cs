@@ -319,7 +319,7 @@ public class IndexTests
 				PagingInfo = new PagingInfo { Size = 10 }
 			};
 
-			Assert.ThrowsException<EsClientException>(
+			Assert.Throws<EsClientException>(
 				() => Client.Search(tempIndex, searchRequest),
 				"Should throw EsClientException for invalid type");
 

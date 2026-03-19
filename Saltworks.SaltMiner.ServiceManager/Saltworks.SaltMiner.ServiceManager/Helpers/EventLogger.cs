@@ -14,7 +14,7 @@
 * ----
 */
 
-﻿using Quartz;
+using Quartz;
 using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Util;
@@ -72,7 +72,9 @@ public class EventLogger(DataClientFactory<DataClient.DataClient> dataClientFact
                 }
             };
 
-            DataClient.EventAdd(eventLog);
+            var rsp = DataClient.EventAdd(eventLog);
+            if (!rsp.Success)
+                Logger.LogError("Failed to write to eventlog. [{Status}] {Msg}", rsp.StatusCode, rsp.Message);
         }
         catch (Exception ex)
         {
