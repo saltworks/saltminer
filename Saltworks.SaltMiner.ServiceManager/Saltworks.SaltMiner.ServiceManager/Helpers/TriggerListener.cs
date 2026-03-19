@@ -18,40 +18,38 @@
 * ----
 */
 
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Quartz;
 using Quartz.Listener;
 using Saltworks.SaltMiner.Core.Util;
 
-namespace Saltworks.SaltMiner.ServiceManager.Helpers
+namespace Saltworks.SaltMiner.ServiceManager.Helpers;
+
+public class TriggerListener(ILogger logger, EventLogger eventLogger) : TriggerListenerSupport
 {
-    public class TriggerListener : TriggerListenerSupport
+    private readonly ILogger Logger = logger;
+    private readonly EventLogger EventLogger = eventLogger;
+
+    public override string Name => "triggerListener";
+
+    public override Task TriggerComplete(ITrigger trigger, IJobExecutionContext context, SchedulerInstruction triggerInstructionCode, CancellationToken cancellationToken = default)
     {
-        private readonly ILogger Logger;
-        private readonly EventLogger EventLogger;
+        var elapsedTime = string.Format("{0:D2}:{1:D2}:{2:D2}", context.JobRunTime.Hours, context.JobRunTime.Minutes, context.JobRunTime.Seconds);
+        EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.Complete, LogSeverity.Information, $"Job Complete - elapsed time: {elapsedTime}", "success");
+        var nextFireDate = context.NextFireTimeUtc.GetValueOrDefault().UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " GMT";
+        return Task.Run(() => { Logger.LogInformation("[TriggerListener] '{JobName}' Completed. Elapsed time: {Elapsed}. Next run-time is: {NextRun}", context.JobDetail.Key.Name, elapsedTime, nextFireDate); }, cancellationToken);
+    }
 
-        public TriggerListener(ILogger logger, EventLogger eventLogger)
-        {
-            Logger = logger;
-            EventLogger = eventLogger;
-        }
+    public override Task TriggerFired(ITrigger trigger, IJobExecutionContext context, CancellationToken cancellationToken = default)
+    {
+        EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.InProgress, LogSeverity.Information, "Job Started", "unknown");
+        var nextFireDate = context.NextFireTimeUtc.GetValueOrDefault().UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " GMT";
+        return Task.Run(() => { Logger.LogInformation("[TriggerListener] '{JobName}' has started. Next run-time is: {NextRun}", context.JobDetail.Key.Name, nextFireDate); }, cancellationToken);
+    }
 
-        public override string Name => "triggerListener";
-
-        public override Task TriggerComplete(ITrigger trigger, IJobExecutionContext context, SchedulerInstruction triggerInstructionCode, CancellationToken cancellationToken = default)
-        {
-            var elapsedTime = string.Format("{0:D2}:{1:D2}:{2:D2}", context.JobRunTime.Hours, context.JobRunTime.Minutes, context.JobRunTime.Seconds);
-            EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.Complete, LogSeverity.Information, $"Job Complete - elapsed time: {elapsedTime}", "success");
-            var nextFireDate = context.NextFireTimeUtc.GetValueOrDefault().UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " GMT";
-            return Task.Run(() => { Logger.LogInformation("[TriggerListener] '{JobName}' Completed. Elapsed time: {Elapsed}. Next run-time is: {NextRun}", context.JobDetail.Key.Name, elapsedTime, nextFireDate); });
-        }
-
-        public override Task TriggerFired(ITrigger trigger, IJobExecutionContext context, CancellationToken cancellationToken = default)
-        {
-            EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.InProgress, LogSeverity.Information, "Job Started", "unknown");
-            var nextFireDate = context.NextFireTimeUtc.GetValueOrDefault().UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " GMT";
-            return Task.Run(() => { Logger.LogInformation("[TriggerListener] '{JobName}' has started. Next run-time is: {NextRun}", context.JobDetail.Key.Name, nextFireDate); });
-        }
-
+    public override Task TriggerMisfired(ITrigger trigger, CancellationToken cancellationToken = default)
+    {
+        Logger.LogWarning("[TriggerListener] '{JobName}' Misfired.", trigger.JobKey.Name);
+        return Task.CompletedTask;
     }
 }

@@ -26,21 +26,15 @@ using Saltworks.SaltMiner.ServiceManager.JobModels;
 
 namespace Saltworks.SaltMiner.ServiceManager.Helpers
 {
-    public class JobListener : JobListenerSupport
+    public class JobListener(ILogger logger, EventLogger eventLogger, IJobStatusService jobStatusService) : JobListenerSupport
     {
-        private readonly IJobStatusService JobStatusService;
-
-        public JobListener(ILogger logger, EventLogger eventLogger, IJobStatusService jobStatusService)
-        {
-            JobStatusService = jobStatusService;
-        }
+        private readonly IJobStatusService JobStatusService = jobStatusService;
 
         public override string Name => "jobListener";
 
         public override Task JobToBeExecuted(IJobExecutionContext context, CancellationToken cancellationToken = default)
         {
             var jobKey = context.JobDetail.Key.Name;
-
             var status = new JobStatusDto
             {
                 JobKey = jobKey,
@@ -51,7 +45,6 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
             };
 
             JobStatusService.SetStatus(jobKey, status);
-
             return Task.CompletedTask;
         }
 
@@ -67,18 +60,6 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
                 jobStatus.Status = jobException == null ? ServiceJobStatus.Completed.ToString("g") : ServiceJobStatus.Failed.ToString("g");
                 jobStatus.ErrorMessage = jobException?.Message ?? string.Empty;
             }
-            
-                //var status = new JobStatusDto
-                //{
-                //    JobKey = jobKey,
-                //    Status = jobException == null ? ServiceJobStatus.Completed.ToString("g") : ServiceJobStatus.Failed.ToString("g"),
-                //    LastRunTime = jobStatus?.LastRunTime,  // preserve the job's start time
-                //    Duration = context.JobRunTime,
-                //    ErrorMessage = jobException?.Message
-                //};
-
-                //JobStatusService.SetStatus(jobKey, status);
-            
 
             return Task.CompletedTask;
         }
