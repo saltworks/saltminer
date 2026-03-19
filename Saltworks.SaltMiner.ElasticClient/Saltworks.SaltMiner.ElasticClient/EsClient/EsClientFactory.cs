@@ -47,7 +47,7 @@ public class EsClientFactory : IElasticClientFactory
         var uris = BuildUris();
 
         var nodePool = new StaticNodePool(uris);
-        var settings = new ElasticsearchClientSettings(nodePool)
+        var settings = new ElasticsearchClientSettings(nodePool, sourceSerializer: (_, _) => new SnakeCaseSerializer())
             .Authentication(new BasicAuthentication(Configuration.Username, Configuration.Password))
             .DefaultFieldNameInferrer(p => p.ToSnakeCase());
 
