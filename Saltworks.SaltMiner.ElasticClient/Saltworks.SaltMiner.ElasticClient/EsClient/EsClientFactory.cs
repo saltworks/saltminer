@@ -18,7 +18,7 @@
 * ----
 */
 
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Elastic.Clients.Elasticsearch;
 using System.Collections.Generic;
 using System;

@@ -61,7 +61,11 @@ public class ServiceJobController(ServiceJobContext context, ILogger<ServiceJobC
     {
         Logger.LogInformation("Post action called");
 
-        return Accepted(Context.AddUpdate(request, ServiceJobIndex));
+        var rsp = Context.AddUpdate(request, ServiceJobIndex);
+        if (rsp.Success)
+            return Accepted(rsp);
+        else
+            return StatusCode(rsp.StatusCode, rsp);
     }
 
     /// <summary>
@@ -73,7 +77,7 @@ public class ServiceJobController(ServiceJobContext context, ILogger<ServiceJobC
     [HttpDelete("{id}")]
     public ActionResult<NoDataResponse> Delete(string id)
     {
-        Logger.LogInformation("Delete action called for id '{id}'", id);
+        Logger.LogInformation("Delete action called for id '{Id}'", id);
 
         return Ok(Context.Delete<ServiceJob>(id, ServiceJobIndex));
     }
@@ -87,7 +91,7 @@ public class ServiceJobController(ServiceJobContext context, ILogger<ServiceJobC
     [HttpGet("{id}")]
     public ActionResult<DataItemResponse<ServiceJob>> Get(string id)
     {
-        Logger.LogInformation("Get action called for service job id '{id}'", id);
+        Logger.LogInformation("Get action called for service job id '{Id}'", id);
 
 
         return Ok(Context.Get<ServiceJob>(id, ServiceJobIndex));

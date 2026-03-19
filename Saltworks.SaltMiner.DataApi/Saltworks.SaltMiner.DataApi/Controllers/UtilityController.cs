@@ -18,13 +18,12 @@
 * ----
 */
 
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.DataApi.Contexts;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using Microsoft.AspNetCore.Http;
-using System.Text.Json.Nodes;
 using Saltworks.SaltMiner.Core.Entities;
 
 namespace Saltworks.SaltMiner.DataApi.Controllers;

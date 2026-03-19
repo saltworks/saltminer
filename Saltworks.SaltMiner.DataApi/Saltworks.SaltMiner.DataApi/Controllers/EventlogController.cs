@@ -25,33 +25,32 @@ using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using Saltworks.SaltMiner.DataApi.Contexts;
 
-namespace Saltworks.SaltMiner.DataApi.Controllers
+namespace Saltworks.SaltMiner.DataApi.Controllers;
+
+[Route("[controller]")]
+[Produces("application/json")]
+[Auth]
+[ApiController]
+public class EventlogController(ILogger<EventlogController> logger, EventlogContext context) : ApiControllerBase(context, logger)
 {
-    [Route("[controller]")]
-    [Produces("application/json")]
-    [Auth]
-    [ApiController]
-    public class EventlogController : ApiControllerBase
+    private EventlogContext Context => ContextBase as EventlogContext;
+    private static string EventIndex() => Eventlog.GenerateIndex();
+
+    /// <summary>
+    /// Adds or Updates an Event
+    /// </summary>
+    /// <returns>Count of docs affected and success flag</returns>
+    /// <response code="202">Returns a response object indicating success and count of affected docs</response>
+    [ProducesResponseType(202, Type = typeof(DataItemRequest<Eventlog>))]
+    [HttpPost]
+    public ActionResult<DataItemResponse<Eventlog>> Post([FromBody] DataItemRequest<Eventlog> request)
     {
-        private EventlogContext Context => ContextBase as EventlogContext;
-        private string EventIndex = Eventlog.GenerateIndex();
+        Logger.LogInformation("Post action called");
 
-        public EventlogController(ILogger<EventlogController> logger, EventlogContext context) : base(context, logger)
-        {
-        }
-
-        /// <summary>
-        /// Adds or Updates an Event
-        /// </summary>
-        /// <returns>Count of docs affected and success flag</returns>
-        /// <response code="202">Returns a response object indicating success and count of affected docs</response>
-        [ProducesResponseType(202, Type = typeof(DataItemRequest<Eventlog>))]
-        [HttpPost]
-        public ActionResult<DataItemResponse<Eventlog>> Post([FromBody] DataItemRequest<Eventlog> request)
-        {
-            Logger.LogInformation("Post action called");
-
-            return Accepted(Context.AddUpdate(request, EventIndex));
-        }
+        var rsp = Context.AddUpdate(request, EventIndex());
+        if (rsp.Success)
+            return Accepted(rsp);
+        else
+            return StatusCode(rsp.StatusCode, rsp);
     }
 }

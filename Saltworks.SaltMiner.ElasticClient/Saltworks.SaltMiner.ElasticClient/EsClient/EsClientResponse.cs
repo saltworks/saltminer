@@ -207,7 +207,7 @@ public class EsClientResponse<T> : EsClientResponse, IElasticClientResponse<T> w
         return new EsClientResponse<T>
         {
             Message = msg,
-            IsSuccessful = success,
+            IsSuccessful = success && response.IsSuccess(),
             HttpStatus = response.ApiCallDetails.HttpStatusCode ?? 0,
         };
     }
