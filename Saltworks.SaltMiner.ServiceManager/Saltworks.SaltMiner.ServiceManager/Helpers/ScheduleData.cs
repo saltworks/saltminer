@@ -73,7 +73,6 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             return null;
         }
 
-
         var key = $"{job.Option}|{job.Id}";
         var jobKey = new JobKey(key);
         var jobStatus = JobStatusService.GetStatus(jobKey.Name);
