@@ -249,6 +249,7 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             foreach (var excludedJob in excludedJobs)
             {
                 Logger.LogInformation("[ScheduleData] Job {ExcludedJobName} has been deleted from service jobs. Removing from scheduler", excludedJob.Name);
+                Logger.LogDebug("[ScheduleData] JobKeys: [{Jobkeys}]", queueJobKeys.Select(x => x.Name).ToArray());
 
                 jobCount--;
                 try
