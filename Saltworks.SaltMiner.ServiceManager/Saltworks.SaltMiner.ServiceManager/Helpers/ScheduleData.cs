@@ -46,7 +46,7 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
         var lookup = rsp.Data?.FirstOrDefault();
         if (!rsp.Success || lookup == null)
         {
-            Logger.LogError("Failed to read service job options lookup from sys_lookups.");
+            Logger.LogError("[ScheduleData] Failed to read service job options lookup from sys_lookups.");
             return;
         }
         lookup.Values.Clear();
@@ -56,14 +56,14 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             lookup.Values.Add(new() { Display = c, Value = c, Order = lookup.Values.Count + 1 });
         var rsp2 = DataClient.LookupAddUpdate(lookup);
         if (!rsp2.Success)
-            Logger.LogError("Failed to update service job options lookup in sys_lookups ([{Code}] {Msg}).", rsp2.StatusCode, rsp2.Message);
+            Logger.LogError("[ScheduleData] Failed to update service job options lookup in sys_lookups ([{Code}] {Msg}).", rsp2.StatusCode, rsp2.Message);
     }
 
     private async Task<JobKey> HandleCommandJob(IScheduler scheduler, ServiceJob job, CancellationToken cancelToken)
     {
         if (!Config.IsValidJobType(job.Option))
         {
-            Logger.LogError("Invalid option '{SvcType}' in service manager Config, skipping...", job.Option);
+            Logger.LogError("[ScheduleData] Invalid option '{SvcType}' in service manager Config, skipping...", job.Option);
             if (job.Status != ServiceJobStatus.Failed.ToString("g"))
             {
                 job.Status = ServiceJobStatus.Failed.ToString("g");
@@ -98,7 +98,7 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
                 JobStatusService.RemoveStatus(jobKey.Name);
                 job.NextRunTime = default;
             }
-            Logger.LogInformation("The {JobName} job is disabled and currently removed from the schedule.", job.Name);
+            Logger.LogInformation("[ScheduleData] The {JobName} job is disabled and currently removed from the schedule.", job.Name);
             job.Status = "";
             DataClient.ServiceJobAddUpdate(job);
             return null;
@@ -150,11 +150,11 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
                     {
                         { CommandJob.SVC_JOB_NAME, job.Name }
                     }, cancelToken);
-                Logger.LogInformation("The {JobName} job is scheduled to run immediately.", job.Name);
+                Logger.LogInformation("[ScheduleData] The {JobName} job is scheduled to run immediately.", job.Name);
             }
             else
             {
-                Logger.LogInformation("The {JobName} job is scheduled to run immediately, but is already running and will not be run again.", job.Name);
+                Logger.LogInformation("[ScheduleData] The {JobName} job is scheduled to run immediately, but is already running and will not be run again.", job.Name);
             }
         }
 
@@ -188,19 +188,20 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
     {
         var queueJobKeys = new List<JobKey>();
 
-        Logger.LogDebug("Reading job queue and updating scheduler");
+        Logger.LogDebug("[ScheduleData] Reading job queue and updating scheduler");
 
         var request = new SearchRequest { PagingInfo = new(1000) };
         var jobGenerator = DataGenerator.Generate(request, DataClient.ServiceJobSearch);
 
         if (!jobGenerator.Any())
         {
-            Logger.LogInformation("No jobs were found!");
+            Logger.LogInformation("[ScheduleData] No jobs were found!");
             await scheduler.Clear(cancelToken);
             return;
         }
 
         // schedule command jobs found in queue
+        var count = 0;
         foreach (var job in jobGenerator.Where(j => ServiceJobType.Command.ToString("g") == j.Type))
         {
             try
@@ -214,9 +215,11 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             catch (Exception ex)
             {
                 // don't stop just because this one failed, but log it
-                Logger.LogError(ex, "Error reading service job with ID '{Id}' and type '{Type}': [{ExType}] {ExMsg}", job?.Id ?? "unknown", job?.Option ?? "unknown", ex.GetType().Name, ex.Message);
+                Logger.LogError(ex, "[ScheduleData] Error reading service job with ID '{Id}' and type '{Type}': [{ExType}] {ExMsg}", job?.Id ?? "unknown", job?.Option ?? "unknown", ex.GetType().Name, ex.Message);
             }
+            count++;
         }
+        Logger.LogDebug("[ScheduleData] Found {Count} total job(s) in data (not counting heartbeat/monitoring), {List} job(s) in resulting job keys list.", count, queueJobKeys.Count);
 
         try
         {
@@ -224,7 +227,7 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error removing obsolete service job(s): [{ExName}] {ExMsg}", ex.GetType().Name, ex.Message);
+            Logger.LogError(ex, "[ScheduleData] Error removing obsolete service job(s): [{ExName}] {ExMsg}", ex.GetType().Name, ex.Message);
         }
     }
 
@@ -245,7 +248,7 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             var excludedJobs = scheduledJobKeys.Where(x => !queueJobKeys.Exists(y => y.Name == x.Name) && x.Name != heartbeatJobKey.Name && x.Name != monitoringJobKey.Name);
             foreach (var excludedJob in excludedJobs)
             {
-                Logger.LogInformation("Job {ExcludedJobName} as been deleted from service jobs. Removing from scheduler", excludedJob.Name);
+                Logger.LogInformation("[ScheduleData] Job {ExcludedJobName} has been deleted from service jobs. Removing from scheduler", excludedJob.Name);
 
                 jobCount--;
                 try
@@ -256,10 +259,10 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
                 catch (Exception ex)
                 {
                     // log error but keep rolling
-                    Logger.LogError(ex, "Failed to deleted old service job with key '{Key}'.", excludedJob?.Name ?? "unknown");
+                    Logger.LogError(ex, "[ScheduleData] Failed to deleted old service job with key '{Key}'.", excludedJob?.Name ?? "unknown");
                 }
             }
         }
-        Logger.LogInformation("Job refresh - {Count} job(s) scheduled", jobCount);
+        Logger.LogInformation("[ScheduleData] Job refresh - {Count} job(s) scheduled", jobCount);
     }
 }
