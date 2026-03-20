@@ -79,7 +79,7 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
         var jobStatus = JobStatusService.GetStatus(jobKey.Name);
 
         // if no changes needed, bug out (if we missed a run time, we need to process an update to catch it up)
-        if (job.Status != ServiceJobStatus.Pending.ToString("g") && (!job.NextRunTime.HasValue || job.NextRunTime.Value > DateTime.UtcNow))
+        if (job.Status != ServiceJobStatus.Pending.ToString("g") && job.Status == jobStatus.Status && (!job.NextRunTime.HasValue || job.NextRunTime.Value > DateTime.UtcNow))
             return jobKey;
 
         // we assume we aren't on first run if we are cancelling, so should already exist in scheduler
