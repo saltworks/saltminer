@@ -18,8 +18,6 @@
 * ----
 */
 
-﻿
-
 using Saltworks.SaltMiner.ServiceManager.JobModels;
 using System.Collections.Concurrent;
 
@@ -34,7 +32,7 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
             Statuses[jobKey] = status;
         }
 
-        public JobStatusDto? GetStatus(string jobKey)
+        public JobStatusDto GetStatus(string jobKey)
         {
             Statuses.TryGetValue(jobKey, out var status);
             return status ?? new();

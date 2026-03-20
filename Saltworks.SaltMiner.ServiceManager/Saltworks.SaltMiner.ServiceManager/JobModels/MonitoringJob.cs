@@ -23,65 +23,58 @@ using Quartz;
 using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.ServiceManager.Helpers;
 
-namespace Saltworks.SaltMiner.ServiceManager.JobModels
+namespace Saltworks.SaltMiner.ServiceManager.JobModels;
+
+[DisallowConcurrentExecution]
+internal class MonitoringJob(ILogger<MonitoringJob> logger, EventLogger eventLogger) : IJob
 {
-    [DisallowConcurrentExecution]
-    internal class MonitoringJob : IJob
+    private readonly ILogger Logger = logger;
+    private readonly EventLogger EventLogger = eventLogger;
+    private static IScheduler Scheduler;
+
+    public Task Execute(IJobExecutionContext context)
     {
-        private readonly ILogger Logger;
-        private readonly EventLogger EventLogger;
-        private static IScheduler Scheduler;
-
-        public MonitoringJob(ILogger<MonitoringJob> logger, EventLogger eventLogger)
+        return Task.Run(() =>
         {
-            Logger = logger;
-            EventLogger = eventLogger;
-        }
+            var executingJobs = Scheduler.GetCurrentlyExecutingJobs().Result;
 
-        public Task Execute(IJobExecutionContext context)
-        {
-            return Task.Run(() =>
+            foreach (var executingJob in executingJobs.Where(x => x.JobDetail.Key.Name != "Monitoring|0" && x.JobDetail.Key.Name != "Heartbeat|0"))
             {
-                var executingJobs = Scheduler.GetCurrentlyExecutingJobs().Result;
-
-                foreach (var executingJob in executingJobs.Where(x => x.JobDetail.Key.Name != "Monitoring|0" && x.JobDetail.Key.Name != "Heartbeat|0"))
-                {
-                    var elapsedTime = string.Format("{0:D2}:{1:D2}:{2:D2}", executingJob.JobRunTime.Hours, executingJob.JobRunTime.Minutes, executingJob.JobRunTime.Seconds);
-                    var logMsg = $"[Monitoring] Job {executingJob.JobDetail.JobDataMap.GetString("serviceJobName")} is still in progress.";
-                    var eLogMsg = $"Job still in progress. Elapsed time: {elapsedTime}";
-                    EventLogger.Log(executingJob.JobDetail.Key, executingJob.JobDetail.JobDataMap, EventStatus.InProgress, LogSeverity.Information, eLogMsg, JobOutcome.InProgress.ToString("g"));
-                    Logger.LogInformation("{Msg}", logMsg);
-                }
-            });
-        }
-
-        internal static async Task<JobKey> AddMonitoring(IScheduler scheduler, int intervalSeconds)
-        {
-            Scheduler = scheduler;
-
-            var jobKey = new JobKey("Monitoring|0");
-
-            // if interval config is zero, don't schedule (monitoring disabled)
-            if (await scheduler.CheckExists(jobKey) || intervalSeconds == 0)
-            {
-                return jobKey;
+                var elapsedTime = string.Format("{0:D2}:{1:D2}:{2:D2}", executingJob.JobRunTime.Hours, executingJob.JobRunTime.Minutes, executingJob.JobRunTime.Seconds);
+                var logMsg = $"[Monitoring] Job {executingJob.JobDetail.JobDataMap.GetString("serviceJobName")} is still in progress.";
+                var eLogMsg = $"Job still in progress. Elapsed time: {elapsedTime}";
+                EventLogger.Log(executingJob.JobDetail.Key, executingJob.JobDetail.JobDataMap, EventStatus.InProgress, LogSeverity.Information, eLogMsg, JobOutcome.InProgress.ToString("g"));
+                Logger.LogInformation("{Msg}", logMsg);
             }
+        });
+    }
 
-            var monitoringJob = JobBuilder.Create<MonitoringJob>()
-                .WithIdentity(jobKey)
-                .UsingJobData("serviceJobName", "Monitoring")
-                .Build();
+    internal static async Task<JobKey> AddMonitoring(IScheduler scheduler, int intervalSeconds)
+    {
+        Scheduler = scheduler;
 
-            var monitoringTrigger = TriggerBuilder.Create()
-                .WithIdentity("monitoringTrigger")
-                .UsingJobData("serviceJobName", "Monitoring")
-                .StartNow()
-                .WithSimpleSchedule(x => x.WithIntervalInSeconds(intervalSeconds).RepeatForever())
-                .Build();
+        var jobKey = new JobKey("Monitoring|0");
 
-            // Add the Monitoring Job with the Trigger
-            await scheduler.ScheduleJob(monitoringJob, monitoringTrigger);
+        // if interval config is zero, don't schedule (monitoring disabled)
+        if (await scheduler.CheckExists(jobKey) || intervalSeconds == 0)
+        {
             return jobKey;
         }
+
+        var monitoringJob = JobBuilder.Create<MonitoringJob>()
+            .WithIdentity(jobKey)
+            .UsingJobData("serviceJobName", "Monitoring")
+            .Build();
+
+        var monitoringTrigger = TriggerBuilder.Create()
+            .WithIdentity("monitoringTrigger")
+            .UsingJobData("serviceJobName", "Monitoring")
+            .StartNow()
+            .WithSimpleSchedule(x => x.WithIntervalInSeconds(intervalSeconds).RepeatForever())
+            .Build();
+
+        // Add the Monitoring Job with the Trigger
+        await scheduler.ScheduleJob(monitoringJob, monitoringTrigger);
+        return jobKey;
     }
 }

@@ -23,6 +23,7 @@ using Quartz;
 using Quartz.Listener;
 using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.ServiceManager.JobModels;
+using static Saltworks.SaltMiner.Core.Entities.Job;
 
 namespace Saltworks.SaltMiner.ServiceManager.Helpers
 {
@@ -35,6 +36,7 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
         public override Task JobToBeExecuted(IJobExecutionContext context, CancellationToken cancellationToken = default)
         {
             var jobKey = context.JobDetail.Key.Name;
+            logger.LogDebug("[JobListener] Job to be executed: {Jobkey}", jobKey);
             var status = new JobStatusDto
             {
                 JobKey = jobKey,
@@ -52,6 +54,7 @@ namespace Saltworks.SaltMiner.ServiceManager.Helpers
         {
             var jobKey = context.JobDetail.Key.Name;
             var jobStatus = JobStatusService.GetStatus(jobKey);
+            logger.LogDebug("[JobListener] Job {Jobkey} was executed. Status: {Status}", jobKey, jobStatus.Status);
 
             jobStatus.Duration = context.JobRunTime;
 

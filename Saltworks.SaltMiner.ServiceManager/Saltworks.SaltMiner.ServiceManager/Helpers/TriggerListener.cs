@@ -34,22 +34,32 @@ public class TriggerListener(ILogger logger, EventLogger eventLogger) : TriggerL
 
     public override Task TriggerComplete(ITrigger trigger, IJobExecutionContext context, SchedulerInstruction triggerInstructionCode, CancellationToken cancellationToken = default)
     {
+        Logger.LogDebug("[TriggerListener] '{JobName}' Complete.", trigger?.JobKey?.Name ?? "??");
+
         var elapsedTime = string.Format("{0:D2}:{1:D2}:{2:D2}", context.JobRunTime.Hours, context.JobRunTime.Minutes, context.JobRunTime.Seconds);
-        EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.Complete, LogSeverity.Information, $"Job Complete - elapsed time: {elapsedTime}", "success");
         var nextFireDate = context.NextFireTimeUtc.GetValueOrDefault().UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " GMT";
-        return Task.Run(() => { Logger.LogInformation("[TriggerListener] '{JobName}' Completed. Elapsed time: {Elapsed}. Next run-time is: {NextRun}", context.JobDetail.Key.Name, elapsedTime, nextFireDate); }, cancellationToken);
+
+        EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.Complete, LogSeverity.Information, $"Job Complete - elapsed time: {elapsedTime}", "success");
+        Logger.LogInformation("[TriggerListener] '{JobName}' Completed. Elapsed time: {Elapsed}. Next run-time is: {NextRun}", context.JobDetail.Key.Name, elapsedTime, nextFireDate);
+
+        return Task.CompletedTask;
     }
 
     public override Task TriggerFired(ITrigger trigger, IJobExecutionContext context, CancellationToken cancellationToken = default)
     {
-        EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.InProgress, LogSeverity.Information, "Job Started", "unknown");
+        Logger.LogDebug("[TriggerListener] '{JobName}' Fired.", trigger?.JobKey?.Name ?? "??");
+
         var nextFireDate = context.NextFireTimeUtc.GetValueOrDefault().UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " GMT";
-        return Task.Run(() => { Logger.LogInformation("[TriggerListener] '{JobName}' has started. Next run-time is: {NextRun}", context.JobDetail.Key.Name, nextFireDate); }, cancellationToken);
+
+        EventLogger.Log(context.JobDetail.Key, context.JobDetail.JobDataMap, EventStatus.InProgress, LogSeverity.Information, "Job Started", "unknown");
+        Logger.LogInformation("[TriggerListener] '{JobName}' has started. Next run-time is: {NextRun}", context.JobDetail.Key.Name, nextFireDate);
+
+        return Task.CompletedTask;
     }
 
     public override Task TriggerMisfired(ITrigger trigger, CancellationToken cancellationToken = default)
     {
-        Logger.LogWarning("[TriggerListener] '{JobName}' Misfired.", trigger.JobKey.Name);
+        Logger.LogWarning("[TriggerListener] '{JobName}' Misfired.", trigger?.JobKey?.Name ?? "??");
         return Task.CompletedTask;
     }
 }
