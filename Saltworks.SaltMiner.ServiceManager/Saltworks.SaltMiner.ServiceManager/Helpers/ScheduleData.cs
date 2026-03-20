@@ -73,13 +73,14 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             return null;
         }
 
-        // if no changes needed, bug out (if we missed a run time, we need to process an update to catch it up)
-        if (job.Status != ServiceJobStatus.Pending.ToString("g") && (!job.NextRunTime.HasValue || job.NextRunTime.Value > DateTime.UtcNow))
-            return JobKey.Create(job.Name);
 
         var key = $"{job.Option}|{job.Id}";
         var jobKey = new JobKey(key);
         var jobStatus = JobStatusService.GetStatus(jobKey.Name);
+
+        // if no changes needed, bug out (if we missed a run time, we need to process an update to catch it up)
+        if (job.Status != ServiceJobStatus.Pending.ToString("g") && (!job.NextRunTime.HasValue || job.NextRunTime.Value > DateTime.UtcNow))
+            return jobKey;
 
         // we assume we aren't on first run if we are cancelling, so should already exist in scheduler
         if (job.Cancel)
@@ -108,6 +109,8 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
 
         // if we made it here, the job should be active - add/update in scheduler
         var queueJobKey = await CommandJob.AddCronCommand(scheduler, job.Name, job.Option, job.Id, job.Schedule, job.Parameters, Logger);
+        if (queueJobKey != null && !queueJobKey.Name.Contains('|'))
+            Logger.LogWarning("[ScheduleData] The generated job key '{JobKey}' appears to be incorrect.", queueJobKey.Name);
 
         // use this to indicate status changed or scheduled/run time changes found
         bool updateJob = false;
@@ -208,7 +211,11 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             {
                 var jobKey = await HandleCommandJob(scheduler, job, cancelToken);
                 if (jobKey != null)
+                {
+                    if (!jobKey.Name.Contains('|'))
+                        Logger.LogWarning("[ScheduleData] The generated job key '{JobKey}' appears to be incorrect while reading from job generator.", jobKey.Name);
                     queueJobKeys.Add(jobKey);
+                }
                 if (cancelToken.IsCancellationRequested)
                     break;
             }
