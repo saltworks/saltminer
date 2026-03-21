@@ -70,7 +70,10 @@ internal class MonitoringJob(ILogger<MonitoringJob> logger, EventLogger eventLog
             .WithIdentity("monitoringTrigger")
             .UsingJobData("serviceJobName", "Monitoring")
             .StartNow()
-            .WithSimpleSchedule(x => x.WithIntervalInSeconds(intervalSeconds).RepeatForever())
+            .WithSimpleSchedule(x => x
+                .WithIntervalInSeconds(intervalSeconds)
+                .RepeatForever()
+                .WithMisfireHandlingInstructionIgnoreMisfires())
             .Build();
 
         // Add the Monitoring Job with the Trigger

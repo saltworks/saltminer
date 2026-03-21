@@ -56,7 +56,10 @@ namespace Saltworks.SaltMiner.ServiceManager.JobModels
                 .WithIdentity("heartbeatTrigger")
                 .UsingJobData("serviceJobName", "Heartbeat")
                 .StartNow()
-                .WithSimpleSchedule(x => x.WithIntervalInSeconds(intervalSeconds).RepeatForever())
+                .WithSimpleSchedule(x => x
+                    .WithIntervalInSeconds(intervalSeconds)
+                    .RepeatForever()
+                    .WithMisfireHandlingInstructionIgnoreMisfires())
                 .Build();
 
             // Add the HeartbeatJob Job with the Trigger

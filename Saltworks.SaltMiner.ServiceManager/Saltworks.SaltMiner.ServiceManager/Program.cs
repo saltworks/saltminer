@@ -109,7 +109,14 @@ namespace Saltworks.SaltMiner.ServiceManager
             cmd.Add(configVerb);
             cmd.Add(versionVerb);
 
-            return await cmd.InvokeAsync(args);
+            try
+            {
+                return await cmd.InvokeAsync(args);
+            }
+            finally
+            {
+                CancelTokenSource.Dispose();
+            }
         }
 
         private static void RunAppBuilder(IConsoleAppHostArgs args)
@@ -140,6 +147,7 @@ namespace Saltworks.SaltMiner.ServiceManager
                                 configureOptions.ApiKey = serviceManagerConfig.DataApiKey;
                                 configureOptions.Timeout = TimeSpan.FromSeconds(serviceManagerConfig.DataApiTimeoutSec);
                                 configureOptions.VerifySsl = serviceManagerConfig.DataApiVerifySsl;
+                                configureOptions.RunConfig.DisableInitialConnection = true;
 
                             });
                         }

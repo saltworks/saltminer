@@ -27,7 +27,7 @@ using static Saltworks.SaltMiner.Core.Entities.Job;
 
 namespace Saltworks.SaltMiner.ServiceManager.Helpers
 {
-    public class JobListener(ILogger logger, EventLogger eventLogger, IJobStatusService jobStatusService) : JobListenerSupport
+    public class JobListener(ILogger logger, IJobStatusService jobStatusService) : JobListenerSupport
     {
         private readonly IJobStatusService JobStatusService = jobStatusService;
 

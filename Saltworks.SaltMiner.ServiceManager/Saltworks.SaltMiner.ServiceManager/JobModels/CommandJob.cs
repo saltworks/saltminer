@@ -35,12 +35,7 @@ using System.Text;
 namespace Saltworks.SaltMiner.ServiceManager.JobModels;
 
 [DisallowConcurrentExecution]
-public class CommandJob(
-    ServiceManagerConfig config,
-    ILogger<CommandJob> logger,
-    EventLogger eventLogger,
-    DataClientFactory<DataClient.DataClient> dataClientFactory,
-    IJobStatusService jobStatusService) : IJob
+public class CommandJob(ServiceManagerConfig config, ILogger<CommandJob> logger, EventLogger eventLogger, DataClientFactory<DataClient.DataClient> dataClientFactory, IJobStatusService jobStatusService) : IJob
 {
     internal const string SVC_JOB_NAME = "serviceJobName";
     private readonly string OUTCOME_SUCCESS = JobOutcome.Success.ToString("g");
@@ -48,8 +43,18 @@ public class CommandJob(
     private readonly ServiceManagerConfig Config = config;
     private readonly ILogger Logger = logger;
     private readonly EventLogger EventLogger = eventLogger;
-    private readonly DataClient.DataClient DataClient = dataClientFactory.GetClient();
+    private readonly DataClientFactory<DataClient.DataClient> DataClientFactory = dataClientFactory;
+    private DataClient.DataClient _DataClient;
     private readonly IJobStatusService JobStatusService = jobStatusService;
+
+    private DataClient.DataClient DataClient
+    {
+        get
+        {
+            _DataClient ??= DataClientFactory.GetClient();
+            return _DataClient;
+        }
+    }
 
     // these properties get their value from an 'auto inject' of the mapped job detail data during job setup
     public string CommandParams { private get; set; }

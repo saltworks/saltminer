@@ -53,7 +53,7 @@ public class ServiceManager : BackgroundService, IConsoleAppHost
         Logger.LogDebug("ApplicationBasePath: {Path}", config.ApplicationPath);
         Sched = schedFactory.GetScheduler().Result;
         Sched.ListenerManager.AddSchedulerListener(new SchedulerListener(logger, eventLogger));
-        Sched.ListenerManager.AddJobListener(new JobListener(logger, eventLogger, jobStatusService));
+        Sched.ListenerManager.AddJobListener(new JobListener(logger, jobStatusService));
         Sched.ListenerManager.AddTriggerListener(new TriggerListener(logger, eventLogger));
         ScheduleData = scheduleData;
         Logger.LogInformation("Initialized...");
