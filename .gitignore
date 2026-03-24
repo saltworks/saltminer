@@ -6,6 +6,7 @@
 **/*/[Dd]ebug/
 **/*/[Bb]in/
 **/*/.vs/
+.vs
 **/*/[Pp]roperties/
 **/*/TestResults/
 **/*/ConfigPath.json
