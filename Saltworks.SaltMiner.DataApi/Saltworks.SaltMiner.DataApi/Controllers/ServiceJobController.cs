@@ -1,15 +1,19 @@
 /* --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-12-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 */
@@ -57,7 +61,11 @@ public class ServiceJobController(ServiceJobContext context, ILogger<ServiceJobC
     {
         Logger.LogInformation("Post action called");
 
-        return Accepted(Context.AddUpdate(request, ServiceJobIndex));
+        var rsp = Context.AddUpdate(request, ServiceJobIndex);
+        if (rsp.Success)
+            return Accepted(rsp);
+        else
+            return StatusCode(rsp.StatusCode, rsp);
     }
 
     /// <summary>
@@ -69,7 +77,7 @@ public class ServiceJobController(ServiceJobContext context, ILogger<ServiceJobC
     [HttpDelete("{id}")]
     public ActionResult<NoDataResponse> Delete(string id)
     {
-        Logger.LogInformation("Delete action called for id '{id}'", id);
+        Logger.LogInformation("Delete action called for id '{Id}'", id);
 
         return Ok(Context.Delete<ServiceJob>(id, ServiceJobIndex));
     }
@@ -83,7 +91,7 @@ public class ServiceJobController(ServiceJobContext context, ILogger<ServiceJobC
     [HttpGet("{id}")]
     public ActionResult<DataItemResponse<ServiceJob>> Get(string id)
     {
-        Logger.LogInformation("Get action called for service job id '{id}'", id);
+        Logger.LogInformation("Get action called for service job id '{Id}'", id);
 
 
         return Ok(Context.Get<ServiceJob>(id, ServiceJobIndex));

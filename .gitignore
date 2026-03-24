@@ -1,10 +1,12 @@
 **/*/.DS_Store
+.vs/
 .vscode/
 **/*/.vscode
 **/*/[Oo]bj/
 **/*/[Dd]ebug/
 **/*/[Bb]in/
 **/*/.vs/
+.vs
 **/*/[Pp]roperties/
 **/*/TestResults/
 **/*/ConfigPath.json

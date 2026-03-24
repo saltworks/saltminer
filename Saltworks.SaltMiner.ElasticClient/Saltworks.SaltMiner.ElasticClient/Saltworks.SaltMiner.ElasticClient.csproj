@@ -31,8 +31,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Elastic.Clients.Elasticsearch" Version="8.19.14" />
-    <PackageReference Include="System.Text.Json" Version="10.0.2" />
+    <PackageReference Include="Elastic.Clients.Elasticsearch" Version="8.19.17" />
+    <PackageReference Include="System.Text.Json" Version="10.0.5" />
   </ItemGroup>
 
   <ItemGroup>

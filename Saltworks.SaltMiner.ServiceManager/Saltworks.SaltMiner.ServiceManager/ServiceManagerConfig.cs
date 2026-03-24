@@ -1,15 +1,19 @@
 /* --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-12-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 */
@@ -17,6 +21,7 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Common;
+using System.Text.Json.Nodes;
 
 namespace Saltworks.SaltMiner.ServiceManager
 {
@@ -32,11 +37,10 @@ namespace Saltworks.SaltMiner.ServiceManager
         }
 
         public const string DEFAULT_MANAGER_EXECUTABLE_FILE = "Saltworks.SaltMiner.Manager";
-        public const string DEFAULT_JOBMANAGER_EXECUTABLE_FILE = "Saltworks.SaltMiner.JobManager";
         public const string DEFAULT_AGENT_EXECUTABLE_FILE = "Saltworks.SaltMiner.SyncAgent";
-        public const string DEFAULT_API_EXECUTABLE_FILE = "Saltworks.SaltMiner.DataApi";
-        public const string DEFAULT_UIAPI_EXECUTABLE_FILE = "Saltworks.SaltMiner.Ui.Api";
-        private readonly string[] ValidProcessors = new string[] { "Scheduler" };
+        private const string DEFAULT_V2_PATH = "saltminer-2.5.0";
+        private const string DEFAULT_V3_PATH = "saltminer-3.0.0";
+        private readonly string[] ValidProcessors = [ "Scheduler" ];
         public string DefaultApplicationExecutableExtension { get; set; } = "dll";
         public string DataApiBaseUrl { get; set; }
         public bool DataApiVerifySsl { get; set; } = true;
@@ -48,16 +52,25 @@ namespace Saltworks.SaltMiner.ServiceManager
         public string ApplicationPath { get; set; } = string.Empty;
         public string DotNetPath { get; set; } = "dotnet";
         public string PythonInterpreter { get; set; } = "python3";
+        // DO NOT SET PATHS HERE, SEE SetDefaults()
+        public string PythonVenvActivatePath { get; set; } = string.Empty;
+        public string PythonConfigEnvVariableName { get; set; } = "SALTMINER_2_CONFIG_PATH";
+        public string PythonConfigEnvVariableValue { get; set; } = string.Empty;
         public string BashInterpreterPath { get; set; } = "/bin/bash";
+        public string ManagerConfigOption => "Manager";
+        public string ManagerConfigEnvVariableName { get; set; } = "SALTMINER_MANAGER_CONFIG_PATH";
+        public string ManagerConfigEnvVariableValue { get; set; } = string.Empty;
         public string ManagerExecutablePath { get; set; } = string.Empty;
+        public string SyncAgentConfigOption => "SyncAgent";
+        public string SyncAgentConfigEnvVariableName { get; set; } = "SALTMINER_AGENT_CONFIG_PATH";
+        public string SyncAgentConfigEnvVariableValue { get; set; } = string.Empty;
         public string SyncAgentExecutablePath { get; set; } = string.Empty;
-        public string DataApiExecutablePath { get; set; } = string.Empty;
-        public string JobManagerExecutablePath { get; set; } = string.Empty;
-        public string UiApiExecutablePath { get; set; } = string.Empty;
         public int JobThreadCount { get; set; } = 20;
-        public Dictionary<string, string> AllowedExecutables { get; set; } = new();
+        public Dictionary<string, string> AllowedExecutables { get; set; } = [];
+        public List<string> AllowedPythonPaths { get; set; } = [];
+        public bool AllowedPythonPathsRecursive { get; set; } = true;
         public Dictionary<string, int> ServiceProcessorIntervals { get; set; } = new() { { "Scheduler", 60 } };
-        public readonly string[] SaltMinerApplications = { "Manager", "JobManager", "SyncAgent", "Api", "Ui-Api", "ServiceManager" };
+        public readonly string[] SaltMinerApplications = [ "Manager", "SyncAgent", "ServiceManager" ];
 
         public static string GetWorkingDir(string path) => path.Replace(Path.GetFileName(path).ToString(), "");
         public bool IsValidJobType(string jobType)
@@ -65,93 +78,77 @@ namespace Saltworks.SaltMiner.ServiceManager
             if (SaltMinerApplications != null)
             {
                 if (SaltMinerApplications.Contains(jobType))
-                {
                     return true;
-                }
-
                 if (AllowedExecutables.ContainsKey(jobType))
-                {
                     return true;
-                }
             }
 
             return false;
         }
         public void SetDefaults()
         {
-            // Assume we can get current dir and go up one to find all the apps (i.e. /usr/share/saltworks/saltminer-3.0.0)
-            if (string.IsNullOrEmpty(ApplicationPath))
+            try
             {
-                ApplicationPath = Directory.GetParent(AppDomain.CurrentDomain.BaseDirectory).Parent.FullName;
-            }
+                // Assume we can get current dir and go up one to find all the apps (i.e. /usr/share/saltworks/saltminer-3.0.0)
+                if (string.IsNullOrEmpty(ApplicationPath))
+                    ApplicationPath = Directory.GetParent(AppDomain.CurrentDomain.BaseDirectory).Parent.FullName;
 
-            if (string.IsNullOrEmpty(ManagerExecutablePath))
-            {
-                ManagerExecutablePath = Path.Combine(ApplicationPath, "manager", $"{DEFAULT_MANAGER_EXECUTABLE_FILE}.{DefaultApplicationExecutableExtension}");
-            }
+                // Default python main directory is valid for running python scripts
+                if (ApplicationPath.EndsWith(DEFAULT_V3_PATH) && AllowedPythonPaths.Count == 0)
+                    AllowedPythonPaths.Add(Path.Combine(Directory.GetParent(ApplicationPath).FullName, DEFAULT_V2_PATH));
+                if (string.IsNullOrEmpty(ManagerExecutablePath))
+                    ManagerExecutablePath = Path.Combine(ApplicationPath, "manager", $"{DEFAULT_MANAGER_EXECUTABLE_FILE}.{DefaultApplicationExecutableExtension}");
+                if (string.IsNullOrEmpty(SyncAgentExecutablePath))
+                    SyncAgentExecutablePath = Path.Combine(ApplicationPath, "agent", $"{DEFAULT_AGENT_EXECUTABLE_FILE}.{DefaultApplicationExecutableExtension}");
+                if (string.IsNullOrEmpty(PythonVenvActivatePath))
+                    PythonVenvActivatePath = Path.Combine(Directory.GetParent(ApplicationPath).FullName, ".venv", "bin", "activate");
 
-            if (string.IsNullOrEmpty(JobManagerExecutablePath))
-            {
-                JobManagerExecutablePath = Path.Combine(ApplicationPath, "jobmanager", $"{DEFAULT_JOBMANAGER_EXECUTABLE_FILE}.{DefaultApplicationExecutableExtension}");
-            }
+                // Attempt to set config path defaults from my config path
+                if (!File.Exists(Program.LOCATOR_FILE_NAME))
+                    return;
 
-            if (string.IsNullOrEmpty(SyncAgentExecutablePath))
-            {
-                SyncAgentExecutablePath = Path.Combine(ApplicationPath, "agent", $"{DEFAULT_AGENT_EXECUTABLE_FILE}.{DefaultApplicationExecutableExtension}");
-            }
+                var configPath = string.Empty;
+                var json = JsonNode.Parse(File.ReadAllText(Program.LOCATOR_FILE_NAME))?.AsObject();
+                if (json != null)
+                    configPath = json["ConfigPath"]?.GetValue<string>();
+                if (string.IsNullOrEmpty(configPath))
+                    return;
 
-            if (string.IsNullOrEmpty(DataApiExecutablePath))
-            {
-                DataApiExecutablePath = Path.Combine(ApplicationPath, "api", $"{DEFAULT_API_EXECUTABLE_FILE}.{DefaultApplicationExecutableExtension}");
+                configPath = Directory.GetParent(configPath).Parent.Parent.FullName;  // i.e. /etc/saltworks
+                if (string.IsNullOrEmpty(PythonConfigEnvVariableValue))
+                    PythonConfigEnvVariableValue = Path.Combine(configPath, DEFAULT_V2_PATH);
+                if (string.IsNullOrEmpty(ManagerConfigEnvVariableValue))
+                    ManagerConfigEnvVariableValue = Path.Combine(configPath, DEFAULT_V3_PATH);
+                if (string.IsNullOrEmpty(SyncAgentConfigEnvVariableValue))
+                    SyncAgentConfigEnvVariableValue = Path.Combine(configPath, DEFAULT_V3_PATH);
             }
-
-            if (string.IsNullOrEmpty(UiApiExecutablePath))
+            catch (Exception ex)
             {
-                UiApiExecutablePath = Path.Combine(ApplicationPath, "ui-api", $"{DEFAULT_UIAPI_EXECUTABLE_FILE}.{DefaultApplicationExecutableExtension}");
+                Console.Error.WriteLine($"Error setting default paths - [{ex.GetType().Name}] {ex.Message}");
             }
         }
 
         public void Validate(ILogger logger = null)
         {
             if (!(new string[] { "dll", "exe" }).Contains(DefaultApplicationExecutableExtension))
-            {
                 throw new ConfigurationException("Invalid setting DefaultApplicationExecutableExtension - should be 'dll' or 'exe' or unset.");
-            }
 
             foreach(var e in ServiceProcessorIntervals)
             {
                 if (!ValidProcessors.Contains(e.Key) || e.Value < 1 || e.Value > (int.MaxValue / 1000))
-                {
                     throw new ConfigurationException($"Invalid configured service processor '{e.Key}' and/or interval {e.Value}.");
-                }
             }
             
             SetDefaults();
 
             if (!File.Exists(ManagerExecutablePath))
-            {
-                logger?.LogWarning("Couldn't find '{path}'.  Calls to this application may fail.", ManagerExecutablePath);
-            }
-
-            if (!File.Exists(JobManagerExecutablePath))
-            {
-                logger?.LogWarning("Couldn't find '{path}'.  Calls to this application may fail.", JobManagerExecutablePath);
-            }
-
-            if (!File.Exists(DataApiExecutablePath))
-            {
-                logger?.LogWarning("Couldn't find '{path}'.  Calls to this application may fail.", DataApiExecutablePath);
-            }
+                logger?.LogWarning("Couldn't find '{Path}'.  Manager calls may fail.", ManagerExecutablePath);
 
             if (!File.Exists(SyncAgentExecutablePath))
-            {
-                logger?.LogWarning("Couldn't find '{path}'.  Calls to this application may fail.", SyncAgentExecutablePath);
-            }
+                logger?.LogWarning("Couldn't find '{Path}'.  Sync Agent calls may fail.", SyncAgentExecutablePath);
 
-            if (!File.Exists(UiApiExecutablePath))
-            {
-                logger?.LogWarning("Couldn't find '{path}'.  Calls to this application may fail.", UiApiExecutablePath);
-            }
+            if (!File.Exists(PythonVenvActivatePath))
+                logger?.LogWarning("Couldn't find '{Path}'.  Python calls may fail.", SyncAgentExecutablePath);
         }
     }
 }

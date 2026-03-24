@@ -1,15 +1,19 @@
 /* --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-12-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 */
@@ -41,7 +45,7 @@ namespace Saltworks.SaltMiner.ServiceManager
         private const string SERVICE_MANAGER_SETTINGS_FILE = "ServiceManagerSettings.json";
         private const string SERVICE_MANAGER_SETTINGS_APP_SECTION = "ServiceManagerConfig";
         private const string SERVICE_MANAGER_SETTINGS_LOG_SECTION = "LogConfig";
-        private const string LOCATOR_FILE_NAME = "ConfigLocator.json";
+        internal const string LOCATOR_FILE_NAME = "ConfigLocator.json";
         private const string CONFIG_ENV_VARIABLE = "SALTMINER_SERVICEMANAGER_CONFIG_PATH";
         // Generate a cancellation token that can be used by longer running tasks to cancel on break or for other reasons
         private static readonly CancellationTokenSource CancelTokenSource = new();
@@ -52,7 +56,7 @@ namespace Saltworks.SaltMiner.ServiceManager
         {
             if (args.Length == 0)
             {
-                args = new string[] { "service" };
+                args = [ "service" ];
             }
 
             var mutex = new Mutex(false, "SaltMinerServiceManager");
@@ -67,7 +71,6 @@ namespace Saltworks.SaltMiner.ServiceManager
             catch
             {
                 mutex.Close();
-                mutex = null;
             }
 
             Console.CancelKeyPress += delegate (object sender, ConsoleCancelEventArgs e)
@@ -106,7 +109,14 @@ namespace Saltworks.SaltMiner.ServiceManager
             cmd.Add(configVerb);
             cmd.Add(versionVerb);
 
-            return await cmd.InvokeAsync(args);
+            try
+            {
+                return await cmd.InvokeAsync(args);
+            }
+            finally
+            {
+                CancelTokenSource.Dispose();
+            }
         }
 
         private static void RunAppBuilder(IConsoleAppHostArgs args)
@@ -137,6 +147,7 @@ namespace Saltworks.SaltMiner.ServiceManager
                                 configureOptions.ApiKey = serviceManagerConfig.DataApiKey;
                                 configureOptions.Timeout = TimeSpan.FromSeconds(serviceManagerConfig.DataApiTimeoutSec);
                                 configureOptions.VerifySsl = serviceManagerConfig.DataApiVerifySsl;
+                                configureOptions.RunConfig.DisableInitialConnection = true;
 
                             });
                         }
@@ -161,7 +172,7 @@ namespace Saltworks.SaltMiner.ServiceManager
                         catch (Exception ex)
                         {
                             var msg = $"Error in service initialization: {ex.Message}";
-                            logger.LogCritical(ex, msg);
+                            logger.LogCritical(ex, "{Msg}", msg);
                             throw new InitializationException(msg, ex);
                         }
                     },

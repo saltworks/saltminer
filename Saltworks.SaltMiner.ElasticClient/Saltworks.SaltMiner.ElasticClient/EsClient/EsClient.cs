@@ -1,4 +1,24 @@
-﻿using Elastic.Clients.Elasticsearch;
+/* --[auto-generated, do not modify this block]--
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
+
+using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Aggregations;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
 using Elastic.Clients.Elasticsearch.Core.Search;
@@ -32,6 +52,8 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
     private readonly ElasticsearchClient ElasticClient = new(connectionSettings);
     private readonly ILogger Logger = logger;
     private readonly ClientConfiguration ClientConfig = configuration;
+    private static readonly JsonSerializerOptions JsonOptions = new() {  PropertyNameCaseInsensitive = true};
+    private const string UNKNOWN_ERROR = "Unknown error";
 
     public IElasticClientResponse AddActiveIssueAlias(string indexName, string alias)
     {
@@ -116,7 +138,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
             throw new EsClientException($"Type '{typeName}' is not a SaltMinerEntity derivative");
         }
 
-        var entity = doc.Deserialize(entityType, JsonSerializerOptions.Web) as SaltMinerEntity
+        var entity = doc.Deserialize(entityType, JsonOptions) as SaltMinerEntity
             ?? throw new EsClientException($"Failed to deserialize document to type '{typeName}'");
 
         return (entityType, entity);
@@ -128,7 +150,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         var result = ElasticClient.Transport.RequestAsync<PutLifecycleResponse>(HttpMethod.PUT, $"_ilm/policy/{policyName}", PostData.String(policy)).Result;
         if (!result.IsValidResponse)
         {
-            Logger?.LogWarning("Failed to add/update index policy {Name}: {Error}", policyName, result.ElasticsearchServerError?.Error?.Reason ?? "Unknown error");
+            Logger?.LogWarning("Failed to add/update index policy {Name}: {Error}", policyName, result.ElasticsearchServerError?.Error?.Reason ?? UNKNOWN_ERROR);
             return EsClientResponse.BuildResponse(false, result.ElasticsearchServerError?.Error?.Reason ?? "Policy update failed", 0);
         }
         return EsClientResponse.BuildResponse(result.Acknowledged, "Policy updated", 1);
@@ -1555,7 +1577,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
             // Log detailed error information for debugging
             var errorMsg = healthResponse.ElasticsearchServerError?.Error?.Reason ?? 
                             healthResponse.DebugInformation ?? 
-                            "Unknown error";
+                            UNKNOWN_ERROR;
             Logger?.LogWarning("Cluster health check failed: {Error}", errorMsg);
             return EsClientResponse.BuildResponse(false, $"Cluster health check failed: {errorMsg}", 0);
         }
@@ -1860,7 +1882,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         var result = ElasticClient.Transport.RequestAsync<PutIndexTemplateResponse>(HttpMethod.PUT, $"_index_template/{templateName}", PostData.String(template)).Result;
         if (!result.IsValidResponse)
         {
-            Logger?.LogWarning("Failed to add/update index template {Name}: {Error}", templateName, result.ElasticsearchServerError?.Error?.Reason ?? "Unknown error");
+            Logger?.LogWarning("Failed to add/update index template {Name}: {Error}", templateName, result.ElasticsearchServerError?.Error?.Reason ?? UNKNOWN_ERROR);
             return EsClientResponse.BuildResponse(false, result.ElasticsearchServerError?.Error?.Reason ?? "Template update failed", 0);
         }
         return EsClientResponse.BuildResponse(result.Acknowledged, "Template updated", 1);
@@ -1908,7 +1930,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         }
         if (result.ApiCallDetails.HttpStatusCode != 200)
         {
-            Logger?.LogInformation("Failed to get index template {Name}: {Error}", templateName, result?.ApiCallDetails?.DebugInformation ?? "Unknown error");
+            Logger?.LogInformation("Failed to get index template {Name}: {Error}", templateName, result?.ApiCallDetails?.DebugInformation ?? UNKNOWN_ERROR);
             return EsClientResponse<string>.BuildResponse(false, "failed", 0);
         }
         return EsClientResponse<string>.BuildResponse(true, result.Body, 1);
@@ -1938,7 +1960,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
             }
             else
             {
-                var errorMsg = response.ElasticsearchServerError?.Error?.Reason ?? "Unknown error";
+                var errorMsg = response.ElasticsearchServerError?.Error?.Reason ?? UNKNOWN_ERROR;
                 Logger?.LogWarning("Failed to close PIT: {Error}", errorMsg);
                 return EsClientResponse.BuildResponse(false, $"Failed to close PIT: {errorMsg}", 0);
             }
