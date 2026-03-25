@@ -31,6 +31,7 @@ from elasticsearch import Elasticsearch, NotFoundError, exceptions, ConflictErro
 from elasticsearch import helpers
 from elasticsearch.client import SecurityClient, IndicesClient, IngestClient
 from elasticsearch import logger as es_logger
+from elasticsearch.helpers.errors import BulkIndexError
 
 from .StringUtils import StringUtils
 from .DictUtils import DictUtils
@@ -269,9 +270,13 @@ class ElasticClient(object):
             self.__RetryCount = 0
             return rsp
             
+        except BulkIndexError as e:
+            if raiseErrors:
+                first = e.errors[0] if e.errors and len(e.errors) > 0 else "(unavailable)"
+                raise ElasticClientBulkOperationException(f"Bulk operation failed with BulkIndexError.  First error: {first}") from e
         except NotFoundError:
-            if raiseErrors == False:
-                pass
+            if raiseErrors:
+                raise ElasticClientBulkOperationException("Bulk operation failed due to NotFoundError, likely due to one or more missing documents.")
         except (exceptions.ConnectionError, exceptions.ConnectionTimeout, exceptions.TransportError, ReadTimeoutError) as e:
             wait = self.__RetryDelaySecs
             msg = e.__str__()
@@ -1268,7 +1273,7 @@ class ElasticSearchUtilsScroller(object):
         defSort = [ { "id": "asc" } ]
         if not queryBody:
             queryBody = { "sort": defSort }
-        if not "sort" in queryBody.keys():
+        if "sort" not in queryBody.keys():
             queryBody["sort"] = defSort
         self.__Es = elasticClient
         self.ScrollId = None
@@ -1281,7 +1286,7 @@ class ElasticSearchUtilsScroller(object):
         self.TotalHits = 0
         self.__First = True
         self.GetNext()
-        logging.debug(f"Scroller init")
+        logging.debug("Scroller init")
 
     def __enter__(self):
         return self
@@ -1369,4 +1374,6 @@ class ElasticClientConnectionException(ElasticClientException):
 class ElasticClientTimeoutException(ElasticClientException):
     pass
 class ElasticClientSearchFailureException(ElasticClientException):
+    pass
+class ElasticClientBulkOperationException(ElasticClientException):
     pass

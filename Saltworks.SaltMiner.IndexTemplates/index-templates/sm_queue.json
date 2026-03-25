@@ -21,6 +21,7 @@
         },
         "mappings": {
             "properties": {
+                "id": { "type": "keyword" },
                 "source": { "type": "keyword" },
                 "key": { "type": "keyword" },
                 "status": { "type": "keyword" },
