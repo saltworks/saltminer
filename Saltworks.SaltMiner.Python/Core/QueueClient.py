@@ -21,13 +21,13 @@ from collections.abc import Iterable
 
 from .Application import Application
 
-# Use cases:
-# 1. Search for and lock a "bite" for a particular index pattern
-# def Search(body:dict, size:int, lock_id:str) -> list
-# body can include custom query as well as custom sort, but better not mess with the schema
-# 2. Queue up new stuff
-# 3. Status updates (for my locked item, provide a status/stage/reason update)
-# 4. Complete - status = complete or error, also accept stage / reason / error info
+# Requirements/use cases:
+# 1. Search for and lock a batch of queue items
+# 2. Queue up new items
+# 3. Status/stage updates for (my) locked items)
+# 4. Complete - status = complete or error
+# 5. QueueClient accepts an "index pattern tag" which is used to build the index names used for the queue, ex: "sync" would use indexes like "sm_queue_sync_20240601".  This allows for multiple different queues to be accessed using the same class.
+
 
 SM_QUEUE = "sm_queue"
 INVALID_QUEUE_CLIENT_DTO = "Invalid argument, expected QueueClientDto."
@@ -310,7 +310,6 @@ class QueueClientDto(object):
             self.primary_term = dto.get('_primary_term')
             self.id = dto.get('_id')
             self.index = dto.get('_index')
-    # Test: check that init works with both elasticsearch results (self._es.Search) and with scroller items (self._es.SearchScroll), and that the QueueClientDoc is properly populated in both cases, including the sequence number and primary term info.
 
     def Dto(self):
         return {
@@ -399,7 +398,7 @@ class QueueClient(object):
         idx_pattern_tag = idx_pattern_tag.replace("*", "").strip("_")
         self._index_pattern_tag = idx_pattern_tag
 
-        self._batch_size = app.GetSource("Main", "DefaultQueueBatchSize", 500)
+        self._batch_size = app.Settings.Get("Main", "DefaultQueueBatchSize", 500)
         if self._batch_size <= 0 or self._batch_size > MAX_HITS:
             raise QueueClientException(f"DefaultQueueBatchSize setting must be a positive integer no greater than {MAX_HITS}.")
 
@@ -527,7 +526,6 @@ class QueueClient(object):
                 dto = QueueClientDto(item)
                 yield dto
             scroller.GetNext()
-        # Test: include check that DTO includes a valid QueueClientDoc and sequence/primary term info, and that the search body is working as expected with the exclusions.
 
 
     def get_next_queue_batch_body(self):
@@ -536,7 +534,7 @@ class QueueClient(object):
         '''
         body = {
           "aggs": {
-            "total_count": { "value_count": { "field": "id" } }
+            "total_count": { "value_count": { "field": "key" } }
           },
           "query": {
             "bool": {
@@ -683,12 +681,14 @@ class QueueClient(object):
               ]
             }
           },
-          "_source": [ "id", "priority" ]
+          "_source": [ "key", "priority" ]
         }
         rsp = self._es.Search(self.index_pattern, body, 10000, True)
         found = []
-        for item in rsp['data']:
-            found.append((item['_index'], item['_id'], item['_source']['key'], item['_source'].get('priority', self._default_priority)))
+        if not rsp:
+            return found
+        for item in rsp:
+            found.append((item['_index'], item['_id'], item['_source'].get('key'), item['_source'].get('priority', self._default_priority)))
         return found
 
 

@@ -447,33 +447,12 @@ class ElasticClient(object):
         '''
         return self.UpdateDocWithLocking(index, docId, doc, None, None)
 
-    # https://elasticsearch-py.readthedocs.io/en/7.9.1/api.html#elasticsearch.client.IndicesClient.put_template
-    def PutTemplate(self, templateName, body, create=None, includeTypeName=None, masterTimeout=None, order=None,
-                    headers=None):
-        
-        if not self.ic.exists_index_template(name=templateName):
-            params = {}
-            if create is not None:
-                params["create"] = create
-            if masterTimeout is not None:
-                params["master_timeout"] = masterTimeout
-
-            if includeTypeName is not None:
-                pass
-
-            if order is not None:
-                # The 'order' field was replaced by 'priority' in composable templates
-                # If the user passed order, inject it into the body if not already set
-                if "priority" not in body:
-                    body["priority"] = order
-
-            if headers is not None:
-                # The 'headers' param was removed in 8.x; could be mapped to request_options if needed
-                params["request_options"] = {"headers": headers}
-
-
-            self.ic.put_index_template(name=templateName, **body, **params)
-
+    def TemplateExists(self, templateName:str):
+        return self.ic.exists_index_template(name=templateName)
+    
+    def PutTemplate(self, templateName, body, overwrite=False, **params):
+        if overwrite or not self.TemplateExists(templateName):
+            self.ic.put_index_template(name=templateName, body=body, params=params)
 
     def GetIndex(self, indexName, sort=None, limit=1000, pitId=None, pitKeepAlive="5m"):
         '''
