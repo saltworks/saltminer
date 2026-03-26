@@ -23,20 +23,36 @@ Worker class - used to run processing in multi-threaded environment.
 import logging
 from abc import ABC, abstractmethod
 
-from Core.ElasticClient import ElasticClient
-from .Agent import Agent, AgentQueueItem
+from .ElasticClient import ElasticClient
+from .Agent import Agent
+from .QueueClient import QueueClientDto
 
 class WorkerException(Exception):
     '''Custom exception for worker errors.'''
     pass
 
+
+class WorkerFactory(ABC):
+    '''Factory class for creating Worker instances.'''
+    @abstractmethod
+    def create_worker(self, id:int, agent:Agent, **kwargs) -> 'Worker':
+        '''Create and return a new Worker instance.'''
+        raise NotImplementedError("Subclasses must implement create_worker() method")
+
+
 class Worker(ABC):
     '''Worker class for multi-threaded processing of sync/refresh.'''
-    def __init__(self):
+    def __init__(self, id:int, agent:Agent, **kwargs):
+        if not isinstance(id, int) or id < 0:
+            raise WorkerException("Invalid worker ID provided.")
+        if not isinstance(agent, Agent) or agent is None:
+            raise WorkerException("Invalid or null agent provided to worker.")
         self._es = None
         self._logger = None
-        self._agent = None
-        self._id = None
+        self._agent = agent
+        self._id = id
+        self._err_count = 0
+        self._err_threshold = kwargs.get("err_threshold", 5)
 
     @property
     def es(self) -> ElasticClient:
@@ -62,11 +78,17 @@ class Worker(ABC):
             raise WorkerException("Worker ID is not set")
         return self._id
     
-    def initialize(self, id:int, agent:Agent):
-        '''Initialize the worker with an ID and reference to the agent. Must be called before run().'''
-        self._id = id
-        self._agent = agent
+    @property
+    def error_count(self) -> int:
+        return self._err_count
+    error_count.setter
+    def error_count(self, value:int):
+        self._err_count = value
 
+    @property
+    def error_threshold(self) -> int:
+        return self._err_threshold
+    
     def run(self):
         '''Processes items from the agent queue until a sentinel (None) is received.'''
         self.logger.info("Worker %d started", self.id)
@@ -76,20 +98,25 @@ class Worker(ABC):
                 self.agent.queue.task_done()
                 break
             try:
-                if not isinstance(item, AgentQueueItem):
-                    raise WorkerException(f"Invalid queue item type: expected AgentQueueItem, got {type(item)}")
+                if not isinstance(item, QueueClientDto):
+                    raise WorkerException(f"Invalid queue item type: expected QueueClientDto, got {type(item)}")
                 self._process(item)
+                self.error_count = 0
             except Exception:
                 self.logger.exception("Worker %d failed processing item", self.id)
+                self.error_count += 1
+                if self.error_count >= self.error_threshold:
+                    self.logger.error("Worker %d has reached error threshold with %d consecutive errors, stopping worker", self.id, self.error_count)
+                    break
             finally:
                 self.agent.queue.task_done()
         logging.getLogger(__name__).info("Worker %d stopped", self.id)
 
     @abstractmethod
-    def _process(self, item:dict):
+    def _process(self, item:QueueClientDto):
         '''
         Process a single queue item. Override or extend as needed.
-        self._logger is available for logging, self._es for ElasticClient access, and self._agent for reference to the agent.
+        self.logger is available for logging, self.es for ElasticClient access, and self.agent for reference to the agent.
         '''
         raise NotImplementedError("Subclasses must implement _process() method")
 

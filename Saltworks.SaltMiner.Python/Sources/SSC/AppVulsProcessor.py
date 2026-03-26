@@ -52,6 +52,7 @@ class AppVulsProcessor(object):
         self.__LastScanDateField = appSettings.GetSource(sourceName, "LastScanDateField", "lastScanDate")
         self.__BulkDocs = []
         self.__BulkSendBatchSize = appSettings.GetSource(sourceName, "BulkSendBatchSize", 1000)
+        self.__SourceName = sourceName
 
         #
         # SM API Integration
@@ -79,7 +80,11 @@ class AppVulsProcessor(object):
             logging.warn("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
                
         logging.info("AppVulsSSC init complete, connected to Elastic")
-       
+
+    @property
+    def SourceName(self):
+        return self.__SourceName
+
     def MapAppSecVuls(self, Force):
         '''Create the Indices whith proper mappings if they don't already exist.'''
 

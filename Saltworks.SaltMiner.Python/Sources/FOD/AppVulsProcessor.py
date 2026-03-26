@@ -79,6 +79,10 @@ class AppVulsProcessor(object):
             logging.warn("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
 
         logging.info("AppVulsFOD init complete, connected to Elastic")
+
+    @property
+    def SourceName(self):
+        return self.__SourceName
     
        
     def MapAppSecVuls(self, Force):

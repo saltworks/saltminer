@@ -49,6 +49,10 @@ class SyncExtractor(object):
 
         logging.debug("ExtractFOD.init complete.")
 
+    @property
+    def SourceName(self):
+        return self.__SourceName
+
     def MapESIndices(self, Force):
         
         # map fodreleases elastic table

@@ -21,224 +21,102 @@ import logging
 import queue
 import threading
 import time
-import datetime
 
-from Core.Application import Application
-from Core.ElasticClient import ElasticClient
-from Utility.SyncQueueHelper import SyncQueueHelper
-from .Worker import Worker
-from .QueueClient import QueueClient
-
-_log = logging.getLogger(__name__)
+from .Application import Application
+from .ElasticClient import ElasticClient
+from .Worker import WorkerFactory
+from .QueueClient import QueueClient, QueueClientDto
 
 class AgentArgs():
     """Arguments for Agent."""
-    def __init__(self):
-        self.__queueIndexPattern = None
-        self.__lowThresholdCount = 10
-        self.__workerCount = 5
-        self.__pollingIntervalSecs = 30
-    
-    @property
-    def QueueIndexPattern(self) -> str:
-        return self.__queueIndexPattern
-    @QueueIndexPattern.setter
-    def QueueIndexPattern(self, value:str):
-        self.__queueIndexPattern = value
+    def __init__(self, queue_index_pattern_tag:str, **kwargs):
+        """
+        Initialize AgentArgs with optional keyword arguments.
+
+        :queue_index_pattern_tag: required string indicating the index pattern tag for the queue
+        :low_threshold_count: optional integer for low threshold count, defaults to 10
+        :worker_count: optional integer for number of workers, defaults to 5
+        :polling_interval_secs: optional integer for polling interval in seconds, defaults to 30
+        :new_queue_item_stage: optional string for the stage to set when new queue items are created
+        :queue_batch_size: optional integer for the batch size when fetching queue items from elasticsearch
+        """
+        self._queue_index_pattern_tag = queue_index_pattern_tag
+        self._low_threshold_count = kwargs.get("low_threshold_count", 10)
+        self._worker_count = kwargs.get("worker_count", 5)
+        self._polling_interval_secs = kwargs.get("polling_interval_secs", 30)
+        self._new_queue_item_stage = kwargs.get("new_queue_item_stage")
+        self._queue_batch_size = kwargs.get("queue_batch_size")
 
     @property
-    def LowThresholdCount(self) -> int:
-        return self.__lowThresholdCount
-    @LowThresholdCount.setter
-    def LowThresholdCount(self, value:int):
-        self.__lowThresholdCount = value
+    def queue_index_pattern_tag(self) -> str:
+        return self._queue_index_pattern_tag
+    @queue_index_pattern_tag.setter
+    def queue_index_pattern_tag(self, value:str):
+        self._queue_index_pattern_tag = value
 
     @property
-    def WorkerCount(self) -> int:
-        return self.__workerCount
-    @WorkerCount.setter
-    def WorkerCount(self, value:int):
-        self.__workerCount = value
+    def low_threshold_count(self) -> int:
+        return self._low_threshold_count
+    @low_threshold_count.setter
+    def low_threshold_count(self, value:int):
+        self._low_threshold_count = value
 
     @property
-    def PollingIntervalSecs(self) -> int:
-        return self.__pollingIntervalSecs
-    @PollingIntervalSecs.setter
-    def PollingIntervalSecs(self, value:int):
-        self.__pollingIntervalSecs = value
-
-class AgentQueueItemStatus():
-    """Enum for AgentQueueItem status."""
-    NEW = "New"
-    IN_PROGRESS = "In Progress"
-    COMPLETE = "Complete"
-    FAILED = "Failed"
-
-    @staticmethod
-    def parse(value:str):
-        value = value.lower()
-        if value == "new":
-            return AgentQueueItemStatus.NEW
-        elif value == "in progress":
-            return AgentQueueItemStatus.IN_PROGRESS
-        elif value == "complete":
-            return AgentQueueItemStatus.COMPLETE
-        elif value == "failed":
-            return AgentQueueItemStatus.FAILED
-        else:
-            raise ValueError(f"Invalid AgentQueueItemStatus: {value}")
-
-class AgentQueueItem():
-    """Represents an item in the Agent's processing queue."""
-    def __init__(self):
-        self._source = None
-        self._key = None
-        self._status = AgentQueueItemStatus.NEW
-        self._status_reason = None
-        self._stage = None
-        self._data = None
-        self._created = None
-        self._completed = None
-        self._locked = None
-        self.lock_id = None
-        self._priority = None
-        self._change_reason = None
-        self._change_trigger = None
+    def worker_count(self) -> int:
+        return self._worker_count
+    @worker_count.setter
+    def worker_count(self, value:int):
+        self._worker_count = value
 
     @property
-    def source(self) -> str:
-        return self._source
-    @source.setter
-    def source(self, value:str):
-        self._source = value
+    def polling_interval_secs(self) -> int:
+        return self._polling_interval_secs
+    @polling_interval_secs.setter
+    def polling_interval_secs(self, value:int):
+        self._polling_interval_secs = value
 
     @property
-    def key(self) -> str:
-        return self._key
-    @key.setter
-    def key(self, value:str):
-        self._key = value
+    def new_queue_item_stage(self) -> str:
+        return self._new_queue_item_stage
+    @new_queue_item_stage.setter
+    def new_queue_item_stage(self, value:str):
+        self._new_queue_item_stage = value
 
     @property
-    def status(self) -> str:
-        return self._status
-    @status.setter
-    def status(self, value:str):
-        self._status = value
+    def queue_batch_size(self) -> int:
+        return self._queue_batch_size
+    @queue_batch_size.setter
+    def queue_batch_size(self, value:int):
+        self._queue_batch_size = value
 
-    @property
-    def status_reason(self) -> str:
-        return self._status_reason
-    @status_reason.setter
-    def status_reason(self, value:str):
-        self._status_reason = value
-
-    @property
-    def stage(self) -> str:
-        return self._stage
-    @stage.setter
-    def stage(self, value:str):
-        self._stage = value
-
-    @property
-    def created(self):
-        return self._created
-    @created.setter
-    def created(self, value):
-        self._created = value
-
-    @property
-    def completed(self):
-        return self._completed
-    @completed.setter
-    def completed(self, value):
-        self._completed = value
-
-    @property
-    def locked(self):
-        return self._locked
-    @locked.setter
-    def locked(self, value):
-        self._locked = value
-
-    @property
-    def priority(self) -> int:
-        return self._priority
-    @priority.setter
-    def priority(self, value:int):
-        self._priority = value
-
-    @property
-    def change_reason(self) -> str:
-        return self._change_reason
-    @change_reason.setter
-    def change_reason(self, value:str):
-        self._change_reason = value
-
-    @property
-    def change_trigger(self) -> str:
-        return self._change_trigger
-    @change_trigger.setter
-    def change_trigger(self, value:str):
-        self._change_trigger = value
-
-    @property
-    def data(self) -> dict:
-        return self._data
-    @data.setter
-    def data(self, value:dict):
-        self._data = value
-
-    def to_dict(self) -> dict:
-        return {
-            "source": self.source,
-            "key": self.key,
-            "status": self.status,
-            "status_reason": self.status_reason,
-            "stage": self.stage,
-            "data": self.data,
-            "created": self.created,
-            "completed": self.completed,
-            "locked": self.locked,
-            "lock_id": self.lock_id,
-            "priority": self.priority,
-            "change_reason": self.change_reason,
-            "change_trigger": self.change_trigger
-        }
-
-    @staticmethod
-    def from_dict(d:dict) -> "AgentQueueItem":
-        item = AgentQueueItem()
-        item.source = d.get("source")
-        item.key = d.get("key")
-        item.status = d.get("status", AgentQueueItemStatus.NEW)
-        item.status_reason = d.get("status_reason")
-        item.stage = d.get("stage")
-        item.data = d.get("data")
-        item.created = d.get("created", datetime.datetime.now(datetime.UTC))
-        item.completed = d.get("completed")
-        item.locked = d.get("locked")
-        item.lock_id = d.get("lock_id")
-        item.priority = d.get("priority", 5)
-        item.change_reason = d.get("change_reason")
-        item.change_trigger = d.get("change_trigger")
-        return item
-    
 
 class Agent():
     """Agent class for multi-threaded processing queue items."""
 
-    def __init__(self, app:Application, args:AgentArgs):
+    def __init__(self, app:Application, args:AgentArgs, wrk_factory:WorkerFactory):
+        """
+        Initialize the Agent with the given Application, AgentArgs, and WorkerFactory.
+
+        :app: Application instance providing access to settings and clients
+        :args: AgentArgs instance containing configuration for the agent
+        :wrk_factory: WorkerFactory should be a subclass, like SyncWorkerFactory, that creates the appropriate Worker instances for processing the queue items.
+        """
         self._app = app
         self._args = args
+        self._wrk_factory = wrk_factory
         self._es = app.GetElasticClient()
         self._queue = queue.Queue()
         self._workers: list[threading.Thread] = []
         self._queue_client = None
+        self._logger = logging.getLogger(__name__)
 
     @property
     def app(self) -> Application:
         return self._app
+    
+    @property
+    def es(self) -> ElasticClient:
+        return self._es
 
     @property
     def queue(self) -> queue.Queue:
@@ -251,20 +129,31 @@ class Agent():
     @property
     def queue_client(self) -> QueueClient:
         if self._queue_client is None:
-            self._queue_client = QueueClient(self._es, self.args.QueueIndexPattern)
+            self._queue_client = QueueClient(self.es, self.args.queue_index_pattern_tag, batch_size=self.args.queue_batch_size)
         return self._queue_client
+    
+    @property
+    def worker_factory(self) -> WorkerFactory:
+        return self._wrk_factory
 
-    def _fetch_from_es(self) -> int:
+
+    def _feed_queue(self) -> int:
         """Fetch a batch of pending items from ES for each source and enqueue them. Returns total enqueued."""
-        self.queue_client.search_n_lock()
+        batch_size = self.args.worker_count * 2
+        work_items, _ = self.queue_client.get_next_queue_batch(self.args.new_queue_item_stage, batch_size)
+        for item in work_items:
+            self.queue.put(item)
+        return len(work_items)
+
 
     def _start_workers(self):
         """Start worker threads."""
-        for i in range(self.args.WorkerCount):
-            worker = Worker(i, self)
+        for i in range(self.args.worker_count):
+            worker = self.worker_factory.create_worker(i, self)
             t = threading.Thread(target=worker.run, daemon=True)
             self._workers.append(t)
             t.start()
+
 
     def _shutdown_workers(self):
         """Block until all queued items are processed, then stop workers."""
@@ -275,20 +164,36 @@ class Agent():
             t.join()
         self._workers.clear()
 
+
+    def update(self, dto:QueueClientDto, stage:str=None, data:dict=None) -> QueueClientDto:
+        """Update the given queue item stage/data using the QueueClient."""
+        self.queue_client.set_progress(dto, stage, data)
+        return dto
+    
+    
+    def complete(self, dto:QueueClientDto, stage:str=None, data:dict=None, is_error:bool=True, reason:str=None) -> QueueClientDto:
+        """Mark the given queue item as complete using the QueueClient."""
+        self.queue_client.set_complete(dto, stage, data, is_error, reason)
+        return dto
+
+
     def run(self):
         """Main orchestration loop: start workers, feed ES items into the queue, drain on exit."""
         self._start_workers()
         try:
             while True:
-                if self._queue.qsize() < self.args.LowThresholdCount:
-                    fetched = self._fetch_from_es()
+                if self._queue.qsize() < self.args.low_threshold_count:
+                    fetched = self._feed_queue()
                     if fetched == 0 and self._queue.empty():
-                        _log.debug("Queue empty and no new ES items, sleeping %ss", self.args.PollInterval)
-                        time.sleep(self.args.PollInterval)
-                else:
-                    time.sleep(self.args.PollInterval)
+                        self._logger.debug("Queue empty and no new ES items, sleeping %ss", self.args.polling_interval_secs)
+                time.sleep(self.args.polling_interval_secs)
+                active = sum(1 for t in self._workers if t.is_alive())
+                self._logger.debug("Active workers: %d", active)
+                if active == 0:
+                    self._logger.info("No active workers, queue size: %d, shutting down.  This might be caused by worker errors, check logs.", self._queue.qsize())
+                    break
         except KeyboardInterrupt:
-            _log.info("SyncAgent interrupted, draining queue...")
+            self._logger.info("Agent interrupted, draining queue...")
         finally:
             self._shutdown_workers()
 

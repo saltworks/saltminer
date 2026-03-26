@@ -82,19 +82,19 @@ class QueueClientPriorityDoc(object):
 
     @property
     def priority(self):
-        return self.__priority
+        return self._priority
 
     @priority.setter
     def priority(self, value):
-        self.__priority = value
+        self._priority = value
 
     @property
     def created(self):
-        return self.__created
+        return self._created
 
     @created.setter
     def created(self, value):
-        self.__created = value
+        self._created = value
 
 
 class QueueClientDoc(object):
@@ -298,7 +298,7 @@ class QueueClientDoc(object):
 
 
 class QueueClientDto(object):
-    def __init__(self, dto=None):
+    def __init__(self, dto:dict=None):
         self._doc = None
         self._seq = None
         self._pri = None
@@ -311,15 +311,15 @@ class QueueClientDto(object):
             self.id = dto.get('_id')
             self.index = dto.get('_index')
 
-    def Dto(self):
+    def dto(self):
         return {
-            '_source': self.doc.Dto(),
+            '_source': self.doc.dto(),
             '_seq_no': self.sequence_number,
             '_primary_term': self.primary_term,
-            '_index': self.index,
+            '_index': self.index
         }
 
-    def UpdateLockingInfo(self, response):
+    def update_locking_info(self, response):
         if response and '_seq_no' in response.keys() and '_primary_term' in response.keys():
             self.sequence_number = response['_seq_no']
             self.primary_term = response['_primary_term']
@@ -378,6 +378,7 @@ class QueueClient(object):
     '''
     Client for managing a queue of items to be processed, with support for locking and prioritization.
     '''
+    QUEUE_INDEX_TEMPLATE = "sm_queue"
     def __init__(self, app:Application, idx_pattern_tag:str, **kwargs):
         '''
         Setup the class
@@ -386,10 +387,18 @@ class QueueClient(object):
         :app: Application
         :idx_pattern_tag: Index pattern tag to be used with this instance of client.  Ex: "sm_queue_sync", or "sync" both will become "sm_queue_sync*"
         :batch_size: optional batch size for processing search results, defaults to 500
+        :queue_index_template: optional index template name to check for when initializing the queue client.  Throws exception if not found.
         '''
 
         logging.debug("QueueClient init starting.")
         self.app = app 
+        self._es = app.GetElasticClient()
+
+        tpl = kwargs.get("queue_index_template")
+        if tpl is not None and not self._es.TemplateExists(tpl):
+            raise QueueClientException(f"Queue index template '{tpl}' not found, cannot initialize QueueClient.")
+        if not self._es.TemplateExists(QueueClient.QUEUE_INDEX_TEMPLATE):
+            raise QueueClientException(f"Queue index template '{QueueClient.QUEUE_INDEX_TEMPLATE}' not found, cannot initialize QueueClient.")
 
         if not idx_pattern_tag or len(idx_pattern_tag) == 0:
             raise QueueClientException("Index pattern must be provided for QueueClient.")
@@ -402,8 +411,7 @@ class QueueClient(object):
         if self._batch_size <= 0 or self._batch_size > MAX_HITS:
             raise QueueClientException(f"DefaultQueueBatchSize setting must be a positive integer no greater than {MAX_HITS}.")
 
-        self.__priority_index = f'{SM_QUEUE}_{idx_pattern_tag}_priority'
-        self._es = app.GetElasticClient()
+        self._priority_index = f'{SM_QUEUE}_{idx_pattern_tag}_priority'
         self._load_exclusions = []
         self._priority_reservations = {}
         self._session_id = uuid.uuid4()
@@ -459,7 +467,7 @@ class QueueClient(object):
     
     @property
     def priority_index(self):
-        return self.__priority_index
+        return self._priority_index
     
     #endregion
 
@@ -603,7 +611,7 @@ class QueueClient(object):
             doc.data = data
         rsp = self._es.UpdateWithLocking(qdto.index, doc.dto(), qdto.id, qdto.sequence_number, qdto.primary_term)
         if rsp.get('result') == "updated":
-            qdto.UpdateLockingInfo(rsp)
+            qdto.update_locking_info(rsp)
             return qdto
         else:
             return None
@@ -621,7 +629,7 @@ class QueueClient(object):
             doc.data = data
         rsp = self._es.UpdateWithLocking(qdto.index, doc.dto(), qdto.id, qdto.sequence_number, qdto.primary_term)
         if rsp.get('result') == "updated":
-            qdto.UpdateLockingInfo(rsp)
+            qdto.update_locking_info(rsp)
             return qdto
         else:
             logging.warning("Failed to update progress for queue doc with key %s.", doc.key)
@@ -645,7 +653,7 @@ class QueueClient(object):
         doc.completed = datetime.datetime.now(datetime.UTC).isoformat()
         rsp = self._es.UpdateWithLocking(qdto.index, doc.dto(), qdto.id, qdto.sequence_number, qdto.primary_term)
         if rsp.get('result') == "updated":
-            qdto.UpdateLockingInfo(rsp)
+            qdto.update_locking_info(rsp)
             return qdto
         else:
             logging.warning("Failed to complete queue doc with key %s.", doc.key)
@@ -727,12 +735,12 @@ class QueueClient(object):
         bdocs = []
         
         # Convert input into QueueClientDocs
-        for key, data in data.items():
+        for key, item_data in data.items():
             key = str(key)
-            curPriority = priority if priority else self._default_priority
+            cur_priority = priority if priority else self._default_priority
             if PRIORITY_ENABLED and key in self._priority_reservations.keys():
-                curPriority = self._priority_reservations[key] if not priority else curPriority
-            doc = QueueClientDoc.new(source, key, data=data, stage=stage, created=dt, priority=curPriority, 
+                cur_priority = self._priority_reservations[key] if not priority else cur_priority
+            doc = QueueClientDoc.new(source, key, data=item_data, stage=stage, created=dt, priority=cur_priority,
                                      change_reason=change_reason, change_trigger=change_trigger)
             wrk[key] = doc
         if len(wrk) == 0:
@@ -775,7 +783,7 @@ class QueueClient(object):
           }
         }
         self._es.DeleteByQuery(priority_index, body, ignoreMissingIndex=True)
-        logging.info("Cleared async priority reservations for target type '%s' and instance '%s'.", self._target_type, self._target_instance)
+        logging.info("Cleared async priority reservations for index '%s'.", priority_index)
 
     def _load_priority_reservations(self, lazy=True):
         if not PRIORITY_ENABLED:
@@ -791,7 +799,7 @@ class QueueClient(object):
             },
             "sort": []
         }
-        scroller = self._es.SearchScroll(self.__priority_index, body, scrollSize=500, scrollTimeout=None)
+        scroller = self._es.SearchScroll(self._priority_index, body, scrollSize=500, scrollTimeout=None)
         while scroller and len(scroller.Results):
             for dto in scroller.Results:
                 itm = dto['_source']

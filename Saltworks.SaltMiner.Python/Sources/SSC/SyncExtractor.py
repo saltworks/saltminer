@@ -49,6 +49,7 @@ class SyncExtractor(object):
 
         self.__App = appSettings.Application
         self.__RulePacks = []
+        self.__SourceName = sourceName
         self.__SscUtils = SscUtilities(appSettings, sourceName)
         self.__ElasticClient = appSettings.Application.GetElasticClient()
         self.__SscEsUtils = SscEsUtils(appSettings)
@@ -68,6 +69,10 @@ class SyncExtractor(object):
         if not len(self.__AssessmentTypeMap.keys()):
             logging.warn("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
         logging.debug("ExtractSSC.init complete.")
+
+    @property
+    def SourceName(self):
+        return self.__SourceName
 
     def Cleanup(self):
         self.__SscUtils.Cleanup()
