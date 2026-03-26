@@ -4,7 +4,6 @@
   "DataFolder": "./data/",
   "ReportsFolder": "./reports/",
   "PenTestEtlIndexName": "app_vuls_pen",
-  "DefaultQueueBatchSize": 500,
   "Attributes": {
     "Risk Level": {
       "type": "keyword"

@@ -39,6 +39,7 @@ class AgentArgs():
         :polling_interval_secs: optional integer for polling interval in seconds, defaults to 30
         :new_queue_item_stage: optional string for the stage to set when new queue items are created
         :queue_batch_size: optional integer for the batch size when fetching queue items from elasticsearch
+        :worker_error_threshold: optional integer for the number of consecutive errors a worker can encounter before it is stopped, defaults to 3
         """
         self._queue_index_pattern_tag = queue_index_pattern_tag
         self._low_threshold_count = kwargs.get("low_threshold_count", 10)
@@ -46,6 +47,7 @@ class AgentArgs():
         self._polling_interval_secs = kwargs.get("polling_interval_secs", 30)
         self._new_queue_item_stage = kwargs.get("new_queue_item_stage")
         self._queue_batch_size = kwargs.get("queue_batch_size")
+        self._worker_error_threshold = kwargs.get("worker_error_threshold", 3)
 
     @property
     def queue_index_pattern_tag(self) -> str:
@@ -67,6 +69,13 @@ class AgentArgs():
     @worker_count.setter
     def worker_count(self, value:int):
         self._worker_count = value
+
+    @property
+    def worker_error_threshold(self) -> int:
+        return self._worker_error_threshold
+    @worker_error_threshold.setter
+    def worker_error_threshold(self, value:int):
+        self._worker_error_threshold = value
 
     @property
     def polling_interval_secs(self) -> int:
@@ -150,6 +159,7 @@ class Agent():
         """Start worker threads."""
         for i in range(self.args.worker_count):
             worker = self.worker_factory.create_worker(i, self)
+            worker.error_threshold = self.args.worker_error_threshold
             t = threading.Thread(target=worker.run, daemon=True)
             self._workers.append(t)
             t.start()
