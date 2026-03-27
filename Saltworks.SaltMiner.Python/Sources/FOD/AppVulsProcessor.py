@@ -224,7 +224,7 @@ class AppVulsProcessor(object):
             # Finalize batch items for issues and complete queue scans
             #
             if self.__SmApiClientEnabled:
-                self.__SmApiClient.FinalizeEverything()
+                self.__SmApiClient.finalize_everything()
         # end while
 
         p.Finish(c, "App version updates complete.")
@@ -254,7 +254,7 @@ class AppVulsProcessor(object):
         # Finalize batch items for issues and complete queue scans
         #
         if self.__SmApiClientEnabled:
-            self.__SmApiClient.FinalizeEverything()
+            self.__SmApiClient.finalize_everything()
 
         logging.info("Complete")
         if cleanupAfter:
@@ -314,7 +314,7 @@ class AppVulsProcessor(object):
         # If expected assessment types missing, add "noscan" queue data
         #
         if appVer:
-            self.__SmApiClient.MapScanlessAsset(appVerId, "FOD", appVer['applicationName'], appVer['releaseName'], appVer['releaseDescription'], attributes, assessmentTypes=list(lastScans.keys()))
+            self.__SmApiClient.map_scanless_asset(appVerId, "FOD", appVer['applicationName'], appVer['releaseName'], appVer['releaseDescription'], attributes, assessment_types=list(lastScans.keys()))
 
         #
         # Update the Issues for the project
@@ -648,7 +648,7 @@ class AppVulsProcessor(object):
                             # Submit queue issue to SM API
                             #
                             if self.__SmApiClientEnabled and _app_vul and not cancel:
-                                self.__SmApiClient.MapEverything(_app_vul, issueAssetKeys, issueKeys)
+                                self.__SmApiClient.map_everything(_app_vul, issueAssetKeys, issueKeys)
 
 
                             if not self.__DisableSM2Indices and not cancel:
@@ -791,7 +791,7 @@ class AppVulsProcessor(object):
             # Submit queue issue to SM API
             #
             if self.__SmApiClientEnabled and _app_vul:
-                self.__SmApiClient.MapEverything(_app_vul, issueAssetKeys, issueKeys)
+                self.__SmApiClient.map_everything(_app_vul, issueAssetKeys, issueKeys)
 
             if not self.__DisableSM2Indices:
                 #

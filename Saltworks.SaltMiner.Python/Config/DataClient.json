@@ -1,0 +1,10 @@
+{
+  "_Comment": "Settings for SaltMiner DataClient connection to DataApi",
+  "ApiUrl": "http://api",
+  "ApiKey": "agentsecret",
+  "ManagerApiKey": "",
+  "SslVerify": true,
+  "SslVerifyCert": "",
+  "TimeoutSec": 240,
+  "ValidateOnInit": false
+}
