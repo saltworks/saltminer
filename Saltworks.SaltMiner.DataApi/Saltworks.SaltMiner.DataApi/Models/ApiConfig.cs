@@ -90,6 +90,10 @@ public class ApiConfig: ConfigBase
     public static string IndexVersion => "3.3.0";
     public string IssuesActiveAlias { get; set; } = @"{ ""actions"": [ { ""add"": { ""index"": ""issues_[assetType]_[sourceType]"", ""alias"": ""issues_active_[assetType]"", ""filter"": { ""term"": { ""vulnerability.is_active"": true } } } } ] }";
     public bool DisableUpgradeRunner { get; set; } = true;
+    /// <summary>
+    /// If set, uses update by query to unlock manager locked queues.  Otherwise, uses search and bulk update (the old way).  Disable if this is breaking.
+    /// </summary>
+    public bool EnableManagerUnlockUpdateByQuery { get; set; } = true;
     public bool EnableWebhookDebug { get; set; } = false;
     public bool EnableWebhooks { get; set; } = false;
     public bool EnableWebhookSecurity { get; set; } = true;
