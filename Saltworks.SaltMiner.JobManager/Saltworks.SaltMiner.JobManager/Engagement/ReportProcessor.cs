@@ -185,12 +185,14 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             if (!Config.ReportIncludeSystemComments)
                 commentSearch.Filter.FilterMatches.Add("Saltminer.Comment.Type", "User");
             var engagementComments = DataClient.CommentSearch(commentSearch)?.Data ?? [];
+            Logger.LogDebug("[Report Prep] Found {AssetCount} Assets, {CommentCount} Comments with search", engagementAssets.Count, engagementComments.Count());
             
             foreach (var asset in engagementAssets)
             {
                 Logger.LogInformation("Getting Issue Data For Asset '{AssetId}'", asset.AssetId);
                 engagementIssues.AddRange(GetAllEngagementAssetIssues(asset.Engagement.Id, asset.AssetId, "IsActive"));
                 engagementIssuesRemoved.AddRange(GetAllEngagementAssetIssues(asset.Engagement.Id, asset.AssetId, "IsRemoved"));
+                Logger.LogDebug("[Report Prep] Found {ICount} issues, {RCount} removed issues for asset '{Asset}' with search", engagementIssues.Count, engagementIssuesRemoved.Count, asset.Name);
             }
 
             var reportName = $"Report-{engagementSummary.Id}-{DateTime.UtcNow:MM_dd_yyyy_HH_mm_ss}";
@@ -214,7 +216,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             using (var document = new WordDocument(fileStream, FormatType.Docx))
             {
 
-                Logger.LogInformation($"Generating Report DTO");
+                Logger.LogInformation("Generating Report DTO");
                 var reportEngagement = CreateReportEngagementDto(engagementSummary, engagementAssets, engagementIssues, engagementIssuesRemoved, engagementComments);
 
                 document.MailMerge.MergeImageField += new MergeImageFieldEventHandler(MergeField_ImageEvent);
@@ -223,7 +225,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
                 var count = 1;
 
                 var dataList = new List<dynamic> { reportEngagement };
-                Logger.LogInformation($"Merging Template");
+                Logger.LogDebug("Merging Template");
                 foreach (WSection section in document.Sections)
                 {
                     var dataTable = new MailMergeDataTable($"Section{count}", dataList);
@@ -624,6 +626,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
                 rptEngagementDto.AssetTocs = assetTocs;
 
                 dynamic IssueDetail = CreateIssueDetail(issue, issueAttributeDefs, comments);
+                Logger.LogDebug("[CreateReportEngagementDto] Created issue detail for issue '{IssueName}' ({IssueId})", issue.Name.Value, issue.Id);
                 rptEngagementDto.IssueDetails.Add(IssueDetail);
                 rptEngagementDto.IssueSummary.Add(IssueDetail);
             }
@@ -652,6 +655,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
                 rptEngagementDto.Closed_Total++;
 
                 dynamic IssueDetail = CreateIssueDetail(issue, issueAttributeDefs, comments);
+                Logger.LogDebug("[CreateReportEngagementDto] Created issue detail for removed issue '{IssueName}' ({IssueId})", issue.Name.Value, issue.Id);
                 rptEngagementDto.IssueDetailsRemoved.Add(IssueDetail);
                 rptEngagementDto.IssueSummaryRemoved.Add(IssueDetail);
             }
@@ -765,6 +769,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
                     sb.Append($"[{comment.Added:d}] {comment.User}: {comment.Message}\n");
                 }
             }
+            Logger.LogDebug("[GetCommentText] Issue '{IssueId}' {Has} comments", issueId, sb.Length > 0 ? "has" : "has no");
             return sb.ToString();
         }
 
