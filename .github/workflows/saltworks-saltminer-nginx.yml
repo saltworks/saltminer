@@ -24,7 +24,7 @@ on:
     - main
     - '3.*'
     paths:
-    - "config/saltminer/nginx/**"
+    - "Saltworks.SaltMiner.Nginx/**"
     - ".dockerfiles/Dockerfile-SMNginx"
 
   workflow_dispatch:
