@@ -237,6 +237,21 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         public NoDataResponse Unlock(string lockId, bool resetProcessing=true, bool noFlush = false)
         {
             Logger.LogInformation("Unlock for lock ID '{Id}'", lockId);
+
+            if (Config.EnableManagerUnlockUpdateByQuery)
+            {
+                // Update by query approach - quicker, but no attempts to flush index first and we don't wait
+                var query = @"{ ""term"": { ""saltminer.internal.lock_id"": { ""value"": """ + lockId + @""" } } }";
+                var updateScript = $"ctx._source.saltminer.internal.lock_id = null; ctx._source.saltminer.internal.queue_status = '{QueueScanStatus.Pending:g}'; ctx._source.last_updated = {DateTime.UtcNow:O};";
+                var ubqResponse = ElasticClient.UpdateByQuery<QueueScan>(query, QueueScanIndex, updateScript, false, true);
+                if (ubqResponse == null || !ubqResponse.IsSuccessful)
+                    Logger.LogError("Unlock UpdateByQuery failed for lock ID '{Id}'. [{Status}] {Response}", lockId, ubqResponse?.HttpStatus, ubqResponse?.Message);
+                else
+                    Logger.LogInformation("Unlock (update by query) succeeded for lock ID '{Id}'. Updated {Count} documents.", lockId, ubqResponse.CountAffected);
+                return ubqResponse.ToNoDataResponse();
+            }
+
+            // Original search and bulk update approach - slower, returns count of updated docs, includes flush
             var pagingInfo = new PagingInfo()
             {
                 EnablePit = true,
