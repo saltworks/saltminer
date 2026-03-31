@@ -471,11 +471,23 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             return result;
         }
 
+        private string[] GetShortenedCommentsForLogging(IEnumerable<Comment> comments, int maxComments = 10)
+        {
+            var myComments = comments.Take(maxComments).Select(x => new Tuple<string, string>(x.Saltminer.Issue.Id[^5..], x.Saltminer.Comment.Message)).ToList();
+            var logComments = myComments.Where(x => x.Item2.Length <= 20).Select(x => $"{x.Item1}: {x.Item2}").ToList();
+            logComments.AddRange(myComments.Where(x => x.Item2.Length > 20).Select(x => $"{x.Item1}: {x.Item2[..19]}..."));
+            return logComments.ToArray();
+        }
+
         private dynamic CreateReportEngagementDto(EngagementSummary summary, List<AssetFull> assets, List<IssueFull> issues, List<IssueFull> issuesRemoved, IEnumerable<Comment> comments)
         {
             var attributes = DataClient.AttributeDefinitionSearch(new Core.Data.SearchRequest()).Data;
             var engagementAttributeDefs = attributes.FirstOrDefault(x => x.Type == AttributeDefinitionType.Engagement.ToString());
             var issueAttributeDefs = attributes.FirstOrDefault(x => x.Type == AttributeDefinitionType.Issue.ToString());
+
+            Logger.LogDebug("[CreateReportEngagementDto] received {ICount} issues, {RCount} removed issues, {CCount} comments", issues.Count, issuesRemoved.Count, comments.Count());
+            var first10Comments = comments.Take(10).ToList();
+            Logger.LogDebug("[CreateReportEngagementDto] first 10 comments: {Comments}", string.Join(", ", GetShortenedCommentsForLogging(first10Comments)));
 
             dynamic rptEngagementDto = new ExpandoObject();
             rptEngagementDto.Id = summary.Id;

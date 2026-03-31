@@ -8,26 +8,14 @@ from Sources.SyncWorker import SyncWorkerFactory, SyncQueueStage
 
 sourceNames = []
 prog = os.path.splitext(os.path.basename(__file__))[0]
-prmSourceName = None
-prmAction = 'all'
-prmLogInstance = None
-enableDropCheck = True
+prm_service = True
+prm_log_instance = None
 if len(sys.argv) > 1:
-    prmSourceName = sys.argv[1]         # Source name
+    prm_service = bool(sys.argv[1])     # Run as service, defaults to True, will keep going until stopped
 if len(sys.argv) > 2:
-    prmAction = sys.argv[2]             # Action ('sync', 'loadqueue', 'checkdrop', 'all'), defaults to 'all'
-if len(sys.argv) > 3:
-    prmLogInstance = sys.argv[3]        # Custom logging instance
+    prm_log_instance = sys.argv[2]     # Custom logging instance, defaults to none
 
-msg = "Usage:\n\npython3 RunSync.py src [action] [lognum]\n\n:src: Source name, i.e. SSC1\n:action: sync, loadqueue, checkdrop, or all, defaults to all\n:lognum: logging instance number, defaults to none"
-if len(sys.argv) == 0:
-    logging.warning(msg)
-    exit(1)
-if prmAction not in ['sync', 'loadqueue', 'all', 'checkdrop']:
-    raise ValueError(f"Invalid action '{prmAction}', expected 'sync', 'loadqueue', 'checkdrop', or 'all'.")
-app = Application(loggingInstance=prmLogInstance)
-logging.info(f"[{prog}] Starting, processing {'all sources' if prmSourceName is None else 'source ' + prmSourceName}, using '{prmAction}' action.")
-
+app = Application(loggingInstance=prm_log_instance)
 
 def main():
     app = Application()
@@ -42,7 +30,7 @@ def main():
     )
     agent = Agent(app, agent_args, SyncWorkerFactory())
     logging.info("Starting Sync Agent with %d workers", agent.worker_count)
-    agent.run()
+    agent.run(stop_when_empty=not prm_service)
     logging.info("Sync Agent stopped")
 
 main()
