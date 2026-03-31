@@ -250,7 +250,7 @@ public class DataClient : IDisposable
                 QueueAssets = queueDocs.OfType<QueueAsset>(),
                 QueueIssues = queueDocs.OfType<QueueIssue>()
             };
-            return (await ApiClient.PostAsync<BulkResponse>("queuescan/bulkqueue", req));
+            return await ApiClient.PostAsync<BulkResponse>("queuescan/bulkqueue", req);
         });
         return rsp.Content;
     }

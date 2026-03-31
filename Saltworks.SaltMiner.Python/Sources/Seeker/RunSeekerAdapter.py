@@ -44,7 +44,7 @@ app = Application()
 prc_key = "seeker Adapter"
 logging.info("%s starting - %s", prc_key, datetime.now(timezone.utc).isoformat())
 start_timer(prc_key)
-seeker_adapter = SeekerAdapter(app.Settings)
+seeker_adapter = SeekerAdapter(app)
 seeker_adapter.run_sync()
 
 end_timer(prc_key)

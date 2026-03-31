@@ -22,6 +22,7 @@ import json
 import logging
 
 from Core.RestClient import RestClient
+from Core.Application import Application
 
 
 class DataClientException(Exception):
@@ -30,6 +31,11 @@ class DataClientException(Exception):
 
 class DataClientNotFoundException(DataClientException):
     pass
+
+
+class QueueStatus:
+    PENDING = "Pending"
+    LOADING = "Loading"
 
 
 class DataClient:
@@ -44,12 +50,13 @@ class DataClient:
     Set ValidateOnInit=true in config to verify connectivity on construction.
     '''
 
-    def __init__(self, application, config_name='DataClient', validate_on_init=None):
+    def __init__(self, app:Application, config_name:str='DataClient', validate_on_init:bool=None):
         '''
-        :param application:  Application instance (provides .Settings)
+        :param app:  Application instance (provides .Settings)
         :param config_name:  Config section name; defaults to "DataClient"
+        :param validate_on_init:  Whether to validate connectivity on initialization; defaults to config setting
         '''
-        settings = application.Settings
+        settings = app.Settings
         api_url = settings.Get(config_name, 'ApiUrl')
         api_key = settings.Get(config_name, 'ApiKey')
         manager_key = settings.Get(config_name, 'ManagerApiKey')
@@ -71,6 +78,10 @@ class DataClient:
         self._manager_key = manager_key
         self._timeout = timeout
         self._ssl_verify = ssl_verify
+        self._issue_batch_size = 1000
+        self._issue_batch = []
+        self._queue_batch_size = 1000
+        self._queue_batch = []
 
         if validate_on_init:
             self.register_get_role()
@@ -95,6 +106,34 @@ class DataClient:
                 self._client.BaseUrl, self._manager_key, self._ssl_verify, self._timeout
             )
         return self._manager_client
+    
+    @property
+    def issue_batch_size(self) -> int:
+        return self._issue_batch_size
+    @issue_batch_size.setter
+    def issue_batch_size(self, value:int):
+        self._issue_batch_size = value
+
+    @property
+    def issue_batch(self) -> list:
+        return self._issue_batch
+    @issue_batch.setter
+    def issue_batch(self, value:list):
+        self._issue_batch = value
+
+    @property
+    def queue_batch_size(self) -> int:
+        return self._queue_batch_size
+    @queue_batch_size.setter
+    def queue_batch_size(self, value:int):
+        self._queue_batch_size = value
+
+    @property
+    def queue_batch(self) -> list:
+        return self._queue_batch
+    @queue_batch.setter
+    def queue_batch(self, value:list):
+        self._queue_batch = value
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -209,6 +248,29 @@ class DataClient:
         r = self._client.Delete(f'queuescan/all/{scan_id}')
         self._verify_response(f"Error deleting queue scan and children for '{scan_id}'", r)
 
+    def queue_bulk_add_update(self, queue_item:dict, batch_size=None):
+        '''
+        Adds a queue item to the batch for bulk processing. Automatic batch build/send when batch_size is reached.
+        :param queue_item: queue scan/asset/issue doc to add to the batch, or None to send any remainder.
+        :param batch_size: batch size to trigger automatic send; defaults to self.queue_batch_size if None
+        '''
+        if batch_size is None:
+            batch_size = self.queue_batch_size
+        if queue_item is not None:
+            self._queue_batch.append(queue_item)
+        if len(self._queue_batch) >= batch_size or (queue_item is None and len(self._queue_batch) > 0):
+            self.queue_bulk(self._queue_batch)
+            self._queue_batch = []
+
+    def queue_bulk(self, batch:list):
+        '''
+        Submits a batch of queue items (queue scans with their queue assets and issues) for processing.
+
+        :param batch: list of queue scan/asset/issue docs (scan should exist for asset, both should exist for issue)
+        '''
+        r = self._client.Post('queuescan/bulkqueue', batch)
+        self._verify_response('Error submitting bulk queue', r)
+
     # ------------------------------------------------------------------
     # QueueAsset endpoints
     # ------------------------------------------------------------------
@@ -230,10 +292,25 @@ class DataClient:
     # QueueIssue endpoints
     # ------------------------------------------------------------------
 
-    def queue_issues_add_update_bulk(self, batch):
+    def queue_issue_add_update_batch(self, qissue:dict, batch_size=None):
+        '''
+        Add issue to batch for bulk update.  Automatic batch build/send when batch_size is reached.
+
+        :qissue: queue issue to send. If None, send remainder of batch if any.
+        :batch_size: batch size to trigger automatic send; defaults to self.issue_batch_size if None
+        '''
+        if batch_size is None:
+            batch_size = self.issue_batch_size
+        if qissue is not None:
+            self.issue_batch.append(qissue)
+        if len(self.issue_batch) >= batch_size or (qissue is None and len(self.issue_batch) > 0):
+            self.queue_issues_add_update_bulk(self.issue_batch)
+            self.issue_batch = []
+
+    def queue_issues_add_update_bulk(self, batch:list):
         '''
         Submits a batch of queue issues.
-        :param batch: dict of shape {"Documents": [...]}
+        :param batch: list of queue issue docs to send
         '''
         r = self._client.Post('queueissue/bulk', batch)
         self._verify_response('Error submitting queue issues (bulk)', r)
@@ -242,7 +319,7 @@ class DataClient:
     # Scan endpoints  (manager key required)
     # ------------------------------------------------------------------
 
-    def scan_search(self, search_request):
+    def scan_search(self, search_request:dict):
         '''
         Searches scans using the provided search request body.
         Returns the data list, or None if no results.

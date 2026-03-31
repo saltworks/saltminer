@@ -26,7 +26,7 @@ from datetime import datetime, timezone, timedelta
 from Sources.SNYK.SnykClient import SnykClient
 from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 
-from Core.SmDataClient import SmDataClient
+from Core.DataClient import DataClient, QueueStatus
 from Core.ElasticClient import ElasticClient
 
 class SnykAdapter:
@@ -44,11 +44,12 @@ class SnykAdapter:
 
     For detailed process flow and Saltminer integration logic, see the README.
     """
-    def __init__(self, settings):
+    def __init__(self, app):
+        settings = app.Settings
         self.snyk_client = SnykClient(settings)
         self.snyk_docs = SnykDocs()
         self._es = ElasticClient(settings)
-        self._sm_data_client = SmDataClient(settings, "Snyk")
+        self._data_client = DataClient(app)
         self.base_gui_url = "https://app.snyk.io/org/"
         self.prj_version_last_updated = {}
         self.remediations_by_project = {}
@@ -130,29 +131,28 @@ class SnykAdapter:
             #Maps Scan to SM valid scan document
             mapped_scan = self.map_scan(project)
             #Sends mapped scan to SM queue_scans
-            queue_scan = self._sm_data_client.AddQueueScan(json.loads(mapped_scan.model_dump_json()))
+            queue_scan = self._data_client.queue_scan_add_update(json.loads(mapped_scan.model_dump_json()))
             #Maps Asset to SM valid asset document
             mapped_asset = self.map_asset(project, queue_scan['id'], org_info)
             #Sends mapped asset to SM queue_assets
-            queue_asset = self._sm_data_client.AddQueueAsset(json.loads(mapped_asset.model_dump_json()))
-            
+            queue_asset = self._data_client.queue_asset_add_update(json.loads(mapped_asset.model_dump_json()))
+
             # Process the first issue
             mapped_issue = self.map_issue(first_issue, queue_scan['id'], queue_asset['id'], queue_scan['saltminer']['scan']['reportId'], project_id, gui_url)
 
             #Send the first issue to SM queue_issues
-            self._sm_data_client.AddQueueIssue(json.loads(mapped_issue.model_dump_json()))
-            counter += 1 
+            self._data_client.queue_issue_add_update_batch(json.loads(mapped_issue.model_dump_json()))
+            counter += 1
 
             #Maps all issues to SM valid issue documents
             for issue in issues_generator:
                 mapped_issue = self.map_issue(issue, queue_scan['id'], queue_asset['id'], queue_scan['saltminer']['scan']['reportId'], project, gui_url)
                 #Sends mapped issues to SM queue_issues
-                self._sm_data_client.AddQueueIssue(json.loads(mapped_issue.model_dump_json()))
+                self._data_client.queue_issue_add_update_batch(json.loads(mapped_issue.model_dump_json()))
                 #Tracking the counter so that we can use it to add to the Scan.Issue_count in the future.
                 counter += 1
-            #TODO:TEST SENDALLBATCHISSUESf
-            self._sm_data_client.SendAllBatchIssues()
-            self._sm_data_client.FinalizeQueue(queue_scan['id'])
+            self._data_client.queue_issue_add_update_batch(None)
+            self._data_client.queue_scan_update_status(queue_scan['id'], QueueStatus.PENDING)
             logging.info("[SyncAdapter][Sync Issues] FinalizeQueue run for project id : %s, number of issues sent: %s", project_id, counter)
 
         except Exception as e:
@@ -240,6 +240,7 @@ class SnykAdapter:
         q_scan_doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         q_scan_doc['Saltminer']['Internal']['IssueCount'] = -1  #Setting this value to -1 disables IssueCount validation
         q_scan_doc['Saltminer']['Internal']['ReplaceIssues'] = True
+        q_scan_doc['Saltminer']['Internal']['QueueStatus'] = QueueStatus.LOADING
         scan = q_scan_doc['Saltminer']['Scan']
 
         scan['Product'] = "Snyk"

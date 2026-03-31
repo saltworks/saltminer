@@ -6,16 +6,17 @@ from datetime import datetime, timezone, timedelta
 from Sources.Axonius.AxoniusClient import AxoniusClient
 from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 
-from Core.SmDataClient import SmDataClient
+from Core.DataClient import DataClient, QueueStatus
 from Core.ElasticClient import ElasticClient
 
 
 class AxoniusAdapter:
-    
-    def __init__(self, settings):
+
+    def __init__(self, app):
+        settings = app.Settings
         self.axonius_client = AxoniusClient(settings)
         self.sm_docs = SnykDocs()
-        self._sm_data_client = SmDataClient(settings, "Axonius")
+        self._data_client = DataClient(app)
         self._es = ElasticClient(settings)
         self.last_updated_dict = {}
         self.found_date_dict = {} 
@@ -33,9 +34,9 @@ class AxoniusAdapter:
             self.process_asset(asset, query_id= "69b42afef8e2bcfbf5f2bfcb")
             counter += 1 
         
-        self._sm_data_client.SendAllBatchIssues()
+        self._data_client.queue_issue_add_update_batch(None)
         for key, value in self.queue_scan_id_dict.items():
-            self._sm_data_client.FinalizeQueue(value)
+            self._data_client.queue_scan_update_status(value, QueueStatus.PENDING)
             logging.info("[Axonius Adapter] Finalized QueueScan with id: %s", value)
         print(counter)
 
@@ -46,14 +47,14 @@ class AxoniusAdapter:
         asset_name =  ", ".join([item for item in asset.get("specific_data.data.product_name", [])])
         if asset_name not in self.queue_scan_id_dict.keys():
             mapped_scan = self.map_scan(asset, query_id=query_id)  
-            queue_scan = self._sm_data_client.AddQueueScan(json.loads(mapped_scan.model_dump_json()))
+            queue_scan = self._data_client.queue_scan_add_update(json.loads(mapped_scan.model_dump_json()))
 
             self.queue_scan_id_dict[asset_name] = queue_scan['id']
             mapped_asset= self.map_asset(asset, queue_scan_id=queue_scan['id'])
-            queue_asset = self._sm_data_client.AddQueueAsset(json.loads(mapped_asset.model_dump_json()))
+            queue_asset = self._data_client.queue_asset_add_update(json.loads(mapped_asset.model_dump_json()))
             self.queue_asset_id_dict[asset_name] = queue_asset['id']
         mapped_issue = self.map_issue(asset, queue_asset_id=self.queue_asset_id_dict[asset_name], queue_scan_id=self.queue_scan_id_dict[asset_name], query_id=query_id)
-        self._sm_data_client.AddQueueIssue(json.loads(mapped_issue.model_dump_json()))
+        self._data_client.queue_issue_add_update_batch(json.loads(mapped_issue.model_dump_json()))
 
             
     def map_scan(self, asset, query_id):
@@ -61,6 +62,7 @@ class AxoniusAdapter:
         q_scan_doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         q_scan_doc['Saltminer']['Internal']['IssueCount'] = -1  #Setting this value to -1 disables IssueCount validation
         q_scan_doc['Saltminer']['Internal']['ReplaceIssues'] = True
+        q_scan_doc['Saltminer']['Internal']['QueueStatus'] = QueueStatus.LOADING
         scan = q_scan_doc['Saltminer']['Scan']
         scan['Product'] = "Axonius"
         scan['Vendor']= "Axonius"

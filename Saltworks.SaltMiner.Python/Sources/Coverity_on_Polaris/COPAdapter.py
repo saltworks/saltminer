@@ -26,14 +26,15 @@ from datetime import datetime, timezone, timedelta
 from Sources.Coverity_on_Polaris.COPClient import COPClient
 from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 from Core.ElasticClient import ElasticClient
-from Core.SmDataClient import SmDataClient
+from Core.DataClient import DataClient, QueueStatus
 
 class COPAdapter:
-    
-    def __init__(self, settings, first_load = False):
+
+    def __init__(self, app, first_load = False):
+        settings = app.Settings
         self.cop_client = COPClient(settings)
         self._es = ElasticClient(settings)
-        self._sm_data_client = SmDataClient(settings, sourceName='COP')
+        self._data_client = DataClient(app)
         self.sm_docs = SnykDocs()
         self.first_load = first_load
         self.counter = 0
@@ -66,15 +67,14 @@ class COPAdapter:
             }
 
             mapped_scan = self.map_scan(run)
-            queue_scan = self._sm_data_client.AddQueueScan(json.loads(mapped_scan.model_dump_json()))
-
+            queue_scan = self._data_client.queue_scan_add_update(json.loads(mapped_scan.model_dump_json()))
 
             mapped_asset = self.map_asset(queue_scan['id'], project_id)
-            queue_asset = self._sm_data_client.AddQueueAsset(json.loads(mapped_asset.model_dump_json()))
+            queue_asset = self._data_client.queue_asset_add_update(json.loads(mapped_asset.model_dump_json()))
 
             for issue in first_page['data']:
                 mapped_issue = self.map_issue(issue, queue_asset['id'], queue_scan['id'], queue_scan['saltminer']['scan']['reportId'], included_lookup, run)
-                self._sm_data_client.AddQueueIssue(json.loads(mapped_issue.model_dump_json()))
+                self._data_client.queue_issue_add_update_batch(json.loads(mapped_issue.model_dump_json()))
 
             for page in issues_generator:
                 included_lookup = {
@@ -82,11 +82,10 @@ class COPAdapter:
                 }
                 for issue in page.get('data', []):
                     mapped_issue = self.map_issue(issue, queue_asset['id'], queue_scan['id'], queue_scan['saltminer']['scan']['reportId'], included_lookup, run)
-                    self._sm_data_client.AddQueueIssue(json.loads(mapped_issue.model_dump_json()))
+                    self._data_client.queue_issue_add_update_batch(json.loads(mapped_issue.model_dump_json()))
 
-            
-            self._sm_data_client.SendAllBatchIssues()
-            self._sm_data_client.FinalizeQueue(queue_scan['id'])
+            self._data_client.queue_issue_add_update_batch(None)
+            self._data_client.queue_scan_update_status(queue_scan['id'], QueueStatus.PENDING)
 
 
     def map_issue(self, issue, q_asset_id, q_scan_id, report_id, included_lookup, run):
@@ -144,6 +143,7 @@ class COPAdapter:
         q_scan_doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         q_scan_doc['Saltminer']['Internal']['IssueCount'] = -1  #Setting this value to -1 disables IssueCount validation
         q_scan_doc['Saltminer']['Internal']['ReplaceIssues'] = False
+        q_scan_doc['Saltminer']['Internal']['QueueStatus'] = QueueStatus.LOADING
 
         scan= q_scan_doc['Saltminer']['Scan']
         scan['Product'] = "Coverity on Polaris"

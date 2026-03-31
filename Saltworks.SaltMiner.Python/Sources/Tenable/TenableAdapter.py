@@ -26,14 +26,15 @@ from datetime import datetime, timezone, timedelta
 from Sources.Tenable.TenableClient import TenableClient
 from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 from Core.ElasticClient import ElasticClient
-from Core.SmDataClient import SmDataClient
+from Core.DataClient import DataClient, QueueStatus
 
 
 class TenableAdapter:
-    def __init__(self, settings):
+    def __init__(self, app):
+        settings = app.Settings
         self.tenable_client = TenableClient(settings)
         self._es = ElasticClient(settings)
-        self.data_client = SmDataClient(settings, sourceName='Tenable')
+        self.data_client = DataClient(app)
         self.sm_docs = SnykDocs()
         self.counter = 0
 
@@ -97,10 +98,10 @@ class TenableAdapter:
             for issue_record in self.tenable_client.get_vuln_export_generator(scan_record['uuid']):
                 if not self.current_scan_asset_dict.get(issue_record['asset']['uuid']):
                     mapped_scan = self.map_scan(scan_record, issue_record)
-                    queue_scan = self.data_client.AddQueueScan(mapped_scan)
+                    queue_scan = self.data_client.queue_scan_add_update(mapped_scan)
                     mapped_asset = self.map_asset(
                         issue_record, queue_scan['id'])
-                    queue_asset = self.data_client.AddQueueAsset(mapped_asset)
+                    queue_asset = self.data_client.queue_asset_add_update(mapped_asset)
                     self.current_scan_asset_dict[issue_record['asset']['uuid']] = {
                         "queue_scan_id": queue_scan['id'],
                         "queue_asset_id": queue_asset['id'],
@@ -109,14 +110,14 @@ class TenableAdapter:
                     }
                 mapped_issue = self.map_issue(
                     issue_record, current_scan_dict=self.current_scan_asset_dict[issue_record['asset']['uuid']])
-                self.data_client.AddQueueIssue(mapped_issue)
+                self.data_client.queue_issue_add_update_batch(mapped_issue)
             self.finalize_all_scans()
 
 
     def finalize_all_scans(self):
-        self.data_client.SendAllBatchIssues()
+        self.data_client.queue_issue_add_update_batch(None)
         for asset_id, queus_scan_data in self.current_scan_asset_dict.items():
-            self.data_client.FinalizeQueue(queus_scan_data['queue_scan_id'])
+            self.data_client.queue_scan_update_status(queus_scan_data['queue_scan_id'], QueueStatus.PENDING)
         self.current_scan_asset_dict = {}
 
 
@@ -126,6 +127,7 @@ class TenableAdapter:
             "%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         # Setting this value to -1 disables IssueCount validation
         q_scan_doc['Saltminer']['Internal']['IssueCount'] = -1
+        q_scan_doc['Saltminer']['Internal']['QueueStatus'] = QueueStatus.LOADING
         scan = q_scan_doc['Saltminer']['Scan']
         scan['Attributes'] = {}
         scan['Product'] = "Tenable"

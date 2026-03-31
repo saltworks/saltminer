@@ -41,7 +41,7 @@ app = Application()
 prc_key = "Axonius Adapter"
 logging.info("%s starting - %s", prc_key, datetime.now(timezone.utc).isoformat())
 start_timer(prc_key)
-axonius_adapter = AxoniusAdapter(app.Settings)
+axonius_adapter = AxoniusAdapter(app)
 axonius_adapter.run_sync()
 end_timer(prc_key)
 

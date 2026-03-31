@@ -28,17 +28,18 @@ from dateutil.tz import gettz
 from Sources.Seeker.SeekerClient import SeekerClient
 from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 
-from Core.SmDataClient import SmDataClient
+from Core.DataClient import DataClient, QueueStatus
 from Core.ElasticClient import ElasticClient
 
 
 class SeekerAdapter:
 
-    def __init__(self, settings):
+    def __init__(self, app):
+        settings = app.Settings
         self.seeker_client = SeekerClient(settings)
         self.sm_docs = SnykDocs()
-        
-        self._sm_data_client = SmDataClient(settings, "Seeker")
+
+        self._data_client = DataClient(app)
         self._es = ElasticClient(settings)
         self.first_load = settings.GetSource("Seeker", 'First_Load')
         self.project_last_updated = {}
@@ -65,19 +66,19 @@ class SeekerAdapter:
         first_issue = next(issues_generator, None) # Get first issue to check if there is any data
         if first_issue:
             mapped_scan = self.map_scan(first_issue)
-            queue_scan = self._sm_data_client.AddQueueScan(json.loads(mapped_scan.model_dump_json()))
+            queue_scan = self._data_client.queue_scan_add_update(json.loads(mapped_scan.model_dump_json()))
 
             mapped_asset = self.map_asset(project, first_issue, queue_scan['id'])
-            queue_asset = self._sm_data_client.AddQueueAsset(json.loads(mapped_asset.model_dump_json()))
+            queue_asset = self._data_client.queue_asset_add_update(json.loads(mapped_asset.model_dump_json()))
 
             mapped_issue = self.map_issue(first_issue, queue_asset['id'], queue_scan['id'], queue_scan['saltminer']['scan']['reportId'])
-            self._sm_data_client.AddQueueIssue(json.loads(mapped_issue.model_dump_json()))
+            self._data_client.queue_issue_add_update_batch(json.loads(mapped_issue.model_dump_json()))
             for issue in issues_generator:
                 mapped_issue = self.map_issue(issue, queue_asset['id'], queue_scan['id'], queue_scan['saltminer']['scan']['reportId'])
-                self._sm_data_client.AddQueueIssue(json.loads(mapped_issue.model_dump_json()))
+                self._data_client.queue_issue_add_update_batch(json.loads(mapped_issue.model_dump_json()))
 
-            self._sm_data_client.SendAllBatchIssues()
-            self._sm_data_client.FinalizeQueue(queue_scan['id'])
+            self._data_client.queue_issue_add_update_batch(None)
+            self._data_client.queue_scan_update_status(queue_scan['id'], QueueStatus.PENDING)
 
 
     def map_issue(self, issue, queue_asset_id, queue_scan_id, report_id):
@@ -157,6 +158,7 @@ class SeekerAdapter:
         q_scan_doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         q_scan_doc['Saltminer']['Internal']['IssueCount'] = -1  #Setting this value to -1 disables IssueCount validation
         q_scan_doc['Saltminer']['Internal']['ReplaceIssues'] = False
+        q_scan_doc['Saltminer']['Internal']['QueueStatus'] = QueueStatus.LOADING
 
         scan = q_scan_doc['Saltminer']['Scan']
         scan['Product'] = 'Seeker'

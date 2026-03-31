@@ -45,7 +45,7 @@ app = Application()
 prc_key = "Tenable Adapter"
 logging.info("%s starting - %s", prc_key, datetime.now(timezone.utc).isoformat())
 start_timer(prc_key)
-tenable_adapter = TenableAdapter(app.Settings)
+tenable_adapter = TenableAdapter(app)
 tenable_adapter.run_sync(first_load=True)
 
 end_timer(prc_key)

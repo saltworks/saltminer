@@ -45,7 +45,7 @@ app = Application()
 prc_key = "Snyk Adapter"
 logging.info("%s starting - %s", prc_key, datetime.now(timezone.utc).isoformat())
 start_timer(prc_key)
-snyk_adapter = SnykAdapter(app.Settings)
+snyk_adapter = SnykAdapter(app)
 snyk_adapter.run_sync(first_load=first_load)
 end_timer(prc_key)
 

@@ -187,15 +187,17 @@ class Agent():
         return dto
 
 
-    def run(self):
+    def run(self, stop_when_empty:bool=False):
         """Main orchestration loop: start workers, feed ES items into the queue, drain on exit."""
         self._start_workers()
         try:
             while True:
                 if self._queue.qsize() < self.args.low_threshold_count:
                     fetched = self._feed_queue()
-                    if fetched == 0 and self._queue.empty():
-                        self._logger.debug("Queue empty and no new ES items, sleeping %ss", self.args.polling_interval_secs)
+                    if fetched == 0 and self._queue.empty() and stop_when_empty:
+                        self._logger.info("No more items to process and stop_when_empty is True, shutting down.")
+                        break
+                self._logger.info("Internal queue size: %s. Sleeping %ss", self._queue.qsize(), self.args.polling_interval_secs)
                 time.sleep(self.args.polling_interval_secs)
                 active = sum(1 for t in self._workers if t.is_alive())
                 self._logger.debug("Active workers: %d", active)
