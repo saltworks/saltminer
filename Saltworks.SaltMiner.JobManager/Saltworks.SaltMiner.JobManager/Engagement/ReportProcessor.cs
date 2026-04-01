@@ -162,29 +162,47 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             }
         }
 
-        private void CreateWordReport(WordTemplate template)
+        private List<Comment> GetEngagementComments(string engagementId)
         {
-            var cDir = Directory.GetCurrentDirectory();
-            Logger.LogDebug("Current Directory: '{Dir}'", cDir);
-
-            Logger.LogInformation($"Getting Engagement Data");
-
-            var engagementSummary = UiApiClient.EngagementSummaryGet(JobQueue.TargetId).Data;
-            var engagementAssets = UiApiClient.EngagementAssetsGet(JobQueue.TargetId)?.Data?.OrderBy(x => x.Name.Value).ToList() ?? [];
-            var engagementIssues = new List<IssueFull>();
-            var engagementIssuesRemoved = new List<IssueFull>();
-            var commentSearch = new Core.Data.SearchRequest()
+            // NOTE: we don't expect huge number of comments on an engagement, so we get them all into memory for the report.
+            var commentSearch = new Core.Data.SearchRequest(new(1000))
             {
                 Filter = new()
                 {
                     FilterMatches = new() {
-                        { "Saltminer.Engagement.Id", engagementSummary.Id }
+                        { "Saltminer.Engagement.Id", engagementId }
                     }
                 }
             };
             if (!Config.ReportIncludeSystemComments)
                 commentSearch.Filter.FilterMatches.Add("Saltminer.Comment.Type", "User");
-            var engagementComments = DataClient.CommentSearch(commentSearch)?.Data ?? [];
+            List<Comment> engagementComments = [];
+            while (true)
+            {
+                var rsp = DataClient.CommentSearch(commentSearch);
+                if (!(rsp?.Success ?? false))
+                {
+                    Logger.LogError("Failed to get comments for engagement '{EngagementId}' with search: {Search}.  Error: [{Type}] {Msg}", engagementId, commentSearch, rsp.GetType().Name, rsp.Message);
+                    break;
+                }
+                if (rsp.Data == null || !rsp.Data.Any())
+                    break;
+                engagementComments.AddRange(rsp.Data);
+                commentSearch.PagingInfo = rsp.PagingInfo.NextPage();
+            }
+            return engagementComments;
+        }
+
+        private void CreateWordReport(WordTemplate template)
+        {
+            var cDir = Directory.GetCurrentDirectory();
+            Logger.LogDebug("[Report Prep] Current Directory: '{Dir}'", cDir);
+
+            var engagementSummary = UiApiClient.EngagementSummaryGet(JobQueue.TargetId).Data;
+            var engagementAssets = UiApiClient.EngagementAssetsGet(JobQueue.TargetId)?.Data?.OrderBy(x => x.Name.Value).ToList() ?? [];
+            var engagementIssues = new List<IssueFull>();
+            var engagementIssuesRemoved = new List<IssueFull>();
+            var engagementComments = GetEngagementComments(engagementSummary.Id);
             Logger.LogDebug("[Report Prep] Found {AssetCount} Assets, {CommentCount} Comments with search", engagementAssets.Count, engagementComments.Count());
             
             foreach (var asset in engagementAssets)
@@ -471,12 +489,12 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             return result;
         }
 
-        private string[] GetShortenedCommentsForLogging(IEnumerable<Comment> comments, int maxComments = 10)
+        private static string[] GetShortenedCommentsForLogging(IEnumerable<Comment> comments, int maxComments = 10)
         {
             var myComments = comments.Take(maxComments).Select(x => new Tuple<string, string>(x.Saltminer.Issue.Id[^5..], x.Saltminer.Comment.Message)).ToList();
             var logComments = myComments.Where(x => x.Item2.Length <= 20).Select(x => $"{x.Item1}: {x.Item2}").ToList();
             logComments.AddRange(myComments.Where(x => x.Item2.Length > 20).Select(x => $"{x.Item1}: {x.Item2[..19]}..."));
-            return logComments.ToArray();
+            return [.. logComments];
         }
 
         private dynamic CreateReportEngagementDto(EngagementSummary summary, List<AssetFull> assets, List<IssueFull> issues, List<IssueFull> issuesRemoved, IEnumerable<Comment> comments)
