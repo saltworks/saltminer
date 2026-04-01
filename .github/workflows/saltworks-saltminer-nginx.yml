@@ -75,7 +75,9 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: saltworks/saltminer
+          images: |
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+            saltworks/saltminer-nginx
           tags: |
             # Branch push → branch-name tag + short SHA
             type=ref,event=branch
