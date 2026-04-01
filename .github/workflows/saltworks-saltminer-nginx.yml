@@ -71,26 +71,11 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-
-      # ── 5. Derive image tags and OCI labels ───────────────────────────────────
-      #
-      # Tag strategy:
-      #   Push to develop  → ghcr.io/<org>/saltminer-nginx:develop
-      #                       ghcr.io/<org>/saltminer-nginx:sha-<short-sha>
-      #
-      #   Release (v1.2.3) → ghcr.io/<org>/saltminer-nginx:1.2.3
-      #                       ghcr.io/<org>/saltminer-nginx:1.2
-      #                       ghcr.io/<org>/saltminer-nginx:1
-      #                       ghcr.io/<org>/saltminer-nginx:latest
-      #                       <dockerhub-user>/saltminer-nginx:1.2.3  (same semver set)
-      #                       <dockerhub-user>/saltminer-nginx:latest
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: |
-           ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
-           ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}
+          images: saltworks/saltminer
           tags: |
             # Branch push → branch-name tag + short SHA
             type=ref,event=branch
