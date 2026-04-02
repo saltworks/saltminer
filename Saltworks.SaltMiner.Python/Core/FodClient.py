@@ -23,7 +23,6 @@ import sys
 import time
 import datetime
 import logging
-import uuid
 
 from urllib3.exceptions import ReadTimeoutError
 import urllib3
@@ -32,11 +31,12 @@ import requests
 
 class FodClient(object):
 
-    def __init__(self, appSettings, sourceName):
+    def __init__(self, appSettings, sourceName, logger=None):
         '''
         Initializes the class.
 
         inSettings: Settings instance containing application settings
+        logger: optional Logger instance; if None, uses logging.getLogger(__name__)
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
@@ -45,7 +45,8 @@ class FodClient(object):
         sourceType = appSettings.GetSource(sourceName, "Source", "")
         if not sourceType == "FOD":
             raise FodClientConfigurationException(f"Invalid source type '{sourceType}', should be 'FOD'. (in source config '{sourceName}', property 'Source')")
-        
+
+        self.__Logger = logger or logging.getLogger(__name__)
         self.__App = appSettings.Application
         self.__SourceName = sourceName
         self.__VerifySsl = (appSettings.GetSource(sourceName, 'SslVerify', True))
@@ -56,7 +57,7 @@ class FodClient(object):
         proxy = appSettings.GetSource(sourceName, 'Proxy', '')
         if proxy and len(proxy) > 0:
             self.__ProxyDict = { "https": proxy, "http": proxy }
-            logging.info("Using proxy %s", proxy)
+            self.__Logger.info("Using proxy %s", proxy)
         else:
             self.__ProxyDict = None
         self.__BatchSize = appSettings.GetSource(sourceName, 'BatchSize', 50)
@@ -67,7 +68,7 @@ class FodClient(object):
         clientSecret = appSettings.GetSource(sourceName, 'ClientSecret')
         if self.__VerifySsl == "False":
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            logging.warning("SSL verification has been disabled in config.  This is insecure and should be enabled in production systems.")
+            self.__Logger.warning("SSL verification has been disabled in config.  This is insecure and should be enabled in production systems.")
 
         # body for auth request
         body = urllib.parse.urlencode({
@@ -88,7 +89,7 @@ class FodClient(object):
         try:
             self.__Token = auth["access_token"]
         except (KeyError, AttributeError):
-            logging.error("FodClient initialization failure (auth): (%s) %s", response.Status, response.Reason)
+            self.__Logger.error("FodClient initialization failure (auth): (%s) %s", response.Status, response.Reason)
             raise FodClientAuthenticationException(f"FodClient initialization failure (auth): ({response.Status}) {response.Reason}")
 
         # default headers used for all data requests
@@ -96,7 +97,7 @@ class FodClient(object):
             'Authorization': f"Bearer {self.__Token}",
             'Accept': 'application/json'
         }
-        logging.info(f"FodClient initialized. BaseAddress: '%s', ClientId: '%s', Proxy? %s", self.__BaseAddress, clientId, len(proxy) > 0)
+        self.__Logger.info(f"FodClient initialized. BaseAddress: '%s', ClientId: '%s', Proxy? %s", self.__BaseAddress, clientId, len(proxy) > 0)
 
     @property
     def ApiMaxLimit(self):
@@ -138,17 +139,17 @@ class FodClient(object):
 
             except (ConnectionError, ReadTimeoutError) as e:
                 if retryCount >= self.__MaxRetries:
-                    logging.error("Max retry count reached, api call '%s' failed.", url)
+                    self.__Logger.error("Max retry count reached, api call '%s' failed.", url)
                     retryCount = None
                     raise
                 else:
                     retryCount += 1
-                    logging.warning("Server error attempting api call ('%s'), attempt %s/%s, will retry after %s sec delay...", e.__str__(), retryCount, self.__MaxRetries + 1, self.__RetrySec)
+                    self.__Logger.warning("Server error attempting api call ('%s'), attempt %s/%s, will retry after %s sec delay...", e.__str__(), retryCount, self.__MaxRetries + 1, self.__RetrySec)
                     time.sleep(self.__RetrySec)
 
         retryCount = None
         msg = f"FodClient {method} called. Url: '{_url}', Headers: {headers}.  Response: ({resp.status_code}) {resp.reason}"
-        logging.debug(msg)
+        self.__Logger.debug(msg)
         return FodClientResponse(resp)
 
     def Get(self, url, json=None, headers=None):
@@ -247,11 +248,11 @@ class FodClient(object):
                     returnResponse.Content['items'] = []
             returnContent = returnResponse.Content
             total = dto['totalCount'] if 'totalCount' in dto.keys() else 0
-            logging.debug(f"GetPaged found %s total records for url %s", total, url)
+            self.__Logger.debug("GetPaged found %s total records for url %s", total, url)
             offset += len(dto['items'])
             while (offset < total and (limit == 0 or offset < limit)):
                 if logPrefix:
-                    logging.info('%s: retrieved %s of %s documents', logPrefix, len(returnContent['items']), total)
+                    self.__Logger.info('%s: retrieved %s of %s documents', logPrefix, len(returnContent['items']), total)
                 if (offset + batchSize > limit and limit != 0):
                     batchSize = limit - offset
                 myurl = f"{url}{op}offset={offset}&limit={batchSize}"
@@ -260,7 +261,7 @@ class FodClient(object):
                 returnContent['items'].extend(dto['items'])
                 offset += len(dto['items'])
             if logPrefix:
-                logging.info('%s: retrieved %s of %s documents', logPrefix, len(returnContent['items']), total)
+                self.__Logger.info('%s: retrieved %s of %s documents', logPrefix, len(returnContent['items']), total)
             return returnResponse
         except Exception as ex:
             if not response and returnResponse:
@@ -270,30 +271,30 @@ class FodClient(object):
             response.Reason = 'Error'
             response.Status = response.Status if response else 500
             response.Text = f"Error getting multi-call data.  Last response: {response.Text if response.Text else '[not available]'}"
-            logging.error("Get_Paged: %s", ex, exc_info=ex)
+            self.__Logger.error("Get_Paged: %s", ex, exc_info=ex)
             return response
 
     def ManageError(self, postData, response):
 
         if response.status_code == 429:
             timeToPause = int(response.headers['X-Rate-Limit-Reset']) + 2
-            logging.info("Rate limit hit, pausing: {}".format(timeToPause))
+            self.__Logger.info("Rate limit hit, pausing: {}".format(timeToPause))
             time.sleep(timeToPause)
 
         elif response.status_code == 500:
-            logging.info("Error 500 returned, pausing for 30 seconds for system reset.")
-            logging.info(response)
+            self.__Logger.info("Error 500 returned, pausing for 30 seconds for system reset.")
+            self.__Logger.info(response)
             time.sleep((30))
 
         elif response.status_code == 400:
             # Bad Request
-            logging.info("Error 400, bad request.")
-            logging.info(postData)
+            self.__Logger.info("Error 400, bad request.")
+            self.__Logger.info(postData)
             sys.exit()
 
         else:
-            logging.info("Unknown state, exiting")
-            logging.info(response)
+            self.__Logger.info("Unknown state, exiting")
+            self.__Logger.info(response)
             sys.exit()
 
     #endregion
@@ -354,7 +355,7 @@ class FodClient(object):
         :scroller: return an FodScroller instead of pulling all results at once (limit is ignored)
         :logPrefix: if present, adds a progress log message (info) prefixed with the passed value
         '''
-        logging.debug(f"GetVulnerabilities: ReleaseId {releaseId}")
+        self.__Logger.debug(f"GetVulnerabilities: ReleaseId {releaseId}")
         url = f"api/v3/releases/{releaseId}/vulnerabilities?includeFixed={'true' if includeFixed else 'false'}&includeSuppressed={'true' if includeSuppressed else 'false'}"
         if scroller:
             return FodScroller(self, url, offset, logPrefix=logPrefix)
@@ -372,7 +373,7 @@ class FodClient(object):
         vuls = self.GetVulnerabilities(releaseId, True, True)
 
         for vulrel in vuls['items']:
-            #logging.info(vulrel)
+            #self.__Logger.info(vulrel)
             elasticUtility.postFODRelIssues(vulrel)
         return True
 
@@ -384,7 +385,7 @@ class FodClient(object):
         :releaseId: release Id for which to pull summary counts
         '''
 
-        logging.debug(f'GetSummaryCounts: release id {releaseId}')
+        self.__Logger.debug(f'GetSummaryCounts: release id {releaseId}')
         vulsum = None
         rsp = self.GetVulnerabilities(releaseId, includeFixed=True, includeSuppressed=True, limit=1)
         if rsp and rsp.Content:
@@ -399,25 +400,25 @@ class FodClient(object):
         found = False
         if vulsum and 'filters' in vulsum.keys():
             for filter in vulsum['filters']:
-                #logging.debug(f'Filter: {filter}')
+                #self.__Logger.debug(f'Filter: {filter}')
                 if filter['fieldName'] == 'isSuppressed':
                         found = True
                         for value in filter['fieldFilterValues']:
-                            #logging.info(f'fieldName = isSupressed, value = {value}')
+                            #self.__Logger.info(f'fieldName = isSupressed, value = {value}')
                             if value['value'] == 'true':
                                 summary['SuppressedIssues'] = value['count']
 
                 if filter['fieldName'] == 'status':
                         found = True
                         for value in filter['fieldFilterValues']:
-                            #logging.info(f'fieldName = status, value = {value}')
+                            #self.__Logger.info(f'fieldName = status, value = {value}')
                             if value['value'] == 'Fix Validated':
                                 summary['FixedIssue'] = value['count']
         else:
-            logging.debug("Empty response attempting to retrieve summary counts for release ID %s", releaseId)
+            self.__Logger.debug("Empty response attempting to retrieve summary counts for release ID %s", releaseId)
 
         if not found:
-            logging.debug("Unable to find summary fields in response for release ID %s", releaseId)
+            self.__Logger.debug("Unable to find summary fields in response for release ID %s", releaseId)
         
         return summary
 
@@ -494,7 +495,7 @@ class FodClient(object):
             url += f'{qner}fields={fields}'
             amper = AMPER
             qner = ''
-        logging.debug("GetUsers called")
+        self.__Logger.debug("GetUsers called")
         if scroller:
             return FodScroller(self, url, offset)
         else:
@@ -526,7 +527,7 @@ class FodClient(object):
         :fullFileName: local full file path to write contents of the response
         '''
         # _dlFileName = "{}-{}.fpr".format(SSCPVID, datetime.today().strftime('%Y.%m.%d'))
-        logging.warning("This method is untested and may not work.  It may also have a problem in that it currently expects a Dynamic type FPR.")
+        self.__Logger.warning("This method is untested and may not work.  It may also have a problem in that it currently expects a Dynamic type FPR.")
 
         dlResult = {
             'status': "OK",
@@ -546,7 +547,7 @@ class FodClient(object):
             }
             return dlResult
 
-        logging.info('Writing: {}'.format(dlResult['downloadFullFileName']))
+        self.__Logger.info('Writing: {}'.format(dlResult['downloadFullFileName']))
         handle = open(dlResult['downloadFullFileName'], "wb")
         for chunk in response.iter_content(chunk_size=512):
             if chunk:  # filter out keep-alive new chunks
@@ -622,7 +623,7 @@ class FodClient(object):
             url += f'{qner}fields={fields}'
             amper = AMPER
             qner = ''
-        logging.debug("GetUsers called")
+        self.__Logger.debug("GetUsers called")
         if scroller:
             return FodScroller(self, url, offset, limit)
         else:
@@ -643,7 +644,7 @@ class FodClient(object):
             'isSuspended' : boolean
         '''
         url = '/api/v3/users'
-        logging.debug("AddUser called")
+        self.__Logger.debug("AddUser called")
         return self.__Post(url,json)
 
     def DeleteUser(self, userId):
@@ -653,7 +654,7 @@ class FodClient(object):
         :userId: id of user to delete
         '''
         url = '/api/v3/users' + str(userId)
-        logging.debug("Deleting user with id %s", userId)
+        self.__Logger.debug("Deleting user with id %s", userId)
         return self.__Delete(url,json)
 
     def UpdateUser(self, userId, json=None):
@@ -672,7 +673,7 @@ class FodClient(object):
             'isSuspended' : boolean
         '''
         url = '/api/v3/users/' + str(userId)
-        logging.debug("Updating user with id %s", userId)
+        self.__Logger.debug("Updating user with id %s", userId)
         return self.__Put(url,json)
 
     def GetGroups(self):
@@ -766,7 +767,7 @@ class FodScroller(object):
         while m < 200:
             m = m * 2
         if self.__TotalDownloaded % m == 0 or self.__TotalDownloaded == self.__TotalHits and rsp and len(rsp) > 0:
-            logging.info("%s - downloaded %s of %s", self.__LogPrefix, self.__TotalDownloaded, self.__TotalHits)
+            self.__Logger.info("%s - downloaded %s of %s", self.__LogPrefix, self.__TotalDownloaded, self.__TotalHits)
         self.__Results = rsp
 
     def Clear(self):

@@ -38,7 +38,7 @@ class SyncExtractorException(Exception):
 class SyncExtractor(object):
     """Extraction of Open SSC Changes"""
 
-    def __init__(self, appSettings, sourceName, mainConfigName="Main"):
+    def __init__(self, appSettings, sourceName, mainConfigName="Main", logger=None):
 
         if type(appSettings).__name__ != "ApplicationSettings":
             raise SyncExtractorException("Type of appSettings must be 'ApplicationSettings'")
@@ -47,6 +47,7 @@ class SyncExtractor(object):
         if not mainConfigName or not mainConfigName in appSettings.GetConfigNames():
             raise SyncExtractorException(f"Invalid or missing configuration for name '{mainConfigName}'")
 
+        self.__Logger = logger or logging.getLogger(__name__)
         self.__App = appSettings.Application
         self.__RulePacks = []
         self.__SourceName = sourceName
@@ -67,8 +68,8 @@ class SyncExtractor(object):
         self.__MaxSyncErrors = appSettings.GetSource(sourceName, "MaxSyncErrors", 10)
 
         if not len(self.__AssessmentTypeMap.keys()):
-            logging.warn("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
-        logging.debug("ExtractSSC.init complete.")
+            self.__Logger.warn("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
+        self.__Logger.debug("ExtractSSC.init complete.")
 
     @property
     def SourceName(self):
@@ -105,10 +106,10 @@ class SyncExtractor(object):
         
     def __SidecarBulk(self, attribsDoc):
         if len(self.__SidecarBulkDocs) >= 200 or (not attribsDoc and len(self.__SidecarBulkDocs) > 0):
-            logging.info("Bulk inserting %s sidecar docs...", len(self.__SidecarBulkDocs))
+            self.__Logger.info("Bulk inserting %s sidecar docs...", len(self.__SidecarBulkDocs))
             self.__ElasticClient.BulkInsert(self.__SidecarBulkDocs)
             self.__SidecarBulkDocs = []
-            logging.info("Sidecar bulk operation complete")
+            self.__Logger.info("Sidecar bulk operation complete")
         if attribsDoc:
             self.__SidecarBulkDocs.append(attribsDoc)
         
@@ -167,7 +168,7 @@ class SyncExtractor(object):
                 if g in self.__RulePacks:
                     rulepack['language'] = self.__RulePacks[g]['language']
         except Exception as ex:
-            logging.error("Failed when adding rulepack language: %s", ex, exc_info=ex)
+            self.__Logger.error("Failed when adding rulepack language: %s", ex, exc_info=ex)
         return rulepacks
     
     def __GetAssessmentType(self, engineType):
@@ -177,7 +178,7 @@ class SyncExtractor(object):
         if engineType in self.__AssessmentTypeMap.keys():
             return self.__AssessmentTypeMap[engineType]
         else:
-            logging.warning("Scan type '%s' not found in configuration", engineType)
+            self.__Logger.warning("Scan type '%s' not found in configuration", engineType)
             return "Unknown"
 
     def __WriteZeroIssue(self, projid, atype, category):
@@ -302,7 +303,7 @@ class SyncExtractor(object):
         if self.__ElasticClient.IndexExists(index):
             self.__ElasticClient.DeleteByQuery(index, DeleteQuery, flushAfter=False, wait=False)
         else:
-            logging.warn("[DeleteById] Index %s doesn't exist, no delete performed", index)
+            self.__Logger.warn("[DeleteById] Index %s doesn't exist, no delete performed", index)
 
     def __ClearProject(self, projid):
         self.__DeleteById('sscprojects', 'id', projid)
@@ -357,7 +358,7 @@ class SyncExtractor(object):
         for artScan in artifact['_embed']['scans']:
             rulepacks = []
             if not 'uploadDate' in artScan.keys():
-                logging.warning("Invalid scan, upload date missing for app version %s, scan id %s, certification '%s'.  Skipping this scan.", pvid, artScan['id'], artScan['certification'])
+                self.__Logger.warning("Invalid scan, upload date missing for app version %s, scan id %s, certification '%s'.  Skipping this scan.", pvid, artScan['id'], artScan['certification'])
                 continue
             if "rulepacks" in artScan.keys():
                 rulepacks = self.__AddRulepackLanguage(artScan['rulepacks'])
@@ -415,12 +416,12 @@ class SyncExtractor(object):
             mlen = 0 if not scan['messages'] else len(scan['messages'])
             if mlen > 5000:
                 scan['messages'] = str(scan['messages'])[:4989] + "[TRUNCATED]"
-                logging.debug(f"Project scan messages field for PV ID {pvid} was truncated to 5000 chars (from {mlen}).")
+                self.__Logger.debug(f"Project scan messages field for PV ID {pvid} was truncated to 5000 chars (from {mlen}).")
             list.append(scan)
         return list
 
     def RemoveSyncOrphans(self, safetyOverride=False):
-        logging.info("Comparing sync project versions with SSC to find orphans.  Getting PV IDs from local store...")
+        self.__Logger.info("Comparing sync project versions with SSC to find orphans.  Getting PV IDs from local store...")
         scroller = self.__ElasticClient.SearchScroll("sscprojects", { "_source": ["id"] }, scrollSize=1000, scrollTimeout=None)
         lstLocal = []
         while scroller.Results:
@@ -430,18 +431,18 @@ class SyncExtractor(object):
 
         esTotal = len(lstLocal)
         if esTotal <= 0:
-            logging.error("No SSC project versions found in elasticsearch (sscprojects).")
+            self.__Logger.error("No SSC project versions found in elasticsearch (sscprojects).")
             return
         sscTotal = self.__SscUtils.SscClient.GetProjectVersionCount()
-        logging.info("Totals: Elastic SSC count: %s, SSC count: %s", esTotal, sscTotal)
+        self.__Logger.info("Totals: Elastic SSC count: %s, SSC count: %s", esTotal, sscTotal)
         if esTotal > sscTotal and (int(abs(esTotal - sscTotal) / esTotal * 100) > 5):
             if safetyOverride:
-                logging.warning("Elastic counts are higher than SSC by more than 5%, safety override means we're cleaning house anyway.")
+                self.__Logger.warning("Elastic counts are higher than SSC by more than 5%, safety override means we're cleaning house anyway.")
             else:
-                logging.error("Elastic counts are higher than SSC by more than 5%, canceling auto-drop of SSC app versions from SaltMiner.  CheckSscDropProjects can be called manually with a safety override switch if desired.")
+                self.__Logger.error("Elastic counts are higher than SSC by more than 5%, canceling auto-drop of SSC app versions from SaltMiner.  CheckSscDropProjects can be called manually with a safety override switch if desired.")
                 return
 
-        logging.info("Getting PV IDs from SSC...")
+        self.__Logger.info("Getting PV IDs from SSC...")
         lstSsc = []
         dtoSsc = self.__SscUtils.SscClient.GetProjectVersions("id", forceRefresh=True)
         for dto in dtoSsc:
@@ -452,9 +453,9 @@ class SyncExtractor(object):
         for lid in lstLocal:
             count +=1
             if count % 1000 == 0:
-                logging.info("Processed %s of %s", count, len(lstLocal))
+                self.__Logger.info("Processed %s of %s", count, len(lstLocal))
             if lid not in lstSsc:
-                logging.info("Orphan sync project version %s found, removing...")
+                self.__Logger.info("Orphan sync project version %s found, removing...")
                 self.__ClearProject(lid)
                 sscQ = {
                     'processedDateTime': datetime.datetime.now(datetime.UTC).isoformat(),
@@ -465,25 +466,25 @@ class SyncExtractor(object):
                 }
                 self.__ElasticClient.Index('sscupdatequeue', sscQ)
                 dropcount += 1
-        logging.info("Process complete.  %s project version orphans removed.", dropcount)
+        self.__Logger.info("Process complete.  %s project version orphans removed.", dropcount)
                 
 
     def CheckSscDropProjects(self, safetyOverride=False):
-        logging.info('Compare Elastic SSC information with SSC looking for dropped app/versions')
-        logging.info('Getting ProjectVersions')
+        self.__Logger.info('Compare Elastic SSC information with SSC looking for dropped app/versions')
+        self.__Logger.info('Getting ProjectVersions')
 
         self.__SscEsUtils.getAllESSSCProjects()
         esTotal = len(self.__SscEsUtils.AllSscProjects)
         if esTotal <= 0:
-            logging.error("No SSC project versions found in elasticsearch (sscprojects).")
+            self.__Logger.error("No SSC project versions found in elasticsearch (sscprojects).")
             return
         sscTotal = self.__SscUtils.SscClient.GetProjectVersionCount()
-        logging.info("Totals: Elastic SSC count: %s, SSC count: %s", esTotal, sscTotal)
+        self.__Logger.info("Totals: Elastic SSC count: %s, SSC count: %s", esTotal, sscTotal)
         if esTotal > sscTotal and (int(abs(esTotal - sscTotal) / esTotal * 100) > 5):
             if safetyOverride:
-                logging.warning("Elastic counts are higher than SSC by more than 5%, safety override means we're cleaning house anyway.")
+                self.__Logger.warning("Elastic counts are higher than SSC by more than 5%, safety override means we're cleaning house anyway.")
             else:
-                logging.error("Elastic counts are higher than SSC by more than 5%, canceling auto-drop of SSC app versions from SaltMiner.  CheckSscDropProjects can be called manually with a safety override switch if desired.")
+                self.__Logger.error("Elastic counts are higher than SSC by more than 5%, canceling auto-drop of SSC app versions from SaltMiner.  CheckSscDropProjects can be called manually with a safety override switch if desired.")
                 return
 
         projectVersions = self.__SscUtils.SscClient.GetProjectVersions("id", forceRefresh=True)
@@ -509,7 +510,7 @@ class SyncExtractor(object):
     
             if bfoundincurrent == False:
                 p.Progress(iCount, 'Dropping Elastic app/version {} of {}'.format(iCount, esTotal))
-                logging.info('Removing Elastic app/version ID {}'.format(holdprojectId))
+                self.__Logger.info('Removing Elastic app/version ID {}'.format(holdprojectId))
                 projid = holdprojectId
                 self.__ClearProject(projid)
 
@@ -519,12 +520,12 @@ class SyncExtractor(object):
                     'updateType': 'D',
                     'completedDateTime' : '1900-01-01T00:00:00.000-0000'
                 }
-                logging.info(queueInfo)
+                self.__Logger.info(queueInfo)
                 self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
 
                 counttodrop = counttodrop + 1
 
-        logging.info('Total Elastic app/versions dropped: {}'.format(counttodrop))
+        self.__Logger.info('Total Elastic app/versions dropped: {}'.format(counttodrop))
         p.Finish(esTotal, "Complete")
 
     def ReloadSyncQueue(self, clearSyncQueue='none'):
@@ -548,12 +549,12 @@ class SyncExtractor(object):
             if count > 0 and count % 200 == 0:
                 self.__SyncQueue.InsertQueueBatch(idList)
                 idList = []
-                logging.info("Reloading sync queue: processed %s IDs", count)
+                self.__Logger.info("Reloading sync queue: processed %s IDs", count)
             idList.append(itm['id'])
             count += 1
         if len(idList) > 0:
             self.__SyncQueue.InsertQueueBatch(idList)
-        logging.info("Sync queue reloaded successfully.")
+        self.__Logger.info("Sync queue reloaded successfully.")
     
     def ProcessOne(self, pvid, forceSync=False):
         '''
@@ -565,9 +566,9 @@ class SyncExtractor(object):
         projectVersion = self.__GetProjectVersion(pvid, projectVersions)
         if not projectVersion:
             raise SyncExtractorException(f"Project version {pvid} could not be found.")
-        logging.info('Syncing SSC to Elastic for project version %s', pvid)
+        self.__Logger.info('Syncing SSC to Elastic for project version %s', pvid)
         self.__ProcessOne(projectVersion, projectAttrDefs, seenIdList, f"PVID: {pvid}", forceSync)
-        logging.info('Sync complete.')
+        self.__Logger.info('Sync complete.')
 
     def Process(self, cleanupAfter=True, reloadSyncQueue=False):
         '''
@@ -579,7 +580,7 @@ class SyncExtractor(object):
         '''
 
         # Check mappings
-        logging.info("Ensuring Mappings are available")
+        self.__Logger.info("Ensuring Mappings are available")
         self.MapESIndices(False)
 
         projectAttrDefs = self.__SscUtils.SscClient.GetProjectVersionAttributeDefinitions()
@@ -591,9 +592,9 @@ class SyncExtractor(object):
         # Preload project versions if configured
         seenIdList = []
         if self.__PreloadProjectVersions != False:
-            logging.info('Getting ProjectVersions')
+            self.__Logger.info('Getting ProjectVersions')
             projectVersions = self.__SscUtils.SscClient.GetProjectVersions(forceRefresh=True)
-            logging.info('ProjectVersions loaded: %s', len(projectVersions))
+            self.__Logger.info('ProjectVersions loaded: %s', len(projectVersions))
         else:
             projectVersions = []
 
@@ -611,46 +612,46 @@ class SyncExtractor(object):
             queueBatch = r[0]
             iTotal = r[1]
             pvid = 0
-            logging.debug("Sync queue total: %s", iTotal)
+            self.__Logger.debug("Sync queue total: %s", iTotal)
             
             try:
                 if not queueBatch or len(queueBatch) == 0:
-                    logging.info("No project version queued for sync - nothing to do.")
+                    self.__Logger.info("No project version queued for sync - nothing to do.")
                 for qItem in queueBatch:
                     if bailoutCount == 1000:
-                        logging.warning("[SYNC] Unable to lock queue item(s) after 1000 consecutive attempts, canceling sync.")
+                        self.__Logger.warning("[SYNC] Unable to lock queue item(s) after 1000 consecutive attempts, canceling sync.")
                         return
                     pvCount += 1
                     sqdto = self.__SyncQueue.SetInProgress(qItem)
                     if not sqdto:
-                        logging.debug("Skipping sync queue item %s:%s:%s, unable to lock", qItem.SyncQueueDoc.TargetType, qItem.SyncQueueDoc.Instance, qItem.SyncQueueDoc.TargetId)
+                        self.__Logger.debug("Skipping sync queue item %s:%s:%s, unable to lock", qItem.SyncQueueDoc.TargetType, qItem.SyncQueueDoc.Instance, qItem.SyncQueueDoc.TargetId)
                         bailoutCount += 1
                         continue
                     bailoutCount = 0
                     pvid = int(qItem.SyncQueueDoc.TargetId)
                     if pvid in badPvids:
                         # skip, a failure came back up again in query
-                        logging.debug("Skipping pvid %s, failed previously", pvid)
+                        self.__Logger.debug("Skipping pvid %s, failed previously", pvid)
                         continue
                     didSomethingInBatch = True
                     projectVersion = self.__GetProjectVersion(qItem.SyncQueueDoc.TargetId, projectVersions)
                     if not projectVersion:
-                        logging.warning("[SYNC] SSC app/version ID %s not found, cannot sync.", qItem.SyncQueueDoc.TargetId)
+                        self.__Logger.warning("[SYNC] SSC app/version ID %s not found, cannot sync.", qItem.SyncQueueDoc.TargetId)
                         sqdto = self.__SyncQueue.SetComplete(sqdto)
                         if not sqdto:
-                            logging.warning("Failed to complete sync queue item %s:%s:%s. Earlier log messages may have more details.", qItem.SyncQueueDoc.TargetType, qItem.SyncQueueDoc.Instance, qItem.SyncQueueDoc.TargetId)
+                            self.__Logger.warning("Failed to complete sync queue item %s:%s:%s. Earlier log messages may have more details.", qItem.SyncQueueDoc.TargetType, qItem.SyncQueueDoc.Instance, qItem.SyncQueueDoc.TargetId)
                         continue
                     pvMessage = f"PVID: {pvid}"
                     p.Progress(pvCount, f'Comparing SSC to Elastic - {pvid}, {pvCount} processed, {iTotal-pvCount} remain')
                     self.__ProcessOne(projectVersion, projectAttrDefs, seenIdList, pvMessage, qItem.SyncQueueDoc.Force)
                     sqdto = self.__SyncQueue.SetComplete(sqdto)
                     if not sqdto:
-                        logging.warning("Failed to complete sync queue item %s:%s:%s. Earlier log messages may have more details.", qItem.SyncQueueDoc.TargetType, qItem.SyncQueueDoc.Instance, qItem.SyncQueueDoc.TargetId)
+                        self.__Logger.warning("Failed to complete sync queue item %s:%s:%s. Earlier log messages may have more details.", qItem.SyncQueueDoc.TargetType, qItem.SyncQueueDoc.Instance, qItem.SyncQueueDoc.TargetId)
 
                     if self.__SscDiagEnabled: # enable to log if counts get out of sync
                         eCount = self.__ElasticClient.Count("sscprojects")
                         if eCount < pvCount - 1:
-                            logging.warning("Elastic count (%s) is less than current processing count (%s).  Something might be wrong.", eCount, pvCount)
+                            self.__Logger.warning("Elastic count (%s) is less than current processing count (%s).  Something might be wrong.", eCount, pvCount)
                 
                     if self.__SscDiagEnabled: # enable this block to log whether an app version made it to elastic
                         r = self.__ElasticClient.Search("sscprojects", { "query": { "term": { "id": { "value": pvid } } } })
@@ -658,32 +659,32 @@ class SyncExtractor(object):
                             time.sleep(2)
                             r = self.__ElasticClient.Search("sscprojects", { "query": { "term": { "id": { "value": pvid } } } })
                         if r and len(r) == 1:
-                            logging.info("Found projid %s in elastic", pvid)
+                            self.__Logger.info("Found projid %s in elastic", pvid)
                         else:
-                            logging.error("Did not find projid %s in elastic after sync", pvid)
+                            self.__Logger.error("Did not find projid %s in elastic after sync", pvid)
                     consErrorCount = 0 # reset consecutive error count
                 # end 'for qItem in queueBatch'
                 if not didSomethingInBatch:
-                    logging.debug("This batch has only failed project versions, bailing out...")
+                    self.__Logger.debug("This batch has only failed project versions, bailing out...")
                     break # if batch only includes previous failures then bail out of while loop
             except Exception as e:
-                logging.error("Error when processing PV ID %s: %s", pvid, e, stack_info=True)
+                self.__Logger.error("Error when processing PV ID %s: %s", pvid, e, stack_info=True)
                 badPvids.append(pvid)
                 consErrorCount += 1
                 if consErrorCount >= 3:
-                    logging.warning("Too many project versions failed consecutively (%s), bubbling error", consErrorCount)
+                    self.__Logger.warning("Too many project versions failed consecutively (%s), bubbling error", consErrorCount)
                     raise
                 if len(badPvids) > self.__MaxSyncErrors:
-                    logging.error("Too many project versions failed to process (%s), giving up.  This can be configured with setting 'MaxSyncErrors'.", len(badPvids))
+                    self.__Logger.error("Too many project versions failed to process (%s), giving up.  This can be configured with setting 'MaxSyncErrors'.", len(badPvids))
                     raise SyncExtractorException(f"Too many project versions failed to process ({len(badPvids)})") from e
                 # continue
             finally:
                 try:
-                    logging.debug("Attempting to clear sync queue session.")
+                    self.__Logger.debug("Attempting to clear sync queue session.")
                     self.__SyncQueue.ClearSession()
-                    logging.debug("Sync queue session cleared.")
+                    self.__Logger.debug("Sync queue session cleared.")
                 except:
-                    logging.error("Failed to clear sync queue session - see previous log messages for details.")
+                    self.__Logger.error("Failed to clear sync queue session - see previous log messages for details.")
             r = self.__SyncQueue.GetSyncQueueBatch()
         # end 'while r and len(r[0]) > 0'
 
@@ -702,7 +703,7 @@ class SyncExtractor(object):
         attributesUpdated = False
         updateReason = "Force sync requested" if forceSync else ""
         if forceSync:
-            logging.info("%s, force sync requested", pvMessage)
+            self.__Logger.info("%s, force sync requested", pvMessage)
 
         # Consolidate passed SSC attribute definitions, skipping those not in use
         paDefs = {}
@@ -713,18 +714,18 @@ class SyncExtractor(object):
         projid = projectVersion['id']
 
         if self.__SscUtils.IsIncompleteProjectVersion(projid):
-            logging.warning(f"ProjectVersion {projid} appears to not be setup correctly in SSC and will be skipped.")
+            self.__Logger.warning(f"ProjectVersion {projid} appears to not be setup correctly in SSC and will be skipped.")
             return
 
         projectFilterSet = self.__SscUtils.getProjectVersionFilterSet(projid)
         if not projectFilterSet:
-            logging.error("Invalid/missing filterset from SSC API for project version %s.  Skipping...")
+            self.__Logger.error("Invalid/missing filterset from SSC API for project version %s.  Skipping...")
             return
         projectDefFilter = None
         for projectFilter in projectFilterSet['data']:
             if projectFilter['defaultFilterSet'] == True:
                 projectDefFilter = projectFilter['guid']
-                #logging.info(projectDefFilter)
+                #self.__Logger.info(projectDefFilter)
 
         #print(projectFilterSet)
         #sys.exit()
@@ -734,10 +735,10 @@ class SyncExtractor(object):
         holdname = projectVersion['name']
         holdprojectname = projectVersion['project']['name']
 
-        logging.debug(f"{pvMessage}, Checking to see if we need to refresh")
+        self.__Logger.debug(f"{pvMessage}, Checking to see if we need to refresh")
 
         foundproject = [] if needsReset == True else self.__GetSSCProjectByProjectId(projid)
-        #logging.info(foundproject)
+        #self.__Logger.info(foundproject)
     
         if needsReset == False and len(foundproject) == 1:
             lastFPRdate = json.dumps(foundproject[projid]['currentState']['lastFprUploadDate'])
@@ -777,20 +778,20 @@ class SyncExtractor(object):
                         needsReset = True
                         updateReason = f"{updateReason}, found counts and they are different"
                 else:
-                    logging.info(f"{pvMessage}, did not find counts")
+                    self.__Logger.info(f"{pvMessage}, did not find counts")
                     needsReset = True
                     updateReason = f"{updateReason}, did not find counts"
 
             else:
                 if lastFPRdate == holdlastFPR:
-                    logging.info(f"{pvMessage}, found project but currentState.attentionRequired has changed")
+                    self.__Logger.info(f"{pvMessage}, found project but currentState.attentionRequired has changed")
                     updateReason = f"{updateReason}, found project but currentState.attentionRequired has changed"
                 else:
-                    logging.info(f"{pvMessage}, found project but different lastFPRUploadDate")
+                    self.__Logger.info(f"{pvMessage}, found project but different lastFPRUploadDate")
                     updateReason = f"{updateReason}, found project but different lastFPRUploadDate"
                 needsReset = True
         elif needsReset == False:
-            logging.info(f"{pvMessage}, did not find project at all")
+            self.__Logger.info(f"{pvMessage}, did not find project at all")
             needsReset = True
             updateReason = f"{updateReason}, did not find project at all"
 
@@ -841,7 +842,7 @@ class SyncExtractor(object):
             sscRawAttributes = self.Nvl(self.__SscUtils.getProjectVersionAttributes(projid), 'data', [])
             for sscAttr in sscRawAttributes:
                 if not self.__ConvertSscAttribute(paDefs, sscAttr, sscAttributes):
-                    logging.info(f"{pvMessage}, attribute definition load failure (id {sscAttr['guid']}), will reset" )
+                    self.__Logger.info(f"{pvMessage}, attribute definition load failure (id {sscAttr['guid']}), will reset" )
                     needsAttrReset = True
                     break
 
@@ -852,7 +853,7 @@ class SyncExtractor(object):
                 holdAttrs = []
             for esAttr in holdAttrs:
                 if not self.__ConvertEsAttribute(esAttr['_source'], esAttributes):
-                    logging.info(f"{pvMessage}, datasource attribute load failure ('{esAttr['_source']['attributeName']}'), will reset" )
+                    self.__Logger.info(f"{pvMessage}, datasource attribute load failure ('{esAttr['_source']['attributeName']}'), will reset" )
                     needsAttrReset = True
                     break
 
@@ -860,14 +861,14 @@ class SyncExtractor(object):
             for esAttr in esAttributes if not needsAttrReset else []:  # short circuit if we already need reset
                 if not esAttr in sscAttributes or esAttributes[esAttr] != sscAttributes[esAttr]:
                     if not esAttr in sscAttributes:
-                        logging.info(f"{pvMessage}, attribute '{esAttr}' removed in SSC" )
+                        self.__Logger.info(f"{pvMessage}, attribute '{esAttr}' removed in SSC" )
                     else:
-                        logging.info(f"{pvMessage}, attribute '{esAttr}' has changed" )
+                        self.__Logger.info(f"{pvMessage}, attribute '{esAttr}' has changed" )
                     needsAttrReset = True
                     break
             for sscAttr in sscAttributes if not needsAttrReset else []:  # short circuit if we already need reset
                 if not sscAttr in esAttributes:
-                    logging.info(f"{pvMessage}, new attribute '{sscAttr}' in SSC" )
+                    self.__Logger.info(f"{pvMessage}, new attribute '{sscAttr}' in SSC" )
                     needsAttrReset = True
                     break
 
@@ -876,24 +877,24 @@ class SyncExtractor(object):
                 self.__UpdateAttributes(projid, pvMessage, paDefs, sscRawAttributes, not needsReset)
                 attributesUpdated = True
             else:
-                logging.info(f"{pvMessage}, attributes all match" )
+                self.__Logger.info(f"{pvMessage}, attributes all match" )
        
         # MAIN refresh processing
         #needsReset = False
         if needsReset == True:
 
-            logging.info('%s, syncing SSC project version', pvMessage)
+            self.__Logger.info('%s, syncing SSC project version', pvMessage)
 
             # STEP 1 - Clear out records to do refresh
             self.__ClearProject(projid)
 
             # STEP 2 - Refresh project version (application and release)
             jproject = json.dumps(projectVersion)
-            #logging.info(jproject)
+            #self.__Logger.info(jproject)
             if projectVersion['id'] != projid:
-                logging.error("Project version ID %s doesn't match expected projid %s", projectVersion['id'], projid)
+                self.__Logger.error("Project version ID %s doesn't match expected projid %s", projectVersion['id'], projid)
             if projectVersion['id'] in seenIdList:
-                logging.warning("Duplicate app version id %s detected when indexing sscproject (current projid: %s)", projectVersion['id'], projid)
+                self.__Logger.warning("Duplicate app version id %s detected when indexing sscproject (current projid: %s)", projectVersion['id'], projid)
             else:
                 seenIdList.append(projid)
             self.__ElasticClient.Index('sscprojects', jproject)
@@ -905,7 +906,7 @@ class SyncExtractor(object):
                 sscRawAttributes = self.Nvl(self.__SscUtils.getProjectVersionAttributes(projid), 'data', [])
                 for sscAttr in sscRawAttributes:
                     if not self.__ConvertSscAttribute(paDefs, sscAttr, sscAttributes):
-                        logging.info(f"{pvMessage}, attribute definition load failure (id {sscAttr['guid']}), will reset" )
+                        self.__Logger.info(f"{pvMessage}, attribute definition load failure (id {sscAttr['guid']}), will reset" )
                         needsAttrReset = True
                         break
 
@@ -917,7 +918,7 @@ class SyncExtractor(object):
             scnCount = 0
             pvAssessmentTypes = {}
                 
-            logging.info("Adding scans for PV ID %s to sscprojscans", projid)
+            self.__Logger.info("Adding scans for PV ID %s to sscprojscans", projid)
             for artifact in projectScans:
 
                 # artifacts can have multiple scans. map and return as list
@@ -942,8 +943,8 @@ class SyncExtractor(object):
             except (SscClient409ConflictException) as e:
                 # Skip this project version if this specific error occurs
                 if e.startswith("Audit session out of date."):
-                    logging.error("SSC API audit session error, issue import for project version %s stopped ('[SscClient409ConflictException] %s')", projid, e.message)
-                    logging.warning("[DATA WARNING] SSC project version %s may have no or incorrect issue counts", projid)
+                    self.__Logger.error("SSC API audit session error, issue import for project version %s stopped ('[SscClient409ConflictException] %s')", projid, e.message)
+                    self.__Logger.warning("[DATA WARNING] SSC project version %s may have no or incorrect issue counts", projid)
                     return
                 else:
                     # Raise any other flavor of 409 conflict exception
@@ -976,7 +977,7 @@ class SyncExtractor(object):
                 self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
 
     def __UpdateAttributes(self, projid:int, pvMessage:str, attributeDefs:dict, sscRawAttributes:dict, queueRefresh:bool = True):
-        logging.info('%s, syncing SSC attributes', pvMessage)
+        self.__Logger.info('%s, syncing SSC attributes', pvMessage)
         # Clear out records to do refresh
         self.__DeleteById('sscprojattrs', 'projectVersionId', projid)
         self.__DeleteById('sscprojattr2', 'projectVersionId', projid)
@@ -1016,8 +1017,8 @@ class SyncExtractor(object):
                 'updateReason': "attributes updated",
                 'completedDateTime' : '1900-01-01T00:00:00.000-0000'
             }
-            logging.info(f"{pvMessage}, Creating Queue record")
-            logging.info(queueInfo)
+            self.__Logger.info(f"{pvMessage}, Creating Queue record")
+            self.__Logger.info(queueInfo)
             self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
 
     def __ConvertSscAttribute(self, attributeDefs:dict, sscAttribute:dict, addToObject:dict):

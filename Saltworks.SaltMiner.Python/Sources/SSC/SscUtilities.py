@@ -38,8 +38,9 @@ from Utility.GeneralUtility import GeneralUtility
 
 class SscUtilities:
 
-    def __init__(self, appSettings, sourceName):
+    def __init__(self, appSettings, sourceName, logger=None):
 
+        self.__Logger = logger or logging.getLogger(__name__)
         self.__App = appSettings.Application
         self.__ProjectVersions = {'data': [], 'count': 0}
         self.__AllIssues = {'data': [], 'Critical': 0, 'High': 0, 'Medium': 0, 'Low':0, 'count': 0}
@@ -61,7 +62,7 @@ class SscUtilities:
         
         if self.__UseSscClient :
             self.__Ssc = SscClient(appSettings, sourceName)
-            logging.debug(f"{self.__Prog}.init complete - using SSC client.")
+            self.__Logger.debug(f"{self.__Prog}.init complete - using SSC client.")
             if appSettings.GetSource(sourceName, 'UseIssueDetailsEndpoint', False):
                 self.__CustomTagDefinitions = self.__Ssc.GetCustomTagDefinitions()
         else:
@@ -93,7 +94,7 @@ class SscUtilities:
 
             self.restClient = RestClient(appSettings.GetSource(sourceName, 'BaseUrl'), sslVerify=appSettings.GetSource(sourceName, 'SslVerify'), defaultHeaders= _headers)
 
-            logging.debug("{self.__Prog}.init complete.  RestClient params - url: '{}', username: '{}', verify: {}".format(appSettings.GetSource(sourceName, 'BaseUrl', '[Unknown]'), appSettings.GetSource(sourceName, 'Username', '[Unknown]'), appSettings.GetSource(sourceName, 'SslVerify', '[Unknown]')))
+            self.__Logger.debug("{self.__Prog}.init complete.  RestClient params - url: '{}', username: '{}', verify: {}".format(appSettings.GetSource(sourceName, 'BaseUrl', '[Unknown]'), appSettings.GetSource(sourceName, 'Username', '[Unknown]'), appSettings.GetSource(sourceName, 'SslVerify', '[Unknown]')))
     
     def Cleanup(self):
         if self.__UseSscClient :
@@ -108,7 +109,7 @@ class SscUtilities:
         if mname in self.__DepWarnList:
             return
         msg = f"[DEPRECATED] {self.__Prog} method '{mname}' has been deprecated - please use SscClient version instead."
-        logging.warning(msg)
+        self.__Logger.warning(msg)
         print(msg)
         self.__DepWarnList.append(mname)
 
@@ -118,9 +119,9 @@ class SscUtilities:
         self.__CallList[mname] += 1
 
     def callReport(self):
-        logging.info(f"{self.__Prog} method call report (only applies to methods tagged with addCall()...)")
+        self.__Logger.info(f"{self.__Prog} method call report (only applies to methods tagged with addCall()...)")
         for c in self.__CallList.keys():
-            logging.info(f"{c}: {self.__CallList[c]} call(s)")
+            self.__Logger.info(f"{c}: {self.__CallList[c]} call(s)")
 
     def getElasticUtil(self):
         return self.__ElasticClient
@@ -136,16 +137,16 @@ class SscUtilities:
         try:
             response = self.restClient.get(_url)
             if response.status_code != 200:
-                logging.error("SSC api call failed with status {} and text {}".format(response.status_code, response.text))
+                self.__Logger.error("SSC api call failed with status {} and text {}".format(response.status_code, response.text))
                 return False
             data = json.loads(response.text)
             if data is None or not 'count' in data:
-                logging.error("SSC connection failure, response null or missing expected fields")
+                self.__Logger.error("SSC connection failure, response null or missing expected fields")
                 return False
-            logging.info("SSC test call result - status code: {}, project count: {}".format(response.status_code, data['count']))
+            self.__Logger.info("SSC test call result - status code: {}, project count: {}".format(response.status_code, data['count']))
             return True
         except Exception as error:
-            logging.error("SSC test call failed - exception: " + str(error))
+            self.__Logger.error("SSC test call failed - exception: " + str(error))
             return False
 
     # GregLook - all these SSC operations have been replaced with an SSC client call (when the switch is set).  
@@ -186,7 +187,7 @@ class SscUtilities:
                 elif count['cleanName'] == "Low":
                     _issueCounts['low'] = count['visibleCount']
                 else:
-                    logging.info('odd: {}'.format(count['cleanName']))
+                    self.__Logger.info('odd: {}'.format(count['cleanName']))
 
             _issueCounts['count'] = _issueCounts['critical'] + _issueCounts['high'] + _issueCounts['medium'] + _issueCounts['low']    
         
@@ -195,7 +196,7 @@ class SscUtilities:
             _issueCounts['high'] = 0
             _issueCounts['medium'] = 0
             _issueCounts['low'] = 0
-            logging.info('error getting count totals - force recalc')
+            self.__Logger.info('error getting count totals - force recalc')
 
         
         _summaryHidden = self.getProjectVersionSummaryCounts(id, projDefFilter)
@@ -210,7 +211,7 @@ class SscUtilities:
 
             _issueCounts['suppressedCount'] = 0
             _issueCounts['removedCount'] = 0
-            logging.info('error getting count totals - force recalc')
+            self.__Logger.info('error getting count totals - force recalc')
 
 
         return _issueCounts
@@ -236,7 +237,7 @@ class SscUtilities:
         except KeyError:
 
             _issueCountsHidden['hiddenCount'] = 0
-            logging.info('error getting count totals - force recalc')
+            self.__Logger.info('error getting count totals - force recalc')
 
         return _issueCountsHidden
 
@@ -408,7 +409,7 @@ class SscUtilities:
         debug = self.__App.Settings.FlagSet("Debug-Shorten-Lists")
         if debug:
             batchSize = 10
-            logging.info('Shorten list flag in effect ("Debug-Shorten-Lists")')
+            self.__Logger.info('Shorten list flag in effect ("Debug-Shorten-Lists")')
         
         # New Ssc client
         if self.__UseSscClient:
@@ -428,9 +429,9 @@ class SscUtilities:
 
             if self.__ProjectVersions['count'] == 0:
                 self.__ProjectVersions['count'] = projectVersions['count']
-                logging.info('Downloading for {} project versions'.format(self.__ProjectVersions['count']))
+                self.__Logger.info('Downloading for {} project versions'.format(self.__ProjectVersions['count']))
             else:       
-                logging.info('Downloading {} of {} total records'.format(len(projectVersions['data']), self.__ProjectVersions['count']))
+                self.__Logger.info('Downloading {} of {} total records'.format(len(projectVersions['data']), self.__ProjectVersions['count']))
 
             for projectVersion in projectVersions['data']:
                 self.__ProjectVersions['data'].append(projectVersion)
@@ -445,10 +446,10 @@ class SscUtilities:
             except KeyError:
                 _moreRecords = False
             except:
-                logging.error('Unexpected error:{}'.format(sys.exc_info()[0]))
+                self.__Logger.error('Unexpected error:{}'.format(sys.exc_info()[0]))
                 _moreRecords = False
 
-        logging.info('Downloaded total of {} project versions'.format(len(self.__ProjectVersions['data'])))
+        self.__Logger.info('Downloaded total of {} project versions'.format(len(self.__ProjectVersions['data'])))
         return self.__ProjectVersions
 
 
@@ -462,7 +463,7 @@ class SscUtilities:
         Adds keyValue to a customTagValue object
         '''
         if not ctv:
-            logging.debug("Passed ctv missing or None")
+            self.__Logger.debug("Passed ctv missing or None")
             return
         guid = ctv['customTagGuid']
         defn = None
@@ -471,7 +472,7 @@ class SscUtilities:
                 defn = d
                 break
         if not defn:
-            logging.debug("Couldn't find custom tag definition for guid '%s'", guid)
+            self.__Logger.debug("Couldn't find custom tag definition for guid '%s'", guid)
             ctv['keyValue'] = None
             return
         if 'dateValue' in ctv.keys():
@@ -482,14 +483,14 @@ class SscUtilities:
             ctv['keyValue'] = { "name": defn['name'], "value": ctv['textValue'] } 
         if 'newCustomTagIndex' in ctv.keys():
             if not 'valueList' in defn.keys():
-                logging.debug("Expected value list not present in custom tag definition for guid '%s', name '%s'", guid, defn['name'])
+                self.__Logger.debug("Expected value list not present in custom tag definition for guid '%s', name '%s'", guid, defn['name'])
                 return
             for v in defn['valueList']:
                 if v['lookupIndex'] == ctv['newCustomTagIndex']:
                     ctv['keyValue'] = { "name": defn['name'], "value": v['lookupValue'] }
                     break
             if not 'keyValue' in ctv.keys():
-                logging.debug("Custom tag lookup index %s not found for '%s' (%s) custom tag", ctv['newCustomTagIndex'], defn['name'], guid)
+                self.__Logger.debug("Custom tag lookup index %s not found for '%s' (%s) custom tag", ctv['newCustomTagIndex'], defn['name'], guid)
 
     def __BulkIssuesLoadFromDetailsMapIssueFromDetail(self, dtl, reviewed, baseUrl, pvid):
         url = self.Nvl(dtl, 'url')
@@ -555,9 +556,9 @@ class SscUtilities:
             issues.append(self.__BulkIssuesLoadFromDetailsMapIssueFromDetail(rsp, iss['reviewed'], self.__Ssc.BaseUrl, pvid))
             counter += 1
             if counter % self.__SscIssueDetailBatchSize == 0:
-                logging.info("Bulk issue detail loading %i-%i of a batch of %i issues", counter - self.__SscIssueDetailBatchSize + 1, counter, len(issueBatch))
+                self.__Logger.info("Bulk issue detail loading %i-%i of a batch of %i issues", counter - self.__SscIssueDetailBatchSize + 1, counter, len(issueBatch))
         if len(issueBatch) != len(issues):
-            logging.warning("BulkIssuesLoadDetails - counts don't match (expected %s, found %s)", len(issueBatch), len(issues))
+            self.__Logger.warning("BulkIssuesLoadDetails - counts don't match (expected %s, found %s)", len(issueBatch), len(issues))
         return issues
     
     def __BulkIssuesLoadFromDetailsBatchBulk(self, requests, issues, pvid):
@@ -590,14 +591,14 @@ class SscUtilities:
             requests.append({ 'id': iss['id'], 'reviewed': iss['reviewed'], 'req': ssc.BulkRequest(f"{url}/{iss['id']}") })
             counter += 1
             if len(requests) >= self.__SscIssueDetailBatchSize:
-                logging.info("Bulk issue detail loading %i-%i of a batch of %i issues", counter - self.__SscIssueDetailBatchSize + 1, counter, len(issueBatch))
+                self.__Logger.info("Bulk issue detail loading %i-%i of a batch of %i issues", counter - self.__SscIssueDetailBatchSize + 1, counter, len(issueBatch))
                 self.__BulkIssuesLoadFromDetailsBatchBulk(requests, issues, pvid)
                 requests = []
         if len(requests) > 0:
-            logging.info("Bulk issue detail loading remaining %i issues", len(requests))
+            self.__Logger.info("Bulk issue detail loading remaining %i issues", len(requests))
             self.__BulkIssuesLoadFromDetailsBatchBulk(requests, issues, pvid)
         if len(issueBatch) != len(issues):
-            logging.warning("BulkIssuesLoadFromDetailsBatch - counts don't match (expected %s, found %s)", len(issueBatch), len(issues))
+            self.__Logger.warning("BulkIssuesLoadFromDetailsBatch - counts don't match (expected %s, found %s)", len(issueBatch), len(issues))
         return issues
     
     def BulkIssuesLoadFromDetails(self, projectVersionId, projDefFilter):
@@ -614,7 +615,7 @@ class SscUtilities:
             try:
                 r = self.__Ssc.GetProjectVersionIssuesV2(projectVersionId, projDefFilter, "id,reviewed", self.__SscBatchSize, False, restartScroll = (count == 0))
             except SscClient409ConflictException as e:
-                logging.error("SSC conflict error (409) while updating issues, aborting with a partial update for PV ID %s.  Message: %s", projectVersionId, e.message)
+                self.__Logger.error("SSC conflict error (409) while updating issues, aborting with a partial update for PV ID %s.  Message: %s", projectVersionId, e.message)
                 r = None
             if not r or not r['data']:
                 more = False
@@ -691,14 +692,14 @@ class SscUtilities:
             
             if _issues['count'] == 0:
                 _issues['count'] = issues['count']
-                logging.info('Downloading for {} issues'.format(_issues['count']))
+                self.__Logger.info('Downloading for {} issues'.format(_issues['count']))
             else:
-                logging.info('Downloading at {} - {} of {} total records'.format(iCurrentRecord, len(issues['data']), _issues['count']))
+                self.__Logger.info('Downloading at {} - {} of {} total records'.format(iCurrentRecord, len(issues['data']), _issues['count']))
 
             for issue in issues['data']:
                 iCurrentRecord = iCurrentRecord + 1
 
-                #logging.info(issue)
+                #self.__Logger.info(issue)
 
                 if (issue['hidden'] == True):
                     
@@ -710,10 +711,10 @@ class SscUtilities:
         
             except KeyError:
                 _moreRecords = False
-                logging.info('no more records to download')
+                self.__Logger.info('no more records to download')
             except:
                 _moreRecords = False
-                logging.info('something else happened trying to get next href')
+                self.__Logger.info('something else happened trying to get next href')
                 '''print('In getProjectVersionIssues - Unexpected error:{}'.format(sys.exc_info()[0]))
                 '''
         
@@ -745,9 +746,9 @@ class SscUtilities:
 
             if _issues['count'] == 0:
                 _issues['count'] = issues['count']
-                logging.info('Downloading for {} issues'.format(_issues['count']))
+                self.__Logger.info('Downloading for {} issues'.format(_issues['count']))
             else:
-                logging.info('Downloading at {} - {} of {} total records'.format(iCurrentRecord, len(issues['data']), _issues['count']))
+                self.__Logger.info('Downloading at {} - {} of {} total records'.format(iCurrentRecord, len(issues['data']), _issues['count']))
 
             for issue in issues['data']:
                 iCurrentRecord = iCurrentRecord + 1
@@ -759,10 +760,10 @@ class SscUtilities:
         
             except KeyError:
                 _moreRecords = False
-                logging.info('no more records to download')
+                self.__Logger.info('no more records to download')
             except:
                 _moreRecords = False
-                logging.info('something else happened trying to get next href')
+                self.__Logger.info('something else happened trying to get next href')
                 '''print('In getProjectVersionIssues - Unexpected error:{}'.format(sys.exc_info()[0]))
                 '''
 
@@ -807,7 +808,7 @@ class SscUtilities:
                 Critical, High, Medium, Low))
         ofile.close()
 
-        logging.info('Data export complete.')
+        self.__Logger.info('Data export complete.')
 
 
  

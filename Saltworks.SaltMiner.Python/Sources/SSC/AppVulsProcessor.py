@@ -36,7 +36,7 @@ from Utility.UpdateQueueHelper import UpdateQueueHelper
 class AppVulsProcessor(object):
     """ App vulnerability processor for SSC """
 
-    def __init__(self, appSettings, sourceName, smv3ConfigName="SMv3", mainConfigName="Main"):
+    def __init__(self, appSettings, sourceName, smv3ConfigName="SMv3", mainConfigName="Main", logger=None):
 
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
@@ -44,7 +44,8 @@ class AppVulsProcessor(object):
             raise AppVulsSSCException(f"Invalid or missing configuration for name '{smv3ConfigName}'")
         if not mainConfigName or not mainConfigName in appSettings.GetConfigNames():
             raise AppVulsSSCException(f"Invalid or missing configuration for name '{mainConfigName}'")
-        
+
+        self.__Logger = logger or logging.getLogger(__name__)
         self.__Es = appSettings.Application.GetElasticClient()
         self.__Attributes = appSettings.Get(mainConfigName, 'Attributes')
         self.__App = appSettings.Application
@@ -77,9 +78,9 @@ class AppVulsProcessor(object):
         self.__AssessmentTypeMap = appSettings.GetSource(sourceName, 'AssessmentTypeMap', {})
 
         if not len(self.__AssessmentTypeMap.keys()):
-            logging.warn("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
+            self.__Logger.warn("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
                
-        logging.info("AppVulsSSC init complete, connected to Elastic")
+        self.__Logger.info("AppVulsSSC init complete, connected to Elastic")
 
     @property
     def SourceName(self):
@@ -132,7 +133,7 @@ class AppVulsProcessor(object):
        
         self.__Es.MapIndexWithMapping("app_scan_history_ssc", _mapping, Force)
 
-        logging.debug('Mapping of indices complete.')
+        self.__Logger.debug('Mapping of indices complete.')
 
     def PopulateVuls(self, cleanupAfter=True):
         '''Main function that will drive the population of vulnerabilites.'''
@@ -157,7 +158,7 @@ class AppVulsProcessor(object):
         sscProjects = self._GetAllSscProjects()
 
         # Ensure the mappings exist and create them if they don't
-        logging.info('Mapping indices as needed...')
+        self.__Logger.info('Mapping indices as needed...')
         self.MapAppSecVuls(False)
 
         # Remove app versions marked for delete
@@ -167,20 +168,20 @@ class AppVulsProcessor(object):
         while uq and len(uq) > 0:
             for qitem in uq:
                 if c % 10 == 0:
-                    logging.info("Retiring app version(s), %s of %s (batch %s)", c, total, b)
+                    self.__Logger.info("Retiring app version(s), %s of %s (batch %s)", c, total, b)
                 qid = qitem['id'] if qitem and 'id' in qitem.keys() else None
                 if qid:
-                    logging.debug("Deleting v2 data for project version id %s", qid)
+                    self.__Logger.debug("Deleting v2 data for project version id %s", qid)
                     self.__DeleteStuff(qid)
                 else:
-                    logging.warning("Skipping qitem for deleting v2 data, invalid. qitem: %s", qitem)
+                    self.__Logger.warning("Skipping qitem for deleting v2 data, invalid. qitem: %s", qitem)
                 self.__UpdateQHelper.CompleteUpdateQueue(qid, ["D"])
                 c += 1
             # next batch
             uq, total = self.__UpdateQHelper.GetUpdateQueueBatch(["D"])
             b += 1
         if c > 0:
-            logging.info("Waiting 5 sec..")
+            self.__Logger.info("Waiting 5 sec..")
             time.sleep(5)
 
         # Create an object so we can remember if we have run an import already.
@@ -209,17 +210,17 @@ class AppVulsProcessor(object):
                 qid = qitem['id']
                 processedDate = dtparse(qitem['max_processed_date'])
                 if processedDate > sscProjectListPulledAt:
-                    logging.info("Project version data outdated, reloading...")
+                    self.__Logger.info("Project version data outdated, reloading...")
                     sscProjectListPulledAt = datetime.datetime.now(datetime.timezone.utc)
                     sscProjects = self._GetAllSscProjects()
 
                 if qid in updated:
                     retries +=1
                     if retries >= 10:
-                        logging.warning("App version %s recently processed but failed to update after 10 retries, canceling process.", qid)
+                        self.__Logger.warning("App version %s recently processed but failed to update after 10 retries, canceling process.", qid)
                         break
                     # We already processed this PVID - might be ahead of the db so let's pause
-                    logging.info('Skipping app version %s, already processed.  Pausing for 5 sec to let the db catch up...', qid)
+                    self.__Logger.info('Skipping app version %s, already processed.  Pausing for 5 sec to let the db catch up...', qid)
                     time.sleep(5)
                     break
                 else:
@@ -256,15 +257,15 @@ class AppVulsProcessor(object):
         
         sscProject = self._GetSscProjectVersion(pvid)
         if not sscProject:
-            logging.error("Couldn't retrieve project version %s from SSC, skipping this update.", pvid)
+            self.__Logger.error("Couldn't retrieve project version %s from SSC, skipping this update.", pvid)
             return
 
         # Ensure the mappings exist and create them if they don't
-        logging.info('Mapping indices if needed')
+        self.__Logger.info('Mapping indices if needed')
         self.MapAppSecVuls(False)
 
         # Process
-        logging.info('Running PopulateVulsOne for project version %s', pvid)
+        self.__Logger.info('Running PopulateVulsOne for project version %s', pvid)
         self.__ProcessUpdate(pvid, { int(pvid): sscProject })
         #
         # SM API Integration
@@ -273,7 +274,7 @@ class AppVulsProcessor(object):
         if self.__SmApiClientEnabled:
             self.__SmApiClient.finalize_everything()
 
-        logging.info("Complete")
+        self.__Logger.info("Complete")
         if cleanupAfter:
             self.Cleanup()
 
@@ -291,7 +292,7 @@ class AppVulsProcessor(object):
         if engineType in self.__AssessmentTypeMap.keys():
             return self.__AssessmentTypeMap[engineType]
         else:
-            logging.warning("Assessment type '%s' not configured in map.", engineType)
+            self.__Logger.warning("Assessment type '%s' not configured in map.", engineType)
             return "Unknown"
 
     def __ProcessUpdate(self, avid, sscProjects):
@@ -303,7 +304,7 @@ class AppVulsProcessor(object):
         for i in range(1, 3):
             delay = (i - 1) * 30
             if appVerId not in sscProjects.keys():
-                logging.warning("App version %s not found in SSC extract data, retrying (%s of 3) after %s sec delay...", appVerId, i, delay)
+                self.__Logger.warning("App version %s not found in SSC extract data, retrying (%s of 3) after %s sec delay...", appVerId, i, delay)
                 time.sleep(delay)
                 rsp = self._GetSscProjectVersion(avid)
                 if rsp:
@@ -331,7 +332,7 @@ class AppVulsProcessor(object):
                     # If cancel, remove it
                     self.__DeleteStuff(appVerId)
         else:
-            logging.warning("App version %s not found in SSC extract data and will be skipped", appVerId)
+            self.__Logger.warning("App version %s not found in SSC extract data and will be skipped", appVerId)
             # Remove if not found in ssc data
             self.__DeleteStuff(appVerId)
 
@@ -456,7 +457,7 @@ class AppVulsProcessor(object):
                     self.__SendBulkItem(bulkDocument)
 
             except Exception as e:
-                logging.error(f"[{type(e).__name__}] {e}", exc_info=1)
+                self.__Logger.error(f"[{type(e).__name__}] {e}", exc_info=1)
                 # continue implied since last line of for block
 
             # end for
@@ -466,7 +467,7 @@ class AppVulsProcessor(object):
             # Send any remaining bulk docs
             #
             self.__SendBulkItem()
-        logging.info(f"Inserting {len(allDocsToInsert)} scan history doc(s) for id {projectVersion['id']}")
+        self.__Logger.info(f"Inserting {len(allDocsToInsert)} scan history doc(s) for id {projectVersion['id']}")
         return lastScans
 
     def __DeleteStuff(self, appVersionId, issuesOnly=False, scansOnly=False):
@@ -511,7 +512,7 @@ class AppVulsProcessor(object):
                     issue[ca] = {}
                 for tag in srcIssue[ctv]:
                     if 'keyValue' not in tag.keys() or not tag['keyValue'] or not 'name' in tag['keyValue'].keys() or not 'value' in tag['keyValue'].keys():
-                        logging.debug("Missing/null keyValue in customTagValue for issue %s", srcIssue['id'])
+                        self.__Logger.debug("Missing/null keyValue in customTagValue for issue %s", srcIssue['id'])
                         continue
                     issue[ca][tag['keyValue']['name']] = tag['keyValue']['value']
 
@@ -531,7 +532,7 @@ class AppVulsProcessor(object):
                     # Start each assessment type as not present, then set present when encountered while processing issues
                     assessmentTypeStatuses[assessment_type] = { "lastscan": lastScans[assessment_type]['lastscan'], "present": False, "orgType": lastScans[assessment_type]['orgType'], "engineVersion": lastScans[assessment_type]['engineVersion'] }
                 else:
-                    logging.debug("App version %s appears to have no assessments of type '%s'", appVerId, assessment_type)
+                    self.__Logger.debug("App version %s appears to have no assessments of type '%s'", appVerId, assessment_type)
 
         #
         # It's possible we have a record in the Queue that has since been
@@ -741,11 +742,11 @@ class AppVulsProcessor(object):
                     #except KeyError as ex:
                     #    msg = f"Unknown scan type found: [{type(ex).__name__}] {ex}"
                     #    print(msg)
-                    #    logging.warning(msg)
+                    #    self.__Logger.warning(msg)
                     except Exception as ex:
                         msg = f"[{type(ex).__name__}] {ex}"
                         print(msg)
-                        logging.error(msg)
+                        self.__Logger.error(msg)
                         raise(ex)
 
                     iCount = iCount + 1
@@ -856,7 +857,7 @@ class AppVulsProcessor(object):
                     if k not in issueKeys:
                         issueAssetKeys.append(k)
 
-            logging.info("Adding zero record for app version %s and assessment type %s", appVerId, assessment_type)
+            self.__Logger.info("Adding zero record for app version %s and assessment type %s", appVerId, assessment_type)
             IssueKey = f"{appVerId}-{assessment_type}-0"
             #
             # SM API Integration
@@ -888,9 +889,9 @@ class AppVulsProcessor(object):
             finishUp = True
         if len(self.__BulkDocs) >= self.__BulkSendBatchSize or finishUp:
             if len(self.__BulkDocs) == 0:
-                logging.info("Bulk queue empty, nothing to send.")
+                self.__Logger.info("Bulk queue empty, nothing to send.")
             else:
-                logging.info("Bulk queue send (%s items)", len(self.__BulkDocs))
+                self.__Logger.info("Bulk queue send (%s items)", len(self.__BulkDocs))
                 self.__Es.BulkInsert(self.__BulkDocs)
                 self.__BulkDocs = []
 
@@ -948,7 +949,7 @@ class AppVulsProcessor(object):
                 lst[dto['_source']['id']] = dto['_source']
                 c += 1
                 if c % 500 == 0:
-                    logging.info("Loading ssc project versions, %s of %s", c, scroller.TotalHits)
+                    self.__Logger.info("Loading ssc project versions, %s of %s", c, scroller.TotalHits)
             scroller.GetNext()
         scroller.Clear()
         return lst

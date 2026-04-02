@@ -128,25 +128,25 @@ class SyncWorker(Worker):
         if self._ssc_sync is None or self._ssc_sync.SourceName != src_name:
             if self._ssc_sync is not None:
                 self._ssc_sync.Cleanup()
-            self._ssc_sync = SscSync(self.agent.app.Settings, src_name)
+            self._ssc_sync = SscSync(self.agent.app.Settings, src_name, logger=self.logger)
         return self._ssc_sync
 
 
     def _get_ssc_refresh(self, src_name:str) -> SscRefresh:
         if self._ssc_refresh is None or self._ssc_refresh.SourceName != src_name:
-            self._ssc_refresh = SscRefresh(self.agent.app.Settings, src_name)
+            self._ssc_refresh = SscRefresh(self.agent.app.Settings, src_name, logger=self.logger)
         return self._ssc_refresh
 
 
     def _get_fod_sync(self, src_name:str) -> FodSync:
         if self._fod_sync is None or self._fod_sync.SourceName != src_name:
-            self._fod_sync = FodSync(self.agent.app.Settings, src_name)
+            self._fod_sync = FodSync(self.agent.app.Settings, src_name, logger=self.logger)
         return self._fod_sync
 
 
     def _get_fod_refresh(self, src_name:str) -> FodRefresh:
         if self._fod_refresh is None or self._fod_refresh.SourceName != src_name:
-            self._fod_refresh = FodRefresh(self.agent.app.Settings, src_name)
+            self._fod_refresh = FodRefresh(self.agent.app.Settings, src_name, logger=self.logger)
         return self._fod_refresh
 
 

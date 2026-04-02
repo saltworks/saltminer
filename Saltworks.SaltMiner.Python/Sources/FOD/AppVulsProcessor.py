@@ -36,7 +36,7 @@ from Core.FodClient import FodClient
 class AppVulsProcessor(object):
     """ App vulnerability processor for FOD """
 
-    def __init__(self, appSettings, sourceName, smv3ConfigName="SMv3", mainConfigName="Main"):
+    def __init__(self, appSettings, sourceName, smv3ConfigName="SMv3", mainConfigName="Main", logger=None):
 
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
@@ -45,6 +45,7 @@ class AppVulsProcessor(object):
         if not mainConfigName or not mainConfigName in appSettings.GetConfigNames():
             raise AppVulsFODException(f"Invalid or missing configuration for name '{mainConfigName}'")
 
+        self.__Logger = logger or logging.getLogger(__name__)
         self.__Es = appSettings.Application.GetElasticClient()
         self.__Fod = FodClient(appSettings, sourceName)
         self.__Attributes = appSettings.Get(mainConfigName, 'Attributes')
@@ -52,7 +53,7 @@ class AppVulsProcessor(object):
         self.__NullUnsetAttributes = appSettings.GetSource(sourceName, "NullUnsetAttributes", True)
         self.__SourceName = sourceName
         self.__SourceNameField = "sourceName"
-        logging.info(f"Unset attributes will {'be' if self.__NullUnsetAttributes else 'not be'} set to null (control with NullUnsetAttributes setting in source config).")
+        self.__Logger.info(f"Unset attributes will {'be' if self.__NullUnsetAttributes else 'not be'} set to null (control with NullUnsetAttributes setting in source config).")
         self.FOD_UNSET_VALUE = "(Not Set)"
 
         #
@@ -76,9 +77,9 @@ class AppVulsProcessor(object):
         self.__AssessmentTypeMap = appSettings.GetSource(sourceName, 'AssessmentTypeMap', {})
 
         if not len(self.__AssessmentTypeMap.keys()):
-            logging.warn("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
+            self.__Logger.warn("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
 
-        logging.info("AppVulsFOD init complete, connected to Elastic")
+        self.__Logger.info("AppVulsFOD init complete, connected to Elastic")
 
     @property
     def SourceName(self):
@@ -128,7 +129,7 @@ class AppVulsProcessor(object):
        
         self.__Es.MapIndexWithMapping("app_scan_history_fod", _mapping, Force)
 
-        logging.debug('Mapping of indices complete.')
+        self.__Logger.debug('Mapping of indices complete.')
  
 
     def PopulateVuls(self, cleanupAfter=True):
@@ -151,7 +152,7 @@ class AppVulsProcessor(object):
         fodReleases = self._GetAllFodReleases()
 
         #Ensure the mappings exist and create them if they don't
-        logging.info('Mapping indices as needed...')
+        self.__Logger.info('Mapping indices as needed...')
         self.MapAppSecVuls(False)
 
         # Remove app versions marked for delete
@@ -161,20 +162,20 @@ class AppVulsProcessor(object):
         while uq and len(uq) > 0:
             for qitem in uq:
                 if c % 10 == 0:
-                    logging.info("Retiring app version(s), %s of %s (batch %s)", c, total, b)
+                    self.__Logger.info("Retiring app version(s), %s of %s (batch %s)", c, total, b)
                 qid = qitem['id'] if qitem and 'id' in qitem.keys() else None
                 if qid:
-                    logging.debug("Deleting v2 data for app version id %s", qid)
+                    self.__Logger.debug("Deleting v2 data for app version id %s", qid)
                     self.__DeleteStuff(qid)
                 else:
-                    logging.warning("Skipping qitem for deleting v2 data, invalid. qitem: %s", qitem)
+                    self.__Logger.warning("Skipping qitem for deleting v2 data, invalid. qitem: %s", qitem)
                 self.__UpdateQHelper.CompleteUpdateQueue(qid, ["D"], sourceName=self.__SourceName)
                 c += 1
             # next batch
             uq, total = self.__UpdateQHelper.GetUpdateQueueBatch(["D"], sourceName=self.__SourceName)
             b += 1
         if c > 0:
-            logging.info("Waiting 5 sec..")
+            self.__Logger.info("Waiting 5 sec..")
             time.sleep(5)
 
         # Create an object so we can remember if we have run an import already.
@@ -204,7 +205,7 @@ class AppVulsProcessor(object):
 
                 if qid in updated:
                     # We already processed this PVID - might be ahead of the db so let's pause
-                    logging.debug('Skipping %s, already processed.  Pausing for 5 sec to let the db catch up...', qid)
+                    self.__Logger.debug('Skipping %s, already processed.  Pausing for 5 sec to let the db catch up...', qid)
                     time.sleep(5)
                 else:
                     self.__ProcessUpdate(qid, fodReleases)
@@ -239,15 +240,15 @@ class AppVulsProcessor(object):
         
         fodRelease = self._GetFodRelease(avid)
         if not fodRelease:
-            logging.error("Couldn't retrieve release %s from FOD", avid)
+            self.__Logger.error("Couldn't retrieve release %s from FOD", avid)
             return
 
         # Ensure the mappings exist and create them if they don't
-        logging.info('Mapping indices if needed')
+        self.__Logger.info('Mapping indices if needed')
         self.MapAppSecVuls(False)
 
         # Process
-        logging.info('Running PopulateVulsOne for release %s', avid)
+        self.__Logger.info('Running PopulateVulsOne for release %s', avid)
         self.__ProcessUpdate(avid, [ fodRelease ])
         #
         # SM API Integration
@@ -256,7 +257,7 @@ class AppVulsProcessor(object):
         if self.__SmApiClientEnabled:
             self.__SmApiClient.finalize_everything()
 
-        logging.info("Complete")
+        self.__Logger.info("Complete")
         if cleanupAfter:
             self.Cleanup()
 
@@ -279,7 +280,7 @@ class AppVulsProcessor(object):
         # It's possible we have a record in the Queue that has been removed from FOD, in that case we can bail out
         find = [ rid for rid in fodReleases if str(rid['_source']['releaseId']) == avid ]
         if not find:
-            logging.debug("Unable to process updates for release %s, not found in extract data.  Could be orphan queue record.")
+            self.__Logger.debug("Unable to process updates for release %s, not found in extract data.  Could be orphan queue record.")
             return
         appVer = find[0]['_source']
         if appVer:
@@ -302,7 +303,7 @@ class AppVulsProcessor(object):
                     # If cancel, remove it
                     self.__DeleteStuff(appVerId)
         else:
-            logging.warning("App version %s not found in FOD extract data and will be skipped", appVerId)
+            self.__Logger.warning("App version %s not found in FOD extract data and will be skipped", appVerId)
             # Remove if not found in ssc data
             self.__DeleteStuff(appVerId)       
         #
@@ -364,7 +365,7 @@ class AppVulsProcessor(object):
             assessment_type = self.__GetAssessmentType(scanType)
             scanDate = self.__GetDateStr(scan['completedDateTime'])
             if not scanDate:
-                logging.info("Scan with ID '%s' for release '%s' will be skipped, as it has no completed date.", scan['scanId'], release['releaseId'])
+                self.__Logger.info("Scan with ID '%s' for release '%s' will be skipped, as it has no completed date.", scan['scanId'], release['releaseId'])
                 continue
 
             try:
@@ -412,7 +413,7 @@ class AppVulsProcessor(object):
                     allDocsToInsert.append(bulkDocument)
 
             except Exception as e:
-                logging.error(f"[{type(e).__name__}] {e}", exc_info=1)
+                self.__Logger.error(f"[{type(e).__name__}] {e}", exc_info=1)
                 # continue implied since last line of for block
 
             # end for
@@ -421,7 +422,7 @@ class AppVulsProcessor(object):
             #
             # Now insert the entire batch in a single shot, much faster.
             #
-            logging.info(f"Inserting {len(allDocsToInsert)} scan history doc(s) for id {appVerId}")
+            self.__Logger.info(f"Inserting {len(allDocsToInsert)} scan history doc(s) for id {appVerId}")
             self.__Es.BulkInsert(allDocsToInsert)
         return lastScans
 
@@ -464,7 +465,7 @@ class AppVulsProcessor(object):
                 if assessment_type in lastScans.keys():
                     assessmentTypeStatuses[assessment_type] = { "lastscan": lastScans[assessment_type], "present": False }
                 else:
-                    logging.debug("App version %s appears to have no assessments of type '%s'", appVerId, assessment_type)
+                    self.__Logger.debug("App version %s appears to have no assessments of type '%s'", appVerId, assessment_type)
 
         # Get a list of all the vulnerabilites found by SSC with the matching
         # project ID
@@ -672,11 +673,11 @@ class AppVulsProcessor(object):
                     except KeyError as ex:
                         msg = f"Unknown scan type found for issue: [{type(ex).__name__}] {ex}"
                         print(msg)
-                        logging.warning(msg)
+                        self.__Logger.warning(msg)
                     except Exception as ex:
                         msg = f"[{type(ex).__name__}] {ex}"
                         print(msg)
-                        logging.error(msg)
+                        self.__Logger.error(msg)
                         raise(ex)
 
                     iCount = iCount + 1
@@ -784,7 +785,7 @@ class AppVulsProcessor(object):
                     if k not in issueKeys:
                         issueAssetKeys.append(k)
 
-            logging.info("Adding zero record for app version %s and assessment type %s", appVerId, assessment_type)
+            self.__Logger.info("Adding zero record for app version %s and assessment type %s", appVerId, assessment_type)
             IssueKey = f"{appVerId}-{assessment_type}-0"
             #
             # SM API Integration
@@ -856,10 +857,10 @@ class AppVulsProcessor(object):
 
         # should only have one application returned
         if not appResult or not len(appResult) == 1:
-            logging.critical("[DATA] FOD Application id %s not found in fodapplications, skipping release %s", appId, appVerId)
+            self.__Logger.critical("[DATA] FOD Application id %s not found in fodapplications, skipping release %s", appId, appVerId)
             return {}
         if not relResult or not len(relResult) == 1:
-            logging.critical("[DATA] FOD Release id %s not found in fodreleases, skipping release", appVerId)
+            self.__Logger.critical("[DATA] FOD Release id %s not found in fodreleases, skipping release", appVerId)
             return {}
 
         FODApplication = appResult[0]['_source']
