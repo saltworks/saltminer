@@ -48,7 +48,7 @@ public class BaseIssueImportProcessor
         File.WriteAllBytes(filePath, fileBytes);
 
         // get current tested status lookup values and pass to importer process
-        var Lookups = dataClient.LookupSearch(new SearchRequest()).Data.ToList();
+        var Lookups = dataClient.LookupSearch(new SearchRequest(new(1000))).Data.ToList();
         var testedDropdowns = Lookups?.FirstOrDefault(x => x.Type == LookupType.TestedDropdown.ToString())?.Values ?? [];
 
         using (var stream = new FileStream(filePath, FileMode.Open))

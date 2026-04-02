@@ -379,7 +379,7 @@ namespace Saltworks.SaltMiner.DataApi.Upgrade
 
         internal static void UpdateIndexMeta(string finalVersion, SaltMinerIndexData index, IDataRepo data)
         {
-            var indexMeta = data.Search<IndexMeta>(IndexMeta.GenerateIndex(), new SearchRequest("index", index.Name)).Data;
+            var indexMeta = data.Search<IndexMeta>(IndexMeta.GenerateIndex(), new SearchRequest("index", index.Name, 1000)).Data;
             foreach(var metaData in indexMeta)
                 metaData.Version = finalVersion;
             data.AddUpdateBulk(indexMeta, IndexMeta.GenerateIndex());
