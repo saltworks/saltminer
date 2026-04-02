@@ -173,7 +173,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             var engagementAssets = UiApiClient.EngagementAssetsGet(JobQueue.TargetId)?.Data?.OrderBy(x => x.Name.Value).ToList() ?? [];
             var engagementIssues = new List<IssueFull>();
             var engagementIssuesRemoved = new List<IssueFull>();
-            var commentSearch = new Core.Data.SearchRequest()
+            var commentSearch = new Core.Data.SearchRequest(new(10000))
             {
                 Filter = new()
                 {
