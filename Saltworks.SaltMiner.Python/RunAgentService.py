@@ -9,13 +9,13 @@ from Sources.SyncWorker import SyncWorkerFactory, SyncQueueStage
 sourceNames = []
 prog = os.path.splitext(os.path.basename(__file__))[0]
 prm_service = True
-prm_log_instance = None
+prm_log_tag = None
 if len(sys.argv) > 1:
     prm_service = bool(sys.argv[1])     # Run as service, defaults to True, will keep going until stopped
 if len(sys.argv) > 2:
-    prm_log_instance = sys.argv[2]     # Custom logging instance, defaults to none
+    prm_log_tag = sys.argv[2]     # Custom logging tag, defaults to none
 
-app = Application(loggingInstance=prm_log_instance)
+app = Application(custom_tag=prm_log_tag)
 
 def main():
     app = Application()

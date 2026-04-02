@@ -117,7 +117,6 @@ class Agent():
         self._queue = queue.Queue()
         self._workers: list[threading.Thread] = []
         self._queue_client = None
-        self._logger = logging.getLogger(__name__)
 
     @property
     def app(self) -> Application:
@@ -195,17 +194,17 @@ class Agent():
                 if self._queue.qsize() < self.args.low_threshold_count:
                     fetched = self._feed_queue()
                     if fetched == 0 and self._queue.empty() and stop_when_empty:
-                        self._logger.info("No more items to process and stop_when_empty is True, shutting down.")
+                        logging.info("No more items to process and stop_when_empty is True, shutting down.")
                         break
-                self._logger.info("Internal queue size: %s. Sleeping %ss", self._queue.qsize(), self.args.polling_interval_secs)
+                logging.info("Internal queue size: %s. Sleeping %ss", self._queue.qsize(), self.args.polling_interval_secs)
                 time.sleep(self.args.polling_interval_secs)
                 active = sum(1 for t in self._workers if t.is_alive())
-                self._logger.debug("Active workers: %d", active)
+                logging.debug("Active workers: %d", active)
                 if active == 0:
-                    self._logger.info("No active workers, queue size: %d, shutting down.  This might be caused by worker errors, check logs.", self._queue.qsize())
+                    logging.info("No active workers, queue size: %d, shutting down.  This might be caused by worker errors, check logs.", self._queue.qsize())
                     break
         except KeyboardInterrupt:
-            self._logger.info("Agent interrupted, draining queue...")
+            logging.info("Agent interrupted, draining queue...")
         finally:
             self._shutdown_workers()
 

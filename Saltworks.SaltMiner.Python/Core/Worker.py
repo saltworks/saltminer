@@ -63,7 +63,7 @@ class Worker(ABC):
     @property
     def logger(self) -> logging.Logger:
         if self._logger is None:
-            self._logger = logging.getLogger(f"{__name__}-{self.id}")
+            self._logger = self._agent.app.logging_provider.get_thread_logger(self.id)
         return self._logger
     
     @property
@@ -100,10 +100,11 @@ class Worker(ABC):
             try:
                 if not isinstance(item, QueueClientDto):
                     raise WorkerException(f"Invalid queue item type: expected QueueClientDto, got {type(item)}")
+                self.logger.info("Worker %d processing item with ID: %s", self.id, item.id)
                 self._process(item)
                 self.error_count = 0
             except Exception:
-                self.logger.exception("Worker %d failed processing item", self.id)
+                self.logger.exception("Worker %d failed processing item with ID: %s", self.id, item.id)
                 self.error_count += 1
                 if self.error_count >= self.error_threshold:
                     self.logger.error("Worker %d has reached error threshold with %d consecutive errors, stopping worker", self.id, self.error_count)
