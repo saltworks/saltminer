@@ -20,6 +20,10 @@
 
 ﻿namespace Saltworks.SaltMiner.Core.Util
 {
+    /// <summary>
+    /// Enumeration for different types of security assessments that can be performed
+    /// This is used to avoid magic strings, not to validate assessment types, so custom types are allowed.
+    /// </summary>
     public enum AssessmentType
     {
         DAST = 1,
@@ -28,6 +32,12 @@
         SAST,
         Pen,
         Container,
-        Mobile
+        Mobile,
+        Secret, 
+        IAST, 
+        License, 
+        IAC, 
+        Cloud,
+        Custom
     }
 }
