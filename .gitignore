@@ -41,3 +41,4 @@ Saltworks.SaltMiner.Python/sm-run-config-location.json
 ai-*.ps1
 *.http
 
+/.claude
