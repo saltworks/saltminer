@@ -522,6 +522,32 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         }
     }
 
+    private DateTime? GetLatestScanDate(string assetType, string sourceType, string sourceId, string assessmentType)
+    {
+        var scanSearch = new SearchRequest()
+        {
+            Filter = new()
+            {
+                FilterMatches = new()
+                {
+                    { "Saltminer.Asset.AssetType", assetType },
+                    { "Saltminer.Asset.SourceType", sourceType },
+                    { "Saltminer.Asset.SourceId", sourceId },
+                    { "Saltminer.Scan.AssessmentType", assessmentType }
+                }
+            },
+            PagingInfo = new(1),
+            SortKeys = new() { { "Saltminer.Scan.ScanDate", false } }
+        };
+
+        var scans = DataClient.ScanSearch(scanSearch);
+        if (scans != null && scans.Success && scans.Data.Any())
+        {
+            return scans.Data.FirstOrDefault()?.Saltminer.Scan.ScanDate;
+        }
+        return null;
+    }
+
     /// <summary>
     /// Processes one QueueScan from validation to updating new scan / issues / assets
     /// Design decision: log validation error details as needed, but throw validation exception to handle marking error status by bubbling up
@@ -594,14 +620,22 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             // If queueScan is older than most recent scan then skip processing.  
             // This can happen when multiple manager instances process queues out of FIFO order.
             // If history shows this we can then skip processing this scan because it's already updated.
-            var at = queueScan.Saltminer.Scan.AssessmentType;
-            var latest = queueHistoryScans.Where(x => x.Saltminer.Scan.AssessmentType == at).OrderByDescending(x => x.Timestamp).FirstOrDefault();
-            if (latest != null && queueScan.Timestamp < latest.Timestamp)
-            {
-                Logger.LogInformation("Queue scan timestamp '{QTime}' is older than most recent history scan timestamp '{HTime}' for assessment type '{At}', skipping processing for this asset.  This can occur when multiple manager instances are running and processing out of FIFO order.",
-                    queueScan.Timestamp, latest.Timestamp, at);
-                continue;
+            try {
+                var at = queueScan.Saltminer.Scan.AssessmentType;
+                var latest = GetLatestScanDate(queueAsset.Saltminer.Asset.AssetType, queueAsset.Saltminer.Asset.SourceType, queueAsset.Saltminer.Asset.SourceId, at);
+                if (latest != null && queueScan.Saltminer.Scan.ScanDate < latest)
+                {
+                    Logger.LogInformation("Queue scan timestamp '{QTime}' is older than most recent history scandate '{HTime}' for assessment type '{At}', skipping processing for this asset.  This can occur when multiple manager instances are running and processing out of FIFO order.",
+                        queueScan.Saltminer.Scan.ScanDate, latest, at);
+                    continue;
+                }
             }
+            catch (Exception ex)            
+            {
+                // if we fail to get the latest scan date for any reason, we should still attempt to process the scan rather than skipping it
+                Logger.LogError(ex, "Failed to get latest scan date for asset {SourceType} {SourceId}, assessment type {At}: [{Type}] {Msg}",
+                    queueAsset.Saltminer.Asset.SourceType, queueAsset.Saltminer.Asset.SourceId, queueScan.Saltminer.Scan.AssessmentType, ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
+             }
             result = ProcessScan(queueScan, queueAsset, isNoScan);
             if (result == null)  // null means we don't process history or issues (retiring asset, etc.)
             {
