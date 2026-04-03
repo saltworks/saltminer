@@ -23,36 +23,36 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 
-namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
+namespace Saltworks.SaltMiner.SourceAdapters.Sonatype;
+public class SonatypeConfig : SourceAdapterConfig
 {
-    public class SonatypeConfig : SourceAdapterConfig
-    {
-        public SonatypeConfig()
-        {
-            SourceAbortErrorCount = 10;
-        }
-        public string BaseAddress { get; set; }
-        public int Timeout { get; set; }
-        public string UserName { get; set; }
-        public string Password { get; set; }
-        public List<string> VulnerabilityImportTypes { get; set; } = [];
-        public new static bool IsSaltminerSource { get => true; }
-        public string AppReportBaseUrl { get; set; }
-        public int ApiRetryCount { get; set; } = 3;
-        public override string CurrentCompatibleApiVersion => "3.2.0";
-        public override string MinimumCompatibleApiVersion => "3.0.8";
+    private static readonly JsonSerializerOptions IndentedOptions = new JsonSerializerOptions() { WriteIndented = true};
 
-        public override string Serialize()
-        {
-            return JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
-        }
-        public override void Validate()
-        {
-            base.Validate();
-            var missingFields = Core.Helpers.Extensions.IsAnyNullOrEmpty(this);
-            var myFields = new string[] { nameof(BaseAddress), nameof(Timeout), nameof(UserName), nameof(Password), nameof(VulnerabilityImportTypes), nameof(AppReportBaseUrl) };
-            if (myFields.Any(f => missingFields.Contains(f)))
-                throw new SourceConfigurationException($"'{nameof(SonatypeConfig)}' is missing values. {missingFields}");
-        }
+    public SonatypeConfig()
+    {
+        SourceAbortErrorCount = 10;
+    }
+    public string BaseAddress { get; set; }
+    public int Timeout { get; set; }
+    public string UserName { get; set; }
+    public string Password { get; set; }
+    public List<string> VulnerabilityImportTypes { get; set; } = [];
+    public new static bool IsSaltminerSource { get => true; }
+    public string AppReportBaseUrl { get; set; }
+    public int ApiRetryCount { get; set; } = 3;
+    public override string CurrentCompatibleApiVersion => "3.5.0";
+    public override string MinimumCompatibleApiVersion => "3.3.0";
+
+    public override string Serialize()
+    {
+        return JsonSerializer.Serialize(this, IndentedOptions);
+    }
+    public override void Validate()
+    {
+        base.Validate();
+        var missingFields = Core.Helpers.Extensions.IsAnyNullOrEmpty(this);
+        var myFields = new string[] { nameof(BaseAddress), nameof(Timeout), nameof(UserName), nameof(Password), nameof(VulnerabilityImportTypes), nameof(AppReportBaseUrl) };
+        if (myFields.Any(f => missingFields.Contains(f)))
+            throw new SourceConfigurationException($"'{nameof(SonatypeConfig)}' is missing values. {missingFields}");
     }
 }
