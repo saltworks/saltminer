@@ -6,7 +6,7 @@
   "BaseUrl": "https://<your_ssc_host_here>/ssc",
   "GuiUrlTemplate": "{baseUrl}/html/ssc/version/{avid}/audit?q=%5Binstance%20id%5D%3A{instanceId}%20&filterset={filterset}&groupingtype={groupingType}&viewTab=code",
   "Username": "<your_username>",
-  "Password": "<your_password>",
+  "Password": "e$Fernet$gAAAAABp0C5iGpwQnQM0VcWx6cPgKuOpUnUAows8-Gq4F985T4IEeQnfzfWxb5uPOG9CD1cIzASt6LGewpfM7chWZ9Nslgua2w==",
   "GroupingTypeId": "11111111-1111-1111-1111-111111111150",
   "FiltersetId": "babb745a-375a-32fd-adfc-b9d14feef22d",
   "SslVerify": "False",

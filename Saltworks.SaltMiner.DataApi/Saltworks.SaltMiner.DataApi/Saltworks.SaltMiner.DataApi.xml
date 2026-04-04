@@ -1399,6 +1399,11 @@
             <param name="alias">Alias to add</param>
             <returns>Success</returns>
         </member>
+        <member name="P:Saltworks.SaltMiner.DataApi.Models.ApiConfig.EnableManagerUnlockUpdateByQuery">
+            <summary>
+            If set, uses update by query to unlock manager locked queues.  Otherwise, uses search and bulk update (the old way).  Disable if this is breaking.
+            </summary>
+        </member>
         <member name="P:Saltworks.SaltMiner.DataApi.Upgrade.IUpgradeStep.AppliesToVersion">
             <summary>
             The version of Data API this step upgrades from.

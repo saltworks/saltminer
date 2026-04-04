@@ -24,6 +24,8 @@ import os
 import datetime
 import ntpath
 
+_MISSING = object()  # sentinel: distinguishes "no default provided" from default=None
+
 from .EncryptionHelper import EncryptionHelper
 from .ApplicationExceptions import *
 
@@ -95,7 +97,7 @@ class ApplicationSettings(object):
     def __GetFromConfig(self, config, section, key, default, isSource):
         template = (f"source '{section}' and key '{key}'." if isSource else f"config '{section}' and key '{key}'.")
         if not section in config.keys() or not key in config[section].keys():
-            if not default is None:
+            if default is not _MISSING:
                 return default
             msg = f"Settings incorrect or missing value for {template}"
             self.__Log("error", msg)
@@ -205,7 +207,7 @@ class ApplicationSettings(object):
             raise ApplicationConfigurationException(msg)
         return self.__Sources[sourceName]
 
-    def GetSource(self, sourceName, key, default=None):
+    def GetSource(self, sourceName, key, default=_MISSING):
         ''' Gets a source config setting value by passed source name and key, returning an optional default value if setting is not found and automatically decrypting if needed '''
         return self.__GetFromConfig(self.__Sources, sourceName, key, default, True)
 
@@ -221,7 +223,7 @@ class ApplicationSettings(object):
             raise ApplicationConfigurationException(msg)
         return self.__Config[section]
 
-    def Get(self, section, key, default=None):
+    def Get(self, section, key, default=_MISSING):
         ''' Gets a setting value by passed section and key, returning an optional default value if setting is not found and automatically decrypting if needed '''
         return self.__GetFromConfig(self.__Config, section, key, default, False)
     

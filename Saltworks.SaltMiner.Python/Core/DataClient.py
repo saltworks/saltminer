@@ -18,10 +18,11 @@
 * ----
 '''
 
+import asyncio
 import json
 import logging
 
-from Core.RestClient import RestClient
+from Core.RestClient import AsyncRestClient, RestClient
 from Core.Application import Application
 
 
@@ -73,7 +74,8 @@ class DataClient:
         ssl_verify = self._resolve_ssl(ssl_verify, ssl_cert)
 
         RestClient.disableRequestWarnings()
-        self._client = self._get_client(api_url, api_key, ssl_verify, timeout)
+        self._loop = asyncio.new_event_loop()
+        self._client = self._get_async_client(api_url, api_key, ssl_verify, timeout)
         self._manager_client = None
         self._manager_key = manager_key
         self._timeout = timeout
@@ -92,17 +94,17 @@ class DataClient:
         )
 
     @property
-    def client(self) -> RestClient:
+    def client(self) -> AsyncRestClient:
         return self._client
 
     @property
-    def manager_client(self) -> RestClient:
+    def manager_client(self) -> AsyncRestClient:
         if self._manager_client is None:
             if not self._manager_key:
                 raise DataClientException(
                     "ManagerApiKey is not configured for this DataClient instance."
                 )
-            self._manager_client = self._get_client(
+            self._manager_client = self._get_async_client(
                 self._client.BaseUrl, self._manager_key, self._ssl_verify, self._timeout
             )
         return self._manager_client
@@ -149,6 +151,19 @@ class DataClient:
         return RestClient(api_url, sslVerify=ssl_verify, defaultHeaders=headers, timeout=timeout, retryConnectionErrors=True)
 
     @staticmethod
+    def _get_async_client(api_url, api_key, ssl_verify, timeout) -> AsyncRestClient:
+        headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json;charset=UTF-8',
+            'Authorization': api_key,
+        }
+        return AsyncRestClient(api_url, sslVerify=ssl_verify, defaultHeaders=headers, timeout=timeout, retryConnectionErrors=True)
+
+    def _run_async(self, coro):
+        '''Run a coroutine on this instance's persistent event loop. Used by sync methods to delegate to their async counterparts.'''
+        return self._loop.run_until_complete(coro)
+
+    @staticmethod
     def _resolve_ssl(ssl_verify, ssl_cert):
         '''Mirrors SmApiClient SSL resolution: use cert path when provided.'''
         if ssl_verify and ssl_cert:
@@ -168,9 +183,11 @@ class DataClient:
             errors = body.get('errorMessages')
             if errors:
                 detail = f"{detail}; {'; '.join(errors)}" if detail else '; '.join(errors)
-            msg = f"{base_msg}: {detail}" if detail else f"{base_msg}: [{response.status_code}] {response.reason}"
+            _reason = getattr(response, 'reason', None) or getattr(response, 'reason_phrase', '')
+            msg = f"{base_msg}: {detail}" if detail else f"{base_msg}: [{response.status_code}] {_reason}"
         except Exception:
-            msg = f"{base_msg}: [{response.status_code}] {response.reason}"
+            _reason = getattr(response, 'reason', None) or getattr(response, 'reason_phrase', '')
+            msg = f"{base_msg}: [{response.status_code}] {_reason}"
 
         if response.status_code == 404:
             raise DataClientNotFoundException(msg)
@@ -189,13 +206,21 @@ class DataClient:
 
     def register_get_role(self):
         '''Returns the role string for the configured API key (e.g. "agent").'''
-        r = self._client.Get('register/role')
+        return self._run_async(self.register_get_role_async())
+
+    async def register_get_role_async(self):
+        '''Async version of register_get_role.'''
+        r = await self._client.Get('register/role')
         self._verify_response('Error retrieving role', r)
         return json.loads(r.text).get('message', '')
 
     def register_get_agent_id(self):
         '''Returns the agent ID for the configured API key.'''
-        r = self._client.Get('register/agent')
+        return self._run_async(self.register_get_agent_id_async())
+
+    async def register_get_agent_id_async(self):
+        '''Async version of register_get_agent_id.'''
+        r = await self._client.Get('register/agent')
         self._verify_response('Error retrieving agent ID', r)
         return json.loads(r.text).get('message', '')
 
@@ -205,15 +230,21 @@ class DataClient:
 
     def get_version(self):
         '''Returns the API version info.'''
-        r = self._client.Get('admin/version')
+        return self._run_async(self.get_version_async())
+
+    async def get_version_async(self):
+        '''Async version of get_version.'''
+        r = await self._client.Get('admin/version')
         self._verify_response('Error retrieving API version', r)
         return json.loads(r.text)
 
     def webhook_get(self, source):
-        '''
-        Returns webhook events for the given source ID, or None if no data.
-        '''
-        r = self._client.Get(f'utility/webhook/{source}')
+        '''Returns webhook events for the given source ID, or None if no data.'''
+        return self._run_async(self.webhook_get_async(source))
+
+    async def webhook_get_async(self, source):
+        '''Async version of webhook_get.'''
+        r = await self._client.Get(f'utility/webhook/{source}')
         self._verify_response(f"Error retrieving webhook events for source '{source}'", r)
         body = json.loads(r.text)
         data = body.get('data')
@@ -224,28 +255,40 @@ class DataClient:
     # ------------------------------------------------------------------
 
     def queue_scan_add_update(self, q_scan):
-        '''
-        Adds or updates a queue scan document.  Returns the response data dict.
-        '''
-        r = self._client.Post('queuescan', {'Id': None, 'Entity': q_scan})
+        '''Adds or updates a queue scan document.  Returns the response data dict.'''
+        return self._run_async(self.queue_scan_add_update_async(q_scan))
+
+    async def queue_scan_add_update_async(self, q_scan):
+        '''Async version of queue_scan_add_update.'''
+        r = await self._client.Post('queuescan', {'Id': None, 'Entity': q_scan})
         self._verify_response('Error submitting queue scan', r)
         return json.loads(r.text).get('data')
 
     def queue_scan_update_status(self, scan_id, status):
-        '''
-        Updates the status of a queue scan (e.g. "Pending").
-        '''
-        r = self._client.Get(f'queuescan/status/{scan_id}/{status}')
+        '''Updates the status of a queue scan (e.g. "Pending").'''
+        return self._run_async(self.queue_scan_update_status_async(scan_id, status))
+
+    async def queue_scan_update_status_async(self, scan_id, status):
+        '''Async version of queue_scan_update_status.'''
+        r = await self._client.Get(f'queuescan/status/{scan_id}/{status}')
         self._verify_response(f"Error updating queue scan '{scan_id}' status to '{status}'", r)
 
     def queue_scan_delete(self, scan_id):
         '''Deletes a queue scan by ID.'''
-        r = self._client.Delete(f'queuescan/{scan_id}')
+        return self._run_async(self.queue_scan_delete_async(scan_id))
+
+    async def queue_scan_delete_async(self, scan_id):
+        '''Async version of queue_scan_delete.'''
+        r = await self._client.Delete(f'queuescan/{scan_id}')
         self._verify_response(f"Error deleting queue scan '{scan_id}'", r)
 
     def queue_scan_delete_all(self, scan_id):
         '''Deletes a queue scan and all associated queue assets and queue issues.'''
-        r = self._client.Delete(f'queuescan/all/{scan_id}')
+        return self._run_async(self.queue_scan_delete_all_async(scan_id))
+
+    async def queue_scan_delete_all_async(self, scan_id):
+        '''Async version of queue_scan_delete_all.'''
+        r = await self._client.Delete(f'queuescan/all/{scan_id}')
         self._verify_response(f"Error deleting queue scan and children for '{scan_id}'", r)
 
     def queue_bulk_add_update(self, queue_item:dict, batch_size=None):
@@ -254,12 +297,16 @@ class DataClient:
         :param queue_item: queue scan/asset/issue doc to add to the batch, or None to send any remainder.
         :param batch_size: batch size to trigger automatic send; defaults to self.queue_batch_size if None
         '''
+        return self._run_async(self.queue_bulk_add_update_async(queue_item, batch_size))
+
+    async def queue_bulk_add_update_async(self, queue_item:dict, batch_size=None):
+        '''Async version of queue_bulk_add_update.'''
         if batch_size is None:
             batch_size = self.queue_batch_size
         if queue_item is not None:
             self._queue_batch.append(queue_item)
         if len(self._queue_batch) >= batch_size or (queue_item is None and len(self._queue_batch) > 0):
-            self.queue_bulk(self._queue_batch)
+            await self.queue_bulk_async(self._queue_batch)
             self._queue_batch = []
 
     def queue_bulk(self, batch:list):
@@ -268,7 +315,11 @@ class DataClient:
 
         :param batch: list of queue scan/asset/issue docs (scan should exist for asset, both should exist for issue)
         '''
-        r = self._client.Post('queuescan/bulkqueue', batch)
+        return self._run_async(self.queue_bulk_async(batch))
+
+    async def queue_bulk_async(self, batch:list):
+        '''Async version of queue_bulk.'''
+        r = await self._client.Post('queuescan/bulkqueue', batch)
         self._verify_response('Error submitting bulk queue', r)
 
     # ------------------------------------------------------------------
@@ -276,16 +327,22 @@ class DataClient:
     # ------------------------------------------------------------------
 
     def queue_asset_add_update(self, q_asset):
-        '''
-        Adds or updates a queue asset document.  Returns the response data dict.
-        '''
-        r = self._client.Post('queueasset', {'Id': None, 'Entity': q_asset})
+        '''Adds or updates a queue asset document.  Returns the response data dict.'''
+        return self._run_async(self.queue_asset_add_update_async(q_asset))
+
+    async def queue_asset_add_update_async(self, q_asset):
+        '''Async version of queue_asset_add_update.'''
+        r = await self._client.Post('queueasset', {'Id': None, 'Entity': q_asset})
         self._verify_response('Error submitting queue asset', r)
         return json.loads(r.text).get('data')
 
     def queue_asset_delete(self, asset_id):
         '''Deletes a queue asset by ID.'''
-        r = self._client.Delete(f'queueasset/{asset_id}')
+        return self._run_async(self.queue_asset_delete_async(asset_id))
+
+    async def queue_asset_delete_async(self, asset_id):
+        '''Async version of queue_asset_delete.'''
+        r = await self._client.Delete(f'queueasset/{asset_id}')
         self._verify_response(f"Error deleting queue asset '{asset_id}'", r)
 
     # ------------------------------------------------------------------
@@ -299,20 +356,28 @@ class DataClient:
         :qissue: queue issue to send. If None, send remainder of batch if any.
         :batch_size: batch size to trigger automatic send; defaults to self.issue_batch_size if None
         '''
+        return self._run_async(self.queue_issue_add_update_batch_async(qissue, batch_size))
+
+    async def queue_issue_add_update_batch_async(self, qissue:dict, batch_size=None):
+        '''Async version of queue_issue_add_update_batch.'''
         if batch_size is None:
             batch_size = self.issue_batch_size
         if qissue is not None:
             self.issue_batch.append(qissue)
         if len(self.issue_batch) >= batch_size or (qissue is None and len(self.issue_batch) > 0):
-            self.queue_issues_add_update_bulk(self.issue_batch)
+            await self.queue_issues_add_update_bulk_async({'Documents': self.issue_batch})
             self.issue_batch = []
 
-    def queue_issues_add_update_bulk(self, batch:list):
+    def queue_issues_add_update_bulk(self, batch:dict):
         '''
         Submits a batch of queue issues.
-        :param batch: list of queue issue docs to send
+        :param batch: dict with 'Documents' key containing list of queue issue docs
         '''
-        r = self._client.Post('queueissue/bulk', batch)
+        return self._run_async(self.queue_issues_add_update_bulk_async(batch))
+
+    async def queue_issues_add_update_bulk_async(self, batch:dict):
+        '''Async version of queue_issues_add_update_bulk.'''
+        r = await self._client.Post('queueissue/bulk', batch)
         self._verify_response('Error submitting queue issues (bulk)', r)
 
     # ------------------------------------------------------------------
@@ -322,22 +387,27 @@ class DataClient:
     def scan_search(self, search_request:dict):
         '''
         Searches scans using the provided search request body.
-        Returns the data list, or None if no results.
-        Requires manager API key.
+        Returns the data list, or None if no results.  Requires manager API key.
         '''
+        return self._run_async(self.scan_search_async(search_request))
+
+    async def scan_search_async(self, search_request:dict):
+        '''Async version of scan_search.'''
         self._require_manager('scan_search')
-        r = self.manager_client.Post('scan/search', search_request)
+        r = await self.manager_client.Post('scan/search', search_request)
         self._verify_response('Error searching scans', r)
         body = json.loads(r.text)
         data = body.get('data')
         return data if data else None
 
     def scan_delete(self, scan_id, asset_type, source_type, instance):
-        '''
-        Deletes a scan by composite key.  Requires manager API key.
-        '''
+        '''Deletes a scan by composite key.  Requires manager API key.'''
+        return self._run_async(self.scan_delete_async(scan_id, asset_type, source_type, instance))
+
+    async def scan_delete_async(self, scan_id, asset_type, source_type, instance):
+        '''Async version of scan_delete.'''
         self._require_manager('scan_delete')
-        r = self.manager_client.Delete(f'scan/{scan_id}/{asset_type}/{source_type}/{instance}')
+        r = await self.manager_client.Delete(f'scan/{scan_id}/{asset_type}/{source_type}/{instance}')
         self._verify_response(f"Error deleting scan '{scan_id}'", r)
         logging.debug("[DataClient] Deleted scan '%s' (%s/%s/%s)", scan_id, asset_type, source_type, instance)
 
@@ -346,11 +416,13 @@ class DataClient:
     # ------------------------------------------------------------------
 
     def asset_delete(self, asset_id, asset_type, source_type, instance):
-        '''
-        Deletes an asset by composite key.  Requires manager API key.
-        '''
+        '''Deletes an asset by composite key.  Requires manager API key.'''
+        return self._run_async(self.asset_delete_async(asset_id, asset_type, source_type, instance))
+
+    async def asset_delete_async(self, asset_id, asset_type, source_type, instance):
+        '''Async version of asset_delete.'''
         self._require_manager('asset_delete')
-        r = self.manager_client.Delete(f'asset/{asset_id}/{asset_type}/{source_type}/{instance}')
+        r = await self.manager_client.Delete(f'asset/{asset_id}/{asset_type}/{source_type}/{instance}')
         self._verify_response(f"Error deleting asset '{asset_id}'", r)
         logging.debug("[DataClient] Deleted asset '%s' (%s/%s/%s)", asset_id, asset_type, source_type, instance)
 
@@ -359,11 +431,13 @@ class DataClient:
     # ------------------------------------------------------------------
 
     def issues_delete_by_scan(self, scan_id, asset_type, source_type, instance):
-        '''
-        Deletes all issues associated with a scan.  Requires manager API key.
-        '''
+        '''Deletes all issues associated with a scan.  Requires manager API key.'''
+        return self._run_async(self.issues_delete_by_scan_async(scan_id, asset_type, source_type, instance))
+
+    async def issues_delete_by_scan_async(self, scan_id, asset_type, source_type, instance):
+        '''Async version of issues_delete_by_scan.'''
         self._require_manager('issues_delete_by_scan')
-        r = self.manager_client.Delete(f'issue/scan/{scan_id}/{asset_type}/{source_type}/{instance}')
+        r = await self.manager_client.Delete(f'issue/scan/{scan_id}/{asset_type}/{source_type}/{instance}')
         self._verify_response(f"Error deleting issues for scan '{scan_id}'", r)
         logging.debug("[DataClient] Deleted issues for scan '%s' (%s/%s/%s)", scan_id, asset_type, source_type, instance)
 
@@ -373,7 +447,11 @@ class DataClient:
 
     def refresh_index(self, index_name):
         '''Refreshes an Elasticsearch index via the DataApi.'''
-        r = self._client.Post(f'index/refresh/{index_name}')
+        return self._run_async(self.refresh_index_async(index_name))
+
+    async def refresh_index_async(self, index_name):
+        '''Async version of refresh_index.'''
+        r = await self._client.Post(f'index/refresh/{index_name}')
         self._verify_response(f"Error refreshing index '{index_name}'", r)
 
     # ------------------------------------------------------------------
@@ -387,10 +465,30 @@ class DataClient:
         :returns: parsed response body dict, or {} on 202 with no body
         :raises DataClientException: on non-202 response
         '''
-        r = self._client.Post('Eventlog', json=payload)
+        return self._run_async(self.event_add_async(payload))
+
+    async def event_add_async(self, payload):
+        '''Async version of event_add.'''
+        r = await self._client.Post('Eventlog', json=payload)
         if r.status_code == 202:
             try:
                 return r.json()
             except Exception:
                 return {}
         self._verify_response('EventLog POST failed', r)
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def close(self):
+        '''
+        Close the underlying async HTTP clients and event loop.
+        Call when finished with this DataClient instance to release connections.
+        '''
+        async def _close_clients():
+            await self._client.close()
+            if self._manager_client is not None:
+                await self._manager_client.close()
+        self._run_async(_close_clients())
+        self._loop.close()

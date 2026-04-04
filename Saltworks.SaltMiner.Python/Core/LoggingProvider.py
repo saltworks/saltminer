@@ -73,10 +73,13 @@ class LoggingProvider:
         self._level = self._parse_log_level(self._app.Settings.Get('Logging', 'LogLevel', 'DEBUG'))
         log_path = self._build_log_path(self._custom_tag)
         print(f'SaltMiner logging to: {log_path}')
-        logging.basicConfig(
-            level=self._level,
-            handlers=[self._make_console_handler(), self._make_file_handler(log_path)]
-        )
+        root = logging.getLogger()
+        for handler in root.handlers[:]:
+            handler.close()
+            root.removeHandler(handler)
+        root.setLevel(self._level)
+        root.addHandler(self._make_console_handler())
+        root.addHandler(self._make_file_handler(log_path))
 
     def get_thread_logger(self, thread_id: int) -> logging.Logger:
         """Return a named logger for a thread with its own dedicated file handler."""

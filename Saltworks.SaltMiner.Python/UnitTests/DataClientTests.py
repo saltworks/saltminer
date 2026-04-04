@@ -18,6 +18,7 @@
 * ----
 '''
 
+import asyncio
 import datetime
 import logging
 import os
@@ -334,6 +335,118 @@ class DataClientTests(unittest.TestCase):
         result = self.client.webhook_get('test-source-id-dataclienttest')
         self.assertTrue(result is None or isinstance(result, list))
         print(f'[TEST SUCCESS] {module}:test_webhook_get')
+
+
+class DataClientAsyncTests(unittest.IsolatedAsyncioTestCase):
+    '''Async integration tests for DataClient._async methods.
+
+    Shares the same DataApi requirements as DataClientTests.
+    Uses IsolatedAsyncioTestCase — each test gets a fresh event loop managed
+    by the framework. DataClient is created and closed per-test via
+    asyncSetUp/asyncTearDown so the httpx.AsyncClient is always bound to the
+    current test's loop.
+    '''
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = Application()
+
+    async def asyncSetUp(self):
+        self.client = DataClient(self.app)
+        self._scan_ids_to_delete = []
+
+    async def asyncTearDown(self):
+        for scan_id in self._scan_ids_to_delete:
+            try:
+                await self.client.queue_scan_delete_all_async(scan_id)
+                logging.debug("[DataClientAsyncTests] Cleaned up queue scan '%s'", scan_id)
+            except Exception as e:
+                logging.warning("[DataClientAsyncTests] Failed to clean up queue scan '%s': %s", scan_id, e)
+        await self.client._client.close()
+        if self.client._manager_client is not None:
+            await self.client._manager_client.close()
+        self.client._loop.close()
+
+    # ------------------------------------------------------------------
+    # Async helpers
+    # ------------------------------------------------------------------
+
+    async def _create_scan_async(self):
+        data = await self.client.queue_scan_add_update_async(_make_q_scan())
+        self._scan_ids_to_delete.append(data['id'])
+        return data
+
+    async def _create_scan_and_asset_async(self):
+        scan_data = await self._create_scan_async()
+        asset_data = await self.client.queue_asset_add_update_async(_make_q_asset(scan_data['id']))
+        return scan_data, asset_data
+
+    # ------------------------------------------------------------------
+    # Async tests
+    # ------------------------------------------------------------------
+
+    async def test_queue_scan_add_update_async(self):
+        '''queue_scan_add_update_async returns a data dict with an id field.'''
+        data = await self._create_scan_async()
+        self.assertIn('id', data)
+        self.assertIsNotNone(data['id'])
+        print(f'[TEST SUCCESS] {module}:test_queue_scan_add_update_async')
+
+    async def test_queue_asset_add_update_async(self):
+        '''queue_asset_add_update_async returns a data dict with an id field.'''
+        _, asset_data = await self._create_scan_and_asset_async()
+        self.assertIn('id', asset_data)
+        self.assertIsNotNone(asset_data['id'])
+        print(f'[TEST SUCCESS] {module}:test_queue_asset_add_update_async')
+
+    async def test_queue_issue_batch_and_status_async(self):
+        '''End-to-end async: submit scan, asset, batch issues, flush, update status.'''
+        scan_data, asset_data = await self._create_scan_and_asset_async()
+        scan_id = scan_data['id']
+        asset_id = asset_data['id']
+
+        # Submit 3 issues via the async batch method
+        for _ in range(3):
+            issue = _make_q_issue(scan_id, asset_id)
+            await self.client.queue_issue_add_update_batch_async(issue)
+
+        # Flush remainder
+        await self.client.queue_issue_add_update_batch_async(None)
+
+        # Mark pending
+        await self.client.queue_scan_update_status_async(scan_id, 'Pending')
+        print(f'[TEST SUCCESS] {module}:test_queue_issue_batch_and_status_async')
+
+    async def test_event_add_async(self):
+        '''event_add_async sends an event and returns a dict.'''
+        payload = _make_event_payload('Async test action', 'success', 'Information')
+        result = await self.client.event_add_async(payload)
+        self.assertIsInstance(result, dict)
+        print(f'[TEST SUCCESS] {module}:test_event_add_async')
+
+    async def test_webhook_get_async(self):
+        '''webhook_get_async returns None or a list — does not raise.'''
+        result = await self.client.webhook_get_async('test-source-id-dataclienttest')
+        self.assertTrue(result is None or isinstance(result, list))
+        print(f'[TEST SUCCESS] {module}:test_webhook_get_async')
+
+    async def test_scan_search_async(self):
+        '''scan_search_async returns None or a list — does not raise.'''
+        search_request = {
+            'assetType': TEST_ASSET_TYPE,
+            'sourceType': TEST_SOURCE_TYPE,
+            'filter': {
+                'anyMatch': False,
+                'filterMatches': {'saltminer.scan.source_type': TEST_SOURCE_TYPE}
+            },
+            'uiPagingInfo': {
+                'size': 10,
+                'sortFilters': {'saltminer.scan.scan_date': False}
+            }
+        }
+        result = await self.client.scan_search_async(search_request)
+        self.assertTrue(result is None or isinstance(result, list))
+        print(f'[TEST SUCCESS] {module}:test_scan_search_async')
 
 
 if __name__ == '__main__':
