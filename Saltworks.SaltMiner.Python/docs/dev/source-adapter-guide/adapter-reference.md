@@ -9,7 +9,7 @@ This document is the authoritative guide for building a new source adapter. Read
 A source adapter is responsible for:
 1. Pulling vulnerability/scan data from a third-party security tool's API
 2. Normalizing it into SaltMiner's three-tier data model (Scan, Asset, Issue)
-3. Queuing it to SaltMiner via the `SmDataClient` API
+3. Queuing it to SaltMiner via the `DataClient` API
 4. Tracking sync state in Elasticsearch to avoid reprocessing unchanged data
 
 Adapters do **not** write directly to Elasticsearch. All data goes through the SaltMiner queue API.
@@ -42,22 +42,24 @@ RunAcmeAdapter.py        # Entry point script (thin wrapper)
 Every adapter uses the same set of core imports:
 
 ```python
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
 
 from Sources.Acme.AcmeClient import AcmeClient
 from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
-from Core.SmDataClient import SmDataClient
+from Core.DataClient import DataClient, QueueStatus
 from Core.ElasticClient import ElasticClient
 ```
 
 - **`SnykDocs`** — despite the name, this is the shared document template factory used by all adapters. Do not create a new template class.
-- **`MapAssetDocDTO`, `MapScanDocDTO`, `MapIssueDocDTO`** — Pydantic DTOs that validate documents before they are queued. Always validate with these before calling `AddQueue*`.
-- **`SmDataClient`** — manages all queueing API calls to SaltMiner.
+- **`MapAssetDocDTO`, `MapScanDocDTO`, `MapIssueDocDTO`** — Pydantic DTOs that validate documents before they are queued. Always validate with these before calling queue methods.
+- **`DataClient`** — manages all queueing API calls to SaltMiner. Prefer the `_async` methods for new adapters (see Section 4).
+- **`QueueStatus`** — constants for scan queue state (`QueueStatus.PENDING`, `QueueStatus.LOADING`).
 - **`ElasticClient`** — used for state tracking (querying what has already been synced).
 
-`ApplicationSettings` is passed in as `settings` to `__init__`. Use `settings.GetSource("Acme1", "FieldName")` to read values from `Config/Sources/Acme.json`.
+`Application` is passed in as `app` to `__init__`. Use `app.Settings.GetSource("Acme1", "FieldName")` to read values from `Config/Sources/Acme.json`.
 
 ---
 
@@ -66,22 +68,26 @@ from Core.ElasticClient import ElasticClient
 This is the single most important pattern. **Always queue in this exact order:**
 
 ```
-Scan → Asset → Issues (batched) → SendAllBatchIssues → FinalizeQueue
+Scan → Asset → Issues (batched) → flush batch → set status Pending
 ```
 
-Never skip a step. Never queue issues before the scan and asset are created. Never call `FinalizeQueue` before `SendAllBatchIssues`.
+Never skip a step. Never queue issues before the scan and asset are created. Never set the scan status before flushing the issue batch.
+
+### Recommended: async adapter
+
+See section 14 for an example of an async `run_sync` block.  New adapters should use the `_async` methods so the event loop is not blocked during I/O. Run the top-level entry point with `asyncio.run()`:
 
 ```python
-def sync_issues(self, source_object, ...):
+async def sync_issues_async(self, source_object, ...):
     # 1. Map and queue scan
     mapped_scan = self.map_scan(source_object)
-    queue_scan = self._sm_data_client.AddQueueScan(
+    queue_scan = await self._data_client.queue_scan_add_update_async(
         json.loads(mapped_scan.model_dump_json())
     )
 
     # 2. Map and queue asset (requires queue_scan['id'])
     mapped_asset = self.map_asset(source_object, queue_scan['id'])
-    queue_asset = self._sm_data_client.AddQueueAsset(
+    queue_asset = await self._data_client.queue_asset_add_update_async(
         json.loads(mapped_asset.model_dump_json())
     )
 
@@ -90,19 +96,52 @@ def sync_issues(self, source_object, ...):
         mapped_issue = self.map_issue(
             issue, queue_scan['id'], queue_asset['id'], ...
         )
-        self._sm_data_client.AddQueueIssue(
+        await self._data_client.queue_issue_add_update_batch_async(
             json.loads(mapped_issue.model_dump_json())
         )
 
-    # 4. Flush batch and finalize
-    self._sm_data_client.SendAllBatchIssues()
-    self._sm_data_client.FinalizeQueue(queue_scan['id'])
+    # 4. Flush batch and mark scan pending
+    await self._data_client.queue_issue_add_update_batch_async(None)
+    await self._data_client.queue_scan_update_status_async(
+        queue_scan['id'], QueueStatus.PENDING
+    )
+```
+
+### Sync adapter (existing/simple)
+
+For adapters that do not need async, the sync methods are identical in name without the `_async` suffix:
+
+```python
+def sync_issues(self, source_object, ...):
+    mapped_scan = self.map_scan(source_object)
+    queue_scan = self._data_client.queue_scan_add_update(
+        json.loads(mapped_scan.model_dump_json())
+    )
+
+    mapped_asset = self.map_asset(source_object, queue_scan['id'])
+    queue_asset = self._data_client.queue_asset_add_update(
+        json.loads(mapped_asset.model_dump_json())
+    )
+
+    for issue in issues_generator:
+        mapped_issue = self.map_issue(
+            issue, queue_scan['id'], queue_asset['id'], ...
+        )
+        self._data_client.queue_issue_add_update_batch(
+            json.loads(mapped_issue.model_dump_json())
+        )
+
+    # Flush batch and mark scan pending
+    self._data_client.queue_issue_add_update_batch(None)
+    self._data_client.queue_scan_update_status(
+        queue_scan['id'], QueueStatus.PENDING
+    )
 ```
 
 **Important details:**
 - `IssueCount` should be set to `-1` in the scan doc to disable SaltMiner's issue count validation.
 - `ReplaceIssues` on the scan doc controls whether SaltMiner replaces all existing issues on sync (`True`) or accumulates/updates incrementally (`False`). This is set from the kickoff prompt input.
-- `QueueStatus` is managed automatically by `SmDataClient` — do not set it manually.
+- `QueueStatus.LOADING` is set on the scan doc at mapping time. `QueueStatus.PENDING` is set explicitly after flushing issues — this signals SaltMiner to process the queue.
 - Wrap the entire `sync_issues` body in a `try/except` and log errors; do not crash the full run on a single project failure.
 
 ---
@@ -119,14 +158,15 @@ doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 | Field | Path | Notes |
 |-------|------|-------|
 | Timestamp | `doc['Timestamp']` | UTC ISO8601 |
-| IssueCount | `doc['Saltminer']['Internal']['IssueCount']` | Always set to `-1` |
-| ReplaceIssues | `doc['Saltminer']['Internal']['ReplaceIssues']` | `True` or `False` — from kickoff prompt |
-| AssessmentType | `doc['Saltminer']['Scan']['AssessmentType']` | See Section 8 |
+| IssueCount | `doc['Saltminer']['Internal']['IssueCount']` | Set to the total issue count (or `-1` if it's not feasible to count) |
+| ReplaceIssues | `doc['Saltminer']['Internal']['ReplaceIssues']` | `True` or `False` — if incoming issues include closed then set to `True`, otherwise `False` |
+| QueueStatus | `doc['Saltminer']['Internal']['QueueStatus']` | Set to `QueueStatus.LOADING` at map time |
+| AssessmentType | `doc['Saltminer']['Scan']['AssessmentType']` | See Section 8 - set to one of the AssessmentType constants |
 | ProductType | `doc['Saltminer']['Scan']['ProductType']` | Always `"Application"` for app security tools |
 | Product | `doc['Saltminer']['Scan']['Product']` | Vendor product name, e.g. `"Snyk"` |
 | Vendor | `doc['Saltminer']['Scan']['Vendor']` | Vendor company name, e.g. `"Snyk"` |
-| ReportId | `doc['Saltminer']['Scan']['ReportId']` | Unique scan identifier — combine project ID + name + timestamp |
-| ScanDate | `doc['Saltminer']['Scan']['ScanDate']` | UTC ISO8601 — use scan's completion date if available |
+| ReportId | `doc['Saltminer']['Scan']['ReportId']` | Unique scan identifier — may need to be improvised if there's not an ID, like combine project ID + name + timestamp |
+| ScanDate | `doc['Saltminer']['Scan']['ScanDate']` | UTC ISO8601 — use scan's completion date if available, or today's date if not |
 | SourceType | `doc['Saltminer']['Scan']['SourceType']` | `"Saltworks.<ProductName>"` |
 | AssetType | `doc['Saltminer']['Scan']['AssetType']` | `"app"` for application security tools |
 | Instance | `doc['Saltminer']['Scan']['Instance']` | From config `SourceName`, e.g. `"Acme1"` |
@@ -136,7 +176,7 @@ doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 | Field | Path | Notes |
 |-------|------|-------|
 | Timestamp | `doc['Timestamp']` | UTC ISO8601 |
-| QueueScanId | `doc['Saltminer']['Internal']['QueueScanId']` | `queue_scan['id']` returned from `AddQueueScan` |
+| QueueScanId | `doc['Saltminer']['Internal']['QueueScanId']` | `queue_scan['id']` returned from `queue_scan_add_update` |
 | Name | `doc['Saltminer']['Asset']['Name']` | Human-readable asset name (e.g. project/app name) |
 | VersionId | `doc['Saltminer']['Asset']['VersionId']` | Unique, stable ID for this asset version — typically the source's project ID |
 | Version | `doc['Saltminer']['Asset']['Version']` | Human-readable version label |
@@ -183,7 +223,7 @@ doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 ## 6. State Tracking Pattern
 
-Adapters track what has been synced to avoid reprocessing unchanged data. The pattern uses an Elasticsearch aggregation against the final issues index.
+Adapters track what has been synced to avoid reprocessing unchanged data. The pattern uses an Elasticsearch aggregation against the final issues index. Dev TODO: rework this pattern to use local file db source metrics to reduce need for extra elastic queries.
 
 ```python
 def get_last_updated(self):
@@ -378,28 +418,43 @@ Both assets and issues have an `Attributes` dict for storing source-specific fie
 
 ## 13. `__init__` Checklist
 
-Every adapter's `__init__` should:
+Every adapter's `__init__` should accept an `Application` instance and construct `DataClient` from it:
 
 ```python
-def __init__(self, settings):
-    self.client = AcmeClient(settings)
+def __init__(self, app):
+    self.client = AcmeClient(app.Settings)
     self.sm_docs = SnykDocs()
-    self._es = ElasticClient(settings)
-    self._sm_data_client = SmDataClient(settings, "Acme")
+    self._es = ElasticClient(app.Settings)
+    self._data_client = DataClient(app)
     self.version_last_updated = {}          # State tracking dict
     self.base_gui_url = "https://..."       # Or None if not applicable
 ```
 
-The `SmDataClient` second argument is the source name used in logging — match it to the product name.
+`DataClient` reads its own connection config (`Config/DataClient.json`) via `app.Settings` — no source name argument is needed.
 
 ---
 
 ## 14. run_sync Entry Point
 
+**Async adapter (recommended):**
+
 ```python
 def run_sync(self, first_load=False):
     if not first_load:
-        self.get_last_updated()       # Load state from Elasticsearch
+        self.get_last_updated()
+    asyncio.run(self._run_async(first_load=first_load))
+    self._data_client.close()
+
+async def _run_async(self, first_load=False):
+    await self.get_sync_async(first_load=first_load)
+```
+
+**Sync adapter:**
+
+```python
+def run_sync(self, first_load=False):
+    if not first_load:
+        self.get_last_updated()
     self.get_sync(first_load=first_load)
 ```
 
