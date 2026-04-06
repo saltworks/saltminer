@@ -20,31 +20,50 @@
 
 ﻿using System;
 
-namespace Saltworks.SaltMiner.Core.Entities
+namespace Saltworks.SaltMiner.Core.Entities;
+
+[Serializable]
+public class Config : SaltMinerEntity
 {
-    [Serializable]
-    public class Config : SaltMinerEntity
+    private static string _indexEntity = "sys_config";
+
+    public static string GenerateIndex()
     {
-        private static string _indexEntity = "sys_configs";
-
-        public static string GenerateIndex()
-        {
-            return _indexEntity;
-        }
-
-        /// <summary>
-        /// Gets or sets Type
-        /// </summary>
-        public string Type { get; set; }
-
-        /// <summary>
-        /// Gets or sets Name
-        /// </summary>
-        public string Name { get; set; }
-
-        /// <summary>
-        /// Gets or sets Data
-        /// </summary>
-        public object Data { get; set; }
+        return _indexEntity;
     }
+
+    /// <summary>
+    /// Gets or sets ValueType, determining what type of value is being stored in the configuration setting.  Currently expects "string", "integer", "number", or "date".
+    /// </summary>
+    public string ValueType { get; set; }
+
+    /// <summary>
+    /// Gets or sets Section, what section does this setting belong in - SourceAdapters, Manager, API, etc.
+    /// </summary>
+    public string Section { get; set; }
+
+    /// <summary>
+    /// Gets or sets Subsection, the subsection of the setting - Main, Snyk1, Advanced, etc.
+    /// </summary>
+    public string Subsection { get; set; }
+
+    /// <summary>
+    /// Gets or sets Property, the name of the setting being stored - ApiKey, Url, etc.
+    /// </summary>
+    public string Property { get; set; }
+
+    /// <summary>
+    /// Gets or sets the description associated with this setting.
+    /// </summary>
+    public string Description { get; set; }
+
+    /// <summary>
+    /// Gets or sets the display label associated with the setting.
+    /// </summary>
+    public string Label { get; set; }
+
+    /// <summary>
+    /// Gets or sets the string value of this setting.
+    /// </summary>
+    public string Value { get; set; }
 }

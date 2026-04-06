@@ -1958,16 +1958,18 @@ public class DataClient : IDisposable
     /// <returns>The updated entity, along with concurrency info</returns>
     public DataItemResponse<Config> ConfigAddUpdate(Config entity)
     {
-        return CheckRetry(() => ApiClient.Post<DataItemResponse<Config>>("runConfig", new DataItemRequest<Config> { Entity = entity, Id = entity.Id })).Content;
+        return CheckRetry(() => ApiClient.Post<DataItemResponse<Config>>("config", new DataItemRequest<Config> { Entity = entity, Id = entity.Id })).Content;
     }
 
     /// <summary>
     /// Get all Configs (admin only)
     /// </summary>
+    /// <param name="section">The config section to return</param>
+    /// <param name="subsection">The config subsection to return (optional)</param>
     /// <returns>The requested item, along with concurrency info</returns>
-    public DataResponse<Config> ConfigGetAll()
+    public DataResponse<Config> ConfigGetSection(string section, string subsection="")
     {
-        return CheckRetry(() => ApiClient.Get<DataResponse<Config>>($"runConfig/all")).Content;
+        return CheckRetry(() => ApiClient.Get<DataResponse<Config>>($"config/section/{section}/{subsection}")).Content;
     }
 
     /// <summary>
@@ -1976,7 +1978,7 @@ public class DataClient : IDisposable
     /// <returns>The requested item, along with concurrency info</returns>
     public DataItemResponse<Config> ConfigGet(string id)
     {
-        return CheckRetry(() => ApiClient.Get<DataItemResponse<Config>>($"runConfig/{id}")).Content;
+        return CheckRetry(() => ApiClient.Get<DataItemResponse<Config>>($"config/{id}")).Content;
     }
 
     /// <summary>
@@ -1986,17 +1988,7 @@ public class DataClient : IDisposable
     /// <returns>true if successful</returns>
     public NoDataResponse ConfigDelete(string id)
     {
-        return CheckRetry(() => ApiClient.Delete<NoDataResponse>($"runConfig/{id}")).Content;
-    }
-
-    /// <summary>
-    /// Deletes an Config by Type (admin only)
-    /// </summary>
-    /// <param name="type">The Type to DELETE</param>
-    /// <returns>true if successful</returns>
-    public NoDataResponse ConfigDeleteByType(string type)
-    {
-        return CheckRetry(() => ApiClient.Delete<NoDataResponse>($"runConfig/type/{type}")).Content;
+        return CheckRetry(() => ApiClient.Delete<NoDataResponse>($"config/{id}")).Content;
     }
 
     #endregion

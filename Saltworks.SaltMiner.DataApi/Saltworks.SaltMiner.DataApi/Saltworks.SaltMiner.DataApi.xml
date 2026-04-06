@@ -299,36 +299,30 @@
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.Get(System.String)">
             <summary>
-            Returns a single Config
+            Returns a single config setting by ID
             </summary>
             <returns>The item inside a response object</returns>
             <response code="200">Returns the requested object</response>
         </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.GetAll">
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.GetSection(System.String,System.String)">
             <summary>
-            Returns a all Configs
+            Returns config settings by section and optional subsection.
             </summary>
-            <returns>The item inside a response object</returns>
-            <response code="200">Returns the requested objects</response>
+            <returns>The matching settings inside a response object</returns>
+            <param name="section">The section to return</param>
+            <param name="subsection">The optional subsection to return</param>
+            <response code="200">Returns the requested data</response>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Config})">
             <summary>
-            Adds or Updates an Config
+            Adds or Updates a config setting
             </summary>
             <returns>The updated entity</returns>
             <response code="202">Returns a response object containing the updated entity</response>
-            <remarks>Any child type of config can be sent in</remarks>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.Delete(System.String)">
             <summary>
             Deletes an Config entity
-            </summary>
-            <returns>Non data response</returns>
-            <response code="200">Returns response indicating success</response>
-        </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.DeleteByType(System.String)">
-            <summary>
-            Deletes an Config entity by type
             </summary>
             <returns>Non data response</returns>
             <response code="200">Returns response indicating success</response>

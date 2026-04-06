@@ -294,7 +294,7 @@ public class AdminContext : ContextBase
 
     #region Configurations
 
-    public UiDataItemResponse<Config> AddUpdateConfig(Config request)
+    public UiDataItemResponse<Config> ConfigAddUpdate(Config request)
     {
         var results = DataClient.ConfigAddUpdate(request);
 
@@ -302,26 +302,35 @@ public class AdminContext : ContextBase
         return new UiDataItemResponse<Config>(results.Data);
     }
 
-    public UiDataItemResponse<Config> GetConfig(string id)
+    public UiDataItemResponse<Config> ConfigGet(string id)
     {
         Logger.LogInformation("Delete rsp id '{Id}'", id);
         var config = DataClient.ConfigGet(id);
         if (!config.Success || config.Data == null)
-        {
             throw new UiApiNotFoundException($"Config id {id} does not exist.");
-        }
         
         return new UiDataItemResponse<Config>(config.Data);
     }
 
-    public UiNoDataResponse DeleteConfig(string id)
+    public DataResponse<Config> ConfigGetBySectionSubsection(string section, string subsection)
+    {
+        if (string.IsNullOrEmpty(section))
+            throw new UiApiClientValidationMissingArgumentException("Section is required.");
+
+        var request = new SearchRequest("section", section, 1000);
+
+        if (!string.IsNullOrEmpty(subsection))
+            request.Filter.AddTermsFilterMatch("subsection", [subsection]);
+
+        return DataClient.ConfigGetSection(section, subsection);
+    }
+
+    public UiNoDataResponse ConfigDelete(string id)
     {
         Logger.LogInformation("Delete rsp id '{Id}'", id);
         var config = DataClient.ConfigGet(id);
         if (!config.Success || config.Data == null)
-        {
             throw new UiApiNotFoundException($"Config id {id} does not exist.");
-        }
 
         DataClient.ConfigDelete(id);
 

@@ -143,6 +143,15 @@
             <returns>The item inside a response object</returns>
             <response code="200">Returns the requested object</response>
         </member>
+        <member name="M:Saltworks.SaltMiner.Ui.Api.Controllers.AdminController.GetConfigurationSection(System.String,System.String)">
+            <summary>
+            Returns config settings by section and optional subsection.
+            </summary>
+            <returns>The matching settings inside a response object</returns>
+            <param name="section">The section to return</param>
+            <param name="subsection">The optional subsection to return</param>
+            <response code="200">Returns the requested data</response>
+        </member>
         <member name="M:Saltworks.SaltMiner.Ui.Api.Controllers.AdminController.DeleteConfig(System.String)">
             <summary>
             Deletes an Config entity

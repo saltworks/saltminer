@@ -1292,9 +1292,13 @@ public static class Mock
     public static Config SysConfigMock() => new()
     {
         Id = Guid.NewGuid().ToString(),
-        Type = EnumExtensions.GetDescription(LookupType.AddItemDropdown),
-        Data = new List<string>() { "Data" },
-        Name = "SysConfigMock",
+        ValueType = "string",
+        Section = "Manager",
+        Subsection = "Main",
+        Property = "SomeSetting",
+        Description = "This is a mock configuration setting for testing purposes.",
+        Label = "Fake Setting",
+        Value = "TestValue",
         Timestamp = DateTime.UtcNow,
         LastUpdated = DateTime.UtcNow
     };

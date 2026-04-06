@@ -1,36 +1,46 @@
 {
-  "index_patterns": [
-    "sys_config*"
-  ],
+  "index_patterns": ["sys_config*"],
   "template": {
     "settings": {
-      "index": {
-        "number_of_shards": "1",
-        "number_of_replicas": "0"
-      }
+      "number_of_shards": 1,
+      "number_of_replicas": 1
     },
     "mappings": {
-      "dynamic": "false",
       "properties": {
         "id": {
           "type": "keyword"
+        },
+        "value_type": {
+          "type": "keyword"
+        },
+        "section": {
+          "type": "keyword"
+        },
+        "subsection": {
+          "type": "keyword"
+        },
+        "property": {
+          "type": "keyword"
+        },
+        "description": {
+          "type": "text"
+        },
+        "label": {
+          "type": "text"
+        },
+        "value": {
+          "type": "text"
         },
         "timestamp": {
           "type": "date"
         },
         "last_updated": {
           "type": "date"
-        },
-        "type": {
-          "type": "keyword"
-        },
-        "name": {
-          "type": "keyword"
-        },
-        "data": {
-          "type": "object"
         }
       }
     }
+  },
+  "_meta": {
+    "description": "Template for sys_config index"
   }
 }

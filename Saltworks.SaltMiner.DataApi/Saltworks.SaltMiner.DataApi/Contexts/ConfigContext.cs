@@ -23,45 +23,22 @@ using Saltworks.SaltMiner.DataApi.Data;
 using Saltworks.SaltMiner.Core.Data;
 using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Entities;
-using System.Collections.Generic;
 using Saltworks.SaltMiner.ElasticClient;
-using System.Linq;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts;
 
 public class ConfigContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<LookupContext> logger) : ContextBase(config, dataRepository, factory, logger)
 {
-    public NoDataResponse DeleteByType(string type)
+    public DataResponse<Config> GetBySectionSubsection(string section, string subsection)
     {
-        var request = new SearchRequest
-        {
-            Filter = new Filter
-            {
-                FilterMatches = new Dictionary<string, string> { { "Type", type } }
-            }
-        };
+        if (string.IsNullOrEmpty(section))
+            throw new ApiValidationMissingArgumentException("Section is required.");
 
-        return ElasticClient.DeleteByQuery<Config>(request, Core.Entities.Config.GenerateIndex()).ToNoDataResponse();
-    }
+        var request = new SearchRequest("section", section, 1000);
 
-    public DataItemResponse<Config> GetByType(string type)
-    {
-        var result = Search<Config>(Core.Entities.Config.GenerateIndex(),
-            new SearchRequest
-            {
-                Filter = new Filter
-                {
-                    FilterMatches = new Dictionary<string, string> { { "Type", type } }
-                }
-            }
-       );
+        if (!string.IsNullOrEmpty(subsection))
+            request.Filter.AddTermsFilterMatch("subsection", [subsection]);
 
-        return new DataItemResponse<Config>(result.Data.FirstOrDefault());
-    }
-
-    public DataResponse<Config> GetAll()
-    {
-        var result = Search<Config>(Core.Entities.Config.GenerateIndex(), new SearchRequest());
-        return new DataResponse<Config>(result.Data, result.PagingInfo);
+        return Search<Config>(Core.Entities.Config.GenerateIndex(), request);
     }
 }
