@@ -100,7 +100,7 @@ jobs:
       # Derive the image tag so downstream jobs can consume it
       - name: Set image tag output
         id: set-tag
-        run: echo "tag=nginx-${{ github.ref_name }}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+        run: echo "tag=sm-nginx-${{ github.ref_name }}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       # Upload so the Docker build job (different runner) can access it
       - name: Upload UI artifact
@@ -177,8 +177,8 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
             ${{ steps.dockerhub-image.outputs.name }}
           tags: |
-            type=raw,value=nginx-${{ github.ref_name }}.${{ github.run_number }}
-            type=raw,value=nginx-${{ github.ref_name }}
+            type=raw,value=sm-nginx-${{ github.ref_name }}.${{ github.run_number }}
+            type=raw,value=sm-nginx-${{ github.ref_name }}
           labels: |
             org.opencontainers.image.title=saltminer-nginx
             org.opencontainers.image.description=nginx reverse proxy for SaltMiner
