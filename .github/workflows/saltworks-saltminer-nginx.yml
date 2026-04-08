@@ -37,8 +37,52 @@ env:
   IMAGE_NAME: saltminer-nginx
 
 jobs:
+  build_ui:
+    name: Build UI
+    runs-on: 
+    - self-hosted
+    - node
+
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Python
+      uses: actions/setup-python@v5.4.0
+      with:
+        python-version: '3.9.21'
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: './Saltworks.SaltMiner.Ui'
+
+    - run: cd Saltworks.SaltMiner.Ui && npm ci
+      name: npm install
+    - run: npm run generate --prefix ./Saltworks.SaltMiner.Ui
+      name: Build app
+    
+    - run: ls -la ./Saltworks.SaltMiner.Ui/dist/smpgui
+      name: Show npm output
+      if: env.DIAGNOSTIC_MODE == 'true'
+    # This is just a temporary hack to use existing Dockerfile
+    - run: mkdir -p ./artifacts/dist/ui-web/smpgui
+      name: Create legacy artifacts dir
+    - run: cp -r ./Saltworks.SaltMiner.Ui/dist/smpgui/* ./artifacts/dist/ui-web/smpgui
+      name: Copy output to legacy dir
+
+    - name: Get configuration file
+      run: cp ./Saltworks.SaltMiner.Deploy/addins/ui-web/config.json ./artifacts/dist/ui-web/smpgui 
+
+    - run: ls -lah ./artifacts/dist/ui-web/smpgui --group-directories-first
+      name: Show copied files
+      if: env.DIAGNOSTIC_MODE == 'true'
+  
   build-and-push:
-    name: Build and Push Docker Image
+    name: Build and Push SaltMiner Nginx Docker Image
     runs-on: ubuntu-latest
 
     permissions:
