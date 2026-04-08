@@ -4,12 +4,12 @@
 #
 # Triggers:
 #   - Any push to the main or 3.* branches that touches relevant paths
-#   - Manual workflow dispatch
+#   - Manual workflow dispatch (optionally push to Docker Hub via checkbox)
 #   - Any published GitHub Release (semver tag v*.*.*)
 #
 # Publishing rules:
-#   - ALL builds  → GitHub Container Registry (ghcr.io)
-#   - Release builds only → Docker Hub
+#   - ALL builds                              → GitHub Container Registry (ghcr.io)
+#   - Release builds or manual with checkbox → Docker Hub
 #
 # Required secrets:
 #   DOCKER_USERNAME      – Docker Hub account username
@@ -31,13 +31,18 @@ on:
       - ".dockerfiles/Dockerfile-SMNginx"
 
   workflow_dispatch:
+    inputs:
+      push_to_dockerhub:
+        description: 'Push image to Docker Hub'
+        type: boolean
+        default: false
 
   release:
     types:
       - published
 
 env:
-  IMAGE_NAME: sm-nginx
+  IMAGE_NAME: saltminer-nginx
   # Set to 'true' to enable diagnostic steps
   DIAGNOSTIC_MODE: 'false'
 
@@ -95,7 +100,7 @@ jobs:
       # Derive the image tag so downstream jobs can consume it
       - name: Set image tag output
         id: set-tag
-        run: echo "tag=sm-nginx-${{ github.ref_name }}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+        run: echo "tag=nginx-${{ github.ref_name }}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       # Upload so the Docker build job (different runner) can access it
       - name: Upload UI artifact
@@ -144,13 +149,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Authenticate to Docker Hub on release builds only
+      # Authenticate to Docker Hub on release builds or when manually requested
       - name: Log in to Docker Hub
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || inputs.push_to_dockerhub == true
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # Resolves to 'saltworks/saltminer' on release or when manually requested,
+      # empty string otherwise. docker/metadata-action silently ignores blank
+      # entries in images:, preventing buildx from contacting Docker Hub.
+      - name: Set Docker Hub image name
+        id: dockerhub-image
+        run: |
+          if [ "${{ github.event_name }}" == "release" ] || [ "${{ inputs.push_to_dockerhub }}" == "true" ]; then
+            echo "name=saltworks/saltminer" >> $GITHUB_OUTPUT
+          else
+            echo "name=" >> $GITHUB_OUTPUT
+          fi
 
       - name: Extract Docker metadata
         id: meta
@@ -158,10 +175,10 @@ jobs:
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
-            saltworks/saltminer
+            ${{ steps.dockerhub-image.outputs.name }}
           tags: |
-            type=raw,value=sm-nginx-${{ github.ref_name }}.${{ github.run_number }}
-            type=raw,value=sm-nginx-${{ github.ref_name }}
+            type=raw,value=nginx-${{ github.ref_name }}.${{ github.run_number }}
+            type=raw,value=nginx-${{ github.ref_name }}
           labels: |
             org.opencontainers.image.title=saltminer-nginx
             org.opencontainers.image.description=nginx reverse proxy for SaltMiner
