@@ -62,7 +62,7 @@ seed_file() {
 # customer has mounted over /etc/nginx/.
 # =============================================================================
 
-DEFAULTS_DIR="/etc/nginx/defaults"
+DEFAULTS_DIR="/etc/nginx-defaults"
 NGINX_DIR="/etc/nginx"
 
 log "Checking $NGINX_DIR for required files..."
