@@ -67,6 +67,25 @@ NGINX_DIR="/etc/nginx"
 
 log "Checking $NGINX_DIR for required files..."
 
+# -----------------------------------------------------------------------------
+# DEBUG — filesystem dump
+# Prints the contents of both /etc/nginx/ and /etc/nginx/defaults/ at runtime
+# so we can see exactly what the container has access to when it starts.
+# Remove this block once the seeding issue is confirmed resolved.
+# -----------------------------------------------------------------------------
+log "DEBUG: Contents of $NGINX_DIR:"
+ls -la "$NGINX_DIR" 2>&1 | while IFS= read -r line; do log "DEBUG:   $line"; done
+
+log "DEBUG: Contents of $DEFAULTS_DIR:"
+if [ -d "$DEFAULTS_DIR" ]; then
+    ls -la "$DEFAULTS_DIR" 2>&1 | while IFS= read -r line; do log "DEBUG:   $line"; done
+else
+    log "DEBUG:   DIRECTORY DOES NOT EXIST"
+fi
+# -----------------------------------------------------------------------------
+# END DEBUG
+# -----------------------------------------------------------------------------
+
 # -- nginx.conf ---------------------------------------------------------------
 # Main nginx configuration. Contains KIBANA_URL and KIBANA_HOST placeholders
 # that are resolved in Step 2 below.
