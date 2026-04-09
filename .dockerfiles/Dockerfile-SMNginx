@@ -9,7 +9,11 @@ COPY Saltworks.SaltMiner.Nginx/saltminer.crt /etc/nginx/saltminer.crt
 COPY Saltworks.SaltMiner.Nginx/saltminer.key /etc/nginx/saltminer.key
 COPY ./artifacts/dist/ui-web/smpgui /usr/share/saltworks/saltminer-3.0.0/ui-web/smpgui
 
-# Copy and prepare the entrypoint script
+# Bake the same files into the defaults bundle (used to seed an empty bind mount)
+COPY Saltworks.SaltMiner.Nginx/nginx.conf    /etc/nginx/defaults/nginx.conf
+COPY Saltworks.SaltMiner.Nginx/saltminer.crt /etc/nginx/defaults/saltminer.crt
+COPY Saltworks.SaltMiner.Nginx/saltminer.key /etc/nginx/defaults/saltminer.key
+
 COPY Saltworks.SaltMiner.Nginx/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
