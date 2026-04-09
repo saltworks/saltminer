@@ -212,56 +212,56 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
 
   # ── Job 3: Update the image tag in saltminer-setup repo ──────────────────────
-  update_compose:
-    name: Update Compose
-    runs-on:
-      - self-hosted
-    needs:
-      - build_ui
-      - build-and-push
-    concurrency:
-      group: saltminer-setup-${{ github.ref }}
-      cancel-in-progress: false
-    env:
-      TARGET_KEY: SM_NGINX_IMAGE_VERSION
-
-    steps:
-      - name: Checkout saltminer-setup repo
-        uses: actions/checkout@v4
-        with:
-          repository: saltworks/saltminer-setup
-          token: ${{ secrets.SALTMINER_SETUP }}
-          ref: ${{ github.ref_name }}
-
-      - name: Show current .env file
-        if: env.DIAGNOSTIC_MODE == 'true'
-        run: cat .env
-
-      - name: Update Compose file
-        # Uses the tag output declared in build_ui
-        run: sed -i -e "/${{ env.TARGET_KEY }}/ s/=.*$/=${{ needs.build_ui.outputs.tag }}/" .env
-
-      - name: Show transformed file
-        if: env.DIAGNOSTIC_MODE == 'true'
-        run: cat .env
-
-      - name: Push changes
-        run: |
-          git config user.name "${{ github.actor }}"
-          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-          git add .env
-          git commit -m "Updated .env ${{ env.TARGET_KEY }} to ${{ needs.build_ui.outputs.tag }}"
-          git push
-
-      - name: Write job summary
-        run: |
-          echo "### Compose File Updated :memo:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Trigger:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Image tag set:** \`${{ needs.build_ui.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Image digest:** \`${{ needs.build-and-push.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Full tags:**" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ needs.build-and-push.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+#  update_compose:
+#    name: Update Compose
+#    runs-on:
+#      - self-hosted
+#    needs:
+#      - build_ui
+#      - build-and-push
+#    concurrency:
+#      group: saltminer-setup-${{ github.ref }}
+#      cancel-in-progress: false
+#    env:
+#      TARGET_KEY: SM_NGINX_IMAGE_VERSION
+#
+#    steps:
+#      - name: Checkout saltminer-setup repo
+#        uses: actions/checkout@v4
+#        with:
+#          repository: saltworks/saltminer-setup
+#          token: ${{ secrets.SALTMINER_SETUP }}
+#          ref: ${{ github.ref_name }}
+#
+#      - name: Show current .env file
+#        if: env.DIAGNOSTIC_MODE == 'true'
+#        run: cat .env
+#
+#      - name: Update Compose file
+#        # Uses the tag output declared in build_ui
+#        run: sed -i -e "/${{ env.TARGET_KEY }}/ s/=.*$/=${{ needs.build_ui.outputs.tag }}/" .env
+#
+#      - name: Show transformed file
+#        if: env.DIAGNOSTIC_MODE == 'true'
+#        run: cat .env
+#
+#      - name: Push changes
+#        run: |
+#          git config user.name "${{ github.actor }}"
+#          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+#          git add .env
+#          git commit -m "Updated .env ${{ env.TARGET_KEY }} to ${{ needs.build_ui.outputs.tag }}"
+#          git push
+#
+#      - name: Write job summary
+#        run: |
+#          echo "### Compose File Updated :memo:" >> $GITHUB_STEP_SUMMARY
+#          echo "" >> $GITHUB_STEP_SUMMARY
+#          echo "**Trigger:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+#          echo "**Image tag set:** \`${{ needs.build_ui.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+#          echo "**Image digest:** \`${{ needs.build-and-push.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+#          echo "" >> $GITHUB_STEP_SUMMARY
+#          echo "**Full tags:**" >> $GITHUB_STEP_SUMMARY
+#          echo '```' >> $GITHUB_STEP_SUMMARY
+#          echo "${{ needs.build-and-push.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+#          echo '```' >> $GITHUB_STEP_SUMMARY
