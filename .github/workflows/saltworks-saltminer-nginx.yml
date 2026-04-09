@@ -44,7 +44,7 @@ on:
 env:
   IMAGE_NAME: saltminer-nginx
   # Set to 'true' to enable diagnostic steps
-  DIAGNOSTIC_MODE: 'true'
+  DIAGNOSTIC_MODE: 'false'
 
 jobs:
   # ── Job 1: Build the UI and upload artifact ──────────────────────────────────
