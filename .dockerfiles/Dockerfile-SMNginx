@@ -3,18 +3,13 @@
 # Pin to current nginx stable release (1.28.3)
 FROM nginx:1.28.3
 
-# Copy SaltMiner nginx configuration files into the live nginx path
-COPY Saltworks.SaltMiner.Nginx/nginx.conf    /etc/nginx/nginx.conf
-COPY Saltworks.SaltMiner.Nginx/saltminer.crt /etc/nginx/saltminer.crt
-COPY Saltworks.SaltMiner.Nginx/saltminer.key /etc/nginx/saltminer.key
+# Bake the nginx files into a defaults bundle used to seed an empty bind mount
+COPY Saltworks.SaltMiner.Nginx/nginx.conf    /etc/nginx-defaults/nginx.conf
+COPY Saltworks.SaltMiner.Nginx/saltminer.crt /etc/nginx-defaults/saltminer.crt
+COPY Saltworks.SaltMiner.Nginx/saltminer.key /etc/nginx-defaults/saltminer.key
 
 # Copy UI web artifacts
 COPY ./artifacts/dist/ui-web/smpgui /usr/share/saltworks/saltminer-3.0.0/ui-web/smpgui
-
-# Bake the same nginx files into the defaults bundle used to seed an empty bind mount
-COPY Saltworks.SaltMiner.Nginx/nginx.conf    /etc/nginx/defaults/nginx.conf
-COPY Saltworks.SaltMiner.Nginx/saltminer.crt /etc/nginx/defaults/saltminer.crt
-COPY Saltworks.SaltMiner.Nginx/saltminer.key /etc/nginx/defaults/saltminer.key
 
 # Copy and configure the custom entrypoint script
 COPY Saltworks.SaltMiner.Nginx/docker-entrypoint.sh /docker-entrypoint.sh
