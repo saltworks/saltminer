@@ -1,0 +1,277 @@
+# .github/workflows/docker-publish.yml
+#
+# Builds and publishes the SaltMiner nginx image.
+#
+# Triggers:
+#   - Any push to the main or 3.* branches that touches relevant paths
+#   - Manual workflow dispatch (optionally push to Docker Hub via checkbox)
+#   - Any published GitHub Release (semver tag v*.*.*)
+#
+# Publishing rules:
+#   - ALL builds                              → GitHub Container Registry (ghcr.io)
+#   - Release builds or manual with checkbox → Docker Hub
+#
+# Required secrets:
+#   DOCKER_USERNAME      – Docker Hub account username
+#   DOCKER_PASSWORD      – Docker Hub access token (not password)
+#   SALTMINER_SETUP      – PAT with write access to saltminer-setup repo
+#
+# GITHUB_TOKEN is automatically provided by GitHub Actions for GHCR auth.
+
+name: Saltworks.Saltminer.Nginx
+
+on:
+  workflow_dispatch:
+    inputs:
+      push_to_dockerhub:
+        description: 'Push image to Docker Hub'
+        type: boolean
+        default: false
+
+  release:
+    types:
+      - published
+
+env:
+  IMAGE_NAME: saltminer-nginx
+  # Set to 'true' to enable diagnostic steps
+  DIAGNOSTIC_MODE: 'false'
+
+jobs:
+  # ── Job 1: Build the UI and upload artifact ──────────────────────────────────
+  build_ui:
+    name: Build UI
+    runs-on:
+      - self-hosted
+      - node
+
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    outputs:
+      tag: ${{ steps.set-tag.outputs.tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          # Point at the lockfile, not the directory
+          cache-dependency-path: './Saltworks.SaltMiner.Ui/package-lock.json'
+
+      - name: npm install
+        run: cd Saltworks.SaltMiner.Ui && npm ci
+
+      - name: Build app
+        run: npm run generate --prefix ./Saltworks.SaltMiner.Ui
+
+      - name: Show npm output
+        if: env.DIAGNOSTIC_MODE == 'true'
+        run: ls -la ./Saltworks.SaltMiner.Ui/dist/smpgui
+
+      # Temporary: copy into the path the Dockerfile expects
+      - name: Create legacy artifacts dir
+        run: mkdir -p ./artifacts/dist/ui-web/smpgui
+
+      - name: Copy output to legacy dir
+        run: cp -r ./Saltworks.SaltMiner.Ui/dist/smpgui/* ./artifacts/dist/ui-web/smpgui
+
+      - name: Get configuration file
+        run: cp ./Saltworks.SaltMiner.Deploy/addins/ui-web/config.json ./artifacts/dist/ui-web/smpgui
+
+      - name: Show copied files
+        if: env.DIAGNOSTIC_MODE == 'true'
+        run: ls -lah ./artifacts/dist/ui-web/smpgui --group-directories-first
+
+      # Derive the image tag so downstream jobs can consume it
+      - name: Set image tag output
+        id: set-tag
+        run: echo "tag=sm-nginx-${{ github.ref_name }}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      # Upload so the Docker build job (different runner) can access it
+      - name: Upload UI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: ./artifacts/dist/ui-web/smpgui
+          retention-days: 1
+
+  # ── Job 2: Build and push Docker image ───────────────────────────────────────
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: build_ui   # ensures UI is built first AND artifact is available
+
+    permissions:
+      contents: read
+      packages: write   # required to push to ghcr.io
+
+    outputs:
+      digest: ${{ steps.build-push.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Restore the UI build into the path the Dockerfile expects
+      - name: Download UI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ./artifacts/dist/ui-web/smpgui
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Authenticate to GHCR on every build
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Authenticate to Docker Hub on release builds or when manually requested
+      - name: Log in to Docker Hub
+        if: github.event_name == 'release' || inputs.push_to_dockerhub == true
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # Resolves to 'saltworks/saltminer' on release or when manually requested,
+      # empty string otherwise. docker/metadata-action silently ignores blank
+      # entries in images:, preventing buildx from contacting Docker Hub.
+      - name: Set Docker Hub image name
+        id: dockerhub-image
+        run: |
+          if [ "${{ github.event_name }}" == "release" ] || [ "${{ inputs.push_to_dockerhub }}" == "true" ]; then
+            echo "name=saltworks/saltminer" >> $GITHUB_OUTPUT
+          else
+            echo "name=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+            ${{ steps.dockerhub-image.outputs.name }}
+          tags: |
+            type=raw,value=sm-nginx-${{ github.ref_name }}.${{ github.run_number }}
+            type=raw,value=sm-nginx-${{ github.ref_name }}
+          labels: |
+            org.opencontainers.image.title=saltminer-nginx
+            org.opencontainers.image.description=nginx reverse proxy for SaltMiner
+            org.opencontainers.image.vendor=Saltworks Security, LLC
+
+      # ── DIAGNOSTIC STEP ──────────────────────────────────────────────────────
+      # Verifies that the nginx source files and defaults are present in the
+      # build context before handing off to Docker. Runs when DIAGNOSTIC_MODE
+      # is 'true' OR when the build has previously failed with the defaults
+      # missing error. Safe to leave enabled until the cache issue is confirmed
+      # resolved — it adds only ~1s to the job.
+      - name: Verify nginx source files in build context
+        if: env.DIAGNOSTIC_MODE == 'true'
+        run: |
+          echo "--- Saltworks.SaltMiner.Nginx/ source files ---"
+          ls -la Saltworks.SaltMiner.Nginx/
+          echo "--- Dockerfile ---"
+          cat .dockerfiles/Dockerfile-SMNginx
+
+      - name: Build and push Docker image
+        id: build-push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .dockerfiles/Dockerfile-SMNginx
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # ── CACHE SCOPE FIX ────────────────────────────────────────────────
+          # Explicit scope name prevents BuildKit from serving stale cached
+          # layers from before the /etc/nginx/defaults/ COPY instructions were
+          # added to the Dockerfile. Bumping the scope suffix (e.g. v2 → v3)
+          # in future will force another clean build if needed.
+          cache-from: type=gha,scope=saltminer-nginx-v2
+          cache-to: type=gha,mode=max,scope=saltminer-nginx-v2
+          provenance: true
+          sbom: true
+
+      - name: Write job summary
+        run: |
+          echo "### Docker Image Published :whale:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${{ steps.build-push.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags pushed:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # ── Job 3: Update the image tag in saltminer-setup repo ──────────────────────
+#  update_compose:
+#    name: Update Compose
+#    runs-on:
+#      - self-hosted
+#    needs:
+#      - build_ui
+#      - build-and-push
+#    concurrency:
+#      group: saltminer-setup-${{ github.ref }}
+#      cancel-in-progress: false
+#    env:
+#      TARGET_KEY: SM_NGINX_IMAGE_VERSION
+#
+#    steps:
+#      - name: Checkout saltminer-setup repo
+#        uses: actions/checkout@v4
+#        with:
+#          repository: saltworks/saltminer-setup
+#          token: ${{ secrets.SALTMINER_SETUP }}
+#          ref: ${{ github.ref_name }}
+#
+#      - name: Show current .env file
+#        if: env.DIAGNOSTIC_MODE == 'true'
+#        run: cat .env
+#
+#      - name: Update Compose file
+#        # Uses the tag output declared in build_ui
+#        run: sed -i -e "/${{ env.TARGET_KEY }}/ s/=.*$/=${{ needs.build_ui.outputs.tag }}/" .env
+#
+#      - name: Show transformed file
+#        if: env.DIAGNOSTIC_MODE == 'true'
+#        run: cat .env
+#
+#      - name: Push changes
+#        run: |
+#          git config user.name "${{ github.actor }}"
+#          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+#          git add .env
+#          git commit -m "Updated .env ${{ env.TARGET_KEY }} to ${{ needs.build_ui.outputs.tag }}"
+#          git push
+#
+#      - name: Write job summary
+#        run: |
+#          echo "### Compose File Updated :memo:" >> $GITHUB_STEP_SUMMARY
+#          echo "" >> $GITHUB_STEP_SUMMARY
+#          echo "**Trigger:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+#          echo "**Image tag set:** \`${{ needs.build_ui.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+#          echo "**Image digest:** \`${{ needs.build-and-push.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+#          echo "" >> $GITHUB_STEP_SUMMARY
+#          echo "**Full tags:**" >> $GITHUB_STEP_SUMMARY
+#          echo '```' >> $GITHUB_STEP_SUMMARY
+#          echo "${{ needs.build-and-push.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+#          echo '```' >> $GITHUB_STEP_SUMMARY
