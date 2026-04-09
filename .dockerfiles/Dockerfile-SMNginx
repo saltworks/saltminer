@@ -1,24 +1,21 @@
 # syntax=docker/dockerfile:1
-
-# Pin to current nginx stable release (1.28.3)
 FROM nginx:1.28.3
 
-# Bake the nginx files into a defaults bundle used to seed an empty bind mount
+# UI web artifacts
+COPY ./artifacts/dist/ui-web/smpgui /usr/share/saltworks/saltminer-3.0.0/ui-web/smpgui
+
+# Defaults bundle — seeded to customer dir on first run
 COPY Saltworks.SaltMiner.Nginx/nginx.conf    /etc/nginx-defaults/nginx.conf
 COPY Saltworks.SaltMiner.Nginx/saltminer.crt /etc/nginx-defaults/saltminer.crt
 COPY Saltworks.SaltMiner.Nginx/saltminer.key /etc/nginx-defaults/saltminer.key
 
-# Copy UI web artifacts
-COPY ./artifacts/dist/ui-web/smpgui /usr/share/saltworks/saltminer-3.0.0/ui-web/smpgui
+# Create the customer-facing directory so it exists even without a bind mount
+RUN mkdir -p /opt/saltworks/saltminer/nginx
 
-# Copy and configure the custom entrypoint script
 COPY Saltworks.SaltMiner.Nginx/docker-entrypoint.sh /docker-entrypoint.sh
 
-# Set permissions: entrypoint must be executable, private keys must be owner-read-only
 RUN chmod +x /docker-entrypoint.sh \
     && chmod 600 /etc/nginx-defaults/saltminer.key
 
-# Expose standard HTTP and HTTPS ports
 EXPOSE 80 443
-
 ENTRYPOINT ["/docker-entrypoint.sh"]
