@@ -16,8 +16,7 @@ COPY Saltworks.SaltMiner.Nginx/docker-entrypoint.sh /docker-entrypoint.sh
 
 # Set permissions: entrypoint must be executable, private keys must be owner-read-only
 RUN chmod +x /docker-entrypoint.sh \
-    && chmod 600 /etc/nginx/saltminer.key \
-    && chmod 600 /etc/nginx/defaults/saltminer.key
+    && chmod 600 /etc/nginx-defaults/saltminer.key
 
 # Expose standard HTTP and HTTPS ports
 EXPOSE 80 443
