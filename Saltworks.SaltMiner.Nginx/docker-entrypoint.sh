@@ -86,8 +86,8 @@ NGINX_DIR="/etc/nginx"
 log "Checking $CUSTOMER_DIR for required files..."
 
 # -- nginx.conf ---------------------------------------------------------------
-# Main nginx configuration. Contains KIBANA_URL and KIBANA_HOST placeholders
-# that are resolved in Step 3 below.
+# Main nginx configuration. Contains ${KIBANA_URL} and ${KIBANA_HOST}
+# placeholders that are resolved in Step 3 below.
 seed_file \
     "$CUSTOMER_DIR/nginx.conf" \
     "$DEFAULTS_DIR/nginx.conf"
@@ -129,6 +129,8 @@ chmod 600 "$NGINX_DIR/saltminer.key"
 # Step 3 — Substitute environment variables in nginx.conf
 #
 # Only runs if the live nginx.conf still contains unresolved placeholders.
+# nginx.conf uses ${KIBANA_URL} and ${KIBANA_HOST} syntax.
+#
 # Operates on the deployed copy in /etc/nginx/ so the customer's source
 # file in /opt/saltworks/saltminer/nginx/ is never modified by substitution.
 # On container restart the customer file is re-deployed and substitution
@@ -137,7 +139,7 @@ chmod 600 "$NGINX_DIR/saltminer.key"
 
 CONF="$NGINX_DIR/nginx.conf"
 
-if grep -q '\$KIBANA_URL\|\$KIBANA_HOST' "$CONF"; then
+if grep -q '\${KIBANA_URL}\|\${KIBANA_HOST}' "$CONF"; then
     log "Substituting environment variables in nginx.conf..."
 
     # Validate that required vars are set before attempting substitution.
@@ -145,7 +147,7 @@ if grep -q '\$KIBANA_URL\|\$KIBANA_HOST' "$CONF"; then
     : "${KIBANA_URL:?KIBANA_URL environment variable is required}"
     : "${KIBANA_HOST:?KIBANA_HOST environment variable is required}"
 
-    envsubst '$KIBANA_URL $KIBANA_HOST' < "$CONF" > "$CONF.tmp"
+    envsubst '${KIBANA_URL} ${KIBANA_HOST}' < "$CONF" > "$CONF.tmp"
     mv "$CONF.tmp" "$CONF"
     log "Substitution complete."
 else
