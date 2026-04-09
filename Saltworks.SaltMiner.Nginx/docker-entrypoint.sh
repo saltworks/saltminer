@@ -3,18 +3,21 @@
 # SaltMiner nginx entrypoint script
 #
 # Execution order:
-#   1. Seed /etc/nginx/ files from /etc/nginx/defaults/ if not present on host
-#   2. Perform envsubst on nginx.conf for any remaining placeholders
-#   3. Hand off to nginx
+#   1. Seed /opt/saltworks/saltminer/nginx/ from image defaults if files
+#      are missing — works whether or not a bind mount is present
+#   2. Copy all three files from customer dir into /etc/nginx/ live path
+#   3. Perform envsubst on nginx.conf for any remaining placeholders
+#   4. Hand off to nginx
 #
-# The seed step must run first. If /etc/nginx is bind-mounted to an empty
-# host directory, the config files baked into the image are hidden by the
-# mount. Seeding copies them from the defaults bundle at /etc/nginx/defaults/
-# before any other step attempts to read them.
+# /etc/nginx/ is never bind mounted so nginx always has its full internal
+# directory structure intact. Customers edit files in the Saltworks-owned
+# path /opt/saltworks/saltminer/nginx/ which is safe to bind mount without
+# affecting nginx internals.
 #
-# Each file is seeded independently so a partially-populated bind mount
-# (e.g. customer has provided their own nginx.conf but not the certs) is
-# handled correctly — only the missing files are restored.
+# Customer working directory: /opt/saltworks/saltminer/
+# Nginx config files:         /opt/saltworks/saltminer/nginx/
+# Image defaults bundle:      /etc/nginx-defaults/
+# Nginx live path:            /etc/nginx/
 # =============================================================================
 
 set -e
@@ -30,16 +33,15 @@ log() {
 # -----------------------------------------------------------------------------
 # seed_file <target> <source>
 #
-# Copies <source> to <target> if <target> does not already exist.
-# Preserves any file the customer has placed at <target>.
-# Exits with an error if the defaults source file is missing from the image,
-# which would indicate a broken image build.
+# Copies <source> to <target> if <target> is missing or empty.
+# Used to populate the customer directory on first run, or to restore
+# a file the customer has accidentally deleted.
 # -----------------------------------------------------------------------------
 seed_file() {
     target="$1"
     source="$2"
 
-    if [ ! -f "$target" ]; then
+    if [ ! -s "$target" ]; then
         if [ ! -f "$source" ]; then
             log "ERROR: Default file missing from image: $source"
             log "       This indicates a broken image build. Cannot continue."
@@ -53,70 +55,84 @@ seed_file() {
     fi
 }
 
-# =============================================================================
-# Step 1 — Seed /etc/nginx/ files from bundled defaults
+# -----------------------------------------------------------------------------
+# deploy_file <source> <target>
 #
-# Source path: /etc/nginx/defaults/
-# This directory is baked into the image at build time and is never bind
-# mounted, so its contents are always available regardless of what the
-# customer has mounted over /etc/nginx/.
-# =============================================================================
+# Copies a file from the customer directory into the live nginx path.
+# Always overwrites on every startup so nginx always reflects the current
+# state of the customer directory.
+# -----------------------------------------------------------------------------
+deploy_file() {
+    source="$1"
+    target="$2"
+
+    log "Deploying $source → $target"
+    cp "$source" "$target"
+}
 
 DEFAULTS_DIR="/etc/nginx-defaults"
+CUSTOMER_DIR="/opt/saltworks/saltminer/nginx"
 NGINX_DIR="/etc/nginx"
 
-log "Checking $NGINX_DIR for required files..."
+# =============================================================================
+# Step 1 — Seed customer directory from image defaults if files are missing
+#
+# On first run with an empty bind mount, all three files will be seeded.
+# On subsequent runs with customer-edited files, seeding is skipped.
+# Individual files can be restored by deleting them from the customer dir
+# and restarting the container.
+# =============================================================================
 
-# -----------------------------------------------------------------------------
-# DEBUG — filesystem dump
-# Prints the contents of both /etc/nginx/ and /etc/nginx/defaults/ at runtime
-# so we can see exactly what the container has access to when it starts.
-# Remove this block once the seeding issue is confirmed resolved.
-# -----------------------------------------------------------------------------
-log "DEBUG: Contents of $NGINX_DIR:"
-ls -la "$NGINX_DIR" 2>&1 | while IFS= read -r line; do log "DEBUG:   $line"; done
-
-log "DEBUG: Contents of $DEFAULTS_DIR:"
-if [ -d "$DEFAULTS_DIR" ]; then
-    ls -la "$DEFAULTS_DIR" 2>&1 | while IFS= read -r line; do log "DEBUG:   $line"; done
-else
-    log "DEBUG:   DIRECTORY DOES NOT EXIST"
-fi
-# -----------------------------------------------------------------------------
-# END DEBUG
-# -----------------------------------------------------------------------------
+log "Checking $CUSTOMER_DIR for required files..."
 
 # -- nginx.conf ---------------------------------------------------------------
 # Main nginx configuration. Contains KIBANA_URL and KIBANA_HOST placeholders
-# that are resolved in Step 2 below.
+# that are resolved in Step 3 below.
 seed_file \
-    "$NGINX_DIR/nginx.conf" \
+    "$CUSTOMER_DIR/nginx.conf" \
     "$DEFAULTS_DIR/nginx.conf"
 
 # -- saltminer.crt ------------------------------------------------------------
 # TLS certificate delivered as part of the SaltMiner product.
-# Customers may replace this with their own certificate.
+# Customers may replace this with their own certificate and key.
 seed_file \
-    "$NGINX_DIR/saltminer.crt" \
+    "$CUSTOMER_DIR/saltminer.crt" \
     "$DEFAULTS_DIR/saltminer.crt"
 
 # -- saltminer.key ------------------------------------------------------------
 # TLS private key paired with saltminer.crt.
-# Permissions are tightened after seeding to restrict read access.
 seed_file \
-    "$NGINX_DIR/saltminer.key" \
+    "$CUSTOMER_DIR/saltminer.key" \
     "$DEFAULTS_DIR/saltminer.key"
 
-# Ensure the private key is always owner-read-only, whether it was just
-# seeded or was already present (customer-provided key should also be locked).
+# Lock down the private key in the customer directory.
+chmod 600 "$CUSTOMER_DIR/saltminer.key"
+
+# =============================================================================
+# Step 2 — Deploy files from customer directory into live nginx path
+#
+# Always runs on every startup. nginx always gets a fresh copy of whatever
+# is currently in the customer directory, so a restart is all that is needed
+# to pick up any customer edits.
+# =============================================================================
+
+log "Deploying files to $NGINX_DIR..."
+
+deploy_file "$CUSTOMER_DIR/nginx.conf"    "$NGINX_DIR/nginx.conf"
+deploy_file "$CUSTOMER_DIR/saltminer.crt" "$NGINX_DIR/saltminer.crt"
+deploy_file "$CUSTOMER_DIR/saltminer.key" "$NGINX_DIR/saltminer.key"
+
+# Lock down the deployed private key in the live nginx path.
 chmod 600 "$NGINX_DIR/saltminer.key"
 
 # =============================================================================
-# Step 2 — Substitute environment variables in nginx.conf
+# Step 3 — Substitute environment variables in nginx.conf
 #
-# Only runs if the config still contains unresolved placeholders. This allows
-# the container to restart cleanly after a first run where substitution has
-# already been applied to a host-mounted file.
+# Only runs if the live nginx.conf still contains unresolved placeholders.
+# Operates on the deployed copy in /etc/nginx/ so the customer's source
+# file in /opt/saltworks/saltminer/nginx/ is never modified by substitution.
+# On container restart the customer file is re-deployed and substitution
+# runs again if placeholders are still present.
 # =============================================================================
 
 CONF="$NGINX_DIR/nginx.conf"
@@ -125,7 +141,7 @@ if grep -q '\$KIBANA_URL\|\$KIBANA_HOST' "$CONF"; then
     log "Substituting environment variables in nginx.conf..."
 
     # Validate that required vars are set before attempting substitution.
-    # The := syntax prints a clear error and exits if either var is missing.
+    # The :? syntax prints a clear error and exits if either var is missing.
     : "${KIBANA_URL:?KIBANA_URL environment variable is required}"
     : "${KIBANA_HOST:?KIBANA_HOST environment variable is required}"
 
@@ -137,7 +153,7 @@ else
 fi
 
 # =============================================================================
-# Step 3 — Hand off to nginx
+# Step 4 — Hand off to nginx
 #
 # exec replaces this shell process with nginx, making nginx PID 1.
 # daemon off keeps nginx in the foreground so Docker can track the process.
