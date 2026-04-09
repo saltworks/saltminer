@@ -44,7 +44,7 @@ on:
 env:
   IMAGE_NAME: saltminer-nginx
   # Set to 'true' to enable diagnostic steps
-  DIAGNOSTIC_MODE: 'false'
+  DIAGNOSTIC_MODE: 'true'
 
 jobs:
   # ── Job 1: Build the UI and upload artifact ──────────────────────────────────
@@ -184,6 +184,20 @@ jobs:
             org.opencontainers.image.description=nginx reverse proxy for SaltMiner
             org.opencontainers.image.vendor=Saltworks Security, LLC
 
+      # ── DIAGNOSTIC STEP ──────────────────────────────────────────────────────
+      # Verifies that the nginx source files and defaults are present in the
+      # build context before handing off to Docker. Runs when DIAGNOSTIC_MODE
+      # is 'true' OR when the build has previously failed with the defaults
+      # missing error. Safe to leave enabled until the cache issue is confirmed
+      # resolved — it adds only ~1s to the job.
+      - name: Verify nginx source files in build context
+        if: env.DIAGNOSTIC_MODE == 'true'
+        run: |
+          echo "--- Saltworks.SaltMiner.Nginx/ source files ---"
+          ls -la Saltworks.SaltMiner.Nginx/
+          echo "--- Dockerfile ---"
+          cat .dockerfiles/Dockerfile-SMNginx
+
       - name: Build and push Docker image
         id: build-push
         uses: docker/build-push-action@v6
@@ -194,8 +208,13 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # ── CACHE SCOPE FIX ────────────────────────────────────────────────
+          # Explicit scope name prevents BuildKit from serving stale cached
+          # layers from before the /etc/nginx/defaults/ COPY instructions were
+          # added to the Dockerfile. Bumping the scope suffix (e.g. v2 → v3)
+          # in future will force another clean build if needed.
+          cache-from: type=gha,scope=saltminer-nginx-v2
+          cache-to: type=gha,mode=max,scope=saltminer-nginx-v2
           provenance: true
           sbom: true
 
