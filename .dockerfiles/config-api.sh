@@ -39,7 +39,7 @@ if [ "${port,,}" == "" ]; then
     port=443
   elif [ "${scheme,,}" == 'http://' ]; then
     echo "Scheme is $scheme so setting port to 80."
-    port=443
+    port=80
   else
     echo "Something is very wrong here. Scheme is $scheme but only http or https is supported."
     handle_error $LINENO
@@ -65,4 +65,4 @@ jq --arg s "${scheme%???}" \
   $CONFIG_FILE \
   > "$CONFIG_FILE.new"
 
-cp "$CONFIG_FILE.new" /etc/saltworks/saltminer-3.0.0/api/appsettings.json
+cp "$CONFIG_FILE.new" /opt/saltworks/saltminer-3.0.0/api/appsettings.json
