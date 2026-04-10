@@ -589,7 +589,9 @@ namespace Saltworks.SaltMiner.DataApi
                             var json = r.ReadToEnd().Replace("\r\n", "");
                             var templateName = Path.GetFileName(template).Replace(JE, "");
                            
-                            client.IndexTemplateAddUpdate(templateName, json);
+                            var rsp = client.IndexTemplateAddUpdate(templateName, json);
+                            if (!rsp.IsSuccessful)
+                                Log.Warning("Index template {Name} not created due to error: [{Status}] {Err}", templateName, rsp.HttpStatus, rsp.Message);
                         }
                         failMsg = $"Failed when attempting to delete index template file '{template}'";
                        
