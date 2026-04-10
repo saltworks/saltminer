@@ -65,4 +65,4 @@ jq --arg s "${scheme%???}" \
   $CONFIG_FILE \
   > "$CONFIG_FILE.new"
 
-cp "$CONFIG_FILE.new" /opt/saltworks/saltminer-3.0.0/api/appsettings.json
+cp "$CONFIG_FILE.new" /opt/saltworks/saltminer/app/api/appsettings.json
