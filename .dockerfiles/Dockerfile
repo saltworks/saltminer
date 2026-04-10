@@ -27,4 +27,4 @@ COPY $ARTIFACT_PATH/data-templates/ ./data
 
 EXPOSE 5000
 
-ENTRYPOINT ["/usr/bin/dotnet", "/usr/share/saltworks/saltminer-3.0.0/api/Saltworks.SaltMiner.DataApi.dll"]
+ENTRYPOINT ["/usr/bin/dotnet", "${smapp}/Saltworks.SaltMiner.DataApi.dll"]
