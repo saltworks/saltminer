@@ -12,9 +12,8 @@
       "AgentCron": "/usr/share/saltworks/saltminer-3.0.0/agentcron.sh",
       "ManagerCron": "/usr/share/saltworks/saltminer-3.0.0/managercron.sh",
 	    "RiskRoller": "/usr/share/saltworks/saltminer-3.0.0/riskrollercron.sh",
-      "TenableAgent": "/usr/share/saltworks/saltminer-2.5.0/Sources/Tenable/RunTenableAdapter.sh",
-      "SnykAgent": "/usr/share/saltworks/saltminer-2.5.0/Sources/SNYK/RunSnykAdapter.sh",
-      "SeekerAgent": "/usr/share/saltworks/saltminer-2.5.0/Sources/Seeker/RunSeeker.sh"
+      "PythonAgent": "/usr/share/saltworks/saltminer-2.5.0/Sources/RunPythonAdapter.sh",
+      "PythonAgentService": "/usr/share/saltworks/saltminer-3.0.0/agentservice.sh"
     }
   },
   "LogConfig": {

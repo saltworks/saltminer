@@ -28,6 +28,8 @@ from Sources.Tenable.TenableAdapter import TenableAdapter
 from Sources.Snyk.SnykAdapter import SnykAdapter
 from Sources.Seeker.SeekerAdapter import SeekerAdapter
 from Sources.GHAS.GHASAdapter import GHASAdapter
+from Sources.CoverityOnPolaris.COPAdapter import COPAdapter
+from Sources.Axonius.AxoniusAdapter import AxoniusAdapter
 
 
 prm_source = None
@@ -73,6 +75,13 @@ elif prm_source.lower() == "seeker":
     adapter = SeekerAdapter(app)
 elif prm_source.lower() == "ghas":
     adapter = GHASAdapter(app)
+elif prm_source.lower() == "cop":
+    adapter = COPAdapter(app)
+elif prm_source.lower() == "axonius":
+    adapter = AxoniusAdapter(app)
+elif prm_source.lower() in ['ssc', 'fod']:
+    print(f"Source '{prm_source}' is supported but requires different calls. Please use RunSync, RunAgentService scripts for these sources.")
+    sys.exit(1)
 else:
     print(f"Unknown/unsupported source: {prm_source}")
     sys.exit(1)

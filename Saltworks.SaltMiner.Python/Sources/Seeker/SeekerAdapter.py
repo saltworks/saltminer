@@ -44,9 +44,12 @@ class SeekerAdapter:
         self.first_load = settings.GetSource("Seeker", 'First_Load')
         self.project_last_updated = {}
 
-    def run_sync(self):
+    def run_sync(self, first_load = None):
         logging.info("Run Sync Start")
 
+        # parameter overrides setting
+        if first_load is not None:
+            self.first_load = first_load
         if not self.first_load:
             self.get_sm_prj_last_updated()
             

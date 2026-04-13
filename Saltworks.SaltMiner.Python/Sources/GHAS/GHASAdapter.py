@@ -17,5 +17,12 @@
 *
 * ----
 '''
+from Core.Application import Application
+
 class GHASAdapter:
-    pass
+    
+    def __init__(self, app: Application):
+        self.app = app
+
+    def run_sync(self, first_load:bool = False):
+        raise NotImplementedError("GHAS Adapter is not yet implemented")
