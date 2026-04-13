@@ -293,7 +293,10 @@ class GHASClient:
 
             if resp.status == 429:
                 retry_after = int(resp.headers.get("Retry-After", 60))
-                await asyncio.sleep(retry_after + 5)
+                wait = retry_after + 5
+                logger.warning("Primary rate limit hit. Sleeping %ss before retry.", wait)
+                await resp.release()
+                await asyncio.sleep(wait)
                 h = headers or await self._headers()
                 continue
 
@@ -301,19 +304,24 @@ class GHASClient:
             if remaining is not None and int(remaining) == 0:
                 reset_ts = int(resp.headers.get("x-ratelimit-reset", time.time() + 60))
                 wait = max(reset_ts - int(time.time()), 0) + 5
+                logger.warning("Rate limit exhausted. Sleeping %ss until reset.", wait)
+                await resp.release()
                 await asyncio.sleep(wait)
                 h = headers or await self._headers()
                 continue
 
             if resp.status == 403:
                 body = await resp.text()
+                await resp.release()
                 if "secondary rate limit" in body.lower() or "rate limit exceeded" in body.lower():
                     if backoff_idx >= len(SECONDARY_BACKOFF):
                         raise aiohttp.ClientResponseError(
                             resp.request_info, resp.history,
                             status=403, message="Secondary rate limit — max retries exceeded."
                         )
-                    await asyncio.sleep(SECONDARY_BACKOFF[backoff_idx] + 5)
+                    wait = SECONDARY_BACKOFF[backoff_idx] + 5
+                    logger.warning("Secondary rate limit. Backoff %ss (attempt %d).", wait, backoff_idx + 1)
+                    await asyncio.sleep(wait)
                     backoff_idx += 1
                     h = headers or await self._headers()
                     continue
@@ -427,12 +435,12 @@ class GHASClient:
             url = self._parse_next_link(link)
             params = None
 
-    @staticmethod
-    def _engine_endpoint(full_name: str, engine: str) -> str:
+    def _engine_endpoint(self, full_name: str, engine: str) -> str:
+        """Build the alert endpoint URL using the configured BaseUrl for GitHub Enterprise compatibility."""
         endpoints = {
-            "code_scanning": f"https://api.github.com/repos/{full_name}/code-scanning/alerts",
-            "secret_scanning": f"https://api.github.com/repos/{full_name}/secret-scanning/alerts",
-            "dependabot": f"https://api.github.com/repos/{full_name}/dependabot/alerts",
+            "code_scanning": f"{self._base_url}/repos/{full_name}/code-scanning/alerts",
+            "secret_scanning": f"{self._base_url}/repos/{full_name}/secret-scanning/alerts",
+            "dependabot": f"{self._base_url}/repos/{full_name}/dependabot/alerts",
         }
         if engine not in endpoints:
             raise ValueError(f"Unknown engine '{engine}'. Expected one of: {list(endpoints)}")
