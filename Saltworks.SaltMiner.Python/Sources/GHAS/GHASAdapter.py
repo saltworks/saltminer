@@ -85,11 +85,15 @@ class GHASStateManager:
 
     def get_watermark(self, repo_full_name: str, engine: str) -> Optional[str]:
         """Return the stored watermark for this repo/engine, or None if not present."""
+        if not self._loaded:
+            raise RuntimeError("GHASStateManager.load() must be called before accessing watermarks.")
         key = f"{repo_full_name}/{engine}"
         return self._data.get("watermarks", {}).get(key)
 
     def set_watermark(self, repo_full_name: str, engine: str, timestamp: str):
         """Update the in-memory watermark. Call save_async() to persist."""
+        if not self._loaded:
+            raise RuntimeError("GHASStateManager.load() must be called before setting watermarks.")
         key = f"{repo_full_name}/{engine}"
         if "watermarks" not in self._data:
             self._data["watermarks"] = {}
@@ -106,11 +110,12 @@ class GHASStateManager:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(self._data, f, indent=2)
             os.replace(tmp_path, self._path)
-        except Exception:
+        except Exception as exc:
+            logger.error("Failed to write state file '%s': %s", self._path, exc)
             try:
                 os.unlink(tmp_path)
-            except OSError:
-                pass
+            except OSError as cleanup_exc:
+                logger.debug("Could not remove temp state file '%s': %s", tmp_path, cleanup_exc)
             raise
 
 # ── Adapter ───────────────────────────────────────────────────────────────────
@@ -128,8 +133,8 @@ class GHASAdapter:
       - State: local JSON file, atomic writes, asyncio.Lock for concurrent updates
     """
 
-    # Default engines if not specified in config
-    DEFAULT_ENGINES = ["code_scanning", "secret_scanning", "dependabot"]
+    # Default engines if not specified in config — tuple to prevent accidental mutation
+    DEFAULT_ENGINES = ("code_scanning", "secret_scanning", "dependabot")
 
     def __init__(self, app):
         self.client = GHASClient(app.Settings)
@@ -146,7 +151,12 @@ class GHASAdapter:
         self.exclude_repos = set(app.Settings.GetSource("GHAS", "ExcludeRepos") or [])
         self.exclude_topics = set(app.Settings.GetSource("GHAS", "ExcludeTopics") or [])
         exclude_pat = app.Settings.GetSource("GHAS", "ExcludePattern") or ""
-        self.exclude_pattern = re.compile(exclude_pat) if exclude_pat else None
+        try:
+            self.exclude_pattern = re.compile(exclude_pat) if exclude_pat else None
+        except re.error as exc:
+            raise ValueError(
+                f"GHAS config: ExcludePattern '{exclude_pat}' is not a valid regex: {exc}"
+            ) from exc
 
         # State management
         state_file = app.Settings.GetSource("GHAS", "StateFile") or "./ghas-state.json"
