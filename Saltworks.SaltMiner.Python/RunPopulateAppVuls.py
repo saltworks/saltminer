@@ -43,7 +43,7 @@ for i in range(1, len(sys.argv)):
         logInstance = logInstance.replace(":", "")
 
 # basic init
-app = Application(loggingInstance=logInstance)
+app = Application(loggingCustomTag=logInstance)
 sources = []
 prog = os.path.splitext(os.path.basename(__file__))[0]
 

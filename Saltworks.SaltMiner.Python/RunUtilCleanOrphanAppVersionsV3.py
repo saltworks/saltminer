@@ -32,7 +32,7 @@ for arg in sys.argv:
 
 timers = {}
 
-app = Application(loggingInstance=prmLogInstance)
+app = Application(loggingCustomTag=prmLogInstance)
 es = app.GetElasticClient()
 
 def StartTimer(key):

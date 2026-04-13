@@ -48,7 +48,7 @@ for i in range(1, len(sys.argv)):
             exit(1)
         logInstance = logInstance.replace(":", "")
 
-app = Application(loggingInstance=logInstance)
+app = Application(loggingCustomTag=logInstance)
 prog = os.path.splitext(os.path.basename(__file__))[0]
 prmSourceName = None
 prmRunRefresh = True
