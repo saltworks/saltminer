@@ -199,8 +199,8 @@ class GHASClient:
         body = ""
         try:
             body = await resp.text()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Could not read response body for %s (status %d): %s", url, resp.status, exc)
         raise aiohttp.ClientResponseError(
             resp.request_info, resp.history,
             status=resp.status,
