@@ -142,7 +142,12 @@ class GHASAdapter:
         self._data_client = DataClient(app)
 
         self.instance = app.Settings.GetSource("GHAS", "SourceName") or "GHAS1"
-        self.org = app.Settings.GetSource("GHAS", "Org")
+        self.org = app.Settings.GetSource("GHAS", "Org") or ""
+        if not self.org:
+            raise ValueError(
+                "GHAS config: 'Org' is required but not set. "
+                "Set the GitHub organisation name in Config/Sources/GHAS.json."
+            )
         self.engines = app.Settings.GetSource("GHAS", "Engines") or self.DEFAULT_ENGINES
         self.include_sarif = app.Settings.GetSource("GHAS", "IncludeSarif") or False
         self.concurrency_limit = int(app.Settings.GetSource("GHAS", "ConcurrencyLimit") or 10)
@@ -188,6 +193,7 @@ class GHASAdapter:
     async def get_sync_async(self):
         """
         Discover all repos, apply exclusions, then run concurrent repo/engine sync.
+        Enablement checks are gathered concurrently before dispatching sync tasks.
         """
         logger.info("Starting GHAS sync for org '%s'.", self.org)
 
@@ -195,16 +201,22 @@ class GHASAdapter:
         repos = self._apply_exclusions(repos)
         logger.info("%d repositories to process after exclusions.", len(repos))
 
+        # Gather all enablement checks concurrently — avoids sequential API calls
+        # before sync work begins. Use a dedicated semaphore so we don't saturate
+        # the connection pool; enablement checks are cheap single-call requests.
+        enablement_sem = asyncio.Semaphore(self.concurrency_limit)
+        enablement_results = await asyncio.gather(
+            *[self._check_enablement_with_semaphore(enablement_sem, repo) for repo in repos],
+            return_exceptions=True
+        )
+
         sem = asyncio.Semaphore(self.concurrency_limit)
         tasks = []
 
-        for repo in repos:
-            try:
-                enablement = await self.client.get_repo_enablement_async(repo["full_name"])
-            except Exception as exc:
-                logger.error("Failed enablement check for %s: %s — skipping.", repo["full_name"], exc)
+        for repo, enablement in zip(repos, enablement_results):
+            if isinstance(enablement, Exception):
+                logger.error("Failed enablement check for %s: %s — skipping.", repo["full_name"], enablement)
                 continue
-
             for engine in self.engines:
                 if not enablement.get(engine, False):
                     logger.debug("Engine '%s' not enabled on %s — skipping.", engine, repo["full_name"])
@@ -219,6 +231,11 @@ class GHASAdapter:
             logger.warning("%d sync task(s) failed out of %d total.", len(failures), len(tasks))
         else:
             logger.info("All %d sync tasks completed successfully.", len(tasks))
+
+    async def _check_enablement_with_semaphore(self, sem: asyncio.Semaphore, repo: dict) -> dict:
+        """Fetch GHAS engine enablement for one repo, bounded by semaphore."""
+        async with sem:
+            return await self.client.get_repo_enablement_async(repo["full_name"])
 
     async def _sync_with_semaphore(self, sem: asyncio.Semaphore, repo: dict, engine: str):
         async with sem:
@@ -242,7 +259,7 @@ class GHASAdapter:
 
             if watermark:
                 latest_ts = await self.client.get_latest_alert_timestamp_async(full_name, engine)
-                if latest_ts and latest_ts <= watermark:
+                if latest_ts and self._parse_ts(latest_ts) <= self._parse_ts(watermark):
                     logger.debug("No changes for %s/%s (latest=%s, watermark=%s) — skipping.",
                                  full_name, engine, latest_ts, watermark)
                     return
@@ -594,6 +611,14 @@ class GHASAdapter:
     def _max_updated_at(alerts: list) -> Optional[str]:
         timestamps = [a.get("updated_at") for a in alerts if a.get("updated_at")]
         return max(timestamps) if timestamps else None
+
+    @staticmethod
+    def _parse_ts(ts: str) -> datetime:
+        """
+        Parse a GitHub API ISO8601 timestamp to a timezone-aware datetime.
+        Handles both Z suffix and +00:00 offset formats safely.
+        """
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
     @staticmethod
     def _normalize_severity(alert: dict, engine: str) -> str:
