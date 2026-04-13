@@ -192,8 +192,7 @@ class GHASClient:
         h["Accept"] = "application/sarif+json"
         return h
 
-    @staticmethod
-    async def _raise_for_status(resp: aiohttp.ClientResponse, url: str):
+    async def _raise_for_status(self, resp: aiohttp.ClientResponse, url: str):
         if resp.status < 400:
             return
         body = ""
@@ -281,7 +280,10 @@ class GHASClient:
                     return await resp2.json()
 
     async def _get_response_with_retry(self, url: str, params: dict = None, headers: dict = None) -> aiohttp.ClientResponse:
-        """Like _get_with_retry but returns the raw response for Link header access."""
+        """
+        Like _get_with_retry but returns the raw response object for Link header access.
+        CALLER MUST close the response using 'async with resp:' to avoid connection leaks.
+        """
         await self._ensure_session()
         h = headers or await self._headers()
         backoff_idx = 0
