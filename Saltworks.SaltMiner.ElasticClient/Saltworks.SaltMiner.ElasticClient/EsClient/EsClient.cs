@@ -1883,6 +1883,7 @@ public class EsClient(ClientConfiguration configuration, ElasticsearchClientSett
         if (!result.IsValidResponse)
         {
             Logger?.LogWarning("Failed to add/update index template {Name}: {Error}", templateName, result.ElasticsearchServerError?.Error?.Reason ?? UNKNOWN_ERROR);
+            Logger?.LogDebug("DebugInfo: {DebugInfo}", result?.ApiCallDetails?.DebugInformation ?? "No debug information");
             return EsClientResponse.BuildResponse(false, result.ElasticsearchServerError?.Error?.Reason ?? "Template update failed", 0);
         }
         return EsClientResponse.BuildResponse(result.Acknowledged, "Template updated", 1);

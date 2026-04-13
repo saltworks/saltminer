@@ -134,7 +134,9 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             KibanaUser result = null;
             try
             {
-                result = GetApiClient().GetAsync<KibanaUser>(url).Result.Content;
+                var rsp = GetApiClient().GetAsync<KibanaUser>(url);
+                Logger.LogDebug("Kibana profile response: [{StatusCode}] {Msg}", rsp.Result.StatusCode, rsp.Result.RawContent);
+                result = rsp.Result.Content;
             }
             catch (AggregateException ex)
             {

@@ -166,6 +166,7 @@ public static class Program
                 options.ApiKey = config.DataApiKey;
                 options.Timeout = TimeSpan.FromSeconds(config.DataApiTimeoutSec);
                 options.VerifySsl = config.DataApiVerifySsl;
+                options.RunConfig.DisableInitialConnection = true;
             }
         );
     }
