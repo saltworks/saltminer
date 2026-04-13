@@ -23,7 +23,7 @@ import logging
 import time
 from datetime import datetime, timezone, timedelta
 
-from Sources.SNYK.SnykClient import SnykClient
+from Sources.Snyk.SnykClient import SnykClient
 from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 
 from Core.DataClient import DataClient, QueueStatus

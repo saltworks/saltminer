@@ -24,7 +24,7 @@ from Core.Application import Application
 from Sources.SSC.AuthHelper import AuthHelper as SscAuthHelper
 from Sources.FOD.AuthHelper import AuthHelper as FodAuthHelper
 
-app = Application(loggingInstance="authsync")
+app = Application(loggingCustomTag="authsync")
 s = app.Settings
 SSC_AUTH_CONFIG = "SscAuth"
 FOD_AUTH_CONFIG = "FodAuth"

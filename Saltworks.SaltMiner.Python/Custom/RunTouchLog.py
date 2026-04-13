@@ -29,7 +29,7 @@ from Core.Application import Application
 
 app = None
 if len(sys.argv) >= 2:
-    app = Application(loggingInstance=str(sys.argv[1]))
+    app = Application(loggingCustomTag=str(sys.argv[1]))
 else:
     app = Application()
     

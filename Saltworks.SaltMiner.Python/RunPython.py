@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 from Core.Application import Application
 
-app = Application(loggingInstance='RunPython')
+app = Application(loggingCustomTag='RunPython')
 
 def main():
   logging.info(f'RunPython arguments: {sys.argv}')

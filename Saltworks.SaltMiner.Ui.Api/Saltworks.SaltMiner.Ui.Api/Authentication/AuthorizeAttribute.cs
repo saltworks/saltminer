@@ -58,7 +58,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Authentication
             // This sketchy bit of linq determines if any of the required roles match any of the presented user roles.  If no match, then 401
             if (user == null)
             {
-                logger.LogDebug("User not unauthorized response");
+                logger.LogDebug("User unauthorized response");
                 throw new UiApiUnauthorizedException("Unauthorized");
             } 
             

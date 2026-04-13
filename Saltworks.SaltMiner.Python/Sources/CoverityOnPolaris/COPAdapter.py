@@ -30,20 +30,18 @@ from Core.DataClient import DataClient, QueueStatus
 
 class COPAdapter:
 
-    def __init__(self, app, first_load = False):
+    def __init__(self, app):
         settings = app.Settings
         self.cop_client = COPClient(settings)
         self._es = ElasticClient(settings)
         self._data_client = DataClient(app)
         self.sm_docs = SnykDocs()
-        self.first_load = first_load
         self.counter = 0
         self.projects_data = {}
         self.issues_included = {}
         self.sm_scan_dates = {}
 
-    def run_sync(self, first_load):
-        
+    def run_sync(self, first_load = False):
         self.get_projects_data()
         self.get_projects_data(in_trash=True)
         if not first_load:

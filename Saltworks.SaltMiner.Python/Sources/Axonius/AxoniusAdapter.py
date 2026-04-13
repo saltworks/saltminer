@@ -26,7 +26,9 @@ class AxoniusAdapter:
         self.test_scanner_id = []
 
 
-    def run_sync(self):
+    def run_sync(self, first_load:bool = None):
+        if first_load is not None:
+            logging.info("First Load parameter provided and ignored.")
         self.get_last_updated()
         self.get_found_dates()
         counter = 0

@@ -53,7 +53,7 @@ if len(sys.argv) < 3:
     sys.exit(1)
 
 # Setup
-app = Application(loggingInstance=prm_log_instance)
+app = Application(loggingCustomTag=prm_log_instance)
 es = app.GetElasticClient()
 api = DataClient(app, validate_on_init=True)
 qcli = QueueClient(app, app.Settings.Get("SyncAgent", "queue_index_pattern_tag"))

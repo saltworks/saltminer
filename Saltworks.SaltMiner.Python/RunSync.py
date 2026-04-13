@@ -50,7 +50,7 @@ if len(sys.argv) == 0:
     exit(1)
 if prmAction not in ['sync', 'loadqueue', 'all', 'checkdrop']:
     raise ValueError(f"Invalid action '{prmAction}', expected 'sync', 'loadqueue', 'checkdrop', or 'all'.")
-app = Application(loggingInstance=prmLogInstance)
+app = Application(loggingCustomTag=prmLogInstance)
 logging.info(f"[{prog}] Starting, processing {'all sources' if prmSourceName is None else 'source ' + prmSourceName}, using '{prmAction}' action.")
 
 try:

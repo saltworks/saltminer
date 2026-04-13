@@ -1,6 +1,3 @@
-"""
-GHASAdapter.py
-==============
 SaltMiner source adapter for GitHub Advanced Security (GHAS).
 
 Implements the two-phase sync model:
@@ -729,3 +726,31 @@ class GHASAdapter:
                 attrs["ghas_dismissed_reason"] = alert["dismissed_reason"]
 
         return attrs
+''' --[auto-generated, do not modify this block]--
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+'''
+from Core.Application import Application
+
+class GHASAdapter:
+    
+    def __init__(self, app: Application):
+        self.app = app
+
+    def run_sync(self, first_load:bool = False):
+        raise NotImplementedError("GHAS Adapter is not yet implemented")

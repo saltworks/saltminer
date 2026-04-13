@@ -37,12 +37,15 @@ class Application(object):
 
     DEFAULT_CONFIG_PATH_FILE = "ConfigPath.txt"
     
-    def __init__(self, configPath=None, keyFile='saltworks.key', autoEncryptCreds = True, custom_tag=None, skipCleanFiles=False):
+    def __init__(self, configPath=None, keyFile='saltworks.key', autoEncryptCreds = True, loggingCustomTag=None, skipCleanFiles=False, **kwargs):
         self.__Init = False
         self.__ElasticClient = None
         self.__ElasticConfigName = "Elastic"
         self.__DeprecatedWarnings = {}
         self.DebugMode = True
+        if ('loggingInstance' in kwargs):
+            self.LogWarning("Parameter 'loggingInstance' is deprecated, please use 'loggingCustomTag' instead to specify a custom tag for application logging.")
+            loggingCustomTag = kwargs['loggingInstance']
         verfile = "version.txt"
         ver = "version not specified"
         if os.path.isfile(verfile):
@@ -57,7 +60,7 @@ class Application(object):
             self.HandleException(e, "Failed to load application configuration", "CRITICAL")
         self.__SuppressBaseWarnings = self.Settings.Get("logging", "SuppressBaseWarnings", True)
         try:
-            self.logging_provider = LoggingProvider(self, custom_tag, self.__SuppressBaseWarnings)
+            self.logging_provider = LoggingProvider(self, loggingCustomTag, self.__SuppressBaseWarnings)
             self.Settings.EnableLogging = True
         except Exception as e:
             self.HandleException(e, "Failed to configure application logging", "CRITICAL")

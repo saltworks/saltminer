@@ -15,7 +15,7 @@ if len(sys.argv) > 1:
 if len(sys.argv) > 2:
     prm_log_tag = sys.argv[2]     # Custom logging tag, defaults to none
 
-app = Application(custom_tag=prm_log_tag)
+app = Application(loggingCustomTag=prm_log_tag)
 
 def main():
     app = Application()
