@@ -345,28 +345,15 @@ class GHASClient:
 
     async def get_repo_enablement_async(self, full_name: str) -> dict:
         """
-        Return a dict of {engine: bool} indicating which GHAS engines are enabled.
-        Gracefully returns all-False if the repo is inaccessible.
+        Always returns True for all engines. Enablement is determined at fetch
+        time - 404 responses in get_alerts_async handle disabled engines gracefully.
+        The security_and_analysis field is only visible with admin PAT scope,
+        so we skip the check and let the alert endpoints speak for themselves.
         """
-        url = f"{self._base_url}/repos/{full_name}"
-        try:
-            data = await self._get_with_retry(url)
-        except aiohttp.ClientResponseError as exc:
-            if exc.status in (404, 403):
-                logger.warning("Cannot access repo %s (HTTP %d) - skipping all engines.", full_name, exc.status)
-                return {"code_scanning": False, "secret_scanning": False, "dependabot": False}
-            raise
-
-        sa = data.get("security_and_analysis") or {}
-
-        def _enabled(block_name: str) -> bool:
-            block = sa.get(block_name) or {}
-            return block.get("status") == "enabled"
-
         return {
-            "code_scanning": _enabled("advanced_security"),
-            "secret_scanning": _enabled("secret_scanning"),
-            "dependabot": _enabled("dependabot_security_updates"),
+            "code_scanning": True,
+            "secret_scanning": True,
+            "dependabot": True,
         }
 
     # -- Change detection ------------------------------------------------------
