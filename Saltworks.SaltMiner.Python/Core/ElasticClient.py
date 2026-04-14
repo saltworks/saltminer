@@ -39,6 +39,7 @@ from .DictUtils import DictUtils
 
 class ElasticClient(object):
     """ Elasticsearch client class """
+    RETRY_LIMIT_ERROR = "Elastic client operation failed after maximum retry attempts due to connection errors."
 
     def __init__(self, appSettings, configName="Elastic"):
         '''
@@ -52,8 +53,8 @@ class ElasticClient(object):
         if not configName or configName not in appSettings.GetConfigNames():
             raise ElasticClientException(f"Invalid or missing configuration for name '{configName}'")
         version = vertest('elasticsearch')
-        # if not version[0] == '7':
-        #     raise ElasticClientException(f"Expected elasticsearch python package to be version 7.x.x, but found {version} instead.  Please install elasticsearch 7.x.x.")
+        if version[0] not in ['8', '9']:
+            logging.warning("Unexpected elasticsearch python package %s. Possible compatibility issues with this version.", version)
         self.__RequestTimeout = appSettings.Get(configName, 'RequestTimeout')
         self.__DeleteRequestTimeout = appSettings.Get(configName, 'DeleteRequestTimeout', 30)
         self.__BulkRequestTimeout = appSettings.Get(configName, 'BulkRequestTimeout', 120)
@@ -64,7 +65,6 @@ class ElasticClient(object):
         self.__RetryCount = 0
         self.__App = appSettings.Application
         self.__DefaultScrollSize = appSettings.Get(configName, "DefaultScrollSize", 1000)
-        self.__QueryTemplates = appSettings.Get(configName, "QueryTemplates", {})
         self.__MappingsPath = appSettings.Get(configName, "MappingsPath", "Mappings/")
         self.__MappingsTemplatePath = appSettings.Get(configName, "MappingsTemplatePath", "Template/Mappings/")
         self.__App = appSettings.Application
@@ -74,9 +74,13 @@ class ElasticClient(object):
         self._Connect(appSettings, configName)
 
 
-    def _DecodeConnectionString(self, connectionString:str) -> dict:
+    def _AddIfNotPresent(self, parms:dict, key:str, value):
+        if value and len(str(value)) > 0 and key not in parms:
+            parms[key] = value
+
+    def _DecodeConnectionString(self, appSettings:ApplicationSettings, configName:str="Elastic") -> dict|None:
         '''
-        Decodes a connection string into its components, returning a dict with keys for each component.
+        Extracts and decodes a connection string into its components, returning a dict with keys for each component.
 
         Expected format of connection string is key=value pairs separated by semicolons, with keys of Host, Port, Scheme, Username, Password, and SslVerify.  
         Examples: 
@@ -86,6 +90,9 @@ class ElasticClient(object):
 
         Returns a dict with the decoded values.
         '''
+        connectionString = appSettings.Get(configName, 'ConnectionString', "")
+        if len(connectionString) == 0:
+            return None
         known_parts = ['host', 'port', 'scheme', 'username', 'password', 'sslverify', 'cloudid', 'apikeyid', 'apikeyvalue', 'useauth']
         parts = connectionString.split(';')
         parms = {}
@@ -181,11 +188,8 @@ class ElasticClient(object):
         appSettings: Settings instance containing application settings
         configName: Config section for this class (usually "Elastic")
         '''
-        connectionString = appSettings.Get(configName, 'ConnectionString', "")
-        if connectionString and len(connectionString) > 0:
-            connectionParms = self._DecodeConnectionString(connectionString)
-        else:
-            connectionParms = None
+        # pull config str from config and decode (if present)
+        connectionParms = self._DecodeConnectionString(appSettings, configName)
 
         # setup SSL verification and default headers
         sslVerify = self._SslVerify(appSettings.Get(configName, 'SslVerify', True))
@@ -194,18 +198,20 @@ class ElasticClient(object):
             "Content-Type": "application/vnd.elasticsearch+json; compatible-with=9"
         }
 
-        if not connectionParms:
-            connectionParms = {}
-            # Read it all from config (host, port, scheme, auth, ssl)
-            connectionParms['scheme'] = appSettings.Get(configName, 'Scheme')
-            connectionParms['username'] = appSettings.Get(configName, 'Username')
-            connectionParms['password'] = appSettings.Get(configName, 'Password')
-            connectionParms['port'] = appSettings.Get(configName, 'Port')
-            host_setting = appSettings.Get(configName, 'Host')
-            hosts = [host_setting] if not isinstance(host_setting, list) else host_setting
+        # Add config values not supplied via connection string (connection string values take precedence over config values)
+        self._AddIfNotPresent(connectionParms, 'username', appSettings.Get(configName, 'Username', ''))
+        self._AddIfNotPresent(connectionParms, 'password', appSettings.Get(configName, 'Password', ''))
+        self._AddIfNotPresent(connectionParms, 'apikeyid', appSettings.Get(configName, 'ApiKeyId', ''))
+        self._AddIfNotPresent(connectionParms, 'apikeyvalue', appSettings.Get(configName, 'ApiKeyValue', ''))
+        self._AddIfNotPresent(connectionParms, 'scheme', appSettings.Get(configName, 'Scheme', 'https'))
+        self._AddIfNotPresent(connectionParms, 'port', appSettings.Get(configName, 'Port', 9200))
+        self._AddIfNotPresent(connectionParms, 'useauth', appSettings.Get(configName, 'UseAuth', True))
+        host_setting = appSettings.Get(configName, 'Host', [])
+        hosts = [host_setting] if not isinstance(host_setting, list) else host_setting
+        if hosts and 'hosts' not in connectionParms:
             connectionParms['hosts'] = list(dict.fromkeys(hosts))  # remove duplicates while preserving order
-            connectionParms['useauth'] = appSettings.Get(configName, 'UseAuth', True)
 
+        # Build elasticsearch client via cloud or basic
         if connectionParms and 'cloudid' in connectionParms:
             self._ConnectCloud(connectionParms, sslVerify, headers)
         else:
@@ -250,7 +256,7 @@ class ElasticClient(object):
         '''
         if self.__RetryCount == self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException("Reached retry limit - see earlier logged errors for details.")
+            raise ElasticClientException(RETRY_LIMIT_ERROR)
 
         try:
             if not body:
@@ -363,7 +369,7 @@ class ElasticClient(object):
         '''
         if self.__RetryCount == self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException("Reached retry limit - see earlier logged errors for details.")
+            raise ElasticClientException(RETRY_LIMIT_ERROR)
         
         try:
             rsp = helpers.bulk(self.es, bulkActions, request_timeout=self.__BulkRequestTimeout, raise_on_error=raiseErrors, stats_only=statsOnly)
@@ -481,7 +487,7 @@ class ElasticClient(object):
         rsp = None
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException("Reached retry limit - see earlier logged errors for details.")
+            raise ElasticClientException(RETRY_LIMIT_ERROR)
         
         conflicts = "proceed" if ignoreConflicts else "abort"
         
@@ -522,7 +528,7 @@ class ElasticClient(object):
         '''
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException("Reached retry limit - see earlier logged errors for details.")
+            raise ElasticClientException(RETRY_LIMIT_ERROR)
         
         try:
             rsp = self.es.update(index=index, id=docId, doc=doc, if_seq_no=seq, if_primary_term=pri, detect_noop=True)
@@ -626,7 +632,7 @@ class ElasticClient(object):
         '''
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException("Reached retry limit - see earlier logged errors for details.")
+            raise ElasticClientException(RETRY_LIMIT_ERROR)
         
         try:
             self.es.clear_scroll(scroll_id = scrollId)
@@ -645,7 +651,7 @@ class ElasticClient(object):
         '''
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException("Reached retry limit - see earlier logged errors for details.")
+            raise ElasticClientException(RETRY_LIMIT_ERROR)
         
         try:
             rsp = self.es.scroll(scroll_id = scrollId, scroll = scrollTimeout)
@@ -793,7 +799,7 @@ class ElasticClient(object):
         '''
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException("Reached retry limit - see earlier logged errors for details.")
+            raise ElasticClientException(RETRY_LIMIT_ERROR)
         
         try:
             rsp = self.es.get(index=index, id=docId)
@@ -984,7 +990,7 @@ class ElasticClient(object):
             timeout = str(self.__DeleteRequestTimeout) + "s"
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException("Reached retry limit - see earlier logged errors for details.")
+            raise ElasticClientException(RETRY_LIMIT_ERROR)
         if not self.IndexExists(index):
             if ignoreMissingIndex:
                 return
@@ -1074,7 +1080,7 @@ class ElasticClient(object):
         timeout = int(timeout)
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException("Reached retry limit - see earlier logged errors for details.")
+            raise ElasticClientException(RETRY_LIMIT_ERROR)
 
         try:
             logging.debug("Running delete by query for index '%s' with timeout '%s'", index, timeout)
@@ -1113,7 +1119,7 @@ class ElasticClient(object):
             timeout = str(self.__IndexRequestTimeout) + "s"
         if self.__RetryCount >= 3:
             self.__RetryCount = 0
-            raise ElasticClientException("Reached retry limit - see earlier logged errors for details.")
+            raise ElasticClientException(RETRY_LIMIT_ERROR)
 
         try:
             logging.debug("Updating document in index '%s'", index)
@@ -1136,7 +1142,7 @@ class ElasticClient(object):
             timeout = str(self.__IndexRequestTimeout) + "s"
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException("Reached retry limit - see earlier logged errors for details.")
+            raise ElasticClientException(RETRY_LIMIT_ERROR)
 
         try:
             logging.debug("Inserting document into index '%s'", index)

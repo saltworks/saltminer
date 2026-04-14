@@ -203,7 +203,7 @@ class ElasticClientTests(unittest.TestCase):
             rsp = self.es.Search(idx, includeLockingInfo=True)
             dto = rsp[0]
             doc = dto['_source']
-            doc['locked'] = datetime.datetime.utcnow().isoformat()
+            doc['locked'] = datetime.datetime.now(datetime.UTC).isoformat()
             seq = dto['_seq_no']
             pri = dto['_primary_term']
             upd = self.es.UpdateWithLocking(idx, doc, "1", seq, pri)
