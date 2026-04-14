@@ -1,16 +1,16 @@
 name: Saltworks.SaltMiner.DataApi
 
 on:
-#  push:
-#    branches:
-#    - main
-#    - '3.*'
-#    paths:
-#    - 'Saltworks.SaltMiner.DataApi/**'
-#    - 'Saltworks.SaltMiner.IndexTemplates/**'
-#    - '.github/workflows/saltworks-saltminer-dataapi.yml'
-#    - '.dockerfiles/Dockerfile'
-#    - '.dockerfiles/config-api.sh'
+  push:
+    branches:
+    - main
+    - '3.*'
+    paths:
+    - 'Saltworks.SaltMiner.DataApi/**'
+    - 'Saltworks.SaltMiner.IndexTemplates/**'
+    - '.github/workflows/saltworks-saltminer-dataapi.yml'
+    - '.dockerfiles/Dockerfile'
+    - '.dockerfiles/config-api.sh'
   workflow_dispatch:
 
 env:
@@ -128,41 +128,41 @@ jobs:
     outputs:
       tag: ${{ steps.extract_tag.outputs.tag }}
 
-  update_compose:
-    name: Update Compose
-    runs-on:
-    - self-hosted
-    - dotnet
-    needs: build_api
-    concurrency:
-      group: saltminer-setup-${{ github.ref }}
-      cancel-in-progress: false
-    env:
-      TARGET_KEY: SM_API_IMAGE_VERSION
-
-    steps:
-    - name: Checkout saltminer-setup repo
-      uses: actions/checkout@v4
-      with:
-        repository: saltworks/saltminer-setup
-        token: ${{ secrets.SALTMINER_SETUP }}
-        ref: ${{ github.ref_name }}
-
-    - name: Show current .env file.
-      run: cat .env
-      if: env.DIAGNOSTIC_MODE == 'true'
-
-    - run: sed -i -e "/${{ env.TARGET_KEY }}/ s/=.*$/=${{ needs.build_api.outputs.tag }}/" .env
-      name: Update Compose file  
-
-    - run: cat .env
-      name: Show transformed file.
-      if: env.DIAGNOSTIC_MODE == 'true'
-
-    - name: Push changes
-      run: |
-        git config user.name ${{ github.actor }}
-        git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-        git add .env
+#  update_compose:
+#    name: Update Compose
+#    runs-on:
+#    - self-hosted
+#    - dotnet
+#    needs: build_api
+#    concurrency:
+#      group: saltminer-setup-${{ github.ref }}
+#      cancel-in-progress: false
+#    env:
+#      TARGET_KEY: SM_API_IMAGE_VERSION
+#
+#    steps:
+#    - name: Checkout saltminer-setup repo
+#      uses: actions/checkout@v4
+#      with:
+#        repository: saltworks/saltminer-setup
+#        token: ${{ secrets.SALTMINER_SETUP }}
+#        ref: ${{ github.ref_name }}
+#
+#    - name: Show current .env file.
+#      run: cat .env
+#      if: env.DIAGNOSTIC_MODE == 'true'
+#
+#    - run: sed -i -e "/${{ env.TARGET_KEY }}/ s/=.*$/=${{ needs.build_api.outputs.tag }}/" .env
+#      name: Update Compose file  
+#
+#    - run: cat .env
+#      name: Show transformed file.
+#      if: env.DIAGNOSTIC_MODE == 'true'
+#
+#    - name: Push changes
+#      run: |
+#        git config user.name ${{ github.actor }}
+#        git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+#        git add .env
         git commit -m "Updated .env ${{ env.TARGET_KEY }} value"
         git push
