@@ -1,4 +1,4 @@
-""":
+"""
 GHASAdapter.py
 ==============
 SaltMiner source adapter for GitHub Advanced Security (GHAS).
@@ -220,7 +220,7 @@ class GHASAdapter:
         """
         Two-phase sync for a single repo/engine combination.
 
-        Phase 1: Fetch the most recent alert's updated_at, compare to watermark.
+        Phase 1: Fetch the most recent alert updated_at, compare to watermark.
                  Skip if unchanged.
         Phase 2: Full alert fetch, queue Scan->Asset->Issues, advance watermark.
         """
