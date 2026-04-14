@@ -37,6 +37,7 @@ Saltworks.SaltMiner.Python/**/*/saltworks.key
 Saltworks.SaltMiner.Python/sm-run-config-location.json
 **/*/[Dd]ebug*.py
 *.tmp
+sm-run-config-location.json
 
 # AI testing
 ai-*.ps1

@@ -33,6 +33,7 @@ from elasticsearch.client import SecurityClient, IndicesClient, IngestClient
 from elasticsearch import logger as es_logger
 from elasticsearch.helpers.errors import BulkIndexError
 
+from .ApplicationSettings import ApplicationSettings
 from .StringUtils import StringUtils
 from .DictUtils import DictUtils
 
@@ -48,7 +49,7 @@ class ElasticClient(object):
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
-        if not configName or not configName in appSettings.GetConfigNames():
+        if not configName or configName not in appSettings.GetConfigNames():
             raise ElasticClientException(f"Invalid or missing configuration for name '{configName}'")
         version = vertest('elasticsearch')
         # if not version[0] == '7':
@@ -69,31 +70,93 @@ class ElasticClient(object):
         self.__App = appSettings.Application
         self.__BulkBatch = []
         self.__BulkBatchSize = 10000
+        self.es = None
+        self._Connect(appSettings, configName)
 
-        # setup parameters for the Elasticsearch instance
-        scheme = appSettings.Get(configName, 'Scheme')
-        auth = (appSettings.Get(configName, 'Username'), appSettings.Get(configName, 'Password'))
-        host_setting = appSettings.Get(configName, 'Host')
-        port = appSettings.Get(configName, 'Port')
-        sslVerify = appSettings.Get(configName, 'SslVerify', True)
-        headers = {
-            "Accept": "application/vnd.elasticsearch+json; compatible-with=9",
-            "Content-Type": "application/vnd.elasticsearch+json; compatible-with=9"
-        }
-        hosts = [host_setting] if not isinstance(host_setting, list) else host_setting
-        hosts = list(dict.fromkeys(hosts))  # remove duplicates while preserving order
 
-        try:
-            # in case we get a string and not a bool try to manage it
-            if sslVerify.lower() == "true":
-                sslVerify = True
-            if sslVerify.lower() == "false":
-                sslVerify = False
-        except Exception:
-            pass
-            
-        sslWarn = False if sslVerify == False else True
-        useAuth = appSettings.Get(configName, 'UseAuth', True)
+    def _DecodeConnectionString(self, connectionString:str) -> dict:
+        '''
+        Decodes a connection string into its components, returning a dict with keys for each component.
+
+        Expected format of connection string is key=value pairs separated by semicolons, with keys of Host, Port, Scheme, Username, Password, and SslVerify.  
+        Examples: 
+        "Host=localhost;Port=9200;Scheme=http;Username=elastic;Password=changeme;SslVerify=false"
+        "CloudID=my-deployment:hexcode;Username=elastic;Password=changeme;SslVerify=false"
+        "CloudID=my-deployment:hexcode;ApiKeyId=elastic;ApiKeyValue=changeme;SslVerify=false"
+
+        Returns a dict with the decoded values.
+        '''
+        known_parts = ['host', 'port', 'scheme', 'username', 'password', 'sslverify', 'cloudid', 'apikeyid', 'apikeyvalue', 'useauth']
+        parts = connectionString.split(';')
+        parms = {}
+        for p in parts:
+            kv = p.split('=', 1)
+            if len(kv) != 2:
+                continue
+            key = kv[0].strip().lower()
+            value = kv[1].strip()
+            if key in known_parts:
+                if key == 'host':
+                    hosts = value.split(',')
+                    parms['hosts'] = hosts
+                else:
+                    parms[key] = value
+            else:
+                logging.warning(f"Unknown connection string key '{key}' in connection string, ignoring...")
+        return parms
+    
+    def _SslVerify(self, value):
+        # in case we get a string and not a bool try to manage it
+        if isinstance(value, str):
+            if value.lower() == "true":
+                value = True
+            if value.lower() == "false":
+                value = False
+        return value
+    
+    def _ConnectCloud(self, connectionParms:dict, sslVerify:bool|str, headers:dict):
+        sslWarn = True if sslVerify else False
+        sslVerify = self._SslVerify(connectionParms['sslverify']) if 'sslverify' in connectionParms else sslVerify
+        name, sep, _ = connectionParms['cloudid'].partition(":")
+        if not sep:
+            raise ElasticClientException("Invalid cloud ID format in connection string, expected format is 'name:encoded_string'")
+        if 'apikeyid' in connectionParms:
+            if 'apikeyvalue' not in connectionParms:
+                raise ElasticClientException("Connection string with ApiKeyId must also include ApiKeyValue")
+            auth = (connectionParms['apikeyid'], connectionParms['apikeyvalue'])
+        else:
+            if 'username' not in connectionParms or 'password' not in connectionParms:
+                raise ElasticClientException("Connection string with CloudID must also include Username/Password or ApiKeyId/ApiKeyValue")
+            auth = (connectionParms['username'], connectionParms['password'])
+        logging.info('Using cloud ID %s', name)
+        if 'apikeyid' in connectionParms:
+            logging.debug("Using API key authentication for cloud connection")
+            self.es = Elasticsearch(
+                cloud_id=connectionParms['cloudid'],
+                api_key=auth,
+                verify_certs=sslVerify,
+                ssl_show_warn=sslWarn,
+                headers=headers
+            )
+        else:
+            logging.debug("Using username/password authentication for cloud connection")
+            self.es = Elasticsearch(
+                cloud_id=connectionParms['cloudid'],
+                basic_auth=auth,
+                verify_certs=sslVerify,
+                ssl_show_warn=sslWarn,
+                headers=headers
+            )
+
+    def _ConnectBasic(self, connectionParms:dict, sslVerify:bool|str, headers:dict):
+        sslWarn = True if sslVerify else False
+        auth = (connectionParms.get('username'), connectionParms.get('password'))
+        useAuth = connectionParms.get('useauth', True)
+        if isinstance(useAuth, str):
+            useAuth = useAuth.lower() == 'true'  # Convert string to bool
+        scheme = connectionParms.get('scheme')
+        hosts = connectionParms.get('hosts')
+        port = connectionParms.get('port')
         isHttp = scheme == 'http'
         if isHttp:
             logging.warning("Insecure connection scheme (http), this should not be used in a production environment")
@@ -109,8 +172,47 @@ class ElasticClient(object):
             request_timeout = self.__RequestTimeout,
             headers= headers
         )
-        es_logger.setLevel(logging.WARNING)
 
+    
+    def _Connect(self, appSettings:ApplicationSettings, configName="Elastic"):
+        '''
+        Connects to the Elasticsearch instance using the provided application settings and configuration name.
+
+        appSettings: Settings instance containing application settings
+        configName: Config section for this class (usually "Elastic")
+        '''
+        connectionString = appSettings.Get(configName, 'ConnectionString', "")
+        if connectionString and len(connectionString) > 0:
+            connectionParms = self._DecodeConnectionString(connectionString)
+        else:
+            connectionParms = None
+
+        # setup SSL verification and default headers
+        sslVerify = self._SslVerify(appSettings.Get(configName, 'SslVerify', True))
+        headers = {
+            "Accept": "application/vnd.elasticsearch+json; compatible-with=9",
+            "Content-Type": "application/vnd.elasticsearch+json; compatible-with=9"
+        }
+
+        if not connectionParms:
+            connectionParms = {}
+            # Read it all from config (host, port, scheme, auth, ssl)
+            connectionParms['scheme'] = appSettings.Get(configName, 'Scheme')
+            connectionParms['username'] = appSettings.Get(configName, 'Username')
+            connectionParms['password'] = appSettings.Get(configName, 'Password')
+            connectionParms['port'] = appSettings.Get(configName, 'Port')
+            host_setting = appSettings.Get(configName, 'Host')
+            hosts = [host_setting] if not isinstance(host_setting, list) else host_setting
+            connectionParms['hosts'] = list(dict.fromkeys(hosts))  # remove duplicates while preserving order
+            connectionParms['useauth'] = appSettings.Get(configName, 'UseAuth', True)
+
+        if connectionParms and 'cloudid' in connectionParms:
+            self._ConnectCloud(connectionParms, sslVerify, headers)
+        else:
+            self._ConnectBasic(connectionParms, sslVerify, headers)
+
+        # Complete connection setup
+        es_logger.setLevel(logging.WARNING)
         self.sc = SecurityClient(self.es)
         self.ic = IndicesClient(self.es)
         self.ingestClient = IngestClient(self.es)
@@ -122,8 +224,6 @@ class ElasticClient(object):
             msg = "" if not hasattr(err, "error") else f" ({err.error})"
             etype = type(err).__name__
             raise ElasticClientConnectionException(f"Elastic client initialization failure, connection failed due to [{etype}]{msg}.") from err
-
-        logging.info(f"Elastic client initialized.  Using host(s) {hosts}, port {port}, scheme {scheme}")
 
 
     def ResilientSearch(self, index, body, size=None, scrollTimeout=None, afterKeys=None, includeLockingInfo=False, requestTimeout=None, pitId=None, pitKeepAlive="5m"):
