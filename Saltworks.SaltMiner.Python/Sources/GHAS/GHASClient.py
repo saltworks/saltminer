@@ -11,13 +11,19 @@ Responsibilities:
 - Rate-limit backoff and retry logic
 
 No SaltMiner dependencies. Fully testable in isolation.
+
+Runtime notes:
+- get_repo_enablement_async returns True for all engines (passthrough).
+  The security_and_analysis field requires admin PAT scope which is not
+  available on fine-grained PATs. Engine enablement is determined implicitly
+  by whether the alerts API returns data or 404.
+- secret_scanning alerts API does not accept a comma-separated state param.
+  _engine_states returns None for secret_scanning; callers skip the param.
 """
 
 import asyncio
-import base64
 import json
 import logging
-import re
 import time
 from typing import AsyncGenerator, Optional
 
@@ -29,10 +35,7 @@ from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
 
-# GitHub API pagination limit
 PAGE_SIZE = 100
-
-# Rate limit backoff constants (seconds)
 SECONDARY_BACKOFF = [60, 120, 240]
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=60, connect=10)
 
@@ -64,15 +67,15 @@ class GHASClient:
         self._app_id = int(app_id) if self._auth_mode == "app" else None
         self._app_private_key = self._load_pem_key(api_key) if self._auth_mode == "app" else None
 
-        # GitHub App installation token cache
         self._installation_token: Optional[str] = None
         self._token_expiry: Optional[datetime] = None
         self._token_lock = asyncio.Lock()
 
-        # aiohttp session - created on first use or via async context manager
         self._session: Optional[aiohttp.ClientSession] = None
 
-    # -- Context manager -------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Context manager
+    # -----------------------------------------------------------------------
 
     async def __aenter__(self):
         await self._ensure_session()
@@ -90,7 +93,9 @@ class GHASClient:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(timeout=REQUEST_TIMEOUT)
 
-    # -- Auth detection --------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Auth detection
+    # -----------------------------------------------------------------------
 
     @staticmethod
     def _detect_auth_mode(api_key: str) -> str:
@@ -99,13 +104,13 @@ class GHASClient:
         if "-----BEGIN" in api_key:
             return "app"
         raise ValueError(
-            "ApiKey format not recognised. Expected a PAT starting with ghp_/gho_/ghs_/github_pat_, "
-            "or a PEM-encoded GitHub App private key containing '-----BEGIN'."
+            "ApiKey format not recognised. Expected a PAT starting with "
+            "ghp_/gho_/ghs_/github_pat_, or a PEM-encoded GitHub App private key."
         )
 
     @staticmethod
     def _load_pem_key(pem_string: str):
-        """Load RSA private key from PEM string (handles both PKCS#1 and PKCS#8)."""
+        """Load RSA private key from PEM string (handles PKCS#1 and PKCS#8)."""
         try:
             return serialization.load_pem_private_key(
                 pem_string.encode("utf-8"),
@@ -113,9 +118,11 @@ class GHASClient:
                 backend=default_backend(),
             )
         except Exception as exc:
-            raise GHASAuthError(f"Failed to load GitHub App private key: {exc}") from exc
+            raise GHASAuthError("Failed to load GitHub App private key: {}".format(exc)) from exc
 
-    # -- Token management ------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Token management
+    # -----------------------------------------------------------------------
 
     async def _get_token(self) -> str:
         """Return a valid bearer token (PAT or refreshed App installation token)."""
@@ -123,7 +130,6 @@ class GHASClient:
             return self._pat
 
         async with self._token_lock:
-            # Check again inside lock (another coroutine may have refreshed)
             if self._token_expiry and datetime.now(timezone.utc) < self._token_expiry - timedelta(minutes=5):
                 return self._installation_token
             await self._refresh_app_token()
@@ -132,11 +138,9 @@ class GHASClient:
     async def _refresh_app_token(self):
         """Generate a JWT, discover the org installation, and obtain an installation token."""
         logger.info("Refreshing GitHub App installation token for org '%s'.", self._org)
-
         jwt_token = self._generate_app_jwt()
         installation_id = await self._get_installation_id(jwt_token)
         token, expiry = await self._get_installation_token(jwt_token, installation_id)
-
         self._installation_token = token
         self._token_expiry = expiry
         logger.debug("GitHub App token refreshed. Expires: %s", expiry.isoformat())
@@ -144,8 +148,8 @@ class GHASClient:
     def _generate_app_jwt(self) -> str:
         now = int(time.time())
         payload = {
-            "iat": now - 60,   # 60-second clock skew buffer
-            "exp": now + 540,  # 9 minutes (max 10)
+            "iat": now - 60,
+            "exp": now + 540,
             "iss": self._app_id,
         }
         private_key_pem = self._app_private_key.private_bytes(
@@ -156,8 +160,8 @@ class GHASClient:
         return jwt.encode(payload, private_key_pem, algorithm="RS256")
 
     async def _get_installation_id(self, jwt_token: str) -> int:
-        url = f"{self._base_url}/app/installations"
-        headers = {"Authorization": f"Bearer {jwt_token}", "Accept": "application/vnd.github+json"}
+        url = "{}/app/installations".format(self._base_url)
+        headers = {"Authorization": "Bearer {}".format(jwt_token), "Accept": "application/vnd.github+json"}
         async with self._session.get(url, headers=headers) as resp:
             await self._raise_for_status(resp, url)
             installations = await resp.json()
@@ -165,13 +169,15 @@ class GHASClient:
             if inst.get("account", {}).get("login", "").lower() == self._org.lower():
                 return inst["id"]
         raise GHASAuthError(
-            f"GitHub App is not installed on organisation '{self._org}'. "
-            f"Found installations: {[i.get('account', {}).get('login') for i in installations]}"
+            "GitHub App is not installed on organisation '{}'. "
+            "Found installations: {}".format(
+                self._org, [i.get("account", {}).get("login") for i in installations]
+            )
         )
 
     async def _get_installation_token(self, jwt_token: str, installation_id: int):
-        url = f"{self._base_url}/app/installations/{installation_id}/access_tokens"
-        headers = {"Authorization": f"Bearer {jwt_token}", "Accept": "application/vnd.github+json"}
+        url = "{}/app/installations/{}/access_tokens".format(self._base_url, installation_id)
+        headers = {"Authorization": "Bearer {}".format(jwt_token), "Accept": "application/vnd.github+json"}
         async with self._session.post(url, headers=headers) as resp:
             await self._raise_for_status(resp, url)
             data = await resp.json()
@@ -179,12 +185,14 @@ class GHASClient:
         expiry = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
         return token, expiry
 
-    # -- HTTP helpers ----------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # HTTP helpers
+    # -----------------------------------------------------------------------
 
     async def _headers(self) -> dict:
         token = await self._get_token()
         return {
-            "Authorization": f"Bearer {token}",
+            "Authorization": "Bearer {}".format(token),
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
@@ -206,7 +214,7 @@ class GHASClient:
         raise aiohttp.ClientResponseError(
             resp.request_info, resp.history,
             status=resp.status,
-            message=f"HTTP {resp.status} for {url}: {body[:200]}",
+            message="HTTP {} for {}: {}".format(resp.status, url, body[:200]),
         )
 
     @staticmethod
@@ -230,17 +238,13 @@ class GHASClient:
             try:
                 async with self._session.get(url, headers=h, params=params) as resp:
 
-                    # Primary rate limit
                     if resp.status == 429:
                         retry_after = int(resp.headers.get("Retry-After", 60))
-                        jitter = 5
-                        wait = retry_after + jitter
-                        logger.warning("Primary rate limit hit. Sleeping %ss.", wait)
-                        await asyncio.sleep(wait)
+                        logger.warning("Primary rate limit hit. Sleeping %ss.", retry_after + 5)
+                        await asyncio.sleep(retry_after + 5)
                         h = headers or await self._headers()
                         continue
 
-                    # Proactive primary rate limit
                     remaining = resp.headers.get("x-ratelimit-remaining")
                     if remaining is not None and int(remaining) == 0:
                         reset_ts = int(resp.headers.get("x-ratelimit-reset", time.time() + 60))
@@ -250,7 +254,6 @@ class GHASClient:
                         h = headers or await self._headers()
                         continue
 
-                    # Secondary rate limit (403 with specific body)
                     if resp.status == 403:
                         body = await resp.text()
                         if "secondary rate limit" in body.lower() or "rate limit exceeded" in body.lower():
@@ -265,10 +268,9 @@ class GHASClient:
                             backoff_idx += 1
                             h = headers or await self._headers()
                             continue
-                        # Non-rate-limit 403 - surface as error
                         raise aiohttp.ClientResponseError(
                             resp.request_info, resp.history,
-                            status=403, message=f"Forbidden: {body[:200]}"
+                            status=403, message="Forbidden: {}".format(body[:200])
                         )
 
                     await self._raise_for_status(resp, url)
@@ -317,18 +319,22 @@ class GHASClient:
                     backoff_idx += 1
                     h = headers or await self._headers()
                     continue
-                raise aiohttp.ClientResponseError(resp.request_info, resp.history, status=403, message=body[:200])
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=403, message=body[:200]
+                )
 
             await self._raise_for_status(resp, url)
             return resp
 
-    # -- Repository inventory --------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Repository inventory
+    # -----------------------------------------------------------------------
 
     async def get_repos_async(self) -> list:
         """Return all repositories in the configured org."""
         await self._ensure_session()
         repos = []
-        url = f"{self._base_url}/orgs/{self._org}/repos"
+        url = "{}/orgs/{}/repos".format(self._base_url, self._org)
         params = {"per_page": PAGE_SIZE, "type": "all"}
 
         while url:
@@ -338,17 +344,19 @@ class GHASClient:
                 link = resp.headers.get("Link")
             repos.extend(data)
             url = self._parse_next_link(link)
-            params = None  # params are encoded in next URL
+            params = None
 
         logger.info("Discovered %d repositories in org '%s'.", len(repos), self._org)
         return repos
 
     async def get_repo_enablement_async(self, full_name: str) -> dict:
         """
-        Always returns True for all engines. Enablement is determined at fetch
-        time - 404 responses in get_alerts_async handle disabled engines gracefully.
-        The security_and_analysis field is only visible with admin PAT scope,
-        so we skip the check and let the alert endpoints speak for themselves.
+        Return a dict of {engine: bool} indicating which GHAS engines are enabled.
+
+        NOTE: Fine-grained PATs do not have the admin scope required to read
+        security_and_analysis from the repo API. This method returns True for all
+        engines as a passthrough. Actual enablement is determined implicitly:
+        get_alerts_async handles HTTP 404 (engine not enabled) gracefully.
         """
         return {
             "code_scanning": True,
@@ -356,23 +364,29 @@ class GHASClient:
             "dependabot": True,
         }
 
-    # -- Change detection ------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Change detection
+    # -----------------------------------------------------------------------
 
     async def get_latest_alert_timestamp_async(self, full_name: str, engine: str) -> Optional[str]:
         """
         Fetch a single alert sorted by updated_at descending.
-        Returns the updated_at string of the most recent alert, or None if no alerts exist.
-        Used for Phase 1 change detection - costs exactly one API call.
+        Returns the updated_at string of the most recent alert, or None.
+        Used for Phase 1 change detection -- costs exactly one API call.
         """
         endpoint = self._engine_endpoint(full_name, engine)
-        params = {"per_page": 1, "sort": "updated", "direction": "desc", "state": self._engine_states(engine)}
+        state = self._engine_states(engine)
+        params = {"per_page": 1, "sort": "updated", "direction": "desc"}
+        if state is not None:
+            params["state"] = state
+
         try:
             resp = await self._get_response_with_retry(endpoint, params=params)
             async with resp:
                 data = await resp.json()
         except aiohttp.ClientResponseError as exc:
             if exc.status == 404:
-                return None  # Engine not enabled
+                return None
             logger.warning("Error checking latest alert for %s/%s: %s", full_name, engine, exc)
             return None
 
@@ -380,7 +394,9 @@ class GHASClient:
             return None
         return data[0].get("updated_at")
 
-    # -- Alert generators ------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Alert generators
+    # -----------------------------------------------------------------------
 
     async def get_alerts_async(self, full_name: str, engine: str) -> AsyncGenerator[dict, None]:
         """
@@ -388,12 +404,10 @@ class GHASClient:
         Handles pagination transparently. Yields raw GitHub API alert objects.
         """
         url = self._engine_endpoint(full_name, engine)
-        params = {
-            "per_page": PAGE_SIZE,
-            "sort": "updated",
-            "direction": "desc",
-            "state": self._engine_states(engine),
-        }
+        state = self._engine_states(engine)
+        params = {"per_page": PAGE_SIZE, "sort": "updated", "direction": "desc"}
+        if state is not None:
+            params["state"] = state
 
         while url:
             try:
@@ -417,29 +431,36 @@ class GHASClient:
     @staticmethod
     def _engine_endpoint(full_name: str, engine: str) -> str:
         endpoints = {
-            "code_scanning": f"https://api.github.com/repos/{full_name}/code-scanning/alerts",
-            "secret_scanning": f"https://api.github.com/repos/{full_name}/secret-scanning/alerts",
-            "dependabot": f"https://api.github.com/repos/{full_name}/dependabot/alerts",
+            "code_scanning": "https://api.github.com/repos/{}/code-scanning/alerts".format(full_name),
+            "secret_scanning": "https://api.github.com/repos/{}/secret-scanning/alerts".format(full_name),
+            "dependabot": "https://api.github.com/repos/{}/dependabot/alerts".format(full_name),
         }
         if engine not in endpoints:
-            raise ValueError(f"Unknown engine '{engine}'. Expected one of: {list(endpoints)}")
+            raise ValueError("Unknown engine '{}'. Expected one of: {}".format(engine, list(endpoints)))
         return endpoints[engine]
 
     @staticmethod
-    def _engine_states(engine: str) -> str:
-        """Comma-separated list of alert states to fetch for each engine."""
+    def _engine_states(engine: str) -> Optional[str]:
+        """
+        Return the alert state filter string for each engine, or None to omit the param.
+
+        Secret scanning does not accept a comma-separated state list -- the param
+        must be omitted entirely for that engine.
+        """
         states = {
             "code_scanning": "open,dismissed,fixed",
-            "secret_scanning": "open,resolved",
+            "secret_scanning": None,   # API rejects comma-separated states for secret scanning
             "dependabot": "open,dismissed,fixed,auto_dismissed",
         }
         return states.get(engine, "open")
 
-    # -- SARIF -----------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # SARIF
+    # -----------------------------------------------------------------------
 
     async def get_analyses_async(self, full_name: str) -> AsyncGenerator[dict, None]:
         """Yield Code Scanning analyses metadata records for a repository."""
-        url = f"{self._base_url}/repos/{full_name}/code-scanning/analyses"
+        url = "{}/repos/{}/code-scanning/analyses".format(self._base_url, full_name)
         params = {"per_page": PAGE_SIZE}
 
         while url:
@@ -465,7 +486,7 @@ class GHASClient:
         Fetch the raw SARIF document for a specific analysis.
         Returns None if the document is no longer retained by GitHub.
         """
-        url = f"{self._base_url}/repos/{full_name}/code-scanning/analyses/{analysis_id}"
+        url = "{}/repos/{}/code-scanning/analyses/{}".format(self._base_url, full_name, analysis_id)
         headers = await self._headers_sarif()
         try:
             resp = await self._get_response_with_retry(url, headers=headers)
