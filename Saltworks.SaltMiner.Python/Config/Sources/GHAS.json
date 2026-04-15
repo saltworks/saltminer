@@ -1,6 +1,6 @@
 {
     "Source": "GHAS",
-    "SourceName": "GHAS1",
+    "SourceName": "GHAS",
     "Enabled": false,
     "BaseUrl": "https://api.github.com/",
     "Org": "",
