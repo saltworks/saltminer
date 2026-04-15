@@ -625,7 +625,11 @@ class ElasticClient(object):
         if dictionary:
             for k in dictionary.keys():
                 template = template.replace("<<" + k + ">>", dictionary[k])
-        return self.Role(name, template)
+        try:
+            tpl_dict = json.loads(template)
+        except Exception as e:
+            raise ElasticClientValidationException(f"Unable to parse role template as json: {e}") from e
+        return self.Role(name, tpl_dict)
 
     # https://www.elastic.co/guide/en/elasticsearch/reference/current/security-api-put-role-mapping.html
     def RoleMapping(self, name, roles, dns=[], groups=[], usernames=[], any=True):
