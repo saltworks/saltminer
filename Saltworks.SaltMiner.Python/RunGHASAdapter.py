@@ -6,19 +6,20 @@ Entry point for the SaltMiner GHAS Source Adapter.
 Usage:
     python RunGHASAdapter.py
     python RunGHASAdapter.py --first-load
+    python RunGHASAdapter.py --log-level DEBUG
 
 Arguments:
     --first-load    Ignored (accepted for interface compatibility). The adapter
                     detects first-load automatically from the absence of a
                     watermark in the state file. To force a full re-baseline,
-                    delete or edit the state file directly.
+                    delete the state file directly.
+    --log-level     Logging verbosity: DEBUG, INFO, WARNING, ERROR (default: INFO)
 """
 
 import argparse
 import logging
 import sys
 
-# SaltMiner core bootstrap — adjust import path to match your deployment layout
 from Core.Application import Application
 from Sources.GHAS.GHASAdapter import GHASAdapter
 
@@ -37,7 +38,7 @@ def main():
         "--first-load",
         action="store_true",
         default=False,
-        help="Accepted for compatibility — first-load is auto-detected from state file.",
+        help="Accepted for compatibility - first-load is auto-detected from state file.",
     )
     parser.add_argument(
         "--log-level",
