@@ -26,7 +26,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Saltworks.Utility.ApiHelper;
 using Saltworks.SaltMiner.SourceAdapters.Core;
-using Saltworks.SaltMiner.ConfigurationWizard;
 using Crypto = Saltworks.SaltMiner.Core.Util.Crypto;
 using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.ConsoleApp.Core;
@@ -48,13 +47,12 @@ namespace Saltworks.SaltMiner.SyncAgent
      */
     public static class Program
     {
-        private const string AGENT_SETTINGS_FILE = "AgentSettings.json";
-        private const string AGENT_SETTINGS_APP_SECTION = "AgentConfig";
-        private const string AGENT_SETTINGS_LOG_SECTION = "LogConfig";
-        private const string LOCATOR_FILE_NAME = "ConfigLocator.json";
-        private const string CONFIG_ENV_VARIABLE = "SALTMINER_AGENT_CONFIG_PATH";
+        private const string SETTINGS_FILE = "appsettings.json";
+        private const string DEFAULT_SETTINGS_FILE = "appsettings-default.json";
+        private const string SETTINGS_APP_SECTION = "AgentConfig";
+        private const string SETTINGS_LOG_SECTION = "LogConfig";
+        private const string APP_FOLDER = "agent";
         private static readonly CancellationTokenSource CancelTokenSource = new();
-        private static string _filePath;
         
         // Main CLI definition and invocation
         public static async Task<int> Main(string[] args)
@@ -69,8 +67,6 @@ namespace Saltworks.SaltMiner.SyncAgent
             {
                 args = ["sync"];
             }
-
-            _filePath = ConsoleAppUtils.DetermineConfigFilePath(AGENT_SETTINGS_FILE, LOCATOR_FILE_NAME, Environment.GetEnvironmentVariable(CONFIG_ENV_VARIABLE));
 
             var cmd = new RootCommand();
 
@@ -90,69 +86,7 @@ namespace Saltworks.SaltMiner.SyncAgent
                 HandleSync(config, force, limit, resetLocal);
             }, syncConfigOption, syncForceOption, syncLimitOption, syncResetLocalOption);
 
-            //Config Wizard CMD
-            var configWizardVerb = new Command("configwizard", "Configuration wizard to create or edit.");
-
-            //Config Wizard SUB CMD
-            var configWizardMainVerb = new Command("main", "Creates and updates main Manager Configuration.");
-            configWizardMainVerb.SetHandler(() =>
-            {
-                HandleConfigWizard();
-            });
-
-            configWizardVerb.Add(configWizardMainVerb);
-
-            //Crypto CMD
-            var cryptoVerb = new Command("crypto", "Encryption helper");
-
-            //Crypto Generate SUB CMD
-            var cryptoGenerateVerb = new Command("generate", "Generate a new set of encryption keys.");
-            cryptoGenerateVerb.SetHandler(() =>
-            {
-                HandleCryptoGenerate();
-            });
-
-            //Crypto Encrypt SUB CMD
-            var cryptoEncryptVerb = new Command("encrypt", "Encrypts up to 5 values given those values using the configured encryption keys.");
-            var cryptoEncryptArgument1 = new Argument<string>("value1", "Value to encrypt.");
-            var cryptoEncryptArgument2 = new Argument<string>("value2", "Value to encrypt.");
-            var cryptoEncryptArgument3 = new Argument<string>("value3", "Value to encrypt.");
-            var cryptoEncryptArgument4 = new Argument<string>("value4", "Value to encrypt.");
-            var cryptoEncryptArgument5 = new Argument<string>("value5", "Value to encrypt.");
-            cryptoEncryptVerb.Add(cryptoEncryptArgument1);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument2);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument3);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument4);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument5);
-            cryptoEncryptVerb.SetHandler((string value1, string value2, string value3, string value4, string value5) =>
-            {
-                HandleCryptoEncrypt(value1, value2, value3, value4, value5);
-            }, cryptoEncryptArgument1, cryptoEncryptArgument2, cryptoEncryptArgument3, cryptoEncryptArgument4, cryptoEncryptArgument5);
-
-            //Crypto Wizard SUB CMD
-            var cryptoWizardVerb = new Command("wizard", "Generates keys and encrypts up to 5 values, all in one step.");
-            var cryptoWizardArgument1 = new Argument<string>("value1", "Value to encrypt.");
-            var cryptoWizardArgument2 = new Argument<string>("value2", "Value to encrypt.");
-            var cryptoWizardArgument3 = new Argument<string>("value3", "Value to encrypt.");
-            var cryptoWizardArgument4 = new Argument<string>("value4", "Value to encrypt.");
-            var cryptoWizardArgument5 = new Argument<string>("value5", "Value to encrypt.");
-            cryptoWizardVerb.Add(cryptoWizardArgument1);
-            cryptoWizardVerb.Add(cryptoWizardArgument2);
-            cryptoWizardVerb.Add(cryptoWizardArgument3);
-            cryptoWizardVerb.Add(cryptoWizardArgument4);
-            cryptoWizardVerb.Add(cryptoWizardArgument5);
-            cryptoWizardVerb.SetHandler((string value1, string value2, string value3, string value4, string value5) =>
-            {
-                HandleCryptoWizard(value1, value2, value3, value4, value5);
-            }, cryptoWizardArgument1, cryptoWizardArgument2, cryptoWizardArgument3, cryptoWizardArgument4, cryptoWizardArgument5);
-
-            cryptoVerb.Add(cryptoGenerateVerb);
-            cryptoVerb.Add(cryptoEncryptVerb);
-            cryptoVerb.Add(cryptoWizardVerb);
-
             cmd.Add(syncVerb);
-            cmd.Add(configWizardVerb);
-            cmd.Add(cryptoVerb);
 
             var retval = await cmd.InvokeAsync(args);
             CancelTokenSource.Dispose();
@@ -163,11 +97,14 @@ namespace Saltworks.SaltMiner.SyncAgent
 
         private static void HandleSync(string config, bool force, int limit, bool resetLocal)
         {
+            var defaultSettingsPath = Path.Join(Directory.GetCurrentDirectory(), DEFAULT_SETTINGS_FILE);
+            var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, APP_FOLDER, defaultSettingsPath);
+            var configPath = Directory.GetParent(configFilePath).FullName;
             ILogger startLogger = null;
             var proxy = "";
             try
             {
-                var args = ConsoleAppHostArgs.Create([ config, Directory.GetParent(Path.GetFullPath(_filePath)).FullName, force.ToString(), limit.ToString(), resetLocal.ToString() ], CancelTokenSource.Token);
+                var args = ConsoleAppHostArgs.Create([ config, configPath, force.ToString(), limit.ToString(), resetLocal.ToString() ], CancelTokenSource.Token);
                 // Call the builder to setup a host and run your class.  Host provides dependency injection with default logging and configuration support.
                 // Add your own dependencies as shown here
                 // Make sure to include Microsoft.Extensions.DependencyInjection in your usings to support the extensions
@@ -175,7 +112,7 @@ namespace Saltworks.SaltMiner.SyncAgent
                 {
                     try { 
                         // DI here, i.e. c.AddTransient<Dependency>()
-                        var agentConfig = new SyncAgentConfig(config, _filePath);
+                        var agentConfig = new SyncAgentConfig(config, configFilePath);
                         services.AddSingleton(agentConfig);
                         
                         services.AddSqliteLocalData();
@@ -237,9 +174,9 @@ namespace Saltworks.SaltMiner.SyncAgent
                         throw new InitializationException(msg, ex);
                     }
                 },
-                _filePath,
-                AGENT_SETTINGS_APP_SECTION,
-                AGENT_SETTINGS_LOG_SECTION
+                configFilePath,
+                SETTINGS_APP_SECTION,
+                SETTINGS_LOG_SECTION
                 ).Run(args);
             }
             catch (Exception ex)
@@ -253,87 +190,6 @@ namespace Saltworks.SaltMiner.SyncAgent
                 {
                     startLogger.LogCritical(ex, "SyncAgent initialization error: {Msg}", ex.Message);
                 }
-            }
-        }
-
-        private static void HandleCryptoGenerate()
-        {
-            var key = Crypto.GenerateKeyIv();
-            Console.Out.WriteLine("The keys shown below can be used to configure encryption in the settings for this application.");
-            Console.Out.WriteLine($"Encryption Key: {key.Item1}\nEncryption IV: {key.Item2}");
-        }
-
-        private static void HandleCryptoEncrypt(string value1, string value2, string value3, string value4, string value5)
-        {
-            SyncAgentConfig agentConfig = new();
-
-            ConsoleAppUtils.BindConfigFromSettingsFile(_filePath, agentConfig, "SyncAgent");
-
-            if (string.IsNullOrEmpty(agentConfig.EncryptionKey) || string.IsNullOrEmpty(agentConfig.EncryptionIv))
-            {
-                Console.Error.WriteLine("Encryption keys not present or empty in configuration file.  Please set them first.");
-                return;
-            }
-
-            var crypto = new Crypto(agentConfig.EncryptionKey, agentConfig.EncryptionIv);
-
-            Console.WriteLine($"Encrypted value1: {crypto.Encrypt(value1)}");
-
-            if (!string.IsNullOrEmpty(value2))
-            {
-                Console.WriteLine($"Encrypted value2: {crypto.Encrypt(value2)}");
-            }
-
-            if (!string.IsNullOrEmpty(value3))
-            {
-                Console.WriteLine($"Encrypted value3: {crypto.Encrypt(value3)}");
-            }
-            
-            if (!string.IsNullOrEmpty(value4))
-            {
-                Console.WriteLine($"Encrypted value4: {crypto.Encrypt(value4)}");
-            }
-            
-            if (!string.IsNullOrEmpty(value5))
-            {
-                Console.WriteLine($"Encrypted value5: {crypto.Encrypt(value5)}");
-            }
-        }
-
-        private static void HandleCryptoWizard(string value1, string value2, string value3, string value4, string value5)
-        {
-            Console.Out.WriteLine("The encrypted values should be used with the keys shown below.\nThe keys can be used to configure encryption in the settings for this application.\nThe encrypted values can also be used for secure settings values.");
-            Wizard([value1, value2, value3, value4, value5]);
-        }
-        
-        private static void HandleConfigWizard()
-        {
-            var wizard = new ConfigurationWizard<SyncAgentConfig>();
-            wizard.Run(_filePath, true, ["SourceConfigs"]);
-        }
-
-        #endregion
-
-        #region Helpers
-
-        private static void Wizard(string[] values)
-        {
-            var key = Crypto.GenerateKeyIv();
-            var cypto = new Crypto(key.Item1, key.Item2);
-            int i = 1;
-
-            Console.WriteLine("Encryption Key: " + key.Item1);
-            Console.WriteLine("Encryption IV: " + key.Item2);
-
-            foreach (var value in values)
-            {
-                if (string.IsNullOrEmpty(value))
-                {
-                    break;
-                }
-
-                Console.WriteLine($"Encrypted Value{i}: {cypto.Encrypt(value)}");
-                i++;
             }
         }
 

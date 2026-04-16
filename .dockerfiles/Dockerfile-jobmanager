@@ -3,26 +3,19 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64
 LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
-WORKDIR /usr/share/saltworks/saltminer-3.0.0/jobmanager
+smapp=/opt/saltworks/saltminer/app
+smcfg=/opt/saltworks/saltminer/config
+smlog=/opt/saltworks/saltminer/logs
+WORKDIR ${smapp}/jobmanager
 
 ARG ARTIFACT_PATH=.
-ARG smapp=/usr/share/saltworks
-ARG smapp3=${smapp}/saltminer-3.0.0
-ARG smcfg=/etc/saltworks
-ARG smcfg3=${smcfg}/saltminer-3.0.0
-ARG smlog=/var/log/saltworks
-ARG smlog3=${smlog}/saltminer-3.0.0
-
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
-RUN mkdir -p ${smcfg3}/jobmanager/report-templates
-RUN mkdir -p ${smlog3}
+COPY $ARTIFACT_PATH .
 
-COPY  $ARTIFACT_PATH .
-
-RUN mv ${smapp3}/jobmanager/JobManagerSettings.json ${smcfg3}/jobmanager/
-RUN mv ${smapp3}/jobmanager/Template/Saltworks ${smcfg3}/jobmanager/report-templates/
+RUN mkdir -p ${smcfg} \
+  && mkdir -p ${smlog}
 
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
-ENV SALTMINER_JOBMANAGER_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/jobmanager/
+ENV SALTMINER_CONFIG_PATH=${smcfg}/jobmanager/
 
-ENTRYPOINT ["/usr/bin/dotnet", "/usr/share/saltworks/saltminer-3.0.0/jobmanager/Saltworks.SaltMiner.JobManager.dll"]
+ENTRYPOINT ["/usr/bin/dotnet", "${smapp}/jobmanager/Saltworks.SaltMiner.JobManager.dll"]

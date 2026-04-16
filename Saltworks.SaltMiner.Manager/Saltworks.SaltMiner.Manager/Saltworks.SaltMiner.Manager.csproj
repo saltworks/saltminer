@@ -59,7 +59,7 @@
     <None Update="ManagerSettings.VM1.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="ManagerSettings.json">
+    <None Update="appsettings-default.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="ManagerSettings.VM2.json">

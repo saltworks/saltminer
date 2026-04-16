@@ -40,7 +40,7 @@
     <None Update="ServiceManagerSettings.SPT1.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="ServiceManagerSettings.json">
+    <None Update="appsettings-default.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="Template\Saltworks\open_sans.css">

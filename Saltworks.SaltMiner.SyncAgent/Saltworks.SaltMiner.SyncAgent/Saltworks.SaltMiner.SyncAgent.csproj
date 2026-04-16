@@ -36,7 +36,7 @@
 	  <None Update="Work\readme.txt">
 	    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
 	  </None>
-    <None Update="AgentSettings.json">
+    <None Update="appsettings-default.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>

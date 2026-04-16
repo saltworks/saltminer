@@ -21,7 +21,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Quartz;
-using Saltworks.SaltMiner.ConfigurationWizard;
 using Saltworks.SaltMiner.ConsoleApp.Core;
 using Saltworks.SaltMiner.Core.Common;
 using Saltworks.SaltMiner.DataClient;
@@ -42,22 +41,19 @@ namespace Saltworks.SaltMiner.ServiceManager
      */
     public static class Program
     {
-        private const string SERVICE_MANAGER_SETTINGS_FILE = "ServiceManagerSettings.json";
-        private const string SERVICE_MANAGER_SETTINGS_APP_SECTION = "ServiceManagerConfig";
-        private const string SERVICE_MANAGER_SETTINGS_LOG_SECTION = "LogConfig";
-        internal const string LOCATOR_FILE_NAME = "ConfigLocator.json";
-        private const string CONFIG_ENV_VARIABLE = "SALTMINER_SERVICEMANAGER_CONFIG_PATH";
+        private const string APP_FOLDER = "api";
+        private const string SETTINGS_FILE = "appsettings.json";
+        private const string DEFAULT_SETTINGS_FILE = "appsettings-default.json";
+        private const string SETTINGS_APP_SECTION = "ServiceManagerConfig";
+        private const string SETTINGS_LOG_SECTION = "LogConfig";
         // Generate a cancellation token that can be used by longer running tasks to cancel on break or for other reasons
         private static readonly CancellationTokenSource CancelTokenSource = new();
-        private static string _filePath;
 
         // Main CLI definition and invocation
         public static async Task<int> Main(string[] args)
         {
             if (args.Length == 0)
-            {
                 args = [ "service" ];
-            }
 
             var mutex = new Mutex(false, "SaltMinerServiceManager");
             try
@@ -80,33 +76,16 @@ namespace Saltworks.SaltMiner.ServiceManager
                 CancelTokenSource.Cancel();
             };
 
-            Console.WriteLine($"Env:SALTMINER_ENVIRONMENT = '{Environment.GetEnvironmentVariable("SALTMINER_ENVIRONMENT") ?? "(not set)"}'");
-
-            _filePath = ConsoleAppUtils.DetermineConfigFilePath(SERVICE_MANAGER_SETTINGS_FILE, LOCATOR_FILE_NAME, Environment.GetEnvironmentVariable(CONFIG_ENV_VARIABLE));
-
             // Setup commandline commands, options, handlers
             var cmd = new RootCommand();
 
             var serviceVerb = new Command("service", "Runs service, which runs commands and/or processes by configured schedule");
-            serviceVerb.SetHandler(() =>
-            {
-                HandleService();
-            });
-
-            var configVerb = new Command("configwizard", "Configuration wizard to create or edit local configuration.");
-            configVerb.SetHandler(() =>
-            {
-                HandleServiceManagerConfig();
-            });
+            serviceVerb.SetHandler(() => HandleService());
 
             var versionVerb = new Command("version", "Build version for the application.");
-            versionVerb.SetHandler(() =>
-            {
-                HandleVersion();
-            });
+            versionVerb.SetHandler(() => HandleVersion());
 
             cmd.Add(serviceVerb);
-            cmd.Add(configVerb);
             cmd.Add(versionVerb);
 
             try
@@ -121,6 +100,7 @@ namespace Saltworks.SaltMiner.ServiceManager
 
         private static void RunAppBuilder(IConsoleAppHostArgs args)
         {
+            var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, APP_FOLDER, DEFAULT_SETTINGS_FILE);
             ILogger startLogger = null;
             try
             {
@@ -130,7 +110,7 @@ namespace Saltworks.SaltMiner.ServiceManager
                     {
                         try
                         {
-                            var serviceManagerConfig = new ServiceManagerConfig(config, _filePath);
+                            var serviceManagerConfig = new ServiceManagerConfig(config, configFilePath);
                             services.AddSingleton(serviceManagerConfig);
                             services.AddTransient<ScheduleData>();
                             services.AddTransient<EventLogger>();
@@ -176,9 +156,9 @@ namespace Saltworks.SaltMiner.ServiceManager
                             throw new InitializationException(msg, ex);
                         }
                     },
-                    _filePath,
-                    SERVICE_MANAGER_SETTINGS_APP_SECTION,
-                    SERVICE_MANAGER_SETTINGS_LOG_SECTION
+                    configFilePath,
+                    SETTINGS_APP_SECTION,
+                    SETTINGS_LOG_SECTION
                 ).Run(args);
             }
             catch (Exception ex)
@@ -209,12 +189,6 @@ namespace Saltworks.SaltMiner.ServiceManager
             {
                 Console.WriteLine($"Unknown version - '{file}' could not be found.");
             }
-        }
-
-        private static void HandleServiceManagerConfig()
-        {
-            var wizard = new ConfigurationWizard<ServiceManagerConfig>();
-            wizard.Run(_filePath);
         }
 
         private static void HandleService()

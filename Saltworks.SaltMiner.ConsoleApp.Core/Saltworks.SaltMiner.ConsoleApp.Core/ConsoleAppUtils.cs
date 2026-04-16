@@ -22,7 +22,6 @@
 using System.CommandLine;
 using System.CommandLine.NamingConventionBinder;
 using System.Reflection;
-using System.Text.Json;
 
 namespace Saltworks.SaltMiner.ConsoleApp.Core
 {
@@ -59,18 +58,50 @@ namespace Saltworks.SaltMiner.ConsoleApp.Core
             return command;
         }
 
-        public static string DetermineConfigFilePath(string file, string locatorFile, string envVariable, string dumpFile = null)
+        public static string DetermineConfigFilePath(string configFileName, string defaultConfigFilePath, string appFolder, string envVariable = "SALTMINER_CONFIG_PATH", string locatorFile = "saltminer-config-path.txt")
         {
-            var filePath = "";
-            var method = "Local";
+            // Determine config location
+            var configPath = DetermineConfigPath(envVariable, locatorFile);
+            // Expected path will NOT include app folder, i.e. "/opt/saltworks/saltminer/config"
+            var configFilePath = Path.Join(configPath, appFolder, configFileName);
 
+            // Default config if needed
+            if (!File.Exists(configFilePath))
+            {
+                Console.WriteLine($"Configuration file not found at path '{configFilePath}', attempting to create using default settings.");
+                try
+                {
+                    if (File.Exists(defaultConfigFilePath))
+                    {
+                        var destDirectory = Path.GetDirectoryName(configFilePath);
+                        if (!string.IsNullOrEmpty(destDirectory))
+                            Directory.CreateDirectory(destDirectory);
+                        File.Copy(defaultConfigFilePath, configFilePath);
+                    }
+                    else
+                        Console.WriteLine($"Default configuration file '{Path.GetFileName(defaultConfigFilePath)}' not found in application directory '{Path.GetDirectoryName(defaultConfigFilePath)}'.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to create default configuration file at '{configFilePath}'. {ex.Message}");
+                }
+            }
+            if (!File.Exists(configFilePath))
+            {
+                throw new ConfigurationException($"Configuration file not found ('{configFilePath}').");
+            }
+            return configFilePath;
+        }
+
+        public static string DetermineConfigPath(string envVariable = "SALTMINER_CONFIG_PATH", string locatorFile = "saltminer-config-path.txt")
+        {
             try
             {
                 if (File.Exists(locatorFile))
                 {
-                    var loc = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(locatorFile));
-                    filePath = Path.Join(loc.Values.First(), file);
-                    method = "LocatorFile";
+                    var configPath = File.ReadAllText(locatorFile);
+                    Console.WriteLine($"Config path '{configPath}' was determined by locator file '{locatorFile}'.");
+                    return configPath;
                 }
             }
             catch (Exception ex)
@@ -78,50 +109,15 @@ namespace Saltworks.SaltMiner.ConsoleApp.Core
                 throw new ConfigurationException($"Config locator file '{locatorFile}' present, but failed to read config location from it", ex);
             }
 
-            if (string.IsNullOrEmpty(filePath) && envVariable != null)
+            if (!string.IsNullOrEmpty(envVariable))
             {
-                filePath = Path.Join(envVariable, file);
-                method = $"EnvVar:{envVariable}";
+                var configPath = Environment.GetEnvironmentVariable(envVariable);
+                if (string.IsNullOrEmpty(configPath))
+                    throw new ConfigurationException($"Configuration path could not be determined from environment variable '{envVariable}'.");
+                Console.WriteLine($"Config path '{configPath}' was determined by environment variable '{envVariable}'.");
+                return configPath;
             }
-
-            if (string.IsNullOrEmpty(filePath))
-            {
-                filePath = $"{file}";
-            }
-
-            if (!File.Exists(filePath))
-            {
-                throw new ConfigurationException($"Config path '{filePath}', determined by method '{method}', could not be found.");
-            }
-
-            Console.WriteLine($"Config path '{filePath}' was determined by method '{method}'.");
-
-            if (string.IsNullOrEmpty(dumpFile))
-            {
-                if (File.Exists(dumpFile))
-                {
-                    var c = File.ReadAllText(filePath);
-                    if (string.IsNullOrEmpty(c))
-                    {
-                        File.WriteAllText(dumpFile, "{ \"Empty\": \"Empty\" }");
-                    }
-                    else
-                    {
-                        File.WriteAllText(dumpFile, c);
-                    }
-                }
-            }
-            try
-            {
-                File.WriteAllText("ConfigPath.json", JsonSerializer.Serialize(new { ConfigPath = filePath, Method = method }));
-            }
-            catch (Exception ex)
-            {
-                // Don't allow an exception here cause a full stop
-                Console.WriteLine($"Failed to write ConfigPath.json ([{ex.GetType().Name}] {ex.Message})");
-            }
-
-            return filePath;
+            throw new ConfigurationException($"Configuration path could not be determined - set env variable '{envVariable}' or locator file '{locatorFile}'.");
         }
     }
 }

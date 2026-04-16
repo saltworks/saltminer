@@ -29,17 +29,21 @@ namespace Saltworks.SaltMiner.ServiceManager
     {
         public ServiceManagerConfig() { }
 
-        public ServiceManagerConfig(IConfiguration config, string filePath)
+        public ServiceManagerConfig(IConfiguration config, string configFilePath)
         {
             config.Bind(this);
-            CheckEncryption(this, filePath, "ServiceManagerConfig");
+            CheckEncryption(this, configFilePath, "ServiceManagerConfig");
             DecryptProperties(this);
+            ConfigFilePath = configFilePath;
         }
 
         public const string DEFAULT_MANAGER_EXECUTABLE_FILE = "Saltworks.SaltMiner.Manager";
         public const string DEFAULT_AGENT_EXECUTABLE_FILE = "Saltworks.SaltMiner.SyncAgent";
-        private const string DEFAULT_V2_PATH = "saltminer-2.5.0";
-        private const string DEFAULT_V3_PATH = "saltminer-3.0.0";
+        private const string PYTHON_FOLDER = "python";
+        private const string MANAGER_FOLDER = "manager";
+        private const string AGENT_FOLDER = "agent";
+        private const string SVC_MGR_FOLDER = "servicemanager";
+        private readonly string ConfigFilePath;
         private readonly string[] ValidProcessors = [ "Scheduler" ];
         public string DefaultApplicationExecutableExtension { get; set; } = "dll";
         public string DataApiBaseUrl { get; set; }
@@ -54,15 +58,15 @@ namespace Saltworks.SaltMiner.ServiceManager
         public string PythonInterpreter { get; set; } = "python3";
         // DO NOT SET PATHS HERE, SEE SetDefaults()
         public string PythonVenvActivatePath { get; set; } = string.Empty;
-        public string PythonConfigEnvVariableName { get; set; } = "SALTMINER_2_CONFIG_PATH";
+        public static string PythonConfigEnvVariableName => "SALTMINER_CONFIG_PATH";
         public string PythonConfigEnvVariableValue { get; set; } = string.Empty;
         public string BashInterpreterPath { get; set; } = "/bin/bash";
-        public string ManagerConfigOption => "Manager";
-        public string ManagerConfigEnvVariableName { get; set; } = "SALTMINER_MANAGER_CONFIG_PATH";
+        public static string ManagerConfigOption => "Manager";
+        public static string ManagerConfigEnvVariableName => "SALTMINER_CONFIG_PATH";
         public string ManagerConfigEnvVariableValue { get; set; } = string.Empty;
         public string ManagerExecutablePath { get; set; } = string.Empty;
-        public string SyncAgentConfigOption => "SyncAgent";
-        public string SyncAgentConfigEnvVariableName { get; set; } = "SALTMINER_AGENT_CONFIG_PATH";
+        public static string SyncAgentConfigOption => "SyncAgent";
+        public static string SyncAgentConfigEnvVariableName => "SALTMINER_CONFIG_PATH";
         public string SyncAgentConfigEnvVariableValue { get; set; } = string.Empty;
         public string SyncAgentExecutablePath { get; set; } = string.Empty;
         public int JobThreadCount { get; set; } = 20;
@@ -94,21 +98,21 @@ namespace Saltworks.SaltMiner.ServiceManager
                     ApplicationPath = Directory.GetParent(AppDomain.CurrentDomain.BaseDirectory).Parent.FullName;
 
                 // Default python main directory is valid for running python scripts
-                if (ApplicationPath.EndsWith(DEFAULT_V3_PATH) && AllowedPythonPaths.Count == 0)
-                    AllowedPythonPaths.Add(Path.Combine(Directory.GetParent(ApplicationPath).FullName, DEFAULT_V2_PATH));
+                if (ApplicationPath.EndsWith(SVC_MGR_FOLDER) && AllowedPythonPaths.Count == 0)
+                    AllowedPythonPaths.Add(Path.Combine(Directory.GetParent(ApplicationPath).FullName, PYTHON_FOLDER));
                 if (string.IsNullOrEmpty(ManagerExecutablePath))
-                    ManagerExecutablePath = Path.Combine(ApplicationPath, "manager", $"{DEFAULT_MANAGER_EXECUTABLE_FILE}.{DefaultApplicationExecutableExtension}");
+                    ManagerExecutablePath = Path.Combine(ApplicationPath, MANAGER_FOLDER, $"{DEFAULT_MANAGER_EXECUTABLE_FILE}.{DefaultApplicationExecutableExtension}");
                 if (string.IsNullOrEmpty(SyncAgentExecutablePath))
-                    SyncAgentExecutablePath = Path.Combine(ApplicationPath, "agent", $"{DEFAULT_AGENT_EXECUTABLE_FILE}.{DefaultApplicationExecutableExtension}");
+                    SyncAgentExecutablePath = Path.Combine(ApplicationPath, AGENT_FOLDER, $"{DEFAULT_AGENT_EXECUTABLE_FILE}.{DefaultApplicationExecutableExtension}");
                 if (string.IsNullOrEmpty(PythonVenvActivatePath))
                     PythonVenvActivatePath = Path.Combine(Directory.GetParent(ApplicationPath).FullName, ".venv", "bin", "activate");
 
                 // Attempt to set config path defaults from my config path
-                if (!File.Exists(Program.LOCATOR_FILE_NAME))
+                if (!File.Exists(ConfigFilePath))
                     return;
 
                 var configPath = string.Empty;
-                var json = JsonNode.Parse(File.ReadAllText(Program.LOCATOR_FILE_NAME))?.AsObject();
+                var json = JsonNode.Parse(File.ReadAllText(ConfigFilePath))?.AsObject();
                 if (json != null)
                     configPath = json["ConfigPath"]?.GetValue<string>();
                 if (string.IsNullOrEmpty(configPath))
@@ -116,11 +120,11 @@ namespace Saltworks.SaltMiner.ServiceManager
 
                 configPath = Directory.GetParent(configPath).Parent.Parent.FullName;  // i.e. /etc/saltworks
                 if (string.IsNullOrEmpty(PythonConfigEnvVariableValue))
-                    PythonConfigEnvVariableValue = Path.Combine(configPath, DEFAULT_V2_PATH);
+                    PythonConfigEnvVariableValue = Path.Combine(configPath, PYTHON_FOLDER);
                 if (string.IsNullOrEmpty(ManagerConfigEnvVariableValue))
-                    ManagerConfigEnvVariableValue = Path.Combine(configPath, DEFAULT_V3_PATH);
+                    ManagerConfigEnvVariableValue = Path.Combine(configPath, MANAGER_FOLDER);
                 if (string.IsNullOrEmpty(SyncAgentConfigEnvVariableValue))
-                    SyncAgentConfigEnvVariableValue = Path.Combine(configPath, DEFAULT_V3_PATH);
+                    SyncAgentConfigEnvVariableValue = Path.Combine(configPath, AGENT_FOLDER);
             }
             catch (Exception ex)
             {

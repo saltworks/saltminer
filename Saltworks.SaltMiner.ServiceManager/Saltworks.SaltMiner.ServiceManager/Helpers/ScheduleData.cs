@@ -50,8 +50,8 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
             return;
         }
         lookup.Values.Clear();
-        lookup.Values.Add(new() { Display = Config.ManagerConfigOption, Value = Config.ManagerConfigOption, Order = lookup.Values.Count + 1 });
-        lookup.Values.Add(new() { Display = Config.SyncAgentConfigOption, Value = Config.SyncAgentConfigOption, Order = lookup.Values.Count + 1 });
+        lookup.Values.Add(new() { Display = ServiceManagerConfig.ManagerConfigOption, Value = ServiceManagerConfig.ManagerConfigOption, Order = lookup.Values.Count + 1 });
+        lookup.Values.Add(new() { Display = ServiceManagerConfig.SyncAgentConfigOption, Value = ServiceManagerConfig.SyncAgentConfigOption, Order = lookup.Values.Count + 1 });
         foreach (var c in Config.AllowedExecutables.Select(x => x.Key).OrderBy(x => x).Distinct())
             lookup.Values.Add(new() { Display = c, Value = c, Order = lookup.Values.Count + 1 });
         var rsp2 = DataClient.LookupAddUpdate(lookup);

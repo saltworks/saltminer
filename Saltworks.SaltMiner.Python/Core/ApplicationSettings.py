@@ -27,6 +27,7 @@ import ntpath
 _MISSING = object()  # sentinel: distinguishes "no default provided" from default=None
 
 from .EncryptionHelper import EncryptionHelper
+from .ElasticClient import ElasticClient
 from .ApplicationExceptions import *
 
 class ApplicationSettings(object):
@@ -41,7 +42,12 @@ class ApplicationSettings(object):
         self.__Sources = {}
         self.__SourceConfigFiles = {}
         self.Load(configFiles, sourceConfigFiles)
+        cs_env = os.environ.get(ElasticClient.ELASTIC_CONNECT_STR_ENV, "")
+        if cs_env:
+            self.__Log("info", f"Found {ElasticClient.ELASTIC_CONNECT_STR_ENV} environment variable, overriding Elastic connection string")
+            self.SetToConfig("Elastic", "Blah", ElasticClient.ELASTIC_CONNECT_STR_CONFIG, save=False)
         self.__EncryptSuffixes = self.Get("Main", "EncryptedPropertySuffixes", [ "password", "secret", "apikey", "token" ])
+        
         self.__Eh = EncryptionHelper(keyFile)
         self.Application = None
         if autoEncryptCreds:

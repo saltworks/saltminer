@@ -33,19 +33,16 @@ namespace Saltworks.SaltMiner.ConsoleApp.Core
         private const string DEFAULT_SETTINGS_FILE = "appsettings.json";
         private const string DEFAULT_SETTINGS_APP_SECTION = "AppConfig";
         private const string DEFAULT_SETTINGS_LOG_SECTION = "LogConfig";
-        private readonly IConsoleAppHostBuilderOptions ConfigurationOptions = new ConsoleAppHostBuilderOptions();
+        private readonly ConsoleAppHostBuilderOptions ConfigurationOptions = new ConsoleAppHostBuilderOptions();
         private Action<IServiceProvider> ConfigureHandler = null;
         private IConfiguration Configuration = null;
-        private readonly List<Tuple<LogLevel, string>> PreLogs = new();
+        private readonly List<Tuple<LogLevel, string>> PreLogs = [];
         private Microsoft.Extensions.Logging.ILogger BuiltLogger = null;
 
         public ConsoleAppHostBuilder(Type serviceType, Action<IConsoleAppHostBuilderOptions> configurationOptions)
         {
             ServiceType = serviceType;
-            if (configurationOptions != null)
-            {
-                configurationOptions.Invoke(ConfigurationOptions);
-            }
+            configurationOptions?.Invoke(ConfigurationOptions);
         }
 
         private void Log(LogLevel logLevel, string message)
@@ -55,7 +52,7 @@ namespace Saltworks.SaltMiner.ConsoleApp.Core
                 PreLogs.Add(new Tuple<LogLevel, string>(logLevel, message));
                 return;
             }
-            BuiltLogger.Log(logLevel, message);
+            BuiltLogger.Log(logLevel, "{Msg}", message);
         }
 
         private void DumpPreLog()
@@ -64,7 +61,7 @@ namespace Saltworks.SaltMiner.ConsoleApp.Core
                 return;
             foreach (var t in PreLogs)
             {
-                BuiltLogger.Log(t.Item1, t.Item2);
+                BuiltLogger.Log(t.Item1, "{Msg}", t.Item2);
             }
         }
 
@@ -82,22 +79,53 @@ namespace Saltworks.SaltMiner.ConsoleApp.Core
             }
         }
 
-        public static IConsoleAppHost CreateDefaultConsoleAppHost<T>(string settingsFile = DEFAULT_SETTINGS_FILE, string appConfigSection = DEFAULT_SETTINGS_APP_SECTION, string logConfigSection = DEFAULT_SETTINGS_LOG_SECTION) where T : IConsoleAppHost
+        public static IConsoleAppHost CreateDefaultConsoleAppHost<T>(
+                string settingsFile = DEFAULT_SETTINGS_FILE, 
+                string appConfigSection = DEFAULT_SETTINGS_APP_SECTION, 
+                string logConfigSection = DEFAULT_SETTINGS_LOG_SECTION
+            ) where T : IConsoleAppHost
         {
-            return CreateDefaultConsoleAppHost<T>(null, null, co => { co.SettingsFile = settingsFile; co.AppSettingsSection = appConfigSection; co.LogSettingsSection = logConfigSection; });
+            return CreateDefaultConsoleAppHost<T>(null, null, co => { 
+                co.SettingsFile = settingsFile; 
+                co.AppSettingsSection = appConfigSection; 
+                co.LogSettingsSection = logConfigSection; 
+            });
         }
 
-        public static IConsoleAppHost CreateDefaultConsoleAppHost<T>(Action<IServiceCollection, IConfiguration> configureServices, string settingsFile = DEFAULT_SETTINGS_FILE, string appConfigSection = DEFAULT_SETTINGS_APP_SECTION, string logConfigSection = DEFAULT_SETTINGS_LOG_SECTION) where T : IConsoleAppHost
+        public static IConsoleAppHost CreateDefaultConsoleAppHost<T>(
+                Action<IServiceCollection, IConfiguration> configureServices, 
+                string settingsFile = DEFAULT_SETTINGS_FILE, 
+                string appConfigSection = DEFAULT_SETTINGS_APP_SECTION, 
+                string logConfigSection = DEFAULT_SETTINGS_LOG_SECTION
+            ) where T : IConsoleAppHost
         {
-            return CreateDefaultConsoleAppHost<T>(configureServices, null, co => { co.SettingsFile = settingsFile; co.AppSettingsSection = appConfigSection; co.LogSettingsSection = logConfigSection; });
+            return CreateDefaultConsoleAppHost<T>(configureServices, null, co => { 
+                co.SettingsFile = settingsFile; 
+                co.AppSettingsSection = appConfigSection; 
+                co.LogSettingsSection = logConfigSection; 
+            });
         }
 
-        public static IConsoleAppHost CreateDefaultConsoleAppHost<T>(Action<IServiceCollection, IConfiguration> configureServices, Action<IServiceProvider> configure, string settingsFile = DEFAULT_SETTINGS_FILE, string appConfigSection = DEFAULT_SETTINGS_APP_SECTION, string logConfigSection = DEFAULT_SETTINGS_LOG_SECTION) where T : IConsoleAppHost
+        public static IConsoleAppHost CreateDefaultConsoleAppHost<T>(
+                Action<IServiceCollection, IConfiguration> configureServices, 
+                Action<IServiceProvider> configure, 
+                string settingsFile = DEFAULT_SETTINGS_FILE, 
+                string appConfigSection = DEFAULT_SETTINGS_APP_SECTION, 
+                string logConfigSection = DEFAULT_SETTINGS_LOG_SECTION
+            ) where T : IConsoleAppHost
         {
-            return CreateDefaultConsoleAppHost<T>(configureServices, configure, co => { co.SettingsFile = settingsFile; co.AppSettingsSection = appConfigSection; co.LogSettingsSection = logConfigSection; ; });
+            return CreateDefaultConsoleAppHost<T>(configureServices, configure, co => { 
+                co.SettingsFile = settingsFile; 
+                co.AppSettingsSection = appConfigSection; 
+                co.LogSettingsSection = logConfigSection; 
+            });
         }
 
-        public static IConsoleAppHost CreateDefaultConsoleAppHost<T>(Action<IServiceCollection, IConfiguration> configureServices, Action<IServiceProvider> configure, Action<IConsoleAppHostBuilderOptions> configurationOptions) where T : IConsoleAppHost
+        public static IConsoleAppHost CreateDefaultConsoleAppHost<T>(
+                Action<IServiceCollection, IConfiguration> configureServices, 
+                Action<IServiceProvider> configure, 
+                Action<IConsoleAppHostBuilderOptions> configurationOptions
+            ) where T : IConsoleAppHost
         {
             return new ConsoleAppHostBuilder(typeof(T), configurationOptions)
                 .BuildConfiguration()

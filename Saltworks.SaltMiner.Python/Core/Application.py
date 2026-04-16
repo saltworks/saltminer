@@ -36,6 +36,8 @@ class Application(object):
     """Application class - Settings, Logging, Helpers, and more"""
 
     DEFAULT_CONFIG_PATH_FILE = "ConfigPath.txt"
+    SALTMINER_CONFIG_ENV_VAR = "SALTMINER_CONFIG_PATH"
+    APP_FOLDER = "python"
     
     def __init__(self, configPath=None, keyFile='saltworks.key', autoEncryptCreds = True, loggingCustomTag=None, skipCleanFiles=False, **kwargs):
         self.__Init = False
@@ -53,7 +55,7 @@ class Application(object):
                 ver = fs.read()
         self.__Log(logging.INFO, f"SaltMiner {ver}")
         try:
-            self.__GetConfig(configPath, keyFile, autoEncryptCreds)
+            self.__InitConfig(configPath, keyFile, autoEncryptCreds)
         except ApplicationConfigurationException as e:
             self.HandleException(e, "Configuration error when loading application configuration")
         except Exception as e:
@@ -71,15 +73,15 @@ class Application(object):
             self.CleanFiles('.', "*.tmp", 1)
         self.__Log(logging.DEBUG, "Application class initialization complete")
 
-    def __GetConfig(self, configPath, keyFileName, autoEncrypt):
+    def __InitConfig(self, configPath, keyFileName, autoEncrypt):
         # Config rework - now looking for Env variable or local "Config" folder to contain config
         # All config files in config folder will be loaded automatically (they should have unique keys to avoid one stepping on another)
         # Source configs will be expected to be in a "Source" folder within the config folder
-        envVar = "SALTMINER_2_CONFIG_PATH"
+        envVar = self.SALTMINER_CONFIG_ENV_VAR
 
         # Don't use settings.json
         if os.path.isfile("settings.json"):
-            raise ApplicationConfigurationException(f"Local settings.json is no longer supported.  Config files have been separated by function and should now be placed into the Config folder.  Config folder location also can be specified using the {envVar} environment variable.")
+            raise ApplicationConfigurationException(f"Local settings.json is no longer supported.  Config folder can be specified using the {envVar} environment variable or in a config path file ({self.DEFAULT_CONFIG_PATH_FILE}).")
 
         # Many checks for new path
         # 1. Passed into class init
@@ -87,8 +89,9 @@ class Application(object):
         pathSource = "local"
         # 2. Env variable
         if not ok:
-            configPath = os.getenv(envVar)
-            ok = configPath and os.path.isdir(configPath)
+            parentPath = os.getenv(self.SALTMINER_CONFIG_ENV_VAR)
+            configPath = os.path.join(parentPath, self.APP_FOLDER) if parentPath else None
+            ok = parentPath and os.path.isdir(parentPath)
             pathSource = "EnvVar" if ok else pathSource
         # 3. File - ConfigPath.txt
         if not ok and os.path.exists(self.DEFAULT_CONFIG_PATH_FILE):

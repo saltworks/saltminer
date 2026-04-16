@@ -22,9 +22,7 @@
 using Saltworks.SaltMiner.ConsoleApp.Core;
 using System.CommandLine;
 using Saltworks.SaltMiner.DataClient;
-using Saltworks.SaltMiner.ConfigurationWizard;
 using Microsoft.Extensions.Logging;
-using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.Core.Common;
 using Saltworks.SaltMiner.UiApiClient;
 using Saltworks.SaltMiner.JobManager.Processor.Engagement;
@@ -45,23 +43,22 @@ namespace Saltworks.SaltMiner.JobManager
      */
     public static class Program
     {
-        private const string JOBMANAGER_SETTINGS_FILE = "JobManagerSettings.json";
-        private const string JOBMANAGER_SETTINGS_APP_SECTION = "JobManagerConfig";
-        private const string JOBMANAGER_SETTINGS_LOG_SECTION = "LogConfig";
-        private const string LOCATOR_FILE_NAME = "ConfigLocator.json";
-        private const string CONFIG_ENV_VARIABLE = "SALTMINER_JOBMANAGER_CONFIG_PATH";
+        private const string APP_FOLDER = "jobmanager";
+        private const string SETTINGS_FILE = "appsettings.json";
+        private const string DEFAULT_SETTINGS_FILE = "appsettings-default.json";
+        private const string DEFAULT_TEMPLATE_FOLDER = "TemplateDefaults";
+        private const string TEMPLATE_FOLDER = "report-templates";
+        private const string SETTINGS_APP_SECTION = "JobManagerConfig";
+        private const string SETTINGS_LOG_SECTION = "LogConfig";
         // Generate a cancellation token that can be used by longer running tasks to cancel on break or for other reasons
         private static readonly CancellationTokenSource CancelTokenSource = new();
-        private static string _filePath;
 
         // Main CLI definition and invocation
         [STAThread]
         public static async Task<int> Main(string[] args)
         {
             if (args.Length == 0)
-            {
-                args = new string[] { "service" };
-            }
+                args = [ "service" ];
 
             Mutex mutex = new(false, "SaltMinerJobManager");
             try
@@ -75,7 +72,6 @@ namespace Saltworks.SaltMiner.JobManager
             catch
             {
                 mutex.Close();
-                mutex = null;
             }
 
             Console.CancelKeyPress += delegate (object sender, ConsoleCancelEventArgs e)
@@ -85,155 +81,153 @@ namespace Saltworks.SaltMiner.JobManager
                 CancelTokenSource.Cancel();
             };
 
-            Console.WriteLine($"Env:SALTMINER_ENVIRONMENT = '{Environment.GetEnvironmentVariable("SALTMINER_ENVIRONMENT") ?? "(not set)"}'");
+            var cmd = ConfigureCliCommands();
+            var ret = await cmd.InvokeAsync(args);
+            CancelTokenSource.Dispose();
+            return ret;
+        }
 
-            // Corrected typo in env variable.  Catch configuration exception if occurs and try the old "typo" env variable for backward-compatibility.
-            try
-            {
-                _filePath = ConsoleAppUtils.DetermineConfigFilePath(JOBMANAGER_SETTINGS_FILE, LOCATOR_FILE_NAME, Environment.GetEnvironmentVariable(CONFIG_ENV_VARIABLE));
-            }
-            catch (ConfigurationException)
-            {
-                _filePath = ConsoleAppUtils.DetermineConfigFilePath(JOBMANAGER_SETTINGS_FILE, LOCATOR_FILE_NAME, Environment.GetEnvironmentVariable("SALTMINER_JOBMANGER_CONFIG_PATH"));
-            }
-
+        private static RootCommand ConfigureCliCommands()
+        {
             // NOTE: repetitive are the options for the main operations, but expected to diverge over time are they, so repeat them we did for now.
             //          .--.
-            //::\`--._,'.::.`._.--' /::::
+            //::\`--._,'.::.`._.--'/::::
             //::::.  ` __::__ '  .::::::
             //::::::-:.`'..`'.:-::::::::
             //::::::::\ `--' /::::::::::
-            var cmd = new RootCommand();
 
+            RootCommand cmd = [];
+
+            // Service CMD
             var serviceVerb = new Command("service", "Run job manager as a service.");
-            serviceVerb.SetHandler(() =>
-            {
-                HandleService();
-            });
+            serviceVerb.SetHandler(() => HandleService());
 
             var importVerb = new Command("import", "File import helper");
 
-            //Pentest Issue Import CMD
+            // Pentest Issue Import CMD
             var penIssueImportVerb = new Command("issue", "Runs pentest issue import processor, which imports the engagement issues of uploaded files.");
+            penIssueImportVerb.SetHandler(() => HandlePenIssueImport());
 
-            penIssueImportVerb.SetHandler(() =>
-            {
-                HandlePenIssueImport();
-            });
-
-            //Pentest Template Issue Import CMD
+            // Pentest Template Issue Import CMD
             var penTemplateIssueImportVerb = new Command("templateissue", "Runs pentest issue import processor, which imports the engagement issues of uploaded files.");
+            penTemplateIssueImportVerb.SetHandler(() => HandlePenTemplateIssueImport());
 
-            penTemplateIssueImportVerb.SetHandler(() =>
-            {
-                HandlePenTemplateIssueImport();
-            });
-
-            //Engagement Import CMD
+            // Engagement Import CMD
             var engagementImportVerb = new Command("engagement", "Runs engagement import processor, which imports engagements of uploaded files.");
-
-            engagementImportVerb.SetHandler(() =>
-            {
-                HandleEngagementImport();
-            });
+            engagementImportVerb.SetHandler(() => HandleEngagementImport());
 
             importVerb.Add(penIssueImportVerb);
             importVerb.Add(penTemplateIssueImportVerb);
             importVerb.Add(engagementImportVerb);
 
-
-            //Engagement Report CMD
+            // Engagement Report CMD
             var engagementReportVerb = new Command("engagementreport", "Runs engagement report processor, which processes a queue of engagement reports to be created.");
-            var engagementReportListOnly = new Option<bool>(new[] { "--list-only", "-l" }, description: "List queued reports without processing them.");
+            var engagementReportListOnly = new Option<bool>(["--list-only", "-l"], description: "List queued reports without processing them.");
             engagementReportVerb.Add(engagementReportListOnly);
-            engagementReportVerb.SetHandler((listOnly) =>
-            {
-                HandleEngagementReport(listOnly);
-            }, engagementReportListOnly);
-
+            engagementReportVerb.SetHandler((listOnly) => HandleEngagementReport(listOnly), engagementReportListOnly);
 
             // Report Template Upload CMD
             var reportTemplateVerb = new Command("reporttemplate", "Runs template processor, which processes templates in folder to elastic.");
-            var templateListOnly = new Option<bool>(new[] { "--list-only", "-l" }, description: "List the report templates without processing them.");
+            var templateListOnly = new Option<bool>(["--list-only", "-l"], description: "List the report templates without processing them.");
             reportTemplateVerb.Add(templateListOnly);
-            reportTemplateVerb.SetHandler((listOnly) =>
-            {
-                HandleTemplate(listOnly);
-            }, templateListOnly);
+            reportTemplateVerb.SetHandler((listOnly) => HandleTemplate(listOnly), templateListOnly);
 
-            //Clean Up CMD
+            // Clean Up CMD
             var cleanUpVerb = new Command("cleanup", "Runs clean up processor, which deletes old job queues by day limit defined in Job Manager config settings as 'CleanupQueueAfterDays'.");
-            var cleanUpListOnlyOption = new Option<bool>(new[] { "--list-only", "-l" }, description: "List job queues to clean up without processing them.");
+            var cleanUpListOnlyOption = new Option<bool>(["--list-only", "-l"], description: "List job queues to clean up without processing them.");
 
             cleanUpVerb.Add(cleanUpListOnlyOption);
-            cleanUpVerb.SetHandler((listOnly) =>
-            {
-                HandleCleanUp(listOnly);
-            }, cleanUpListOnlyOption);
+            cleanUpVerb.SetHandler((listOnly) => HandleCleanUp(listOnly), cleanUpListOnlyOption);
 
-            //Config Wizard CMD
-            var configWizardVerb = new Command("configwizard", "Configuration wizard to create or edit.");
-
-            //Config Wizard SUB CMD
-            var configWizardMainVerb = new Command("main", "Creates and updates main Manager Configuration.");
-            configWizardMainVerb.SetHandler(() =>
-            {
-                HandleJobManagerConfig();
-            });
-
-            configWizardVerb.Add(configWizardMainVerb);
-
-            //Crypto CMD
-            var cryptoVerb = new Command("crypto", "Encryption helper");
-
-            //Crypto Generate SUB CMD
-            var cryptoGenerateVerb = new Command("generate", "Generate a new set of encryption keys.");
-            cryptoGenerateVerb.SetHandler(() =>
-            {
-                HandleCryptoGenerate();
-            });
-
-            //Crypto Encrypt SUB CMD
-            var cryptoEncryptVerb = new Command("encrypt", "Encrypts up to 5 values given those values using the configured encryption keys.");
-            var cryptoEncryptArgument1 = new Argument<string>("value1", "Value to encrypt.");
-            var cryptoEncryptArgument2 = new Argument<string>("value2", "Value to encrypt.");
-            var cryptoEncryptArgument3 = new Argument<string>("value3", "Value to encrypt.");
-            var cryptoEncryptArgument4 = new Argument<string>("value4", "Value to encrypt.");
-            var cryptoEncryptArgument5 = new Argument<string>("value5", "Value to encrypt.");
-            cryptoEncryptVerb.Add(cryptoEncryptArgument1);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument2);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument3);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument4);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument5);
-            cryptoEncryptVerb.SetHandler((value1, value2, value3, value4, value5) =>
-            {
-                HandleCryptoEncrypt(value1, value2, value3, value4, value5);
-            }, cryptoEncryptArgument1, cryptoEncryptArgument2, cryptoEncryptArgument3, cryptoEncryptArgument4, cryptoEncryptArgument5);
-
-            cryptoVerb.Add(cryptoGenerateVerb);
-            cryptoVerb.Add(cryptoEncryptVerb);
-
-            //Version CMD
+            // Version CMD
             var verisonVerb = new Command("version", "Reports build version for the application.");
-            verisonVerb.SetHandler(() =>
-            {
-                HandleVersion();
-            });
+            verisonVerb.SetHandler(() => HandleVersion());
 
             cmd.Add(serviceVerb);
             cmd.Add(importVerb);
             cmd.Add(engagementReportVerb);
             cmd.Add(reportTemplateVerb);
             cmd.Add(cleanUpVerb);
-            cmd.Add(configWizardVerb);
-            cmd.Add(cryptoVerb);
             cmd.Add(verisonVerb);
 
-            return await cmd.InvokeAsync(args);
+            return cmd;
+        }
+
+        private static void CopyDirectoryRecursive(string sourceDir, string destDir)
+        {
+            // Copy all files in current directory
+            foreach (var file in Directory.GetFiles(sourceDir))
+            {
+                var fileName = Path.GetFileName(file);
+                var destFile = Path.Join(destDir, fileName);
+                if (!File.Exists(destFile))
+                    File.Copy(file, destFile);
+            }
+
+            // Copy all subdirectories recursively
+            foreach (var subDir in Directory.GetDirectories(sourceDir))
+            {
+                var dirName = Path.GetFileName(subDir);
+                var destSubDir = Path.Join(destDir, dirName);
+                if (!Directory.Exists(destSubDir))
+                    Directory.CreateDirectory(destSubDir);
+                
+                CopyDirectoryRecursive(subDir, destSubDir);
+            }
+        }
+
+        private static string GetConfigFilePath()
+        {
+            // Determine config location
+            var configPath = ConsoleAppUtils.DetermineConfigPath();
+            var configFilePath = Path.Join(configPath, APP_FOLDER, SETTINGS_FILE);
+            var defaultConfigFilePath = Path.Join(AppDomain.CurrentDomain.BaseDirectory, DEFAULT_SETTINGS_FILE);
+            var defaultTemplateFolderPath = Path.Join(AppDomain.CurrentDomain.BaseDirectory, DEFAULT_TEMPLATE_FOLDER);
+            var templateFolderPath = Path.Join(configPath, APP_FOLDER, TEMPLATE_FOLDER);
+
+            // Default config if needed
+            if (!File.Exists(configFilePath))
+            {
+                Console.WriteLine($"Configuration file not found at path '{configFilePath}', attempting to create using default settings.");
+                try
+                {
+                    if (File.Exists(defaultConfigFilePath))
+                        File.Copy(defaultConfigFilePath, configFilePath);
+                    else
+                        Console.WriteLine($"Default configuration file '{Path.GetFileName(defaultConfigFilePath)}' not found in application directory '{Path.GetDirectoryName(defaultConfigFilePath)}'.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to create default configuration file at '{configFilePath}'. {ex.Message}");
+                }
+
+            }
+            if (!File.Exists(configFilePath))
+                throw new ConfigurationException($"Configuration file not found ('{configFilePath}').");
+
+            // Copy default template folder if needed
+            try
+            {
+                if (Directory.Exists(defaultTemplateFolderPath))
+                {
+                    if (!Directory.Exists(templateFolderPath))
+                        Directory.CreateDirectory(templateFolderPath);
+
+                    CopyDirectoryRecursive(defaultTemplateFolderPath, templateFolderPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to copy default template folder to '{templateFolderPath}'. {ex.Message}");
+            }
+
+            return configFilePath;
         }
 
         private static void RunJobManager(IConsoleAppHostArgs args)
         {
+            var configFilePath = GetConfigFilePath();
+            var configFolder = Path.GetDirectoryName(configFilePath);
             ILogger startLogger = null;
             try
             {
@@ -243,7 +237,7 @@ namespace Saltworks.SaltMiner.JobManager
                     {
                         try
                         {
-                            var jobManagerConfig = new JobManagerConfig(config, _filePath);
+                            var jobManagerConfig = new JobManagerConfig(config, configFilePath, configFolder);
                             services.AddSingleton(jobManagerConfig);
                             services.AddSingleton<JobService>();
                             services.AddSingleton<Processor.Issue.ImportProcessor>();
@@ -262,17 +256,14 @@ namespace Saltworks.SaltMiner.JobManager
                                 options.RunConfig.ReportingApiAuthHeader = jobManagerConfig.ApiAuthHeader;
                             });
 
-                            services.AddDataClientAsSingleton<DataClient.DataClient>
-                            (
-                                options =>
-                                {
-                                    options.ApiBaseAddress = jobManagerConfig.DataApiBaseUrl;
-                                    options.ApiKeyHeader = jobManagerConfig.DataApiKeyHeader;
-                                    options.ApiKey = jobManagerConfig.DataApiKey;
-                                    options.Timeout = TimeSpan.FromSeconds(jobManagerConfig.DataApiTimeoutSec);
-                                    options.VerifySsl = jobManagerConfig.DataApiVerifySsl;
-                                }
-                            );
+                            services.AddDataClientAsSingleton<DataClient.DataClient>(options =>
+                            {
+                                options.ApiBaseAddress = jobManagerConfig.DataApiBaseUrl;
+                                options.ApiKeyHeader = jobManagerConfig.DataApiKeyHeader;
+                                options.ApiKey = jobManagerConfig.DataApiKey;
+                                options.Timeout = TimeSpan.FromSeconds(jobManagerConfig.DataApiTimeoutSec);
+                                options.VerifySsl = jobManagerConfig.DataApiVerifySsl;
+                            });
                         }
                         catch (ConfigBaseEncryptionException ex)
                         {
@@ -295,13 +286,13 @@ namespace Saltworks.SaltMiner.JobManager
                         catch (Exception ex)
                         {
                             var msg = $"Error in service initialization: {ex.Message}";
-                            logger.LogCritical(ex, msg);
+                            logger.LogCritical(ex, "{Msg}", msg);
                             throw new InitializationException(msg, ex);
                         }
                     },
-                    _filePath,
-                    JOBMANAGER_SETTINGS_APP_SECTION,
-                    JOBMANAGER_SETTINGS_LOG_SECTION
+                    configFilePath,
+                    SETTINGS_APP_SECTION,
+                    SETTINGS_LOG_SECTION
                 ).Run(args);
             }
             catch (Exception ex)
@@ -313,7 +304,7 @@ namespace Saltworks.SaltMiner.JobManager
                 }
                 else
                 {
-                    startLogger.LogCritical(ex, "JobManager initialization error: {message}", ex.Message);
+                    startLogger.LogCritical(ex, "JobManager initialization error: {Message}", ex.Message);
                 }
             }
         }
@@ -325,13 +316,9 @@ namespace Saltworks.SaltMiner.JobManager
             var file = "version.txt";
 
             if (File.Exists(file))
-            {
                 Console.WriteLine("JobManager version: " + File.ReadAllText(file));
-            }
             else
-            {
                 Console.WriteLine($"Unknown version - '{file}' could not be found.");
-            }
         }
         
         private static void HandleService()
@@ -366,65 +353,6 @@ namespace Saltworks.SaltMiner.JobManager
         private static void HandleCleanUp(bool listOnly)
         {
             RunJobManager(CleanUpRuntimeConfig.GetArgs(listOnly, CancelTokenSource.Token));
-        }
-
-        private static void HandleHello()
-        {
-            while (!CancelTokenSource.Token.IsCancellationRequested)
-            {
-                Console.WriteLine("Well hello again friend");
-                Thread.Sleep(2000);
-            }
-        }
-
-        private static void HandleJobManagerConfig()
-        {
-            var wizard = new ConfigurationWizard<JobManagerConfig>();
-            wizard.Run(_filePath);
-        }
-
-        private static void HandleCryptoGenerate()
-        {
-            var key = Crypto.GenerateKeyIv();
-
-            Console.Out.WriteLine("The keys shown below can be used to configure encryption in the settings for this application.");
-            Console.Out.WriteLine($"Encryption Key: {key.Item1}\nEncryption IV: {key.Item2}");
-        }
-
-        private static void HandleCryptoEncrypt(string value1, string value2, string value3, string value4, string value5)
-        {
-            JobManagerConfig config = new();
-
-            ConsoleAppUtils.BindConfigFromSettingsFile(JOBMANAGER_SETTINGS_FILE, config, "JobManagerConfig");
-
-            if (string.IsNullOrEmpty(config.EncryptionKey) || string.IsNullOrEmpty(config.EncryptionIv))
-            {
-                Console.Error.WriteLine("Encryption keys not present or empty in configuration file.  Please set them first.");
-                return;
-            }
-
-            var crypto = new Crypto(config.EncryptionKey, config.EncryptionIv);
-            Console.WriteLine($"Encrypted value1: {crypto.Encrypt(value1)}");
-
-            if (!string.IsNullOrEmpty(value2))
-            {
-                Console.WriteLine($"Encrypted value2: {crypto.Encrypt(value2)}");
-            }
-
-            if (!string.IsNullOrEmpty(value3))
-            {
-                Console.WriteLine($"Encrypted value3: {crypto.Encrypt(value3)}");
-            }
-
-            if (!string.IsNullOrEmpty(value4))
-            {
-                Console.WriteLine($"Encrypted value4: {crypto.Encrypt(value4)}");
-            }
-
-            if (!string.IsNullOrEmpty(value5))
-            {
-                Console.WriteLine($"Encrypted value5: {crypto.Encrypt(value5)}");
-            }
         }
 
         #endregion

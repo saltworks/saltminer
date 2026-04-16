@@ -25,9 +25,7 @@ using System.CommandLine;
 using System.Threading;
 using System.Threading.Tasks;
 using Saltworks.SaltMiner.DataClient;
-using Saltworks.SaltMiner.ConfigurationWizard;
 using Microsoft.Extensions.Logging;
-using Saltworks.SaltMiner.Core.Util;
 using System.IO;
 using System.Linq;
 using Saltworks.SaltMiner.Core.Common;
@@ -46,14 +44,13 @@ namespace Saltworks.SaltMiner.Manager;
     */
 public static class Program
 {
-    private const string MANAGER_SETTINGS_FILE = "ManagerSettings.json";
-    private const string MANAGER_SETTINGS_APP_SECTION = "ManagerConfig";
-    private const string MANAGER_SETTINGS_LOG_SECTION = "LogConfig";
-    private const string LOCATOR_FILE_NAME = "ConfigLocator.json";
-    private const string CONFIG_ENV_VARIABLE = "SALTMINER_MANAGER_CONFIG_PATH";
+    private const string SETTINGS_FILE = "appsettings.json";
+    private const string DEFAULT_SETTINGS_FILE = "appsettings-default.json";
+    private const string SETTINGS_APP_SECTION = "ManagerConfig";
+    private const string SETTINGS_LOG_SECTION = "LogConfig";
+    private const string APP_FOLDER = "manager";
     // Generate a cancellation token that can be used by longer running tasks to cancel on break or for other reasons
     private static readonly CancellationTokenSource CancelTokenSource = new();
-    private static string _filePath;
 
     // Main CLI definition and invocation
     public static async Task<int> Main(string[] args)
@@ -65,22 +62,8 @@ public static class Program
             CancelTokenSource.Cancel();
         };
 
-        Console.WriteLine($"Env:SALTMINER_ENVIRONMENT = '{Environment.GetEnvironmentVariable("SALTMINER_ENVIRONMENT") ?? "(not set)"}'");
-
         if (args.Length == 0)
-        {
-            args = new string[] { "main" };
-        }
-
-        // Corrected typo in env variable.  Catch configuration exception if occurs and try the old "typo" env variable for backward-compatibility.
-        try
-        {
-            _filePath = ConsoleAppUtils.DetermineConfigFilePath(MANAGER_SETTINGS_FILE, LOCATOR_FILE_NAME, Environment.GetEnvironmentVariable(CONFIG_ENV_VARIABLE));
-        }
-        catch (ConfigurationException)
-        {
-            _filePath = ConsoleAppUtils.DetermineConfigFilePath(MANAGER_SETTINGS_FILE, LOCATOR_FILE_NAME, Environment.GetEnvironmentVariable("SALTMINER_MANGER_CONFIG_PATH"));
-        }
+            args = [ "main" ];
 
         // NOTE: repetitive are the options for the main operations, but expected to diverge over time are they, so repeat them we did for now.
         //          .--.
@@ -151,49 +134,6 @@ public static class Program
             HandleCleanUp(source, limit, listOnly);
         }, cleanUpSourceOption, cleanUpLimitOption, cleanUpListOnlyOption);
 
-        //Config Wizard CMD
-        var configWizardVerb = new Command("configwizard", "Configuration wizard to create or edit.");
-
-        //Config Wizard SUB CMD
-        var configWizardMainVerb = new Command("main", "Creates and updates main Manager Configuration.");
-        configWizardMainVerb.SetHandler(() =>
-        {
-            HandleManagerConfig();
-        });
-
-        configWizardVerb.Add(configWizardMainVerb);
-
-        //Crypto CMD
-        var cryptoVerb = new Command("crypto", "Encryption helper");
-
-        //Crypto Generate SUB CMD
-        var cryptoGenerateVerb = new Command("generate", "Generate a new set of encryption keys.");
-        cryptoGenerateVerb.SetHandler(() =>
-        {
-            HandleCryptoGenerate();
-        });
-
-        //Crypto Encrypt SUB CMD
-        var cryptoEncryptVerb = new Command("encrypt", "Encrypts up to 5 values given those values using the configured encryption keys.");
-        var cryptoEncryptArgument1 = new Argument<string>("value1", "Value to encrypt.");
-        var cryptoEncryptArgument2 = new Argument<string>("value2", "Value to encrypt.");
-        var cryptoEncryptArgument3 = new Argument<string>("value3", "Value to encrypt.");
-        var cryptoEncryptArgument4 = new Argument<string>("value4", "Value to encrypt.");
-        var cryptoEncryptArgument5 = new Argument<string>("value5", "Value to encrypt.");
-        
-        cryptoEncryptVerb.Add(cryptoEncryptArgument1);
-        cryptoEncryptVerb.Add(cryptoEncryptArgument2);
-        cryptoEncryptVerb.Add(cryptoEncryptArgument3);
-        cryptoEncryptVerb.Add(cryptoEncryptArgument4);
-        cryptoEncryptVerb.Add(cryptoEncryptArgument5);
-        cryptoEncryptVerb.SetHandler((value1, value2, value3, value4, value5) => 
-        {
-            HandleCryptoEncrypt(value1, value2, value3, value4, value5);
-        }, cryptoEncryptArgument1, cryptoEncryptArgument2, cryptoEncryptArgument3, cryptoEncryptArgument4, cryptoEncryptArgument5);
-
-        cryptoVerb.Add(cryptoGenerateVerb);
-        cryptoVerb.Add(cryptoEncryptVerb);
-
         //Version CMD
         var verisonVerb = new Command("version", "Reports build version for the application.");
         verisonVerb.SetHandler(() =>
@@ -205,8 +145,6 @@ public static class Program
         cmd.Add(queueVerb);
         cmd.Add(snapshotVerb);
         cmd.Add(cleanUpVerb);
-        cmd.Add(configWizardVerb);
-        cmd.Add(cryptoVerb);
         cmd.Add(verisonVerb);
 
         var ret = await cmd.InvokeAsync(args);
@@ -216,6 +154,8 @@ public static class Program
 
     private static void RunManager(IConsoleAppHostArgs args)
     {
+        var defaultSettingsPath = Path.Join(Directory.GetCurrentDirectory(), DEFAULT_SETTINGS_FILE);
+        var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, APP_FOLDER, defaultSettingsPath);
         ILogger startLogger = null;
         try
         {
@@ -225,23 +165,17 @@ public static class Program
                 {
                     try
                     {
-                        var managerConfig = new ManagerConfig(config, _filePath);
+                        var managerConfig = new ManagerConfig(config, configFilePath);
                         services.AddSingleton(managerConfig); 
 
                         if (args.Args[0] == OperationType.Queue.ToString("g"))
-                        {
                             services.AddTransient<QueueProcessor>();
-                        }
 
                         if (args.Args[0] == OperationType.Snapshot.ToString("g"))
-                        {
                             services.AddTransient<SnapshotProcessor>();
-                        }
 
                         if (args.Args[0] == OperationType.Cleanup.ToString("g"))
-                        {
                             services.AddTransient<CleanUpProcessor>();
-                        }
 
                         services.AddDataClient<Manager>
                         (
@@ -280,9 +214,9 @@ public static class Program
                         throw new InitializationException(msg, ex);
                     }
                 },
-                _filePath,
-                MANAGER_SETTINGS_APP_SECTION,
-                MANAGER_SETTINGS_LOG_SECTION
+                configFilePath,
+                SETTINGS_APP_SECTION,
+                SETTINGS_LOG_SECTION
             ).Run(args);
         }
         catch (Exception ex)
@@ -351,56 +285,6 @@ public static class Program
     private static void HandleCleanUp(string source, int limit, bool listOnly)
     {
         RunManager(CleanUpRuntimeConfig.GetArgs(source, limit, listOnly, CancelTokenSource.Token));
-    }
-
-    private static void HandleManagerConfig()
-    {
-        var wizard = new ConfigurationWizard<ManagerConfig>();
-        wizard.Run(_filePath);
-    }
-
-    private static void HandleCryptoGenerate()
-    {
-        var key = Crypto.GenerateKeyIv();
-
-        Console.Out.WriteLine("The keys shown below can be used to configure encryption in the settings for this application.");
-        Console.Out.WriteLine($"Encryption Key: {key.Item1}\nEncryption IV: {key.Item2}");
-    }
-
-    private static void HandleCryptoEncrypt(string value1, string value2, string value3, string value4, string value5)
-    {
-        ManagerConfig config = new();
-
-        ConsoleAppUtils.BindConfigFromSettingsFile(MANAGER_SETTINGS_FILE, config, "ManagerConfig");
-
-        if (string.IsNullOrEmpty(config.EncryptionKey) || string.IsNullOrEmpty(config.EncryptionIv))
-        {
-            Console.Error.WriteLine("Encryption keys not present or empty in configuration file.  Please set them first.");
-            return;
-        }
-
-        var crypto = new Crypto(config.EncryptionKey, config.EncryptionIv);
-        Console.WriteLine($"Encrypted value1: {crypto.Encrypt(value1)}");
-
-        if (!string.IsNullOrEmpty(value2))
-        {
-            Console.WriteLine($"Encrypted value2: {crypto.Encrypt(value2)}");
-        }
-
-        if (!string.IsNullOrEmpty(value3))
-        {
-            Console.WriteLine($"Encrypted value3: {crypto.Encrypt(value3)}");
-        }
-
-        if (!string.IsNullOrEmpty(value4))
-        {
-            Console.WriteLine($"Encrypted value4: {crypto.Encrypt(value4)}");
-        }
-
-        if (!string.IsNullOrEmpty(value5))
-        {
-            Console.WriteLine($"Encrypted value5: {crypto.Encrypt(value5)}");
-        }
     }
 
     #endregion

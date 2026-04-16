@@ -3,27 +3,31 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64
 LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
-ARG smcfg3=/etc/saltworks/saltminer-3.0.0/ui-api
-ARG smfiles=/usr/share/saltworks/saltminer-3.0.0/ui-files
-ARG smlog3=/var/log/saltworks/saltminer-3.0.0
-ARG ARTIFACT_PATH=.
+smapp=/opt/saltworks/saltminer/app
+smcfg=/opt/saltworks/saltminer/config
+smlog=/opt/saltworks/saltminer/logs
+smfiles=/opt/saltworks/saltminer/ui-files
+WORKDIR ${smapp}/ui-api
 
-ENV SALTMINER_UI_API_CONFIG_PATH=${smcfg3}
-ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
+ARG ARTIFACT_PATH=.
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
+COPY $ARTIFACT_PATH .
+
+RUN mkdir -p ${smcfg} \
+  && mkdir -p ${smlog}
+
+ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
+ENV SALTMINER_CONFIG_PATH=${smcfg}/ui-api/
 ENV USER=saltminer
 ENV GROUPNAME=$USER
 ENV UID=10000
 ENV GID=10001
 
 # curl is used for healthcheck.
-RUN apk add --no-cache curl jq
-
-RUN mkdir -p ${smcfg3} \
-  && mkdir -p ${smlog3} \
+RUN apk add --no-cache curl \
+  && mkdir -p ${smcfg} \
+  && mkdir -p ${smlog} \
   && mkdir -p ${smfiles}
-
-WORKDIR /usr/share/saltworks/saltminer-3.0.0/ui-api
 
 RUN addgroup \
     --gid "$GID" \
@@ -37,18 +41,10 @@ RUN addgroup \
     --uid "$UID" \
     $USER
 
-COPY $ARTIFACT_PATH .
-
-RUN mv appsettings.json ${smcfg3} 
-
 RUN chown -R $USER:$GROUPNAME . \
-  && chown -R $USER:$GROUPNAME ${smcfg3} \
+  && chown -R $USER:$GROUPNAME ${smcfg} \
   && chown -R $USER:$GROUPNAME ${smfiles} \
-  && chown -R $USER:$GROUPNAME ${smlog3} \
-  && mkdir /scripts \
-  && mv config-ui-api.sh /scripts \
-  && chown -R $USER:$USER /scripts \
-  && chmod u+x /scripts/config-ui-api.sh
+  && chown -R $USER:$GROUPNAME ${smlog} \
 
 EXPOSE 5001
 

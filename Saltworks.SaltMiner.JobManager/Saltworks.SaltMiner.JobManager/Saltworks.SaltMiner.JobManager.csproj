@@ -48,7 +48,7 @@
     <None Update="JobManagerSettings.VM4.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="JobManagerSettings.json">
+    <None Update="appsettings-default.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="JobManagerSettings.VM2.json">
@@ -63,7 +63,7 @@
     <None Update="Template\Saltworks\MergeFields.docx">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Template\Saltworks\SaltworksTemplate.docx">
+    <None Update="TemplateDefaults\Saltworks\SaltworksTemplate.docx">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>

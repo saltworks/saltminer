@@ -25,7 +25,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Saltworks.SaltMiner.ConfigurationWizard;
 using Saltworks.SaltMiner.ConsoleApp.Core;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Util;
@@ -53,12 +52,15 @@ namespace Saltworks.SaltMiner.DataApi
 {
     public static class Program
     {
-        private const string API_SETTINGS_FILE = "appsettings.json";
-        private const string API_CONFIG_SECTION = "ApiConfig";
-        const string LOCATOR_FILE_NAME = "ConfigLocator.json";
-        const string DUMP_CONFIG_FILE_NAME = "ConfigDump.json";
+        private const string APP_FOLDER = "api";
+        private const string SETTINGS_FILE = "appsettings.json";
+        private const string DEFAULT_SETTINGS_FILE = "appsettings-default.json";
+        private const string CONFIG_SECTION = "ApiConfig";
+        private const string ELASTIC_CONNECT_STRING = "ELASTICSEARCH_CONNECTION_STRING";
+        private const string JE = ".json";
         private static bool KestrelAllowRemote = false;
         private static int KestrelPort = 5000;
+
 
         public static async Task<int> Main(string[] args)
         {
@@ -76,18 +78,6 @@ namespace Saltworks.SaltMiner.DataApi
                 HandleMain(args);
             });
 
-            //Config Wizard CMD
-            var configWizardVerb = new Command("configwizard", "Configuration wizard to create or edit.");
-
-            //Config Wizard SUB CMD
-            var configWizardMainVerb = new Command("main", "Creates and updates main Manager Configuration.");
-            configWizardMainVerb.SetHandler(() =>
-            {
-                HandleConfigWizard();
-            });
-
-            configWizardVerb.Add(configWizardMainVerb);
-
             //Version CMD
             var verisonVerb = new Command("version", "Reports build version for the application.");
             verisonVerb.SetHandler(() =>
@@ -95,53 +85,7 @@ namespace Saltworks.SaltMiner.DataApi
                 HandleVersion();
             });
 
-            //Crypto CMD
-            var cryptoVerb = new Command("crypto", "Encryption helper");
-
-            //Crypto Generate SUB CMD
-            const string VTG = "Value to Generate";
-            var cryptoGenerateVerb = new Command("Generate", "Generates up to 5 values given those values using the configured Generateion keys.");
-            var cryptoGenerateArgument1 = new Argument<string>("value1", VTG);
-            var cryptoGenerateArgument2 = new Argument<string>("value2", VTG);
-            var cryptoGenerateArgument3 = new Argument<string>("value3", VTG);
-            var cryptoGenerateArgument4 = new Argument<string>("value4", VTG);
-            var cryptoGenerateArgument5 = new Argument<string>("value5", VTG);
-           
-            cryptoGenerateVerb.Add(cryptoGenerateArgument1);
-            cryptoGenerateVerb.Add(cryptoGenerateArgument2);
-            cryptoGenerateVerb.Add(cryptoGenerateArgument3);
-            cryptoGenerateVerb.Add(cryptoGenerateArgument4);
-            cryptoGenerateVerb.Add(cryptoGenerateArgument5);
-            cryptoGenerateVerb.SetHandler((value1, value2, value3, value4, value5) =>
-            {
-                HandleCryptoGenerate(value1, value2, value3, value4, value5);
-            }, cryptoGenerateArgument1, cryptoGenerateArgument2, cryptoGenerateArgument3, cryptoGenerateArgument4, cryptoGenerateArgument5);
-
-            //Crypto Encrypt SUB CMD
-            const string VTE = "Value to encrypt.";
-            var cryptoEncryptVerb = new Command("encrypt", "Encrypts up to 5 values given those values using the configured encryption keys.");
-            var cryptoEncryptArgument1 = new Argument<string>("value1", VTE);
-            var cryptoEncryptArgument2 = new Argument<string>("value2", VTE);
-            var cryptoEncryptArgument3 = new Argument<string>("value3", VTE);
-            var cryptoEncryptArgument4 = new Argument<string>("value4", VTE);
-            var cryptoEncryptArgument5 = new Argument<string>("value5", VTE);
-           
-            cryptoEncryptVerb.Add(cryptoEncryptArgument1);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument2);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument3);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument4);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument5);
-            cryptoEncryptVerb.SetHandler((value1, value2, value3, value4, value5) =>
-            {
-                HandleCryptoEncrypt(value1, value2, value3, value4, value5);
-            }, cryptoEncryptArgument1, cryptoEncryptArgument2, cryptoEncryptArgument3, cryptoEncryptArgument4, cryptoEncryptArgument5);
-
-            cryptoVerb.Add(cryptoGenerateVerb);
-            cryptoVerb.Add(cryptoEncryptVerb);
-
             cmd.Add(mainVerb);
-            cmd.Add(configWizardVerb);
-            cmd.Add(cryptoVerb);
             cmd.Add(verisonVerb);
 
             return await cmd.InvokeAsync(args);
@@ -530,7 +474,6 @@ namespace Saltworks.SaltMiner.DataApi
         private static void ProcessIndexPolicies(ApiConfig config, IElasticClient client)
         {
             var failMsg = "Failed to list index policy path files";
-            const string JE = ".json";
             // Index Policies
             try
             {
@@ -572,7 +515,6 @@ namespace Saltworks.SaltMiner.DataApi
         {
             // Index Templates
             var failMsg = "Failed to list index template path files";
-            const string JE = ".json";
             try
             {
                 var dir = GetDirectory(config.DataIndexTemplatePath);
@@ -614,7 +556,6 @@ namespace Saltworks.SaltMiner.DataApi
         private static void ProcessSeeds(ApiConfig config, IElasticClient client)
         {
             var failMsg = "Failed to list seed path files";
-            const string JE = ".json";
             // Seeds
             try
             {
@@ -675,7 +616,6 @@ namespace Saltworks.SaltMiner.DataApi
 
         private static void ProcessRoles(ApiConfig config, IElasticClient client)
         {
-            const string JE = ".json";
             var failMsg = "Failed to list role path files";
             // Roles
             try
@@ -718,7 +658,6 @@ namespace Saltworks.SaltMiner.DataApi
         private static void ProcessEnrichments(ApiConfig config, IElasticClient client)
         {
             var failMsg = "Failed to list enrichment path files";
-            const string JE = ".json";
             // Enrichments
             try
             {
@@ -777,7 +716,6 @@ namespace Saltworks.SaltMiner.DataApi
 
         private static void ProcessPipelines(ApiConfig config, IElasticClient client)
         {
-            const string JE = ".json";
             var failMsg = "Failed to list ingest pipeline path files";
             // Ingest pipelines
             try
@@ -847,35 +785,22 @@ namespace Saltworks.SaltMiner.DataApi
 
         private static ApiConfig InitConfigAndLogging()
         {
-            var env = Environment.GetEnvironmentVariable("SALTMINER_ENVIRONMENT");
-            if (string.IsNullOrEmpty(env))
-            {
-                env = Guid.NewGuid().ToString();  // prevent env settings overwrite
-            }
-
-            // Determine config location and log it
-            var configFileSettings = ConsoleAppUtils.DetermineConfigFilePath("appsettings.json", LOCATOR_FILE_NAME, Environment.GetEnvironmentVariable("SALTMINER_API_CONFIG_PATH"), DUMP_CONFIG_FILE_NAME);
-            var fullPathSettingsFile = configFileSettings;
-            // assume SettingsFile ends with .json - lop that off in a variable that doesn't change the case of the filename
-            var sf = fullPathSettingsFile[0..^5];
+            var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, DEFAULT_SETTINGS_FILE, APP_FOLDER);
+            var configPath = Path.GetDirectoryName(configFilePath);
 
             // Create IConfiguration to use temporarily for logging and kestrel config
             var configuration = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile(fullPathSettingsFile, optional: false, reloadOnChange: false)
-                .AddJsonFile($"{sf}.{env}.json", optional: true, reloadOnChange: false)
+                .AddJsonFile(configFilePath, optional: false, reloadOnChange: false)
                 .Build();
 
             // Get kestrel options from config
-            if (configuration.GetSection(API_CONFIG_SECTION).Exists())
+            if (configuration.GetSection(CONFIG_SECTION).Exists())
             {
-                KestrelAllowRemote = configuration.GetSection(API_CONFIG_SECTION).GetValue<bool>("KestrelAllowRemote");
-                KestrelPort = configuration.GetSection(API_CONFIG_SECTION).GetValue<int>("KestrelPort");
-
+                KestrelAllowRemote = configuration.GetSection(CONFIG_SECTION).GetValue<bool>("KestrelAllowRemote");
+                KestrelPort = configuration.GetSection(CONFIG_SECTION).GetValue<int>("KestrelPort");
                 if (KestrelPort <= 0)
-                {
                     KestrelPort = 5000;
-                }
             }
 
             // Set Serilog to write stuff to trace if it encounters errors internally
@@ -888,10 +813,15 @@ namespace Saltworks.SaltMiner.DataApi
                 .CreateLogger();
 
             Log.Debug("Current directory: {Dir}", Directory.GetCurrentDirectory());
-
-            configuration.Providers.First().Set("FullPathSettingsFile", fullPathSettingsFile);
-
-            return new ApiConfig(configuration, configuration.GetValue<string>("FullPathSettingsFile"));
+            configuration.Providers.First().Set("FullPathSettingsFile", configPath);
+            var config =new ApiConfig(configuration, configuration.GetValue<string>("FullPathSettingsFile"));
+            var configString = Environment.GetEnvironmentVariable(ELASTIC_CONNECT_STRING);
+            if (!string.IsNullOrEmpty(configString))
+            {
+                Log.Information("Overriding Elastic connection settings from environment variable '{VarName}'", ELASTIC_CONNECT_STRING);
+                config.ElasticConnectionString = configString;
+            }
+            return config;
         }
 
         #endregion
@@ -966,19 +896,13 @@ namespace Saltworks.SaltMiner.DataApi
             }
         }
 
-        private static void HandleConfigWizard()
-        {
-            var wizard = new ConfigurationWizard<ApiConfig>();
-            wizard.Run(API_SETTINGS_FILE);
-        }
-
         private static void HandleVersion()
         {
             var file = "version.txt";
 
             if (File.Exists(file))
             {
-                Console.WriteLine("Manager version: " + File.ReadAllText(file));
+                Console.WriteLine("App version: " + File.ReadAllText(file));
             }
             else
             {
@@ -1025,7 +949,7 @@ namespace Saltworks.SaltMiner.DataApi
         {
             ApiConfig config = new();
 
-            ConsoleAppUtils.BindConfigFromSettingsFile(API_SETTINGS_FILE, config, API_CONFIG_SECTION);
+            ConsoleAppUtils.BindConfigFromSettingsFile(SETTINGS_FILE, config, CONFIG_SECTION);
 
             if (string.IsNullOrEmpty(config.EncryptionKey) || string.IsNullOrEmpty(config.EncryptionIv))
             {

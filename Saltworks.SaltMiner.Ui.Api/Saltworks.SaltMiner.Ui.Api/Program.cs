@@ -22,7 +22,6 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.OpenApi;
 using Saltworks.SaltMiner.Ui.Api.Contexts;
 using Saltworks.SaltMiner.ConsoleApp.Core;
-using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.DataClient;
 using Serilog;
 using System.CommandLine;
@@ -39,14 +38,11 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 namespace Saltworks.SaltMiner.Ui.Api;
 public static class Program
 {
-    private const string API_SETTINGS_FILE = "appsettings.json";
-    const string LOCATOR_FILE_NAME = "ConfigLocator.json";
-    const string DUMP_CONFIG_FILE_NAME = "ConfigDump.json";
-    private const string API_SETTINGS_APP_SECTION = "UiApiConfig";
-    private const string API_SETTINGS_LOG_SECTION = "LogConfig";
-    private const string CONFIG_ENV_VARIABLE = "SALTMINER_UI_API_CONFIG_PATH";
-
-    private static string _filePath;
+    private const string APP_FOLDER = "ui-api";
+    private const string SETTINGS_FILE = "appsettings.json";
+    private const string DEFAULT_SETTINGS_FILE = "appsettings-default.json";
+    private const string SETTINGS_APP_SECTION = "UiApiConfig";
+    private const string SETTINGS_LOG_SECTION = "LogConfig";
 
     public static async Task<int> Main(string[] args)
     {
@@ -65,7 +61,6 @@ public static class Program
             HandleMain(args);
         });
 
-
         //Version CMD
         var versionVerb = new Command("version", "Reports build version for the application.");
 
@@ -74,36 +69,6 @@ public static class Program
             HandleVersion();
         });
 
-        //Crypto CMD
-        var cryptoVerb = new Command("crypto", "Encryption helper");
-
-        //Crypto Generate SUB CMD
-        var cryptoGenerateVerb = new Command("generate", "Generate a new set of encryption keys.");
-        cryptoGenerateVerb.SetHandler(() =>
-        {
-            HandleCryptoGenerate();
-        });
-
-        //Crypto Encrypt SUB CMD
-        var cryptoEncryptVerb = new Command("encrypt", "Encrypts up to 5 values given those values using the configured encryption keys.");
-        var cryptoEncryptArgument1 = new Argument<string>("value1", "Value to encrypt.");
-        var cryptoEncryptArgument2 = new Argument<string>("value2", "Value to encrypt.");
-        var cryptoEncryptArgument3 = new Argument<string>("value3", "Value to encrypt.");
-        var cryptoEncryptArgument4 = new Argument<string>("value4", "Value to encrypt.");
-        var cryptoEncryptArgument5 = new Argument<string>("value5", "Value to encrypt.");
-        cryptoEncryptVerb.Add(cryptoEncryptArgument1);
-        cryptoEncryptVerb.Add(cryptoEncryptArgument2);
-        cryptoEncryptVerb.Add(cryptoEncryptArgument3);
-        cryptoEncryptVerb.Add(cryptoEncryptArgument4);
-        cryptoEncryptVerb.Add(cryptoEncryptArgument5);
-        cryptoEncryptVerb.SetHandler((value1, value2, value3, value4, value5) =>
-        {
-            HandleCryptoEncrypt(value1, value2, value3, value4, value5);
-        }, cryptoEncryptArgument1, cryptoEncryptArgument2, cryptoEncryptArgument3, cryptoEncryptArgument4, cryptoEncryptArgument5);
-
-        cryptoVerb.Add(cryptoGenerateVerb);
-        cryptoVerb.Add(cryptoEncryptVerb);
-
         //CleanUp CMD
         var cleanUpVerb = new Command("cleanup", "Runs clean up processor that deletes old attachment files.");
         cleanUpVerb.SetHandler(() =>
@@ -111,12 +76,9 @@ public static class Program
             HandleCleanUp(args);
         });
 
-
         cmd.Add(mainVerb);
         cmd.Add(versionVerb);
-        cmd.Add(cryptoVerb);
         cmd.Add(cleanUpVerb);
-
 
         return await cmd.InvokeAsync(args);
     }
@@ -302,32 +264,21 @@ public static class Program
 
     private static void HandleMain(string[] args)
     {
-        var env = Environment.GetEnvironmentVariable("SALTMINER_ENVIRONMENT");
-        if (string.IsNullOrEmpty(env))
-        {
-            env = "blahblahneverfoundsorrydude";
-        }
-
-        // Determine config location and log it
-        var configFileSettings = ConsoleAppUtils.DetermineConfigFilePath("appsettings.json", LOCATOR_FILE_NAME, Environment.GetEnvironmentVariable("SALTMINER_UI_API_CONFIG_PATH") ?? "", DUMP_CONFIG_FILE_NAME);
-        var fullPathSettingsFile = configFileSettings;
-        // assume SettingsFile ends with .json - lop that off in a variable that doesn't change the case of the filename
-        var sf = fullPathSettingsFile[0..^5];
+        var configFilePath = GetConfigFilePath();
 
         // Create IConfiguration to use temporarily for logging and kestrel config
         var configuration = new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
-            .AddJsonFile(fullPathSettingsFile, optional: false, reloadOnChange: true)
-            .AddJsonFile($"{sf}.{env}.json", optional: true, reloadOnChange: true)
+            .AddJsonFile(configFilePath, optional: false, reloadOnChange: false)
             .Build();
 
         // Get kestrel options from config
         var kar = false;
         var kp = 5001;
-        if (configuration.GetSection(API_SETTINGS_APP_SECTION).Exists())
+        if (configuration.GetSection(SETTINGS_APP_SECTION).Exists())
         {
-            kar = configuration.GetSection(API_SETTINGS_APP_SECTION).GetValue<bool>("KestrelAllowRemote");
-            kp = configuration.GetSection(API_SETTINGS_APP_SECTION).GetValue<int>("KestrelPort");
+            kar = configuration.GetSection(SETTINGS_APP_SECTION).GetValue<bool>("KestrelAllowRemote");
+            kp = configuration.GetSection(SETTINGS_APP_SECTION).GetValue<int>("KestrelPort");
             if (kp <= 0)
                 kp = 5001;
         }
@@ -336,18 +287,16 @@ public static class Program
         Serilog.Debugging.SelfLog.Enable(msg => Trace.TraceInformation(msg));
         // Configure main Serilog logger
         Log.Logger = new LoggerConfiguration()
-            .ReadFrom.Configuration(configuration.GetSection(API_SETTINGS_LOG_SECTION))
+            .ReadFrom.Configuration(configuration.GetSection(SETTINGS_LOG_SECTION))
             .Enrich.WithProperty("App Name", "Saltworks.SaltMiner.Ui.Api")
             .CreateLogger();
-
-        configuration.Providers.First().Set("FullPathSettingsFile", fullPathSettingsFile);
 
         try
         {
             Log.Information("Starting web application");
             // Main web host builder - configure, build, and run
 
-            var config = new UiApiConfig(configuration, configuration.GetValue<string>("FullPathSettingsFile"));
+            var config = new UiApiConfig(configuration, configFilePath);
             var builder = WebApplication.CreateBuilder(args);
             builder.WebHost.ConfigureKestrel(o => {
                 if (kar)
@@ -389,64 +338,51 @@ public static class Program
         }
     }
 
-    private static void HandleCryptoGenerate()
-    {
-        var key = Crypto.GenerateKeyIv();
-
-        Console.Out.WriteLine("The keys shown below can be used to configure encryption in the settings for this application.");
-        Console.Out.WriteLine($"Encryption Key: {key.Item1}\nEncryption IV: {key.Item2}");
-    }
-
-    private static void HandleCryptoEncrypt(string value1, string value2, string value3, string value4, string value5)
-    {
-        UiApiConfig config = new();
-
-        ConsoleAppUtils.BindConfigFromSettingsFile(API_SETTINGS_FILE, config, API_SETTINGS_APP_SECTION);
-
-        if (string.IsNullOrEmpty(config.EncryptionKey) || string.IsNullOrEmpty(config.EncryptionIv))
-        {
-            Console.Error.WriteLine("Encryption keys not present or empty in configuration file.  Please set them first.");
-            return;
-        }
-
-        var crypto = new Crypto(config.EncryptionKey, config.EncryptionIv);
-        Console.WriteLine($"Encrypted value1: {crypto.Encrypt(value1)}");
-
-        if (!string.IsNullOrEmpty(value2))
-        {
-            Console.WriteLine($"Encrypted value2: {crypto.Encrypt(value2)}");
-        }
-
-        if (!string.IsNullOrEmpty(value3))
-        {
-            Console.WriteLine($"Encrypted value3: {crypto.Encrypt(value3)}");
-        }
-
-        if (!string.IsNullOrEmpty(value4))
-        {
-            Console.WriteLine($"Encrypted value4: {crypto.Encrypt(value4)}");
-        }
-
-        if (!string.IsNullOrEmpty(value5))
-        {
-            Console.WriteLine($"Encrypted value5: {crypto.Encrypt(value5)}");
-        }
-    }
-
     private static void HandleCleanUp(string[] args)
     {
-        _filePath = ConsoleAppUtils.DetermineConfigFilePath(API_SETTINGS_FILE, LOCATOR_FILE_NAME, Environment.GetEnvironmentVariable(CONFIG_ENV_VARIABLE) ?? "", DUMP_CONFIG_FILE_NAME);
+        var configFilePath = GetConfigFilePath();
 
         UiApiConfig config = new();
-        ConsoleAppUtils.BindConfigFromSettingsFile(_filePath, config, API_SETTINGS_APP_SECTION);
+        ConsoleAppUtils.BindConfigFromSettingsFile(configFilePath, config, SETTINGS_APP_SECTION);
 
         var consoleArgs = ConsoleAppHostArgs.Create(args);
         ConfigureConsoleApp(consoleArgs);
     }
 
+    private static string GetConfigFilePath()
+    {
+        // Determine config location
+        var configPath = ConsoleAppUtils.DetermineConfigPath();
+        var configFilePath = Path.Join(configPath, APP_FOLDER, SETTINGS_FILE);
+
+        // Default config if needed
+        if (!File.Exists(configFilePath))
+        {
+            Console.WriteLine($"Configuration file not found at path '{configFilePath}', attempting to create using default settings.");
+            var defaultConfigFilePath = Path.Join(Directory.GetCurrentDirectory(), DEFAULT_SETTINGS_FILE);
+            try
+            {
+                if (File.Exists(defaultConfigFilePath))
+                    File.Copy(defaultConfigFilePath, configFilePath);
+                else
+                    Console.WriteLine($"Default configuration file '{DEFAULT_SETTINGS_FILE}' not found in application directory '{Directory.GetCurrentDirectory()}'.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to create default configuration file at '{configFilePath}'. {ex.Message}");
+            }
+        }
+        if (!File.Exists(configFilePath))
+        {
+            throw new ConfigurationException($"Configuration file not found ('{configFilePath}').");
+        }
+        return configFilePath;
+    }
+
     private static void ConfigureConsoleApp(IConsoleAppHostArgs args)
     {
         Microsoft.Extensions.Logging.ILogger startLogger = null;
+        var configFilePath = GetConfigFilePath();
         try
         {
             ConsoleAppHostBuilder.CreateDefaultConsoleAppHost<ConsoleApp>
@@ -455,7 +391,7 @@ public static class Program
                 {
                     try
                     {
-                        var apiConfig = new UiApiConfig(config, _filePath, true);
+                        var apiConfig = new UiApiConfig(config, configFilePath, true);
                         services.AddSingleton(apiConfig);
 
                         services.AddTransient<CleanUpProcessor>();
@@ -491,9 +427,9 @@ public static class Program
                         throw new UiApiException(msg, ex);
                     }
                 },
-                _filePath,
-                API_SETTINGS_APP_SECTION,
-                API_SETTINGS_LOG_SECTION
+                configFilePath,
+                SETTINGS_APP_SECTION,
+                SETTINGS_LOG_SECTION
             ).Run(args);
         }
         catch (Exception ex)

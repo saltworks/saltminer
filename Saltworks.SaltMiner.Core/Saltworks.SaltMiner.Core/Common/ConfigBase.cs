@@ -38,25 +38,51 @@ namespace Saltworks.SaltMiner.Core.Common
         private bool DecryptedStuffAlready = false;
 
 
+        private static Tuple<object, JsonObject> GetConfigSection(object configObj, JsonObject doc, string configPath)
+        {
+            int i = 0;
+            var propertyNames = configPath.Split(".");
+            foreach (var prop in propertyNames)
+            {
+                i++;
+                try
+                {
+                    if (doc.TryGetPropertyValue(prop, out JsonNode node))
+                        doc = node.AsObject();
+                    if (i > 1) // don't get first property (root) for config class..already on it
+                        configObj = configObj.GetType().GetProperty(prop).GetValue(configObj);
+                }
+                catch
+                {
+                    throw new ConfigBaseException($"The property {prop} does not exist in the {configObj.GetType().Name} config. Cannot check the encryption value");
+                }
+            }
+            return new(configObj, doc);
+        }
+
         /// <summary>
         /// Looks for properties ending in any suffix in the EncryptedPropertySuffixes array (not case sensitive) and attempts to encrypt them
         /// and update the config file with the encrypted value
         /// </summary>
-        protected void CheckEncryption(object obj, string configFilePath, string configPath = "")
+        protected void CheckEncryption(object configObj, string configFilePath, string configPath = "")
         {
+            var dirty = false;
             if (EncryptedPropertySuffixes == null || EncryptedPropertySuffixes.Length == 0)
-            {
-                EncryptedPropertySuffixes = new string[] { "password", "secret", "apikey", "token" };
-            }
+                EncryptedPropertySuffixes = [ "password", "secret", "apikey", "token" ];
 
-            if (obj is not ConfigBase)
-            {
-                throw new ConfigBaseException("Just send in the derived ConfigBase object, not whatever that was.");
-            }
+            if (configObj is not ConfigBase)
+                throw new ConfigBaseException($"Need an object derived from ConfigBase, not whatever that was ({configObj.GetType().Name}?).");
 
-            if (string.IsNullOrEmpty(EncryptionIv) || string.IsNullOrEmpty(EncryptionKey) || string.IsNullOrEmpty(EncryptionTag))
+            if (string.IsNullOrEmpty(EncryptionTag))
+                throw new ConfigBaseException("EncryptionTag missing or invalid.");
+
+            // if encryption info missing, generate it
+            if (string.IsNullOrEmpty(EncryptionIv) || string.IsNullOrEmpty(EncryptionKey))
             {
-                throw new ConfigBaseException("Found one or more properties that may be encrypted, but Encryption Key , IV, or Tag missing.");
+                var key = Crypto.GenerateKeyIv();
+                EncryptionKey = key.Item1;
+                EncryptionIv = key.Item2;
+                dirty = true;
             }
 
             using (var c = new Crypto(EncryptionKey, EncryptionIv))
@@ -64,47 +90,25 @@ namespace Saltworks.SaltMiner.Core.Common
                 var configString = File.ReadAllText(configFilePath);
                 var root = JsonNode.Parse(configString).Root.AsObject();
 
-                //set the current root and config obj
+                // set the current root and config configObj
                 JsonObject doc = root;
-                object configSection = obj;
+                object configSection = configObj;
 
-                JsonNode node;
 
                 // if the configPath is empty, just use the base objects set above
                 // otherwise traverse to the nested section by the configPath (ex: MainConfig.NestedConfig)
                 if (configPath != "")
                 {
-                    int i = 0;
-                    var propertyNames = configPath.Split(".");
-                    foreach (var prop in propertyNames)
-                    {
-                        i++;
-                        try
-                        {
-                            if (doc.TryGetPropertyValue(prop, out node))
-                            {
-                                doc = node.AsObject();
-                            }
-                            if (i > 1) //don't get first property (root) for config class..already on it
-                            {
-                                configSection = configSection.GetType().GetProperty(prop).GetValue(configSection);
-                            }
-                        }
-                        catch
-                        {
-                            throw new ConfigBaseException($"The property {prop} does not exist in the {obj.GetType().Name} config. Cannot check the encryption value");
-                        }
-                    }
+                    var result = GetConfigSection(configObj, doc, configPath);
+                    configSection = result.Item1;
+                    doc = result.Item2;
                 }
 
                 var lst = configSection.GetType()
                     .GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-                    .Where(p => EncryptedPropertySuffixes.Any(s => p.Name.ToLower().EndsWith(s, StringComparison.OrdinalIgnoreCase)) && p.PropertyType.Name.Equals("string", StringComparison.OrdinalIgnoreCase) && !NoEncryptProperties.Contains(p.Name));
-
-                if (!lst.Any())
-                {
-                    return;
-                }
+                    .Where(p => EncryptedPropertySuffixes.Any(s => p.Name.ToLower().EndsWith(s, StringComparison.OrdinalIgnoreCase)) && 
+                        p.PropertyType.Name.Equals("string", StringComparison.OrdinalIgnoreCase) && 
+                        !NoEncryptProperties.Contains(p.Name));
 
                 foreach (var p in lst)
                 {
@@ -116,6 +120,7 @@ namespace Saltworks.SaltMiner.Core.Common
                             var encryptedValue = $"{EncryptionTag}: {c.Encrypt(v)}";
                             p.SetValue(configSection, encryptedValue);
                             doc[p.Name] = encryptedValue;
+                            dirty = true;
                         }
                     }
                     catch (CryptoException ex)
@@ -124,7 +129,8 @@ namespace Saltworks.SaltMiner.Core.Common
                     }
                 }
 
-                File.WriteAllText(configFilePath, root.AsObject().ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                if (dirty)
+                    File.WriteAllText(configFilePath, root.AsObject().ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             }
         }
 
@@ -134,28 +140,20 @@ namespace Saltworks.SaltMiner.Core.Common
         protected void DecryptProperties(object obj)
         {
             if (DecryptedStuffAlready)
-            {
                 return;
-            }
 
-            if (!(obj is ConfigBase))
-            {
+            if (obj is not ConfigBase)
                 throw new ConfigBaseException("Just send in the derived ConfigBase object, not whatever that was.");
-            }
             
             var lst = obj.GetType()
                 .GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
                 .Where(p => EncryptedPropertySuffixes.Any(s => p.Name.ToLower().EndsWith(s.ToLower())) && p.PropertyType.Name.ToLower() == "string");
 
             if (!lst.Any())
-            {
                 return;
-            }
 
             if (string.IsNullOrEmpty(EncryptionIv) || string.IsNullOrEmpty(EncryptionKey) || string.IsNullOrEmpty(EncryptionTag))
-            {
-                throw new ConfigBaseException("Found one or more properties that may be decrypted, but Encryption Key , IV, or Tag missing.");
-            }
+                throw new ConfigBaseException("Found one or more properties that may need decryption, but Encryption Key , IV, or Tag missing.");
 
             using (var c = new Crypto(EncryptionKey, EncryptionIv))
             {
@@ -176,7 +174,7 @@ namespace Saltworks.SaltMiner.Core.Common
             DecryptedStuffAlready = true;
         }
 
-        protected string RewriteConfigNode(string fileContents, string node, string json)
+        protected static string RewriteConfigNode(string fileContents, string node, string json)
         {
             var data = JsonNode.Parse(fileContents).AsObject();
             data.Remove(node);
@@ -185,26 +183,18 @@ namespace Saltworks.SaltMiner.Core.Common
         }
     }
 
-    [Serializable]
+
     public class ConfigBaseException : Exception
     {
         public ConfigBaseException() { }
         public ConfigBaseException(string message) : base(message) { }
         public ConfigBaseException(string message, Exception inner) : base(message, inner) { }
-        protected ConfigBaseException(
-          System.Runtime.Serialization.SerializationInfo info,
-          System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
     }
 
-
-    [Serializable]
     public class ConfigBaseEncryptionException : ConfigBaseException
     {
         public ConfigBaseEncryptionException() { }
         public ConfigBaseEncryptionException(string message) : base(message) { }
         public ConfigBaseEncryptionException(string message, Exception inner) : base(message, inner) { }
-        protected ConfigBaseEncryptionException(
-          System.Runtime.Serialization.SerializationInfo info,
-          System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
     }
 }

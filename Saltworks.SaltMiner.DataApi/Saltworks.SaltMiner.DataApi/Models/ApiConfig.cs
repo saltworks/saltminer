@@ -48,6 +48,7 @@ public class ApiConfig: ConfigBase
 
     public string TemplateToVerify { get; set; } = "queue_asset";
     public string KibanaBaseUrl { get; set; } = "http://localhost:5601";
+    public string ElasticConnectionString { get; set; }
     public string ElasticHttpScheme { get; set; } = "http";
     public string ElasticHost { get; set; }
     public int ElasticPort { get; set; } = 9200;
@@ -55,6 +56,8 @@ public class ApiConfig: ConfigBase
     public string ElasticDefaultPagingTimeout { get; set; } = "10s";
     public string ElasticUsername { get; set; }
     public string ElasticPassword { get; set; }
+    public string ElasticApiKeyId { get; set; }
+    public string ElasticApiKeySecret { get; set; }
     public bool ElasticEnableDiagnosticInfo { get; set; } = false;
     public bool ElasticEnableBulkAddDiagnosticInfo { get; set; } = false;
     public string ElasticBackupRepoName { get; set; } = "saltminer_repo";
@@ -87,7 +90,7 @@ public class ApiConfig: ConfigBase
     public string DataIngestPipelinePath { get; set; } = "./data/ingest-pipelines";
     public string DataIndexPolicyPath { get; set; } = "./data/index-policies";
     public string DataIssueIndexDefaultAlias { get; set; } = "{ \"actions\": [ { \"add\": { \"index\": \"[indexName]\", \"alias\": \"issues_active_app\", \"filter\": { \"bool\": { \"must\": [ { \"term\": { \"vulnerability.is_active\": true } }, { \"term\": { \"saltminer.is_historical\": false } } ] } } } } ] }";
-    public static string IndexVersion => "3.3.0";
+    public static string IndexVersion => "3.5.0";
     public string IssuesActiveAlias { get; set; } = @"{ ""actions"": [ { ""add"": { ""index"": ""issues_[assetType]_[sourceType]"", ""alias"": ""issues_active_[assetType]"", ""filter"": { ""term"": { ""vulnerability.is_active"": true } } } } ] }";
     public bool DisableUpgradeRunner { get; set; } = true;
     /// <summary>

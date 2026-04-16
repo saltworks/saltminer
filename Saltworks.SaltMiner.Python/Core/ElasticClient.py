@@ -40,6 +40,8 @@ from .DictUtils import DictUtils
 class ElasticClient(object):
     """ Elasticsearch client class """
     RETRY_LIMIT_ERROR = "Elastic client operation failed after maximum retry attempts due to connection errors."
+    ELASTIC_CONNECT_STR_ENV = "ELASTICSEARCH_CONNECTION_STRING"
+    ELASTIC_CONNECT_STR_CONFIG = "ConnectionString"
 
     def __init__(self, appSettings, configName="Elastic"):
         '''
@@ -90,7 +92,7 @@ class ElasticClient(object):
 
         Returns a dict with the decoded values.
         '''
-        connectionString = appSettings.Get(configName, 'ConnectionString', "")
+        connectionString = appSettings.Get(configName, self.ELASTIC_CONNECT_STR_CONFIG, "")
         if len(connectionString) == 0:
             return None
         known_parts = ['host', 'port', 'scheme', 'username', 'password', 'sslverify', 'cloudid', 'apikeyid', 'apikeyvalue', 'useauth']

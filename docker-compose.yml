@@ -1,0 +1,208 @@
+# Inspiration:
+# https://www.elastic.co/guide/en/elastic-stack-get-started/7.17/get-started-docker.html#get-started-docker-tls
+services:
+  sm-nginx:
+    image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_NGINX_IMAGE_VERSION}
+    container_name: sm-nginx
+    ports:
+    - "80:80"
+    - "443:443"
+    volumes:
+    - type: bind
+      source: /etc/saltworks/saltminer/nginx/
+      target: /opt/saltworks/saltminer/nginx/
+#      read_only: true
+    - smpgui-assets:/usr/share/saltworks/saltminer-3.0.0/ui-web
+    environment:
+    - KIBANA_URL=${KIBANA_URL}
+    - KIBANA_HOST=${KIBANA_HOST}
+    networks:
+    - ${CONTAINER_NETWORK}
+    restart: "always"
+    depends_on:
+      ui-api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1gb
+        reservations:
+          memory: 100mb
+
+  api:
+    image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_API_IMAGE_VERSION}
+    container_name: api
+    expose:
+    - "5000"
+    volumes:
+    - /opt/saltworks/saltminer/config:/opt/saltworks/saltminer/config
+    - /opt/saltworks/saltminer/logs:/opt/saltworks/saltminer/logs
+    - /opt/saltworks/saltminer/config/api/data:/opt/saltworks/saltminer/app/api/data
+    environment:
+    - ELASTICSEARCH_CONNECTION_STRING=${ELASTICSEARCH_CONNECTION_STRING}
+    - KIBANA_URL=${KIBANA_URL}
+    networks:
+    - ${CONTAINER_NETWORK}
+    restart: "always"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s http://localhost:5000/utility/version | grep -q '\"success\":true'",
+        ]
+      start_period: 300s
+    deploy:
+      resources:
+        limits:
+          memory: ${API_MEMORY_LIMIT}
+        reservations:
+          memory: 100mb
+    entrypoint: ["/usr/bin/dotnet /opt/saltworks/saltminer/app/api/Saltworks.SaltMiner.DataApi.dll"]
+
+  ui-api:
+    image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_UI_API_IMAGE_VERSION}
+    container_name: ui-api
+    hostname: ui-api
+    expose:
+    - "5001"
+    volumes:
+    - /opt/saltworks/saltminer/config:/opt/saltworks/saltminer/config
+    - /opt/saltworks/saltminer/logs:/opt/saltworks/saltminer/logs
+    - /opt/saltworks/saltminer/app/ui-files:/opt/saltworks/saltminer/app/ui-files
+    environment:
+    - KIBANA_URL=${KIBANA_URL}
+    networks:
+    - ${CONTAINER_NETWORK}
+    restart: "always"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s http://localhost:5001/auth/cookie | grep -q '\"success\":true'",
+        ]
+      start_period: 300s
+    deploy:
+      resources:
+        limits:
+          memory: 1gb
+        reservations:
+          memory: 100mb
+    depends_on:
+      api:
+        condition: service_healthy
+
+  sm-services:
+    image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_SERVICES_IMAGE_VERSION}
+    container_name: sm-services
+    hostname: services
+    volumes:
+    - /opt/saltworks/saltminer/config:/opt/saltworks/saltminer/config
+    - /opt/saltworks/saltminer/logs:/opt/saltworks/saltminer/logs
+    - /opt/saltworks/saltminer/config/python/scripts:/opt/saltworks/saltminer/app/python/scripts
+    - /opt/saltworks/saltminer/config/python/Custom:/opt/saltworks/saltminer/app/python/Custom
+    - /opt/saltworks/saltminer/config/python/Mappings:/opt/saltworks/saltminer/app/python/Mappings
+    - /opt/saltworks/saltminer/config/python/AppVulsCustom:/opt/saltworks/saltminer/app/python/AppVulsCustom
+    - /opt/saltworks/saltminer/config/python/AuthSyncCustom:/opt/saltworks/saltminer/app/python/AuthSyncCustom
+    environment:
+    - ELASTICSEARCH_CONNECTION_STRING=${ELASTICSEARCH_CONNECTION_STRING}
+    networks:
+    - ${CONTAINER_NETWORK}
+    restart: "always"
+    depends_on:
+      api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${SERVICES_MEMORY_LIMIT}
+        reservations:
+          memory: 100mb
+    entrypoint: ["/usr/bin/dotnet", "/opt/saltworks/saltminer/app/servicemanager/Saltworks.SaltMiner.ServiceManager.dll"]
+
+  jobmanager:
+    image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_JOBMANAGER_IMAGE_VERSION}
+    container_name: jobmanager
+    hostname: jobmanager
+    volumes:
+    - type: bind
+      source: /etc/saltworks/saltminer/jobmanager/JobManagerSettings.json
+      target: /etc/saltworks/saltminer-3.0.0/jobmanager/JobManagerSettings.json
+    - ui-files:/usr/share/saltworks/saltminer-3.0.0/ui-files
+    - jobmanager-logs:/var/log/saltworks/saltminer-3.0.0
+    networks:
+    - ${CONTAINER_NETWORK}
+    restart: "always"
+    depends_on:
+      api:
+        condition: service_healthy
+      ui-api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1gb
+        reservations:
+          memory: 50mb
+
+  elastic-agent:
+    image: docker.elastic.co/elastic-agent/elastic-agent:${STACK_VERSION}
+    container_name: elastic-agent
+    hostname: ${ELASTIC_AGENT_HOSTNAME}
+    restart: on-failure:10
+    user: root # note, synthetic browser monitors require this set to `elastic-agent`
+    volumes:
+    - services-logs:/var/log/saltworks/saltminer-3.0.0/services
+    - api-logs:/var/log/saltworks/saltminer-3.0.0/api
+    - jobmanager-logs:/var/log/saltworks/saltminer-3.0.0/jobmanager
+    - agent25-logs:/var/log/saltworks/saltminer-2.5.0
+    - ui-api-logs:/var/log/saltworks/saltminer-3.0.0/ui-api
+    environment:
+    - FLEET_ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
+    - FLEET_ENROLL=1
+    - FLEET_URL=${FLEET_SERVER_URL}
+    - FLEET_INSECURE=1
+    networks:
+    - ${CONTAINER_NETWORK}
+    deploy:
+      resources:
+        limits:
+          memory: 1gb
+        reservations:
+          memory: 500mb
+    depends_on:
+      api:
+        condition: service_healthy
+      ui-api:
+        condition: service_healthy
+      sm-services:
+        condition: service_started
+      jobmanager:
+        condition: service_started
+    profiles:
+    - fleet
+
+volumes:
+  agent25-logs:
+    driver: local
+  api-logs:
+    driver: local
+  certs:
+    driver: local
+  data01:
+    driver: local
+  jobmanager-logs:
+    driver: local
+  kibanadata:
+    driver: local
+  services-logs:
+    driver: local
+  smpgui-assets:
+    driver: local
+  ui-api-logs:
+    driver: local
+  ui-files:
+    driver: local
+
+networks:
+  saltminer:
+    driver: bridge

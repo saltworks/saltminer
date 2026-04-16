@@ -116,16 +116,16 @@ public class CommandJob(ServiceManagerConfig config, ILogger<CommandJob> logger,
             {
                 exePath = Config.DotNetPath;
                 cmdParams = $"{appExePath} {CommandParams}";
-                if (!string.IsNullOrEmpty(Config.ManagerConfigEnvVariableName))
-                    envVars.Add(Config.ManagerConfigEnvVariableName, Config.ManagerConfigEnvVariableValue);
+                if (!string.IsNullOrEmpty(ServiceManagerConfig.ManagerConfigEnvVariableName))
+                    envVars.Add(ServiceManagerConfig.ManagerConfigEnvVariableName, Config.ManagerConfigEnvVariableValue);
             }
 
             if (appExePath.EndsWith("agent.dll", StringComparison.OrdinalIgnoreCase))
             {
                 exePath = Config.DotNetPath;
                 cmdParams = $"{appExePath} {CommandParams}";
-                if (!string.IsNullOrEmpty(Config.SyncAgentConfigEnvVariableName))
-                    envVars.Add(Config.SyncAgentConfigEnvVariableName, Config.SyncAgentConfigEnvVariableValue);
+                if (!string.IsNullOrEmpty(ServiceManagerConfig.SyncAgentConfigEnvVariableName))
+                    envVars.Add(ServiceManagerConfig.SyncAgentConfigEnvVariableName, Config.SyncAgentConfigEnvVariableValue);
             }
 
             if (appExePath.EndsWith("py"))
@@ -133,8 +133,8 @@ public class CommandJob(ServiceManagerConfig config, ILogger<CommandJob> logger,
                 exePath = Config.PythonInterpreter;
                 cmdParams = $"{appExePath} {CommandParams}";
                 var penvPath = Path.GetDirectoryName(Config.PythonVenvActivatePath);
-                if (!string.IsNullOrEmpty(Config.PythonConfigEnvVariableName))
-                    envVars.Add(Config.PythonConfigEnvVariableName, Config.PythonConfigEnvVariableValue);
+                if (!string.IsNullOrEmpty(ServiceManagerConfig.PythonConfigEnvVariableName))
+                    envVars.Add(ServiceManagerConfig.PythonConfigEnvVariableName, Config.PythonConfigEnvVariableValue);
                 envVars.Add("VIRTUAL_ENV", penvPath);
                 envVars.Add("PATH", $"{penvPath}{Path.PathSeparator}{Environment.GetEnvironmentVariable("PATH")}");
             }

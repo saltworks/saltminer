@@ -34,12 +34,17 @@ public class JobManagerConfig : ConfigBase
     /// Binds and decrypts in one easy step! Now with all natural grape flavor!
     /// </summary>
     /// <param name="config"></param>
-    public JobManagerConfig(IConfiguration config, string filePath)
+    /// <param name="configFilePath">Config file path, needed to save encrypted properties</param>
+    /// <param name="configFolder">Config folder path, used for default report template path</param>
+    public JobManagerConfig(IConfiguration config, string configFilePath, string configFolder)
     {
         config.Bind(this);
-        CheckEncryption(this, filePath, "JobManagerConfig");
+        CheckEncryption(this, configFilePath, "JobManagerConfig");
         DecryptProperties(this);
+        if (string.IsNullOrEmpty(ReportTemplateFolderPath))
+            ReportTemplateFolderPath = Path.Join(configFolder, "report-templates");
     }
+
     public string DataApiBaseUrl { get; set; }
     public bool DataApiVerifySsl { get; set; } = true;
     public string DataApiKey { get; set; } = "managersecret";
@@ -58,7 +63,10 @@ public class JobManagerConfig : ConfigBase
     public string EngagementReportNameTemplate { get; set; }
     public string FileRepo { get; set; } = "File";
     public string TemplateRepository { get; set; } = "Templates";
-    public string ReportTemplateFolderPath { get; set; } = "Template";
+    /// <summary>
+    /// Report template folder path, leave blank to have this land in the config folder.
+    /// </summary>
+    public string ReportTemplateFolderPath { get; set; } = "";
     public string ReportOutputFilePath { get; set; } = "Output";
     public int ReportImageMaxWidth { get; set; } = 216;  // In points. 1 inch = 72 pts. 216 = 3 inches in width
     public int ReportImageMaxHeight { get; set; } = 288;  // In points. 1 inch = 72 pts. 288 = 4 inches in height
