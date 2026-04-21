@@ -248,7 +248,7 @@ public class CommandJob(ServiceManagerConfig config, ILogger<CommandJob> logger,
                         Logger.LogError(ex, "[CommandJob] Error while trying to kill the job {JobName}. Error message: {ErrMsg}", jobName, ex.Message);
                     }
                 }
-                await Task.Delay(500);
+                await Task.Delay(TimeSpan.FromSeconds(Config.JobCommandMonitorIntervalSec));
             }
         });
 

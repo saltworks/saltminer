@@ -49,6 +49,7 @@ namespace Saltworks.SaltMiner.ServiceManager
         public int DataApiTimeoutSec { get; set; } = 10;
         public int HeartbeatIntervalSec { get; set; } = 60;
         public int JobMonitoringIntervalSec { get; set; } = 900;
+        public int JobCommandMonitorIntervalSec { get; set; } = 5;
         public string ApplicationPath { get; set; } = string.Empty;
         public string DotNetPath { get; set; } = "dotnet";
         public string PythonInterpreter { get; set; } = "python3";
@@ -57,7 +58,7 @@ namespace Saltworks.SaltMiner.ServiceManager
         public string PythonConfigEnvVariableName { get; set; } = "SALTMINER_2_CONFIG_PATH";
         public string PythonConfigEnvVariableValue { get; set; } = string.Empty;
         public string BashInterpreterPath { get; set; } = "/bin/bash";
-        public string ManagerConfigOption => "Manager";
+        public static string ManagerConfigOption => "Manager";
         public string ManagerConfigEnvVariableName { get; set; } = "SALTMINER_MANAGER_CONFIG_PATH";
         public string ManagerConfigEnvVariableValue { get; set; } = string.Empty;
         public string ManagerExecutablePath { get; set; } = string.Empty;
