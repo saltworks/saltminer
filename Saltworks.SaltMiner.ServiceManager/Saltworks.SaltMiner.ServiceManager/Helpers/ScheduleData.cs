@@ -18,7 +18,7 @@
 * ----
 */
 
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Quartz;
 using Quartz.Impl.Matchers;
 using Saltworks.SaltMiner.Core.Data;
@@ -111,7 +111,7 @@ public class ScheduleData(ILogger<ScheduleData> logger, DataClientFactory<DataCl
         bool updateJob = false;
 
         // Need to get and update next run time from trigger
-        var associatedTriggers = scheduler.GetTriggersOfJob(jobKey, cancelToken).Result;
+        var associatedTriggers = await scheduler.GetTriggersOfJob(jobKey, cancelToken);
         if (associatedTriggers.Count > 0)
         {
             var nextScheduledRunTime = associatedTriggers.FirstOrDefault().GetNextFireTimeUtc().GetValueOrDefault().UtcDateTime;

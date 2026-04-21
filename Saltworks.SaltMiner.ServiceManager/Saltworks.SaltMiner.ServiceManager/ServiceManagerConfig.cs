@@ -53,6 +53,7 @@ namespace Saltworks.SaltMiner.ServiceManager
         public int DataApiTimeoutSec { get; set; } = 10;
         public int HeartbeatIntervalSec { get; set; } = 60;
         public int JobMonitoringIntervalSec { get; set; } = 900;
+        public int JobCommandMonitorIntervalSec { get; set; } = 5;
         public string ApplicationPath { get; set; } = string.Empty;
         public string DotNetPath { get; set; } = "dotnet";
         public string PythonInterpreter { get; set; } = "python3";
