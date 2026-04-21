@@ -3,14 +3,13 @@ name: Saltworks.SaltMiner.DataApi
 on:
   push:
     branches:
-    - main
     - '3.*'
+    - "4.*"
     paths:
     - 'Saltworks.SaltMiner.DataApi/**'
     - 'Saltworks.SaltMiner.IndexTemplates/**'
     - '.github/workflows/saltworks-saltminer-dataapi.yml'
     - '.dockerfiles/Dockerfile'
-    - '.dockerfiles/config-api.sh'
   workflow_dispatch:
 
 env:
@@ -39,17 +38,6 @@ jobs:
 #      with:
 #        dotnet-version: 8.0.x
 
-    - name: Configuration File Transformation
-      if: env.EXEC_TRANSFORM == 'true'
-      run: |
-        echo 'Transforming configuration file'
-        jq --argjson kar ${{ env.KESTREL_ALLOW_REMOTE }} \
-          --arg kbu "${{ env.KIBANA_BASE_URL }}" \
-          '.ApiConfig += {"KestrelAllowRemote": $kar} | .ApiConfig += {"KibanaBaseUrl": $kbu}' \
-          ${{ env.CONFIG_FILE }} \
-          > ${{ env.CONFIG_FILE }}.new
-        mv ${{ env.CONFIG_FILE }} ${{ env.CONFIG_FILE }}.old
-        mv ${{ env.CONFIG_FILE }}.new ${{ env.CONFIG_FILE }}        
     - name: Store working directory path
       run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
     - name: Store artifact path
