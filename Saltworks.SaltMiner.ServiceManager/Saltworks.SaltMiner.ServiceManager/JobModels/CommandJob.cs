@@ -18,7 +18,7 @@
 * ----
 */
 
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Quartz;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Util;
@@ -231,7 +231,7 @@ public class CommandJob(ServiceManagerConfig config, ILogger<CommandJob> logger,
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        var cancellationMonitorTask = Task.Run(() =>
+        var cancellationMonitorTask = Task.Run(async () =>
         {
             while (!process.HasExited)
             {
@@ -248,7 +248,7 @@ public class CommandJob(ServiceManagerConfig config, ILogger<CommandJob> logger,
                         Logger.LogError(ex, "[CommandJob] Error while trying to kill the job {JobName}. Error message: {ErrMsg}", jobName, ex.Message);
                     }
                 }
-                Task.Delay(500);
+                await Task.Delay(500);
             }
         });
 
