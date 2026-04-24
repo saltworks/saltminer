@@ -26,7 +26,7 @@ from datetime import datetime, timezone, timedelta
 from Sources.Tenable.TenableClient import TenableClient
 from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 from Core.ElasticClient import ElasticClient
-from Core.DataClient import DataClient, QueueStatus
+from Core.SmDataClient import SmDataClient
 
 
 class TenableAdapter:
@@ -34,7 +34,7 @@ class TenableAdapter:
         settings = app.Settings
         self.tenable_client = TenableClient(settings)
         self._es = ElasticClient(settings)
-        self.data_client = DataClient(app)
+        self.data_client = SmDataClient(settings, "Tenable")
         self.sm_docs = SnykDocs()
         self.vuln_management = settings.GetSource("TenableClient", "VulnManagement", default=True)
         self.was = settings.GetSource("TenableClient", "WAS", default=False)
@@ -87,7 +87,7 @@ class TenableVulnManagementAdapter:
         if self.first_load:
             scan_record = {
                 "uuid": "None",
-                "last_modification_date": int((datetime.now() - timedelta(days=30)).timestamp())
+                "last_modification_date": int((datetime.now(timezone.utc) - timedelta(days=30)).timestamp())
             }
             self.sync_scan(scan_record)
         else:
@@ -105,9 +105,9 @@ class TenableVulnManagementAdapter:
             for issue_record in self.base.tenable_client.get_vm_vuln_export_generator(scan_record['uuid']):
                 if not self.current_scan_asset_dict.get(issue_record['asset']['uuid']):
                     mapped_scan = self.map_scan(scan_record, issue_record)
-                    queue_scan = self.base.data_client.queue_scan_add_update(mapped_scan)
+                    queue_scan = self.base.data_client.AddQueueScan(mapped_scan)
                     mapped_asset = self.map_asset(issue_record, queue_scan['id'])
-                    queue_asset = self.base.data_client.queue_asset_add_update(mapped_asset)
+                    queue_asset = self.base.data_client.AddQueueAsset(mapped_asset)
                     self.current_scan_asset_dict[issue_record['asset']['uuid']] = {
                         "queue_scan_id": queue_scan['id'],
                         "queue_asset_id": queue_asset['id'],
@@ -118,25 +118,25 @@ class TenableVulnManagementAdapter:
                     issue_record,
                     current_scan_dict=self.current_scan_asset_dict[issue_record['asset']['uuid']]
                 )
-                self.base.data_client.queue_issue_add_update_batch(mapped_issue)
+                self.base.data_client.AddQueueIssue(mapped_issue)
             self.finalize_all_scans()
 
     def finalize_all_scans(self):
-        self.base.data_client.queue_issue_add_update_batch(None)
+        self.base.data_client.SendAllBatchIssues()
         for asset_id, queue_scan_data in self.current_scan_asset_dict.items():
-            self.base.data_client.queue_scan_update_status(queue_scan_data['queue_scan_id'], QueueStatus.PENDING)
+            self.base.data_client.FinalizeQueue(queue_scan_data['queue_scan_id'])
         self.current_scan_asset_dict = {}
 
     def map_scan(self, scan_record, issue_record):
         q_scan_doc = self.base.sm_docs.map_scan_doc()
-        q_scan_doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        q_scan_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         q_scan_doc['Saltminer']['Internal']['IssueCount'] = -1
-        q_scan_doc['Saltminer']['Internal']['QueueStatus'] = QueueStatus.LOADING
+        q_scan_doc['Saltminer']['Internal']['QueueStatus'] = "Loading"
         scan = q_scan_doc['Saltminer']['Scan']
         scan['Attributes'] = {}
         scan['Product'] = "Tenable"
         scan['Vendor'] = "Tenable"
-        scan['ReportId'] = scan_record['uuid'] + " | " + issue_record['asset']['uuid'] + " | " + str(datetime.now())
+        scan['ReportId'] = scan_record['uuid'] + " | " + issue_record['asset']['uuid'] + " | " + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         timestamp = scan_record['last_modification_date']
         dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
         scan['ScanDate'] = dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
@@ -152,7 +152,7 @@ class TenableVulnManagementAdapter:
             'name') else issue_record['asset']['hostname']
 
         q_asset_doc = self.base.sm_docs.map_asset_doc()
-        q_asset_doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        q_asset_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         q_asset_doc['Saltminer']['Internal']['QueueScanId'] = queue_scan_id
 
         asset = q_asset_doc['Saltminer']["Asset"]
@@ -179,7 +179,7 @@ class TenableVulnManagementAdapter:
         report_id = current_scan_dict['report_id']
 
         q_issue_doc = self.base.sm_docs.map_issue_doc()
-        q_issue_doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        q_issue_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
         saltminer = q_issue_doc['Saltminer']
         saltminer['QueueScanId'] = queue_scan_id
@@ -334,9 +334,9 @@ class TenableWasAdapter:
 
             if asset_uuid not in self.current_scan_asset_dict:
                 mapped_scan = self.map_scan(finding)
-                queue_scan = self.base.data_client.queue_scan_add_update(mapped_scan)
+                queue_scan = self.base.data_client.AddQueueScan(mapped_scan)
                 mapped_asset = self.map_asset(finding, queue_scan['id'])
-                queue_asset = self.base.data_client.queue_asset_add_update(mapped_asset)
+                queue_asset = self.base.data_client.AddQueueAsset(mapped_asset)
                 self.current_scan_asset_dict[asset_uuid] = {
                     "queue_scan_id": queue_scan['id'],
                     "queue_asset_id": queue_asset['id'],
@@ -344,27 +344,27 @@ class TenableWasAdapter:
                 }
 
             mapped_issue = self.map_issue(finding, self.current_scan_asset_dict[asset_uuid])
-            self.base.data_client.queue_issue_add_update_batch(mapped_issue)
+            self.base.data_client.AddQueueIssue(mapped_issue)
 
         self.finalize_all_scans()
 
     def finalize_all_scans(self):
-        self.base.data_client.queue_issue_add_update_batch(None)
+        self.base.data_client.SendAllBatchIssues()
         for _, scan_data in self.current_scan_asset_dict.items():
-            self.base.data_client.queue_scan_update_status(scan_data['queue_scan_id'], QueueStatus.PENDING)
+            self.base.data_client.FinalizeQueue(scan_data['queue_scan_id'])
         self.current_scan_asset_dict = {}
 
     def map_scan(self, finding):
         q_scan_doc = self.base.sm_docs.map_scan_doc()
-        q_scan_doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        q_scan_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         q_scan_doc['Saltminer']['Internal']['IssueCount'] = -1
-        q_scan_doc['Saltminer']['Internal']['QueueStatus'] = QueueStatus.LOADING
+        q_scan_doc['Saltminer']['Internal']['QueueStatus'] = "Loading"
 
         scan = q_scan_doc['Saltminer']['Scan']
         scan['Attributes'] = {}
         scan['Product'] = "Tenable"
         scan['Vendor'] = "Tenable"
-        scan['ReportId'] = finding['asset']['uuid'] + " | " + finding['asset']['fqdn'] + " | " + str(datetime.now())
+        scan['ReportId'] = finding['asset']['uuid'] + " | " + finding['asset']['fqdn'] + " | " + str(datetime.now(timezone.utc))
         scan['ScanDate'] = finding['scan']['completed_at']
         scan['SourceType'] = "Saltworks.Tenable"
         scan['Instance'] = "Tenable1"
@@ -379,7 +379,7 @@ class TenableWasAdapter:
         scheme = url.split("://")[0] if "://" in url else "https"
 
         q_asset_doc = self.base.sm_docs.map_asset_doc()
-        q_asset_doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        q_asset_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         q_asset_doc['Saltminer']['Internal']['QueueScanId'] = queue_scan_id
 
         sm_asset = q_asset_doc['Saltminer']['Asset']
@@ -403,7 +403,7 @@ class TenableWasAdapter:
         plugin = finding['plugin']
 
         q_issue_doc = self.base.sm_docs.map_issue_doc()
-        q_issue_doc['Timestamp'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        q_issue_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
         saltminer = q_issue_doc['Saltminer']
         saltminer['QueueScanId'] = current_scan_dict['queue_scan_id']
