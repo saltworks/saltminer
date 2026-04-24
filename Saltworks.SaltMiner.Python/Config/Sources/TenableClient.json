@@ -9,5 +9,7 @@
         "high",
         "medium",
         "low"
-    ]
+    ],
+    "VulnManagement": true,
+    "WAS": false
 }
