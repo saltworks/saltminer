@@ -86,7 +86,7 @@ jobs:
       id: push
       uses: docker/build-push-action@v6.15.0
       with:
-        file: .dockerfiles/Dockerfile
+        file: .dockerfiles/Dockerfile-api
         context: ${{ env.WORKING_DIR }}
         push: true
         provenance: mode=max
