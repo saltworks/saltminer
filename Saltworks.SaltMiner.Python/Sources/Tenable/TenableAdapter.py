@@ -18,13 +18,10 @@
 * ----
 '''
 
-import json
-import logging
-
 from datetime import datetime, timezone, timedelta
 
 from Sources.Tenable.TenableClient import TenableClient
-from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
+from Core.SmDocsAndDTOs import SnykDocs
 from Core.ElasticClient import ElasticClient
 from Core.SmDataClient import SmDataClient
 
