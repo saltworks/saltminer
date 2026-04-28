@@ -248,6 +248,12 @@ namespace Saltworks.SaltMiner.DataApi
                 app.UseEsClient();
                 var factory = app.Services.GetRequiredService<IElasticClientFactory>();
                 var client = factory.CreateClient();
+                var ci = client.GetClusterInfo();
+                if (!ci.IsSuccessful)
+                {
+                    Log.Error("Unable to connect to Elasticsearch server '{ElasticHost}:{ElasticPort}' - [Status] {Msg}", config.ElasticHost, config.ElasticPort, ci.HttpStatus, ci.Message);
+                    throw new ApiConfigurationException("Unable to connect to Elasticsearch - check configuration.");
+                }
                 var licenseContext = app.Services.GetRequiredService<LicenseContext>();
                 // Check for data items to process
                 ProcessOneTimeDataItems(config, client);
