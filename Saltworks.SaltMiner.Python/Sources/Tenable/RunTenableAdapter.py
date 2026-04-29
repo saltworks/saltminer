@@ -20,8 +20,6 @@
 
 import time
 import logging
-import sys
-import json
 from datetime import datetime, timezone
 
 from Core.Application import Application

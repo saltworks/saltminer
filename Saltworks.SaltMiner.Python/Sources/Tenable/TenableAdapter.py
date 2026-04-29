@@ -18,11 +18,11 @@
 * ----
 '''
 
+import logging
 from datetime import datetime, timezone, timedelta
 
 from Sources.Tenable.TenableClient import TenableClient
 from Core.SmDocsAndDTOs import SnykDocs
-from Core.ElasticClient import ElasticClient
 from Core.SmDataClient import SmDataClient
 
 
@@ -316,9 +316,8 @@ class TenableVulnManagementAdapter:
         }
 
 
-class TenableWasAdapter:
+class TenableWasAdapter():
     def __init__(self, base):
-        self.base = base
         self.current_scan_asset_dict = {}
 
     def run_process(self, first_load=False):  # first_load kept for interface parity with VM adapter
@@ -343,6 +342,7 @@ class TenableWasAdapter:
             self.base.data_client.AddQueueIssue(mapped_issue)
 
         self.finalize_all_scans()
+        logging.info("Tenable WAS sync completed - %s", datetime.now(timezone.utc).isoformat())
 
     def finalize_all_scans(self):
         self.base.data_client.SendAllBatchIssues()
