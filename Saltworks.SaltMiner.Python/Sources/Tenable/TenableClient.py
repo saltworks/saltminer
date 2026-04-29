@@ -27,7 +27,6 @@ class TenableClient:
         self.access_key = settings.GetSource("Tenable", "Access Key")
         self.secret_key = settings.GetSource("Tenable", "Secret Key")
         self.severity_list = settings.GetSource("Tenable", "VulnSeverities")
-        self.was_lookback_days = settings.GetSource("Tenable", "WasLookbackDays") or 30
         self.tio = TenableIO(access_key=self.access_key, secret_key=self.secret_key)
 
     # --- Vulnerability Management ---
