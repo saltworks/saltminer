@@ -1,0 +1,7 @@
+flask==3.1.*
+elasticsearch==8.*
+python-dotenv==1.*
+pytest==8.*
+pytest-flask==1.*
+cryptography==44.*
+requests==2.*
