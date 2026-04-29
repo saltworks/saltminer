@@ -44,3 +44,4 @@ ai-*.ps1
 *.http
 
 .claude
+.DS_Store
