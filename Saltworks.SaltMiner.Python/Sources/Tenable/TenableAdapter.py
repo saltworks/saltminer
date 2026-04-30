@@ -18,15 +18,11 @@
 * ----
 '''
 
-import json
 import logging
-
 from datetime import datetime, timezone, timedelta
 
 from Sources.Tenable.TenableClient import TenableClient
-from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
-from Core.ElasticClient import ElasticClient
-from Core.DataClient import DataClient, QueueStatus
+from Core.SmDocsAndDTOs import SnykDocs
 from Core.DataClient import DataClient, QueueStatus
 
 
@@ -34,11 +30,11 @@ class TenableAdapter:
     def __init__(self, app):
         settings = app.Settings
         self.tenable_client = TenableClient(settings)
-        self._es = ElasticClient(settings)
+        #self._es = ElasticClient(settings)
         self.data_client = DataClient(app)
         self.sm_docs = SnykDocs()
-        self.vuln_management = settings.GetSource("TenableClient", "VulnManagement", default=True)
-        self.was = settings.GetSource("TenableClient", "WAS", default=False)
+        self.vuln_management = settings.GetSource("Tenable", "VulnManagement")
+        self.was = settings.GetSource("Tenable", "WAS")
 
     def run_sync(self, first_load=False):
         if self.was:
@@ -48,22 +44,22 @@ class TenableAdapter:
             vm = TenableVulnManagementAdapter(self)
             vm.run_process(first_load)
 
-    def sm_scans_generator(self, index, agg_query):
-        if self._es.IndexExists(index):
-            search = self._es.Search(
-                index=index,
-                queryBody=agg_query,
-                navToData=False,
-                size=1
-            )
-            yield from search['aggregations']['2']['buckets']
+    # def sm_scans_generator(self, index, agg_query):
+    #     if self._es.IndexExists(index):
+    #         search = self._es.Search(
+    #             index=index,
+    #             queryBody=agg_query,
+    #             navToData=False,
+    #             size=1
+    #         )
+    #         yield from search['aggregations']['2']['buckets']
 
-    def get_sm_scans(self, index, agg_query):
-        sm_scan_data_dict = {}
-        for agg in self.sm_scans_generator(index, agg_query):
-            if agg['key'] not in sm_scan_data_dict:
-                sm_scan_data_dict[agg['key']] = agg['4']['value']
-        return sm_scan_data_dict
+    # def get_sm_scans(self, index, agg_query):
+    #     sm_scan_data_dict = {}
+    #     for agg in self.sm_scans_generator(index, agg_query):
+    #         if agg['key'] not in sm_scan_data_dict:
+    #             sm_scan_data_dict[agg['key']] = agg['4']['value']
+    #     return sm_scan_data_dict
 
 
 class TenableVulnManagementAdapter:
@@ -77,11 +73,11 @@ class TenableVulnManagementAdapter:
     def run_process(self, first_load=False):
         self.first_load = first_load
         self.get_asset_attributes()
-        if not self.first_load:
-            self.sm_scan_data_dict = self.base.get_sm_scans(
-                index="issues_app_saltworks.tenable_tenable1",
-                agg_query=self.schedule_uuid_agg_query()
-            )
+        # if not self.first_load:
+        #     self.sm_scan_data_dict = self.base.get_sm_scans(
+        #         index="issues_app_saltworks.tenable_tenable1",
+        #         agg_query=self.schedule_uuid_agg_query()
+        #     )
         self.compare_tenable_scans()
 
     def compare_tenable_scans(self, scan_id_key='schedule_uuid', date_field='last_modification_date'):
@@ -132,12 +128,11 @@ class TenableVulnManagementAdapter:
         q_scan_doc = self.base.sm_docs.map_scan_doc()
         q_scan_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         q_scan_doc['Saltminer']['Internal']['IssueCount'] = -1
-        q_scan_doc['Saltminer']['Internal']['QueueStatus'] = QueueStatus.LOADING
         scan = q_scan_doc['Saltminer']['Scan']
         scan['Attributes'] = {}
         scan['Product'] = "Tenable"
         scan['Vendor'] = "Tenable"
-        scan['ReportId'] = scan_record['uuid'] + " | " + issue_record['asset']['uuid'] + " | " + str(datetime.now(timezone.utc))
+        scan['ReportId'] = scan_record['uuid'] + " | " + issue_record['asset']['uuid'] + " | " + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         timestamp = scan_record['last_modification_date']
         dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
         scan['ScanDate'] = dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
@@ -321,7 +316,7 @@ class TenableVulnManagementAdapter:
         }
 
 
-class TenableWasAdapter:
+class TenableWasAdapter():
     def __init__(self, base):
         self.base = base
         self.current_scan_asset_dict = {}
@@ -348,6 +343,7 @@ class TenableWasAdapter:
             self.base.data_client.queue_issue_add_update_batch(mapped_issue)
 
         self.finalize_all_scans()
+        logging.info("Tenable WAS sync completed - %s", datetime.now(timezone.utc).isoformat())
 
     def finalize_all_scans(self):
         self.base.data_client.queue_issue_add_update_batch(None)
@@ -359,7 +355,6 @@ class TenableWasAdapter:
         q_scan_doc = self.base.sm_docs.map_scan_doc()
         q_scan_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         q_scan_doc['Saltminer']['Internal']['IssueCount'] = -1
-        q_scan_doc['Saltminer']['Internal']['QueueStatus'] = QueueStatus.LOADING
 
         scan = q_scan_doc['Saltminer']['Scan']
         scan['Attributes'] = {}
@@ -392,6 +387,7 @@ class TenableWasAdapter:
         sm_asset['AssetType'] = 'app'
         sm_asset['SourceType'] = 'Saltworks.Tenable'
         sm_asset['Host'] = asset['fqdn']
+        sm_asset['Port'] = finding['port']['port'] if finding.get('port') else 0
         sm_asset['Ip'] = asset.get('ipv4')
         sm_asset['Scheme'] = scheme
         sm_asset['Attributes'] = {

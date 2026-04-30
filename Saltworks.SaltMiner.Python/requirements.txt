@@ -18,5 +18,6 @@ ecs-logging
 openpyxl
 pydantic
 pytenable
+httpx
 aiohttp
 jwt
