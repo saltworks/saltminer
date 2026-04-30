@@ -87,7 +87,8 @@ while cur_loop < max_loops:
     if not data:
         if not found_some:
             logging.info("[Webhook Pull] No webhook data returned.  Processing complete")
-        logging.info("[Webhook Pull] No more webhook data found.")
+        else:
+            logging.info("[Webhook Pull] %s unique IDs processed. Processing complete.", len(seen_ids))
         sys.exit(0)
     found_some = True
 
@@ -99,9 +100,10 @@ while cur_loop < max_loops:
             logging.error("[Webhook Pull] Invalid/missing payload for webhook (queue sync item) ID %s, skipping.", data_item['id'])
             continue
         payload = json.loads(data_item['payload'])
+        if not ('events' in payload and payload['events'] and 'projectVersionId' in payload['events'][0]):
+            continue
 
-    # SSC
-    if 'events' in payload and payload['events'] and 'projectVersionId' in payload['events'][0]:
+        # SSC
         did_something = True
         for evt in payload['events']:
             if 'projectVersionId' in evt:
@@ -130,7 +132,7 @@ while cur_loop < max_loops:
 
     if len(ssc_data) > 0:
         logging.info("[Webhook Pull] %s total SSC IDs to queue for updates.", len(ssc_data))
-        qcli.insert_queue("SSC Webhook",ssc_data, force=True)
+        qcli.insert_queue("SSC Webhook", ssc_data, force=True)
         ssc_data = []
     cur_loop += 1
 # end while
