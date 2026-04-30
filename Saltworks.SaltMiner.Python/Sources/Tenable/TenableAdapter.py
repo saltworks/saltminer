@@ -318,6 +318,7 @@ class TenableVulnManagementAdapter:
 
 class TenableWasAdapter():
     def __init__(self, base):
+        self.base = base
         self.current_scan_asset_dict = {}
 
     def run_process(self, first_load=False):  # first_load kept for interface parity with VM adapter
