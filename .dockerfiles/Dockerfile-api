@@ -24,7 +24,7 @@ COPY . .
 #   && chmod u+x config-api.sh \
 #   && mv ${smapp}/appsettings.json ${smcfg}/
 RUN mkdir -p ${smlog}
-COPY $ARTIFACT_PATH/data-templates/ ./data
+COPY $ARTIFACT_PATH/Saltworks.SaltMiner.IndexTemplates/ ./default-datastore-seed
 
 EXPOSE 5000
 

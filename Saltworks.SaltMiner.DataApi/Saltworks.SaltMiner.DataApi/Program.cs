@@ -47,6 +47,7 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.OpenApi;
 using Elastic.Transport;
+using System.Text;
 
 namespace Saltworks.SaltMiner.DataApi
 {
@@ -56,6 +57,7 @@ namespace Saltworks.SaltMiner.DataApi
         private const string SETTINGS_FILE = "appsettings.json";
         private const string DEFAULT_SETTINGS_FILE = "appsettings-default.json";
         private const string CONFIG_SECTION = "ApiConfig";
+        private const string SEED_INDICATOR_FILE = "seeded.txt";
         private const string ELASTIC_CONNECT_STRING = "ELASTICSEARCH_CONNECTION_STRING";
         private const string JE = ".json";
         private static bool KestrelAllowRemote = false;
@@ -255,8 +257,24 @@ namespace Saltworks.SaltMiner.DataApi
                     throw new ApiConfigurationException("Unable to connect to Elasticsearch - check configuration.");
                 }
                 var licenseContext = app.Services.GetRequiredService<LicenseContext>();
-                // Check for data items to process
+
+                // Check for initial datatore seed indicator - if not present, copy default datastore seed files
+                if (!File.Exists(Path.Join(config.DatastoreSeedPath, SEED_INDICATOR_FILE)))
+                {
+                    Log.Information("Initial datastore setup incomplete, setting default data seed items.");
+                    File.Copy(config.DefaultDatastoreSeedPath, config.DatastoreSeedPath);
+                }
+
+                // Check for datastore seed items to process
                 ProcessOneTimeDataItems(config, client);
+
+                // Add datastore seed indicator file if not present
+                if (!File.Exists(Path.Join(config.DatastoreSeedPath, SEED_INDICATOR_FILE)))
+                {
+                    var fs = File.CreateText(Path.Join(config.DatastoreSeedPath, SEED_INDICATOR_FILE));
+                    fs.Write("DO NOT REMOVE THIS FILE, BAD THINGS MAY HAPPEN.\n\nThis file indicates that initial data seeding has been completed.\nRemoving it will cause default seeding to recur on next api restart.");
+                    fs.Close();
+                }
 
                 // Kibana data items to process
                 var kibanaClient = app.Services.GetRequiredService<KibanaContext>();
@@ -791,6 +809,7 @@ namespace Saltworks.SaltMiner.DataApi
 
         private static ApiConfig InitConfigAndLogging()
         {
+            // default datastore seed occurs in method ConfigureWebApp() 
             var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, DEFAULT_SETTINGS_FILE, APP_FOLDER);
             var configPath = Path.GetDirectoryName(configFilePath);
 

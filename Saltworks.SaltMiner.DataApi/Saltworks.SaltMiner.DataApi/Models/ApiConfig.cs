@@ -82,8 +82,10 @@ public class ApiConfig: ConfigBase
     public string TempFileLocation { get; set; }
     public string NginxRoute { get; set; } = "smapi";
     public string NginxScheme { get; set; } = "https";
-    public string DataIndexTemplatePath { get; set; } = "./data/index-templates/";
-    public string DataSeedPath { get; set; } = "./data/seeds/";
+    public string DefaultDatastoreSeedPath { get; set; } = "./default-datastore-seed";
+    public string DatastoreSeedPath { get; set; } = "./data";
+    public string DataIndexTemplatePath { get; set; } = "./data/index-templates";
+    public string DataSeedPath { get; set; } = "./data/seeds";
     public string DataKibanaSpacePath { get; set; } = "./data/kibana-spaces";
     public string DataRolesPath { get; set; } = "./data/roles";
     public string DataEnrichmentPath { get; set; } = "./data/enrichments";
