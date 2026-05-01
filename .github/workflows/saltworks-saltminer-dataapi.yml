@@ -27,9 +27,6 @@ permissions:
   packages: write
   contents: read
 
-env:
-  DIAGNOSTIC_MODE: false
-
 jobs:
   build_api:
     name: Build API
@@ -41,10 +38,6 @@ jobs:
         working-directory: ./Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi
     env:
       CONFIGURATION: release
-      CONFIG_FILE: appsettings.json
-      KIBANA_BASE_URL: http://kibana:5601
-      KESTREL_ALLOW_REMOTE: true
-      EXEC_TRANSFORM: true
       DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode || false }}
       PUSH_TO_GITHUB: ${{ inputs.push_to_github || 'true' }}
 
@@ -52,18 +45,19 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Store artifact path
-      run: echo "ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_ENV
-    - name: Calculate Docker-relative paths
+      id: paths
       run: |
-        echo "DOCKER_ARTIFACT_PATH=Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi/artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_ENV
-        echo "DOCKER_DATASTORE_SEED_PATH=Saltworks.SaltMiner.IndexTemplates" >> $GITHUB_ENV
+        echo "artifact-path=./artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_OUTPUT
+        echo "docker-artifact-path=Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi/artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_OUTPUT
+        echo "docker-datastore-seed-path=Saltworks.SaltMiner.IndexTemplates" >> $GITHUB_OUTPUT
     
     - name: Determine registry image
+      id: registry
       run: |
         if [ "${{ env.PUSH_TO_GITHUB }}" == "true" ]; then
-          echo "REGISTRY_IMAGE=ghcr.io/saltworks/saltminer" >> $GITHUB_ENV
+          echo "image=ghcr.io/saltworks/saltminer" >> $GITHUB_OUTPUT
         else
-          echo "REGISTRY_IMAGE=saltworks/saltminer" >> $GITHUB_ENV
+          echo "image=saltworks/saltminer" >> $GITHUB_OUTPUT
         fi
 
     - name: Inspect datastore seed path
@@ -80,7 +74,7 @@ jobs:
 
     - name: Inspect output
       run: |
-        ls -lah ${{ env.ARTIFACT_PATH }} --group-directories-first
+        ls -lah ${{ steps.paths.outputs.artifact-path }} --group-directories-first
       if: env.DIAGNOSTIC_MODE == 'true'
 
     - name: Login to GitHub Container Registry
@@ -102,7 +96,7 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ env.REGISTRY_IMAGE }}
+        images: ${{ steps.registry.outputs.image }}
         tags: |
           type=raw,value=api-${{ github.ref_name }}.${{ github.run_number }}
           type=raw,value=api-${{ github.ref_name }}
@@ -123,62 +117,20 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          ARTIFACT_PATH=${{ env.DOCKER_ARTIFACT_PATH }}
-          DATASTORE_SEED_PATH=${{ env.DOCKER_DATASTORE_SEED_PATH }}
+          ARTIFACT_PATH=${{ steps.paths.outputs.docker-artifact-path }}
+          DATASTORE_SEED_PATH=${{ steps.paths.outputs.docker-datastore-seed-path }}
 
     - name: Show complete docker tag
       run: echo "${{ steps.meta.outputs.tags }}"
       if: env.DIAGNOSTIC_MODE == 'true'
     
     - name: Extract tag component
-      run: echo "TAG=`echo '${{ steps.meta.outputs.tags }}' | head -1 | cut -d ':' -f2`" >> $GITHUB_ENV
+      id: extract_tag
+      run: echo "tag=`echo '${{ steps.meta.outputs.tags }}' | head -1 | cut -d ':' -f2`" >> $GITHUB_OUTPUT
 
     - name: Show new tag
-      run: echo "Tag ${{ env.TAG }}"
+      run: echo "Tag ${{ steps.extract_tag.outputs.tag }}"
       if: env.DIAGNOSTIC_MODE == 'true'
-    
-    - id: extract_tag
-      run: echo "tag=${{ env.TAG }}" >> $GITHUB_OUTPUT
-      name: Set tag output
 
     outputs:
       tag: ${{ steps.extract_tag.outputs.tag }}
-
-#  update_compose:
-#    name: Update Compose
-#    runs-on:
-#    - self-hosted
-#    - dotnet
-#    needs: build_api
-#    concurrency:
-#      group: saltminer-setup-${{ github.ref }}
-#      cancel-in-progress: false
-#    env:
-#      TARGET_KEY: SM_API_IMAGE_VERSION
-#
-#    steps:
-#    - name: Checkout saltminer-setup repo
-#      uses: actions/checkout@v4
-#      with:
-#        repository: saltworks/saltminer-setup
-#        token: ${{ secrets.SALTMINER_SETUP }}
-#        ref: ${{ github.ref_name }}
-#
-#    - name: Show current .env file.
-#      run: cat .env
-#      if: env.DIAGNOSTIC_MODE == 'true'
-#
-#    - run: sed -i -e "/${{ env.TARGET_KEY }}/ s/=.*$/=${{ needs.build_api.outputs.tag }}/" .env
-#      name: Update Compose file  
-#
-#    - run: cat .env
-#      name: Show transformed file.
-#      if: env.DIAGNOSTIC_MODE == 'true'
-#
-#    - name: Push changes
-#      run: |
-#        git config user.name ${{ github.actor }}
-#        git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-#        git add .env
-#        git commit -m "Updated .env ${{ env.TARGET_KEY }} value"
-#        git push
