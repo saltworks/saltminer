@@ -63,16 +63,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: ServiceManager Configuration File Transformation
-      if: env.EXEC_TRANSFORM == 'true'
-      run: |
-        echo 'Transforming configuration file'
-        jq '.ServiceManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}
-        jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
-          '.ServiceManagerConfig.DataApiBaseUrl = $dapi' \
-          ${{ env.CONFIG_FILE }} \
-          > ${{ env.CONFIG_FILE }}.new
-        jq '.ServiceManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}.new
     - name: Store artifact paths
       id: paths
       run: |
@@ -108,20 +98,6 @@ jobs:
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
       working-directory: ${{ github.workspace }}/${{ steps.paths.outputs.mgr-dir }}
 
-    - name: Manager Configuration File Transformation
-      if: env.EXEC_TRANSFORM == 'true'
-      run: |
-        echo 'Transforming configuration file'
-        jq '.ManagerConfig.DataApiBaseUrl' ${{ env.MGR_CONFIG_FILE }}
-        jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
-          '.ManagerConfig.DataApiBaseUrl = $dapi' \
-          ${{ env.MGR_CONFIG_FILE }} \
-          > ${{ env.MGR_CONFIG_FILE }}.new
-        jq '.ManagerConfig.DataApiBaseUrl' ${{ env.MGR_CONFIG_FILE }}.new
-        mv ${{ env.MGR_CONFIG_FILE }} ${{ env.MGR_CONFIG_FILE }}.old
-        mv ${{ env.MGR_CONFIG_FILE }}.new ${{ env.MGR_CONFIG_FILE }}
-      working-directory: ${{ github.workspace }}/${{ steps.paths.outputs.mgr-artifact-path }}
- 
     - name: Show Manager output
       run: |
         ls -lah ${{ steps.paths.outputs.mgr-artifact-path }} --group-directories-first
@@ -139,20 +115,6 @@ jobs:
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
       working-directory: ${{ github.workspace }}/${{ steps.paths.outputs.agent-dir }}
 
-    - name: Agent Configuration File Transformation
-      if: env.EXEC_TRANSFORM == 'true'
-      run: |
-        echo 'Transform Agent configuration file'
-        jq '.AgentConfig.DataApiBaseUrl' ${{ env.AGENT_CONFIG_FILE }}
-        jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
-          '.AgentConfig.DataApiBaseUrl = $dapi' \
-          ${{ env.AGENT_CONFIG_FILE }} \
-          > ${{ env.AGENT_CONFIG_FILE }}.new
-        jq '.AgentConfig.DataApiBaseUrl' ${{ env.AGENT_CONFIG_FILE }}.new
-        mv ${{ env.AGENT_CONFIG_FILE }} ${{ env.AGENT_CONFIG_FILE }}.old
-        mv ${{ env.AGENT_CONFIG_FILE }}.new ${{ env.AGENT_CONFIG_FILE }}
-      working-directory: ${{ github.workspace }}/${{ steps.paths.outputs.agent-artifact-path }}
-
     - name: Show Agent output
       run: |
         ls -lah ${{ steps.paths.outputs.agent-artifact-path }} --group-directories-first
@@ -160,20 +122,6 @@ jobs:
       if: env.DIAGNOSTIC_MODE == 'true'
 
     # Python
-    - name: Transform Python config file
-      working-directory: ${{ github.workspace }}/${{ env.PY_ARTIFACT_PATH }}/Config
-      if: env.EXEC_TRANSFORM == 'true'
-      run: |
-        echo 'Transforming configuration file'
-        jq '.ApiUrl' ${{ env.PY_CONFIG_FILE }}
-        jq --arg dapi "${{ env.DATA_API_BASE_URL  }}" \
-          '.ApiUrl = $dapi' \
-          ${{ env.PY_CONFIG_FILE }} \
-          > ${{ env.PY_CONFIG_FILE }}.new
-        jq '.ApiUrl' ${{ env.PY_CONFIG_FILE }}.new
-        mv ${{ env.PY_CONFIG_FILE }} ${{ env.PY_CONFIG_FILE }}.old
-        mv ${{ env.PY_CONFIG_FILE }}.new ${{ env.PY_CONFIG_FILE }}
-
     - name: Determine registry image
       id: registry
       run: |
