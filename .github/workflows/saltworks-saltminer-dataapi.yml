@@ -14,17 +14,18 @@ on:
     inputs:
       push_to_github:
         description: 'Push to GitHub Container Registry'
-        required: true
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
+        required: false
+        default: true
+        type: boolean
       diagnostic_mode:
         description: 'Enable diagnostic output'
         required: false
         default: false
         type: boolean
+
+permissions:
+  packages: write
+  contents: read
 
 env:
   DIAGNOSTIC_MODE: false
@@ -49,10 +50,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-#    - name: Setup .NET
-#      uses: actions/setup-dotnet@v4
-#      with:
-#        dotnet-version: 8.0.x
 
     - name: Store artifact path
       run: echo "ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_ENV
