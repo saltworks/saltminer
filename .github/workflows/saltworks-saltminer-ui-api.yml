@@ -19,10 +19,10 @@ on:
     - '.dockerfiles/config-ui-api.sh'
   workflow_dispatch:
     inputs:
-      push_to_github:
-        description: 'Push to GitHub Container Registry'
+      push_to_docker_hub:
+        description: 'Push to Docker Hub'
         required: false
-        default: true
+        default: false
         type: boolean
       diagnostic_mode:
         description: 'Enable diagnostic output'
@@ -50,8 +50,8 @@ jobs:
       DATA_API_BASE_URL: http://api:5000
       KESTREL_ALLOW_REMOTE: true
       EXEC_TRANSFORM: true
-      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode && 'true' || 'false' }}
-      PUSH_TO_GITHUB: ${{ inputs.push_to_github && 'true' || 'false' }}
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == 'true' && 'true' || 'false' }}
+      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == 'true' && 'true' || 'false' }}
 
     steps:
     - uses: actions/checkout@v4
@@ -95,7 +95,7 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=0
 
-    - run: cp ${{ github.workspace }}/.dockerfiles/config-ui-api.sh ${{ env.ARTIFACT_PATH }}
+    - run: cp ${{ github.workspace }}/.dockerfiles/config-ui-api.sh ${{ steps.paths.outputs.artifact-path }}
 
     - name: Show output
       run: |

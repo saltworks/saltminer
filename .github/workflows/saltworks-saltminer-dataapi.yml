@@ -12,10 +12,10 @@ on:
     - '.dockerfiles/Dockerfile-api'
   workflow_dispatch:
     inputs:
-      push_to_github:
-        description: 'Push to GitHub Container Registry'
+      push_to_docker_hub:
+        description: 'Push to Docker Hub'
         required: false
-        default: true
+        default: false
         type: boolean
       diagnostic_mode:
         description: 'Enable diagnostic output'
@@ -38,8 +38,8 @@ jobs:
         working-directory: ./Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi
     env:
       CONFIGURATION: release
-      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode && 'true' || 'false' }}
-      PUSH_TO_GITHUB: ${{ inputs.push_to_github && 'true' || 'false' }}
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == 'true' && 'true' || 'false' }}
+      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == 'true' && 'true' || 'false' }}
 
     steps:
     - uses: actions/checkout@v4
