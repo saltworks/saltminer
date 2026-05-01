@@ -39,16 +39,16 @@ jobs:
 #      with:
 #        dotnet-version: 8.0.x
 
-    - name: Store working directory path
-      run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
     - name: Store artifact path
       run: echo "ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_ENV
-    - name: Store datastore seed path
-      run: echo "DATASTORE_SEED_PATH=../../Saltworks.SaltMiner.IndexTemplates" >> $GITHUB_ENV
+    - name: Calculate Docker-relative paths
+      run: |
+        echo "DOCKER_ARTIFACT_PATH=Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi/artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_ENV
+        echo "DOCKER_DATASTORE_SEED_PATH=Saltworks.SaltMiner.IndexTemplates" >> $GITHUB_ENV
 
     - name: Inspect datastore seed path
       run: |
-        ls -lah ${{ env.DATASTORE_SEED_PATH }} --group-directories-first
+        ls -lah ${{ github.workspace }}/Saltworks.SaltMiner.IndexTemplates --group-directories-first
       if: env.DIAGNOSTIC_MODE == 'true'
 
     - name: Use artifacts directory
@@ -87,15 +87,15 @@ jobs:
       uses: docker/build-push-action@v6.15.0
       with:
         file: .dockerfiles/Dockerfile-api
-        context: ${{ env.WORKING_DIR }}
+        context: ${{ github.workspace }}
         push: true
         provenance: mode=max
         sbom: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          ARTIFACT_PATH=${{ env.ARTIFACT_PATH }}
-          DATASTORE_SEED_PATH=${{ env.DATASTORE_SEED_PATH }}
+          ARTIFACT_PATH=${{ env.DOCKER_ARTIFACT_PATH }}
+          DATASTORE_SEED_PATH=${{ env.DOCKER_DATASTORE_SEED_PATH }}
 
     - name: Show complete docker tag
       run: echo ${{ steps.meta.outputs.tags }}
