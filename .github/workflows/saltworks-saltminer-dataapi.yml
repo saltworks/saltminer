@@ -44,7 +44,7 @@ jobs:
     - name: Store artifact path
       run: echo "ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_ENV
     - name: Store datastore seed path
-      run: echo "DATASTORE_SEED_PATH=${{ github.workspace }}/Saltworks.SaltMiner.IndexTemplates" >> $GITHUB_ENV
+      run: echo "DATASTORE_SEED_PATH=../../Saltworks.SaltMiner.IndexTemplates" >> $GITHUB_ENV
 
     - name: Inspect datastore seed path
       run: |
