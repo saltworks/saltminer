@@ -30,6 +30,7 @@ jobs:
       KIBANA_BASE_URL: http://kibana:5601
       KESTREL_ALLOW_REMOTE: true
       EXEC_TRANSFORM: true
+      DIAGNOSTIC_MODE: true
 
     steps:
     - uses: actions/checkout@v4
@@ -44,6 +45,11 @@ jobs:
       run: echo "ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_ENV
     - name: Store datastore seed path
       run: echo "DATASTORE_SEED_PATH=../../Saltworks.SaltMiner.IndexTemplates" >> $GITHUB_ENV
+
+    - name: Inspect datastore seed path
+      run: |
+        ls -lah ${{ env.DATASTORE_SEED_PATH }} --group-directories-first
+      if: env.DIAGNOSTIC_MODE == 'true'
 
     - name: Use artifacts directory
       run: dotnet new buildprops --use-artifacts
