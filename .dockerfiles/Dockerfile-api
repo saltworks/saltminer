@@ -4,6 +4,7 @@ LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
 ARG ARTIFACT_PATH=.
+ARG DATASTORE_SEED_PATH=../../Saltworks.SaltMiner.IndexTemplates
 ARG smapp=/opt/saltworks/saltminer/app/api
 ARG smcfg=/opt/saltworks/saltminer/config/api
 ARG smlog=/opt/saltworks/saltminer/logs
@@ -24,7 +25,7 @@ COPY . .
 #   && chmod u+x config-api.sh \
 #   && mv ${smapp}/appsettings.json ${smcfg}/
 RUN mkdir -p ${smlog}
-COPY $ARTIFACT_PATH/Saltworks.SaltMiner.IndexTemplates/ ./default-datastore-seed
+COPY $DATASTORE_SEED_PATH/ ./default-datastore-seed
 
 EXPOSE 5000
 
