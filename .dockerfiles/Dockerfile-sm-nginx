@@ -1,8 +1,10 @@
 # syntax=docker/dockerfile:1
 FROM nginx:1.28.3
 
+ENV APP_ROOT=/opt/saltworks/saltminer
+
 # UI web artifacts
-COPY ./artifacts/dist/ui-web/smpgui /usr/share/saltworks/saltminer-3.0.0/ui-web/smpgui
+COPY ./artifacts/dist/ui-web/smpgui ${APP_ROOT}/app/ui-web/smpgui
 
 # Defaults bundle — seeded to customer dir on first run
 COPY Saltworks.SaltMiner.Nginx/nginx.conf    /etc/nginx-defaults/nginx.conf
@@ -10,7 +12,7 @@ COPY Saltworks.SaltMiner.Nginx/saltminer.crt /etc/nginx-defaults/saltminer.crt
 COPY Saltworks.SaltMiner.Nginx/saltminer.key /etc/nginx-defaults/saltminer.key
 
 # Create the customer-facing directory so it exists even without a bind mount
-RUN mkdir -p /opt/saltworks/saltminer/nginx
+RUN mkdir -p ${APP_ROOT}/config/nginx
 
 COPY Saltworks.SaltMiner.Nginx/docker-entrypoint.sh /docker-entrypoint.sh
 

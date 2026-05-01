@@ -3,27 +3,24 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64
 LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
-# default invalid values, we expect to be overridden by --build-args
+# default invalid values, we expect to be overridden with build args
 ARG ARTIFACT_PATH=invalid
 ARG MGR_ARTIFACT_PATH=invalid
 ARG AGENT_ARTIFACT_PATH=invalid
 ARG PY_ARTIFACT_PATH=invalid
 ARG JOB_ARTIFACT_PATH=invalid
 
-ARG smapp=/opt/saltworks/saltminer/app
-ARG smcfg=/opt/saltworks/saltminer/config
-ARG smlog=/opt/saltworks/saltminer/logs
-
+ENV APP_ROOT=/opt/saltworks/saltminer
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
 ENV MGR_ARTIFACT_PATH=$MGR_ARTIFACT_PATH
 ENV AGENT_ARTIFACT_PATH=$AGENT_ARTIFACT_PATH
 ENV PY_ARTIFACT_PATH=$PY_ARTIFACT_PATH
 ENV JOB_ARTIFACT_PATH=$JOB_ARTIFACT_PATH
 
-WORKDIR ${smapp}
+WORKDIR ${APP_ROOT}/app
 
-RUN mkdir -p ${smcfg} \
-  && mkdir -p ${smlog} \
+RUN mkdir -p ${APP_ROOT}/config \
+  && mkdir -p ${APP_ROOT}/logs \
   && apk add --no-cache py3-pip
 
 COPY $AGENT_ARTIFACT_PATH ./agent/
@@ -35,6 +32,6 @@ RUN mv ./python/{Config,Custom,AppVulsCustom,Mappings,AuthHelperCustom} ./python
   && pip install -r ./python/requirements.txt --break-system-packages
 
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
-ENV SALTMINER_CONFIG_PATH=${smcfg}
+ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config
 
-ENTRYPOINT ["/usr/bin/dotnet", "${smapp}/servicemanager/Saltworks.SaltMiner.ServiceManager.dll"]
+ENTRYPOINT ["/usr/bin/dotnet", "${APP_ROOT}/app/servicemanager/Saltworks.SaltMiner.ServiceManager.dll"]

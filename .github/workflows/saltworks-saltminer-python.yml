@@ -11,9 +11,21 @@ on:
     - '.dockerfiles/Dockerfile-python'
     - '.dockerfiles/config-services.sh'
   workflow_dispatch:
+    inputs:
+      push_to_github:
+        description: 'Push to GitHub Container Registry'
+        required: false
+        default: true
+        type: boolean
+      diagnostic_mode:
+        description: 'Enable diagnostic output'
+        required: false
+        default: false
+        type: boolean
 
-env:
-  DIAGNOSTIC_MODE: false
+permissions:
+  packages: write
+  contents: read
 
 jobs:
   build_python:
@@ -30,14 +42,11 @@ jobs:
       PY_ARTIFACT_PATH: Saltworks.SaltMiner.Python
       PY_CONFIG_FILE: SMv3.json
       EXEC_TRANSFORM: true
-      WARNING_LEVEL: 0
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode && 'true' || 'false' }}
+      PUSH_TO_GITHUB: ${{ inputs.push_to_github && 'true' || 'false' }}
 
     steps:
     - uses: actions/checkout@v4
-#    - name: Setup .NET
-#      uses: actions/setup-dotnet@v4
-#      with:
-#        dotnet-version: 8.0.x
     - name: Transform Python config file
       working-directory: ${{ github.workspace }}/Saltworks.SaltMiner.Python/Config
       if: env.EXEC_TRANSFORM == 'true'
@@ -56,28 +65,45 @@ jobs:
     - run: find . -type f -name '*.sh' -print0 | xargs -0 dos2unix --
     - run: find . -type f -name '*.sh' -exec chmod u+x \{\} \;;
 
-    - name: Login to the container registry
-      uses: docker/login-action@v3.4.0
+    - name: Determine registry image
+      id: registry
+      run: |
+        if [ "${{ env.PUSH_TO_DOCKER_HUB }}" == "true" ]; then
+          echo "image=saltworks/saltminer" >> $GITHUB_OUTPUT
+        else
+          echo "image=ghcr.io/saltworks/saltminer" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Login to GitHub Container Registry
+      if: env.PUSH_TO_DOCKER_HUB != 'true'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Login to Docker Hub
+      if: env.PUSH_TO_DOCKER_HUB == 'true'
+      uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
     - name: Extract metadata (tags, labels) for Docker
       id: meta
-      uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+      uses: docker/metadata-action@v6
       with:
-        images: saltworks/saltminer
+        images: ${{ steps.registry.outputs.image }}
         tags: |
           type=raw,value=python-${{ github.ref_name }}.${{ github.run_number }}
           type=raw,value=python-${{ github.ref_name }}
-
         labels: |
           org.opencontainers.image.title=saltminer-python
           org.opencontainers.image.description=SaltMiner Python
           org.opencontainers.image.vendor=Saltworks Security, LLC
 
     - name: Build and push Docker images
-      uses: docker/build-push-action@v6.15.0
+      uses: docker/build-push-action@v6
       with:
         file: .dockerfiles/Dockerfile-python
         context: ${{ github.workspace }}/Saltworks.SaltMiner.Python
@@ -88,19 +114,16 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
       
     - name: Show complete docker tag
-      run: echo ${{ steps.meta.outputs.tags }}
+      run: echo "${{ steps.meta.outputs.tags }}"
       if: env.DIAGNOSTIC_MODE == 'true'
     
     - name: Extract tag component
-      run: echo "TAG=`cut -d ':' -f2 <<< ${{ steps.meta.outputs.tags }}`" >> $GITHUB_ENV
+      id: extract_tag
+      run: echo "tag=`echo '${{ steps.meta.outputs.tags }}' | head -1 | cut -d ':' -f2`" >> $GITHUB_OUTPUT
 
     - name: Show new tag
-      run: echo "Tag ${{ env.TAG }}"
+      run: echo "Tag ${{ steps.extract_tag.outputs.tag }}"
       if: env.DIAGNOSTIC_MODE == 'true'
-    
-    - id: extract_tag
-      run: echo "tag=${{ env.TAG }}" >> $GITHUB_OUTPUT
-      name: Set tag output
 
     outputs:
       tag: ${{ steps.extract_tag.outputs.tag }}

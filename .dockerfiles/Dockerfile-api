@@ -5,27 +5,25 @@ LABEL vendor="Saltworks Security, LLC"
 
 ARG ARTIFACT_PATH=.
 ARG DATASTORE_SEED_PATH=./invalid-index-templates-path
-ARG smapp=/opt/saltworks/saltminer/app/api
-ARG smcfg=/opt/saltworks/saltminer/config/api
-ARG smlog=/opt/saltworks/saltminer/logs
 
+ENV APP_ROOT=/opt/saltworks/saltminer
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
 ENV DATASTORE_SEED_PATH=$DATASTORE_SEED_PATH
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
-ENV SALTMINER_CONFIG_PATH=${smcfg}
+ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config/api
 
-WORKDIR ${smapp}
+WORKDIR ${APP_ROOT}/app/api
 
 COPY . .
 
 # curl is used for healthcheck.
 # jq is used for configuration file manipulation
 # RUN apk add --no-cache curl jq bash \
-#   && mkdir -p ${smcfg} \
-#   && mkdir -p ${smlog} \
+#   && mkdir -p ${APP_ROOT}/config/api \
+#   && mkdir -p ${APP_ROOT}/logs \
 #   && chmod u+x config-api.sh \
-#   && mv ${smapp}/appsettings.json ${smcfg}/
-RUN mkdir -p ${smlog}
+#   && mv ${APP_ROOT}/app/api/appsettings.json ${APP_ROOT}/config/api/
+RUN mkdir -p ${APP_ROOT}/logs
 COPY $DATASTORE_SEED_PATH/* ./default-datastore-seed/
 
 EXPOSE 5000

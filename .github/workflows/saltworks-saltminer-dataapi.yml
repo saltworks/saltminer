@@ -38,8 +38,8 @@ jobs:
         working-directory: ./Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi
     env:
       CONFIGURATION: release
-      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode || false }}
-      PUSH_TO_GITHUB: ${{ inputs.push_to_github || 'true' }}
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode && 'true' || 'false' }}
+      PUSH_TO_GITHUB: ${{ inputs.push_to_github && 'true' || 'false' }}
 
     steps:
     - uses: actions/checkout@v4
@@ -54,10 +54,10 @@ jobs:
     - name: Determine registry image
       id: registry
       run: |
-        if [ "${{ env.PUSH_TO_GITHUB }}" == "true" ]; then
-          echo "image=ghcr.io/saltworks/saltminer" >> $GITHUB_OUTPUT
-        else
+        if [ "${{ env.PUSH_TO_DOCKER_HUB }}" == "true" ]; then
           echo "image=saltworks/saltminer" >> $GITHUB_OUTPUT
+        else
+          echo "image=ghcr.io/saltworks/saltminer" >> $GITHUB_OUTPUT
         fi
 
     - name: Inspect datastore seed path
@@ -78,15 +78,15 @@ jobs:
       if: env.DIAGNOSTIC_MODE == 'true'
 
     - name: Login to GitHub Container Registry
-      if: env.PUSH_TO_GITHUB == 'true'
+      if: env.PUSH_TO_DOCKER_HUB != 'true'
       uses: docker/login-action@v3
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    
+
     - name: Login to Docker Hub
-      if: env.PUSH_TO_GITHUB != 'true'
+      if: env.PUSH_TO_DOCKER_HUB == 'true'
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
@@ -94,7 +94,7 @@ jobs:
 
     - name: Extract metadata (tags, labels) for Docker
       id: meta
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@v6
       with:
         images: ${{ steps.registry.outputs.image }}
         tags: |

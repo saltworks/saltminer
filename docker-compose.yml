@@ -8,11 +8,9 @@ services:
     - "80:80"
     - "443:443"
     volumes:
-    - type: bind
-      source: /etc/saltworks/saltminer/nginx/
-      target: /opt/saltworks/saltminer/nginx/
-#      read_only: true
-    - smpgui-assets:/usr/share/saltworks/saltminer-3.0.0/ui-web
+    - /opt/saltworks/saltminer/config/nginx/:/opt/saltworks/saltminer/config/nginx/
+    - /opt/saltworks/saltminer/logs/nginx:/var/log/nginx
+    - smpgui-assets:/opt/saltworks/saltminer/app/ui-web
     environment:
     - KIBANA_URL=${KIBANA_URL}
     - KIBANA_HOST=${KIBANA_HOST}

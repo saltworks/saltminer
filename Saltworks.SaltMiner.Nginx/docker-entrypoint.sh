@@ -3,7 +3,7 @@
 # SaltMiner nginx entrypoint script
 #
 # Execution order:
-#   1. Seed /opt/saltworks/saltminer/nginx/ from image defaults if files
+#   1. Seed /opt/saltworks/saltminer/config/nginx/ from image defaults if files
 #      are missing — works whether or not a bind mount is present
 #   2. Copy all three files from customer dir into /etc/nginx/ live path
 #   3. Perform envsubst on nginx.conf for any remaining placeholders
@@ -14,8 +14,8 @@
 # path /opt/saltworks/saltminer/nginx/ which is safe to bind mount without
 # affecting nginx internals.
 #
-# Customer working directory: /opt/saltworks/saltminer/
-# Nginx config files:         /opt/saltworks/saltminer/nginx/
+# Customer working directory: /opt/saltworks/saltminer/config
+# Nginx config files:         /opt/saltworks/saltminer/config/nginx/
 # Image defaults bundle:      /etc/nginx-defaults/
 # Nginx live path:            /etc/nginx/
 # =============================================================================
@@ -71,7 +71,7 @@ deploy_file() {
 }
 
 DEFAULTS_DIR="/etc/nginx-defaults"
-CUSTOMER_DIR="/opt/saltworks/saltminer/nginx"
+CUSTOMER_DIR="/opt/saltworks/saltminer/config/nginx"
 NGINX_DIR="/etc/nginx"
 
 # =============================================================================

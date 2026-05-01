@@ -23,9 +23,21 @@ on:
     - '.dockerfiles/Dockerfile-services'
     - '.dockerfiles/config-services.sh'
   workflow_dispatch:
+    inputs:
+      push_to_github:
+        description: 'Push to GitHub Container Registry'
+        required: false
+        default: true
+        type: boolean
+      diagnostic_mode:
+        description: 'Enable diagnostic output'
+        required: false
+        default: false
+        type: boolean
 
-env:
-  DIAGNOSTIC_MODE: false
+permissions:
+  packages: write
+  contents: read
 
 jobs:
   build_services:
@@ -46,14 +58,11 @@ jobs:
       PY_CONFIG_FILE: SMv3.json
       DEPLOY_ARTIFACT_PATH: Saltworks.SaltMiner.Deploy
       EXEC_TRANSFORM: true
-      WARNING_LEVEL: 0
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode && 'true' || 'false' }}
+      PUSH_TO_GITHUB: ${{ inputs.push_to_github && 'true' || 'false' }}
 
     steps:
     - uses: actions/checkout@v4
-#    - name: Setup .NET
-#      uses: actions/setup-dotnet@v4
-#      with:
-#        dotnet-version: 8.0.x
     - name: ServiceManager Configuration File Transformation
       if: env.EXEC_TRANSFORM == 'true'
       run: |
@@ -64,10 +73,14 @@ jobs:
           ${{ env.CONFIG_FILE }} \
           > ${{ env.CONFIG_FILE }}.new
         jq '.ServiceManagerConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}.new
-        mv ${{ env.CONFIG_FILE }} ${{ env.CONFIG_FILE }}.old
-        mv ${{ env.CONFIG_FILE }}.new ${{ env.CONFIG_FILE }}
-    - name: Store artifact path
-      run: echo "ARTIFACT_PATH=Saltworks.SaltMiner.ServiceManager/Saltworks.SaltMiner.ServiceManager/artifacts/bin/Saltworks.SaltMiner.ServiceManager/${{ env.CONFIGURATION}}" >> $GITHUB_ENV 
+    - name: Store artifact paths
+      id: paths
+      run: |
+        echo "sm-artifact-path=Saltworks.SaltMiner.ServiceManager/Saltworks.SaltMiner.ServiceManager/artifacts/bin/Saltworks.SaltMiner.ServiceManager/${{ env.CONFIGURATION}}" >> $GITHUB_OUTPUT
+        echo "mgr-dir=Saltworks.SaltMiner.Manager/Saltworks.SaltMiner.Manager" >> $GITHUB_OUTPUT
+        echo "mgr-artifact-path=Saltworks.SaltMiner.Manager/Saltworks.SaltMiner.Manager/artifacts/bin/Saltworks.SaltMiner.Manager/${{ env.CONFIGURATION }}" >> $GITHUB_OUTPUT
+        echo "agent-dir=Saltworks.SaltMiner.SyncAgent/Saltworks.SaltMiner.SyncAgent" >> $GITHUB_OUTPUT
+        echo "agent-artifact-path=Saltworks.SaltMiner.SyncAgent/Saltworks.SaltMiner.SyncAgent/artifacts/bin/Saltworks.SaltMiner.SyncAgent/${{ env.CONFIGURATION }}" >> $GITHUB_OUTPUT
 
     - name: Use artifacts directory
       run: dotnet new buildprops --use-artifacts
@@ -76,29 +89,24 @@ jobs:
     - name: Build ServiceManager
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
 
-    - run: cp ${{ github.workspace }}/.dockerfiles/config-services.sh ${{ github.workspace }}/${{ env.ARTIFACT_PATH }}
+    - run: cp ${{ github.workspace }}/.dockerfiles/config-services.sh ${{ github.workspace }}/${{ steps.paths.outputs.sm-artifact-path }}
 
     - name: Show ServiceManager output
       run: |
-        ls -lah ${{ env.ARTIFACT_PATH }} --group-directories-first
+        ls -lah ${{ steps.paths.outputs.sm-artifact-path }} --group-directories-first
       working-directory: ${{ github.workspace }}
       if: env.DIAGNOSTIC_MODE == 'true'
 
     # Build Manager
-    - name: Set Manager working directory relative to GitHub workspace.
-      run: echo "MGR_DIR=Saltworks.SaltMiner.Manager/Saltworks.SaltMiner.Manager" >> $GITHUB_ENV
-    - name: Set Manager artifact directory relative to GitHub workspace.
-      run: echo "MGR_ARTIFACT_PATH=${{ env.MGR_DIR }}/artifacts/bin/Saltworks.SaltMiner.Manager/${{ env.CONFIGURATION }}" >> $GITHUB_ENV
-    
     - name: Set artifacts directory for Manager
       run: dotnet new buildprops --use-artifacts
-      working-directory: ${{ github.workspace }}/${{ env.MGR_DIR }}
+      working-directory: ${{ github.workspace }}/${{ steps.paths.outputs.mgr-dir }}
     - name: Restore dependencies
       run: dotnet restore --disable-build-servers
-      working-directory: ${{ github.workspace }}/${{ env.MGR_DIR }}
+      working-directory: ${{ github.workspace }}/${{ steps.paths.outputs.mgr-dir }}
     - name: Build Manager
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
-      working-directory: ${{ github.workspace }}/${{ env.MGR_DIR }}
+      working-directory: ${{ github.workspace }}/${{ steps.paths.outputs.mgr-dir }}
 
     - name: Manager Configuration File Transformation
       if: env.EXEC_TRANSFORM == 'true'
@@ -112,29 +120,24 @@ jobs:
         jq '.ManagerConfig.DataApiBaseUrl' ${{ env.MGR_CONFIG_FILE }}.new
         mv ${{ env.MGR_CONFIG_FILE }} ${{ env.MGR_CONFIG_FILE }}.old
         mv ${{ env.MGR_CONFIG_FILE }}.new ${{ env.MGR_CONFIG_FILE }}
-      working-directory: ${{ github.workspace }}/${{ env.MGR_ARTIFACT_PATH }}
+      working-directory: ${{ github.workspace }}/${{ steps.paths.outputs.mgr-artifact-path }}
  
     - name: Show Manager output
       run: |
-        ls -lah ${{ env.MGR_ARTIFACT_PATH }} --group-directories-first
+        ls -lah ${{ steps.paths.outputs.mgr-artifact-path }} --group-directories-first
       working-directory: ${{ github.workspace }}
       if: env.DIAGNOSTIC_MODE == 'true'
 
     # Build Agent
-    - name: Set Agent working directory relative to GitHub workspace.
-      run: echo "AGENT_DIR=Saltworks.SaltMiner.SyncAgent/Saltworks.SaltMiner.SyncAgent" >> $GITHUB_ENV
-    - name: Set Agent artifact directory relative to GitHub workspace.
-      run: echo "AGENT_ARTIFACT_PATH=${{ env.AGENT_DIR }}/artifacts/bin/Saltworks.SaltMiner.SyncAgent/${{ env.CONFIGURATION }}" >> $GITHUB_ENV 
-
     - name: Set artifacts directory for Agent
       run: dotnet new buildprops --use-artifacts
-      working-directory: ${{ github.workspace }}/${{ env.AGENT_DIR }}
+      working-directory: ${{ github.workspace }}/${{ steps.paths.outputs.agent-dir }}
     - name: Restore dependencies
       run: dotnet restore --disable-build-servers
-      working-directory: ${{ github.workspace }}/${{ env.AGENT_DIR }}
+      working-directory: ${{ github.workspace }}/${{ steps.paths.outputs.agent-dir }}
     - name: Build SyncAgent
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
-      working-directory: ${{ github.workspace }}/${{ env.AGENT_DIR }}
+      working-directory: ${{ github.workspace }}/${{ steps.paths.outputs.agent-dir }}
 
     - name: Agent Configuration File Transformation
       if: env.EXEC_TRANSFORM == 'true'
@@ -148,11 +151,11 @@ jobs:
         jq '.AgentConfig.DataApiBaseUrl' ${{ env.AGENT_CONFIG_FILE }}.new
         mv ${{ env.AGENT_CONFIG_FILE }} ${{ env.AGENT_CONFIG_FILE }}.old
         mv ${{ env.AGENT_CONFIG_FILE }}.new ${{ env.AGENT_CONFIG_FILE }}
-      working-directory: ${{ github.workspace }}/${{ env.AGENT_ARTIFACT_PATH }}
+      working-directory: ${{ github.workspace }}/${{ steps.paths.outputs.agent-artifact-path }}
 
     - name: Show Agent output
       run: |
-        ls -lah ${{ env.AGENT_ARTIFACT_PATH }} --group-directories-first
+        ls -lah ${{ steps.paths.outputs.agent-artifact-path }} --group-directories-first
       working-directory: ${{ github.workspace }}
       if: env.DIAGNOSTIC_MODE == 'true'
 
@@ -171,17 +174,35 @@ jobs:
         mv ${{ env.PY_CONFIG_FILE }} ${{ env.PY_CONFIG_FILE }}.old
         mv ${{ env.PY_CONFIG_FILE }}.new ${{ env.PY_CONFIG_FILE }}
 
-    - name: Login to the container registry
-      uses: docker/login-action@v3.4.0
+    - name: Determine registry image
+      id: registry
+      run: |
+        if [ "${{ env.PUSH_TO_DOCKER_HUB }}" == "true" ]; then
+          echo "image=saltworks/saltminer" >> $GITHUB_OUTPUT
+        else
+          echo "image=ghcr.io/saltworks/saltminer" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Login to GitHub Container Registry
+      if: env.PUSH_TO_DOCKER_HUB != 'true'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Login to Docker Hub
+      if: env.PUSH_TO_DOCKER_HUB == 'true'
+      uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
     - name: Extract metadata (tags, labels) for Docker
       id: meta
-      uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+      uses: docker/metadata-action@v6
       with:
-        images: saltworks/saltminer
+        images: ${{ steps.registry.outputs.image }}
         tags: |
           type=raw,value=services-${{ github.ref_name }}.${{ github.run_number }}
           type=raw,value=services-${{ github.ref_name }}
@@ -191,7 +212,7 @@ jobs:
           org.opencontainers.image.vendor=Saltworks Security, LLC
 
     - name: Build and push Docker images
-      uses: docker/build-push-action@v6.15.0
+      uses: docker/build-push-action@v6
       with:
         file: .dockerfiles/Dockerfile-services
         context: ${{ github.workspace }}
@@ -201,65 +222,23 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          ARTIFACT_PATH=${{ env.ARTIFACT_PATH }}
-          MGR_ARTIFACT_PATH=${{ env.MGR_ARTIFACT_PATH }}
-          AGENT_ARTIFACT_PATH=${{ env.AGENT_ARTIFACT_PATH }}
+          ARTIFACT_PATH=${{ steps.paths.outputs.sm-artifact-path }}
+          MGR_ARTIFACT_PATH=${{ steps.paths.outputs.mgr-artifact-path }}
+          AGENT_ARTIFACT_PATH=${{ steps.paths.outputs.agent-artifact-path }}
           PY_ARTIFACT_PATH=${{ env.PY_ARTIFACT_PATH }}
           JOB_ARTIFACT_PATH=${{ env.DEPLOY_ARTIFACT_PATH }}
       
     - name: Show complete docker tag
-      run: echo ${{ steps.meta.outputs.tags }}
+      run: echo "${{ steps.meta.outputs.tags }}"
       if: env.DIAGNOSTIC_MODE == 'true'
     
     - name: Extract tag component
-      run: echo "TAG=`cut -d ':' -f2 <<< ${{ steps.meta.outputs.tags }}`" >> $GITHUB_ENV
+      id: extract_tag
+      run: echo "tag=`echo '${{ steps.meta.outputs.tags }}' | head -1 | cut -d ':' -f2`" >> $GITHUB_OUTPUT
 
     - name: Show new tag
-      run: echo "Tag ${{ env.TAG }}"
+      run: echo "Tag ${{ steps.extract_tag.outputs.tag }}"
       if: env.DIAGNOSTIC_MODE == 'true'
-    
-    - id: extract_tag
-      run: echo "tag=${{ env.TAG }}" >> $GITHUB_OUTPUT
-      name: Set tag output
 
     outputs:
       tag: ${{ steps.extract_tag.outputs.tag }}
-
-#  update_compose:
-#    name: Update Compose
-#    runs-on:
-#    - self-hosted
-#    - dotnet
-#    needs: build_services
-#    concurrency:
-#      group: saltminer-setup-${{ github.ref }}
-#      cancel-in-progress: false
-#    env:
-#      TARGET_KEY: SM_SERVICES_IMAGE_VERSION
-#
-#    steps:
-#    - name: Checkout saltminer-setup repo
-#      uses: actions/checkout@v4
-#      with:
-#        repository: saltworks/saltminer-setup
-#        token: ${{ secrets.SALTMINER_SETUP }}
-#        ref: ${{ github.ref_name }}
-#
-#    - name: Show current .env file.
-#      run: cat .env
-#      if: env.DIAGNOSTIC_MODE == 'true'
-#
-#    - run: sed -i -e "/${{ env.TARGET_KEY }}/ s/=.*$/=${{ needs.build_services.outputs.tag }}/" .env
-#      name: Update Compose file  
-#
-#    - run: cat .env
-#      name: Show transformed file.
-#      if: env.DIAGNOSTIC_MODE == 'true'
-#
-#    - name: Push changes
-#      run: |
-#        git config user.name ${{ github.actor }}
-#        git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-#        git add .env
-#        git commit -m "Updated .env ${{ env.TARGET_KEY }} value"
-#        git push

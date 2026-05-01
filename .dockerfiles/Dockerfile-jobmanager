@@ -3,19 +3,17 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64
 LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
-smapp=/opt/saltworks/saltminer/app
-smcfg=/opt/saltworks/saltminer/config
-smlog=/opt/saltworks/saltminer/logs
-WORKDIR ${smapp}/jobmanager
+ENV APP_ROOT=/opt/saltworks/saltminer
+WORKDIR ${APP_ROOT}/app/jobmanager
 
 ARG ARTIFACT_PATH=.
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
 COPY $ARTIFACT_PATH .
 
-RUN mkdir -p ${smcfg} \
-  && mkdir -p ${smlog}
+RUN mkdir -p ${APP_ROOT}/config \
+  && mkdir -p ${APP_ROOT}/logs
 
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
-ENV SALTMINER_CONFIG_PATH=${smcfg}/jobmanager/
+ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config/jobmanager/
 
-ENTRYPOINT ["/usr/bin/dotnet", "${smapp}/jobmanager/Saltworks.SaltMiner.JobManager.dll"]
+ENTRYPOINT ["/usr/bin/dotnet", "${APP_ROOT}/app/jobmanager/Saltworks.SaltMiner.JobManager.dll"]

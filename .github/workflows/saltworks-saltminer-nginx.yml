@@ -28,12 +28,16 @@ on:
     paths:
       - "Saltworks.SaltMiner.Nginx/**"
       - "Saltworks.SaltMiner.Ui/**"
-      - ".dockerfiles/Dockerfile-SMNginx"
+      - ".dockerfiles/Dockerfile-sm-nginx"
 
   workflow_dispatch:
     inputs:
-      push_to_dockerhub:
-        description: 'Push image to Docker Hub'
+      push_to_docker_hub:
+        description: 'Push to Docker Hub'
+        type: boolean
+        default: false
+      diagnostic_mode:
+        description: 'Enable diagnostic output'
         type: boolean
         default: false
 
@@ -43,8 +47,6 @@ on:
 
 env:
   IMAGE_NAME: saltminer-nginx
-  # Set to 'true' to enable diagnostic steps
-  DIAGNOSTIC_MODE: 'false'
 
 jobs:
   # ── Job 1: Build the UI and upload artifact ──────────────────────────────────
@@ -57,6 +59,9 @@ jobs:
     strategy:
       matrix:
         node-version: [18.x]
+
+    env:
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode && 'true' || 'false' }}
 
     outputs:
       tag: ${{ steps.set-tag.outputs.tag }}
@@ -120,6 +125,10 @@ jobs:
       contents: read
       packages: write   # required to push to ghcr.io
 
+    env:
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode && 'true' || 'false' }}
+      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub && 'true' || 'false' }}
+
     outputs:
       digest: ${{ steps.build-push.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
@@ -151,7 +160,7 @@ jobs:
 
       # Authenticate to Docker Hub on release builds or when manually requested
       - name: Log in to Docker Hub
-        if: github.event_name == 'release' || inputs.push_to_dockerhub == true
+        if: github.event_name == 'release' || env.PUSH_TO_DOCKER_HUB == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
@@ -163,7 +172,7 @@ jobs:
       - name: Set Docker Hub image name
         id: dockerhub-image
         run: |
-          if [ "${{ github.event_name }}" == "release" ] || [ "${{ inputs.push_to_dockerhub }}" == "true" ]; then
+          if [ "${{ github.event_name }}" == "release" ] || [ "${{ env.PUSH_TO_DOCKER_HUB }}" == "true" ]; then
             echo "name=saltworks/saltminer" >> $GITHUB_OUTPUT
           else
             echo "name=" >> $GITHUB_OUTPUT
@@ -196,14 +205,14 @@ jobs:
           echo "--- Saltworks.SaltMiner.Nginx/ source files ---"
           ls -la Saltworks.SaltMiner.Nginx/
           echo "--- Dockerfile ---"
-          cat .dockerfiles/Dockerfile-SMNginx
+          cat .dockerfiles/Dockerfile-sm-nginx
 
       - name: Build and push Docker image
         id: build-push
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: .dockerfiles/Dockerfile-SMNginx
+          file: .dockerfiles/Dockerfile-sm-nginx
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -229,58 +238,3 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-
-  # ── Job 3: Update the image tag in saltminer-setup repo ──────────────────────
-#  update_compose:
-#    name: Update Compose
-#    runs-on:
-#      - self-hosted
-#    needs:
-#      - build_ui
-#      - build-and-push
-#    concurrency:
-#      group: saltminer-setup-${{ github.ref }}
-#      cancel-in-progress: false
-#    env:
-#      TARGET_KEY: SM_NGINX_IMAGE_VERSION
-#
-#    steps:
-#      - name: Checkout saltminer-setup repo
-#        uses: actions/checkout@v4
-#        with:
-#          repository: saltworks/saltminer-setup
-#          token: ${{ secrets.SALTMINER_SETUP }}
-#          ref: ${{ github.ref_name }}
-#
-#      - name: Show current .env file
-#        if: env.DIAGNOSTIC_MODE == 'true'
-#        run: cat .env
-#
-#      - name: Update Compose file
-#        # Uses the tag output declared in build_ui
-#        run: sed -i -e "/${{ env.TARGET_KEY }}/ s/=.*$/=${{ needs.build_ui.outputs.tag }}/" .env
-#
-#      - name: Show transformed file
-#        if: env.DIAGNOSTIC_MODE == 'true'
-#        run: cat .env
-#
-#      - name: Push changes
-#        run: |
-#          git config user.name "${{ github.actor }}"
-#          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-#          git add .env
-#          git commit -m "Updated .env ${{ env.TARGET_KEY }} to ${{ needs.build_ui.outputs.tag }}"
-#          git push
-#
-#      - name: Write job summary
-#        run: |
-#          echo "### Compose File Updated :memo:" >> $GITHUB_STEP_SUMMARY
-#          echo "" >> $GITHUB_STEP_SUMMARY
-#          echo "**Trigger:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
-#          echo "**Image tag set:** \`${{ needs.build_ui.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
-#          echo "**Image digest:** \`${{ needs.build-and-push.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-#          echo "" >> $GITHUB_STEP_SUMMARY
-#          echo "**Full tags:**" >> $GITHUB_STEP_SUMMARY
-#          echo '```' >> $GITHUB_STEP_SUMMARY
-#          echo "${{ needs.build-and-push.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-#          echo '```' >> $GITHUB_STEP_SUMMARY
