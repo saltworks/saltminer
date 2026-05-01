@@ -26,7 +26,7 @@ COPY . .
 #   && chmod u+x config-api.sh \
 #   && mv ${smapp}/appsettings.json ${smcfg}/
 RUN mkdir -p ${smlog}
-COPY $DATASTORE_SEED_PATH/ ./default-datastore-seed
+COPY $DATASTORE_SEED_PATH/* ./default-datastore-seed/
 
 EXPOSE 5000
 
