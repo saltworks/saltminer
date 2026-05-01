@@ -44,7 +44,7 @@ jobs:
     - name: Store artifact path
       run: echo "ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_ENV
     - name: Store datastore seed path
-      run: echo "DATASTORE_SEED_PATH=../../Saltworks.SaltMiner.IndexTemplates" >> $GITHUB_ENV
+      run: echo "DATASTORE_SEED_PATH=${{ github.workspace }}/Saltworks.SaltMiner.IndexTemplates" >> $GITHUB_ENV
 
     - name: Inspect datastore seed path
       run: |
@@ -61,14 +61,6 @@ jobs:
     - name: Inspect output
       run: |
         ls -lah ${{ env.ARTIFACT_PATH }} --group-directories-first
-      if: env.DIAGNOSTIC_MODE == 'true'
-
-    - run: mkdir ${{ env.ARTIFACT_PATH }}/data-templates
-      name: Create data-templates directory
-    - run: cp -r ${{ github.workspace }}/Saltworks.SaltMiner.IndexTemplates/* ${{ env.ARTIFACT_PATH }}/data-templates
-      name: Copy data templates to API output
-    - run: ls -lah ${{ env.ARTIFACT_PATH }}/data-templates --group-directories-first
-      name: Show copied files
       if: env.DIAGNOSTIC_MODE == 'true'
 
     - name: Login to the container registry
@@ -103,6 +95,7 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
           ARTIFACT_PATH=${{ env.ARTIFACT_PATH }}
+          DATASTORE_SEED_PATH=${{ env.DATASTORE_SEED_PATH }}
 
     - name: Show complete docker tag
       run: echo ${{ steps.meta.outputs.tags }}

@@ -4,12 +4,13 @@ LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
 ARG ARTIFACT_PATH=.
-ARG DATASTORE_SEED_PATH=../../Saltworks.SaltMiner.IndexTemplates
+ARG DATASTORE_SEED_PATH=./invalid-index-templates-path
 ARG smapp=/opt/saltworks/saltminer/app/api
 ARG smcfg=/opt/saltworks/saltminer/config/api
 ARG smlog=/opt/saltworks/saltminer/logs
 
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
+ENV DATASTORE_SEED_PATH=$DATASTORE_SEED_PATH
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_CONFIG_PATH=${smcfg}
 
