@@ -21,7 +21,6 @@ on:
     - 'Saltworks.SaltMiner.Licensing.Core/**'
     - '.github/workflows/saltworks-saltminer-services.yml'
     - '.dockerfiles/Dockerfile-services'
-    - '.dockerfiles/config-services.sh'
   workflow_dispatch:
     inputs:
       push_to_docker_hub:
@@ -78,8 +77,6 @@ jobs:
       run: dotnet restore --disable-build-servers
     - name: Build ServiceManager
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
-
-    - run: cp ${{ github.workspace }}/.dockerfiles/config-services.sh ${{ github.workspace }}/${{ steps.paths.outputs.sm-artifact-path }}
 
     - name: Show ServiceManager output
       run: |
