@@ -41,7 +41,7 @@ RUN addgroup \
 RUN chown -R $USER:$GROUPNAME . \
   && chown -R $USER:$GROUPNAME ${APP_ROOT}/config \
   && chown -R $USER:$GROUPNAME ${APP_ROOT}/ui-files \
-  && chown -R $USER:$GROUPNAME ${APP_ROOT}/logs \
+  && chown -R $USER:$GROUPNAME ${APP_ROOT}/logs
 
 EXPOSE 5001
 
