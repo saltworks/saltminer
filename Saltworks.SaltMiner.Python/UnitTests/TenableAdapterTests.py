@@ -239,5 +239,66 @@ class TenableVulnManagementAdapterTests(unittest.TestCase):
         self.assertIn('finding-123', scanner['GuiUrl'])
 
 
+@patch('Sources.Tenable.TenableAdapter.DataClient')
+@patch('Sources.Tenable.TenableAdapter.TenableClient')
+class TenableWasAdapterTests(unittest.TestCase):
+
+    def test_was_map_scan_includes_common_and_was_fields(self, MockTenableClient, MockDataClient):
+        from Sources.Tenable.TenableAdapter import TenableWasAdapter
+        adapter = TenableWasAdapter(make_mock_app())
+        doc = adapter.map_scan(WAS_FINDING)
+        scan = doc['Saltminer']['Scan']
+        # common fields
+        self.assertEqual(scan['Product'], 'Tenable')
+        self.assertEqual(scan['Vendor'], 'Tenable')
+        self.assertEqual(scan['SourceType'], 'Saltworks.Tenable')
+        self.assertEqual(scan['Instance'], 'Tenable1')
+        self.assertEqual(scan['AssetType'], 'app')
+        # WAS-specific fields
+        self.assertEqual(scan['AssessmentType'], 'DAST')
+        self.assertEqual(scan['ProductType'], 'App')
+        self.assertIn('was-asset-uuid-456', scan['ReportId'])
+        self.assertEqual(scan['ScanDate'], '2024-03-01T12:00:00Z')
+
+    def test_was_map_asset_includes_common_and_was_fields(self, MockTenableClient, MockDataClient):
+        from Sources.Tenable.TenableAdapter import TenableWasAdapter
+        adapter = TenableWasAdapter(make_mock_app())
+        doc = adapter.map_asset(WAS_FINDING, 'qs-002')
+        asset = doc['Saltminer']['Asset']
+        # common fields
+        self.assertEqual(asset['VersionId'], 'was-asset-uuid-456')
+        self.assertEqual(asset['SourceId'], 'was-asset-uuid-456')
+        self.assertEqual(asset['Instance'], 'Tenable1')
+        self.assertEqual(asset['AssetType'], 'app')
+        self.assertEqual(asset['SourceType'], 'Saltworks.Tenable')
+        self.assertEqual(asset['Ip'], '10.0.0.1')
+        # WAS-specific fields
+        self.assertEqual(asset['Name'], 'app.example.com')
+        self.assertEqual(asset['Host'], 'app.example.com')
+        self.assertEqual(asset['Port'], 443)
+        self.assertEqual(asset['Scheme'], 'https')
+
+    def test_was_map_issue_includes_common_and_was_fields(self, MockTenableClient, MockDataClient):
+        from Sources.Tenable.TenableAdapter import TenableWasAdapter
+        adapter = TenableWasAdapter(make_mock_app())
+        doc = adapter.map_issue(WAS_FINDING, WAS_SCAN_DICT)
+        vuln = doc['Vulnerability']
+        scanner = vuln['Scanner']
+        # common fields
+        self.assertEqual(vuln['Severity'], 'Medium')
+        self.assertEqual(vuln['FoundDate'], '2024-01-15T00:00:00Z')
+        self.assertEqual(vuln['ReportId'], 'report-002')
+        self.assertEqual(vuln['Recommendation'], 'Sanitize inputs')
+        self.assertEqual(scanner['Product'], 'Tenable')
+        self.assertEqual(scanner['Vendor'], 'Tenable')
+        # WAS-specific fields
+        self.assertEqual(vuln['Id'], ['CWE-79'])
+        self.assertEqual(vuln['Name'], 'XSS Vulnerability')
+        self.assertEqual(vuln['Location'], 'https://app.example.com/login')
+        self.assertEqual(scanner['AssessmentType'], 'DAST')
+        self.assertEqual(scanner['Id'], 'was-finding-789')
+        self.assertIn('was-finding-789', scanner['GuiUrl'])
+
+
 if __name__ == '__main__':
     unittest.main()
