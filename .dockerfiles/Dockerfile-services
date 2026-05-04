@@ -29,6 +29,7 @@ COPY $ARTIFACT_PATH ./servicemanager/
 COPY $PY_ARTIFACT_PATH ./python/
 
 RUN mkdir -p ./python/Defaults/ && \
+    ls ./python && \
     for dir in Config Custom AppVulsCustom Mappings AuthHelperCustom; do \
       mv ./python/$dir ./python/Defaults/$dir; \
     done && \
