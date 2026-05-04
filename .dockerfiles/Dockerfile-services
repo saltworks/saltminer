@@ -28,13 +28,9 @@ COPY $MGR_ARTIFACT_PATH ./manager/
 COPY $ARTIFACT_PATH ./servicemanager/
 COPY $PY_ARTIFACT_PATH ./python/
 
-RUN mkdir -p ./python/Defaults/ \
-  && mv ./python/Config ./python/Defaults/ \
-  && mv ./python/Custom ./python/Defaults/ \
-  && mv ./python/AppVulsCustom ./python/Defaults/ \
-  && mv ./python/Mappings ./python/Defaults/ \
-  && mv ./python/AuthHelperCustom ./python/Defaults/ \
-  && pip install -r ./python/requirements.txt --break-system-packages
+RUN mkdir -p ./python/Defaults/ && \
+    mv ./python/{Config,Custom,AppVulsCustom,Mappings,AuthHelperCustom} ./python/Defaults/ && \
+    pip install -r ./python/requirements.txt --break-system-packages
 
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config
