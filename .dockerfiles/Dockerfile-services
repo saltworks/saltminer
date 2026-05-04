@@ -29,7 +29,7 @@ COPY $ARTIFACT_PATH ./servicemanager/
 COPY $PY_ARTIFACT_PATH ./python/
 
 RUN mkdir -p ./python/Defaults/ && \
-    mv ./python/{Config,Custom,AppVulsCustom,Mappings,AuthHelperCustom} ./python/Defaults/ && \
+    for dir in Config Custom AppVulsCustom Mappings AuthHelperCustom; do mv ./python/$dir ./python/Defaults/; done && \
     pip install -r ./python/requirements.txt --break-system-packages
 
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
