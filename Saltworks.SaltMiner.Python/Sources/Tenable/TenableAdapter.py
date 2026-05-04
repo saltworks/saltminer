@@ -28,9 +28,10 @@ from Core.DataClient import DataClient, QueueStatus
 
 class TenableAdapter:
     def __init__(self, app):
+        self.app = app
         settings = app.Settings
         self.tenable_client = TenableClient(settings)
-        #self._es = ElasticClient(settings)
+        self._es = app.GetElasticClient()
         self.data_client = DataClient(app)
         self.sm_docs = SnykDocs()
         self.vuln_management = settings.GetSource("Tenable", "VulnManagement")
@@ -38,28 +39,78 @@ class TenableAdapter:
 
     def run_sync(self, first_load=False):
         if self.was:
-            was = TenableWasAdapter(self)
+            was = TenableWasAdapter(self.app)
             was.run_process(first_load)
         if self.vuln_management:
-            vm = TenableVulnManagementAdapter(self)
+            vm = TenableVulnManagementAdapter(self.app)
             vm.run_process(first_load)
 
-    # def sm_scans_generator(self, index, agg_query):
-    #     if self._es.IndexExists(index):
-    #         search = self._es.Search(
-    #             index=index,
-    #             queryBody=agg_query,
-    #             navToData=False,
-    #             size=1
-    #         )
-    #         yield from search['aggregations']['2']['buckets']
+    def map_scan(self):
+        q_scan_doc = self.sm_docs.map_scan_doc()
+        q_scan_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        q_scan_doc['Saltminer']['Internal']['IssueCount'] = -1
+        scan = q_scan_doc['Saltminer']['Scan']
+        scan['Attributes'] = {}
+        scan['Product'] = "Tenable"
+        scan['Vendor'] = "Tenable"
+        scan['SourceType'] = "Saltworks.Tenable"
+        scan['Instance'] = "Tenable1"
+        scan['AssetType'] = "app"
+        return q_scan_doc
 
-    # def get_sm_scans(self, index, agg_query):
-    #     sm_scan_data_dict = {}
-    #     for agg in self.sm_scans_generator(index, agg_query):
-    #         if agg['key'] not in sm_scan_data_dict:
-    #             sm_scan_data_dict[agg['key']] = agg['4']['value']
-    #     return sm_scan_data_dict
+    def map_asset(self, finding, queue_scan_id):
+        q_asset_doc = self.sm_docs.map_asset_doc()
+        q_asset_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        q_asset_doc['Saltminer']['Internal']['QueueScanId'] = queue_scan_id
+        asset = q_asset_doc['Saltminer']['Asset']
+        asset['VersionId'] = finding['asset']['uuid']
+        asset['SourceId'] = finding['asset']['uuid']
+        asset['Instance'] = 'Tenable1'
+        asset['AssetType'] = 'app'
+        asset['SourceType'] = 'Saltworks.Tenable'
+        asset['Ip'] = finding['asset'].get('ipv4')
+        return q_asset_doc
+
+    def map_issue(self, finding, current_scan_dict):
+        q_issue_doc = self.sm_docs.map_issue_doc()
+        q_issue_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        saltminer = q_issue_doc['Saltminer']
+        saltminer['QueueScanId'] = current_scan_dict['queue_scan_id']
+        saltminer['QueueAssetId'] = current_scan_dict['queue_asset_id']
+        vulnerability = q_issue_doc['Vulnerability']
+        vulnerability['Severity'] = finding['severity'].title()
+        vulnerability['FoundDate'] = finding['first_found']
+        vulnerability['ReportId'] = current_scan_dict['report_id']
+        vulnerability['Recommendation'] = finding['plugin'].get('solution')
+        if finding['state'] == 'FIXED':
+            vulnerability['RemovedDate'] = finding['last_fixed']
+        scanner = vulnerability['Scanner']
+        scanner['Product'] = 'Tenable'
+        scanner['Vendor'] = 'Tenable'
+        return q_issue_doc
+
+    def finalize_all_scans(self):
+        self.data_client.queue_issue_add_update_batch(None)
+        for _, scan_data in self.current_scan_asset_dict.items():
+            self.data_client.queue_scan_update_status(scan_data['queue_scan_id'], QueueStatus.PENDING)
+        self.current_scan_asset_dict = {}
+
+    def sm_scans_generator(self, index, agg_query):
+        if self._es.IndexExists(index):
+            search = self._es.Search(
+                index=index,
+                queryBody=agg_query,
+                navToData=False,
+                size=1
+            )
+            yield from search['aggregations']['2']['buckets']
+
+    def get_sm_scans(self, index, agg_query):
+        sm_scan_data_dict = {}
+        for agg in self.sm_scans_generator(index, agg_query):
+            if agg['key'] not in sm_scan_data_dict:
+                sm_scan_data_dict[agg['key']] = agg['4']['value']
+        return sm_scan_data_dict
 
 
 class TenableVulnManagementAdapter:
@@ -73,11 +124,11 @@ class TenableVulnManagementAdapter:
     def run_process(self, first_load=False):
         self.first_load = first_load
         self.get_asset_attributes()
-        # if not self.first_load:
-        #     self.sm_scan_data_dict = self.base.get_sm_scans(
-        #         index="issues_app_saltworks.tenable_tenable1",
-        #         agg_query=self.schedule_uuid_agg_query()
-        #     )
+        if not self.first_load:
+            self.sm_scan_data_dict = self.base.get_sm_scans(
+                index="issues_app_saltworks.tenable_tenable1",
+                agg_query=self.schedule_uuid_agg_query()
+            )
         self.compare_tenable_scans()
 
     def compare_tenable_scans(self, scan_id_key='schedule_uuid', date_field='last_modification_date'):
@@ -99,21 +150,21 @@ class TenableVulnManagementAdapter:
 
     def sync_scan(self, scan_record):
         if scan_record.get('uuid'):
-            for issue_record in self.base.tenable_client.get_vm_vuln_export_generator(scan_record['uuid']):
-                if not self.current_scan_asset_dict.get(issue_record['asset']['uuid']):
-                    mapped_scan = self.map_scan(scan_record, issue_record)
+            for finding in self.base.tenable_client.get_vm_vuln_export_generator(scan_record['uuid']):
+                if not self.current_scan_asset_dict.get(finding['asset']['uuid']):
+                    mapped_scan = self.map_scan(scan_record, finding)
                     queue_scan = self.base.data_client.queue_scan_add_update(mapped_scan)
-                    mapped_asset = self.map_asset(issue_record, queue_scan['id'])
+                    mapped_asset = self.map_asset(finding, queue_scan['id'])
                     queue_asset = self.base.data_client.queue_asset_add_update(mapped_asset)
-                    self.current_scan_asset_dict[issue_record['asset']['uuid']] = {
+                    self.current_scan_asset_dict[finding['asset']['uuid']] = {
                         "queue_scan_id": queue_scan['id'],
                         "queue_asset_id": queue_asset['id'],
                         "report_id": mapped_scan['Saltminer']['Scan']['ReportId'],
                         "schedule_uuid": scan_record['schedule_uuid'] if scan_record.get('schedule_uuid') else "None",
                     }
                 mapped_issue = self.map_issue(
-                    issue_record,
-                    current_scan_dict=self.current_scan_asset_dict[issue_record['asset']['uuid']]
+                    finding,
+                    current_scan_dict=self.current_scan_asset_dict[finding['asset']['uuid']]
                 )
                 self.base.data_client.queue_issue_add_update_batch(mapped_issue)
             self.finalize_all_scans()
@@ -124,7 +175,7 @@ class TenableVulnManagementAdapter:
             self.base.data_client.queue_scan_update_status(queue_scan_data['queue_scan_id'], QueueStatus.PENDING)
         self.current_scan_asset_dict = {}
 
-    def map_scan(self, scan_record, issue_record):
+    def map_scan(self, scan_record, finding):
         q_scan_doc = self.base.sm_docs.map_scan_doc()
         q_scan_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         q_scan_doc['Saltminer']['Internal']['IssueCount'] = -1
@@ -132,7 +183,7 @@ class TenableVulnManagementAdapter:
         scan['Attributes'] = {}
         scan['Product'] = "Tenable"
         scan['Vendor'] = "Tenable"
-        scan['ReportId'] = scan_record['uuid'] + " | " + issue_record['asset']['uuid'] + " | " + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        scan['ReportId'] = scan_record['uuid'] + " | " + finding['asset']['uuid'] + " | " + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         timestamp = scan_record['last_modification_date']
         dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
         scan['ScanDate'] = dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
@@ -143,9 +194,9 @@ class TenableVulnManagementAdapter:
         scan['ProductType'] = 'app'
         return q_scan_doc
 
-    def map_asset(self, issue_record, queue_scan_id):
-        asset_name = issue_record["asset"]["netbios_name"] if issue_record['asset'].get(
-            'name') else issue_record['asset']['hostname']
+    def map_asset(self, finding, queue_scan_id):
+        asset_name = finding["asset"]["netbios_name"] if finding['asset'].get(
+            'name') else finding['asset']['hostname']
 
         q_asset_doc = self.base.sm_docs.map_asset_doc()
         q_asset_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
@@ -154,22 +205,22 @@ class TenableVulnManagementAdapter:
         asset = q_asset_doc['Saltminer']["Asset"]
         asset['Name'] = asset_name
         asset["Version"] = asset_name
-        asset['VersionId'] = issue_record['asset']['uuid']
-        asset['SourceId'] = issue_record['asset']['uuid']
+        asset['VersionId'] = finding['asset']['uuid']
+        asset['SourceId'] = finding['asset']['uuid']
         asset['Instance'] = 'Tenable1'
         asset['AssetType'] = 'app'
         asset['SourceType'] = 'Saltworks.Tenable'
-        asset['Ip'] = issue_record['asset'].get('ipv4')
-        asset['Host'] = issue_record['asset'].get('hostname')
-        asset['Port'] = issue_record['port']['port'] if issue_record.get('port') else 'None'
-        asset['Scheme'] = issue_record['port']['protocol'] if issue_record.get('port') else 'None'
+        asset['Ip'] = finding['asset'].get('ipv4')
+        asset['Host'] = finding['asset'].get('hostname')
+        asset['Port'] = finding['port']['port'] if finding.get('port') else 'None'
+        asset['Scheme'] = finding['port']['protocol'] if finding.get('port') else 'None'
 
-        q_asset_doc = self.map_asset_attributes(issue_record, q_asset_doc)
+        q_asset_doc = self.map_asset_attributes(finding, q_asset_doc)
         return q_asset_doc
 
-    def map_issue(self, issue_record, current_scan_dict):
-        asset_name = issue_record['asset']['netbios_name'] if issue_record['asset'].get(
-            'netbios_name') else issue_record['asset']['hostname']
+    def map_issue(self, finding, current_scan_dict):
+        asset_name = finding['asset']['netbios_name'] if finding['asset'].get(
+            'netbios_name') else finding['asset']['hostname']
         queue_scan_id = current_scan_dict['queue_scan_id']
         queue_asset_id = current_scan_dict['queue_asset_id']
         report_id = current_scan_dict['report_id']
@@ -182,38 +233,38 @@ class TenableVulnManagementAdapter:
         saltminer['QueueAssetId'] = queue_asset_id
 
         vulnerability = q_issue_doc['Vulnerability']
-        if issue_record['state'] == "FIXED":
-            vulnerability['RemovedDate'] = issue_record['last_fixed']
+        if finding['state'] == "FIXED":
+            vulnerability['RemovedDate'] = finding['last_fixed']
 
-        vulnerability['Severity'] = issue_record['severity'].title()
-        vulnerability['FoundDate'] = issue_record['first_found']
-        vulnerability['Description'] = issue_record['plugin'].get('description')
+        vulnerability['Severity'] = finding['severity'].title()
+        vulnerability['FoundDate'] = finding['first_found']
+        vulnerability['Description'] = finding['plugin'].get('description')
         vulnerability['Id'] = (
-            [item for item in issue_record['plugin'].get('cve', [])]
-            if issue_record['plugin'].get('cve')
+            [item for item in finding['plugin'].get('cve', [])]
+            if finding['plugin'].get('cve')
             else ["None"]
         )
-        vulnerability['Name'] = issue_record['plugin']['name']
+        vulnerability['Name'] = finding['plugin']['name']
         vulnerability['ReportId'] = report_id
         vulnerability['Location'] = asset_name
         vulnerability['LocationFull'] = asset_name + "|" + \
-            str(issue_record['port']['port']) + \
-            "|" + issue_record['port']['protocol']
-        vulnerability['Recommendation'] = issue_record['plugin'].get('solution')
+            str(finding['port']['port']) + \
+            "|" + finding['port']['protocol']
+        vulnerability['Recommendation'] = finding['plugin'].get('solution')
         scanner = vulnerability['Scanner']
-        scanner['Id'] = issue_record['finding_id'] + " | " + asset_name
+        scanner['Id'] = finding['finding_id'] + " | " + asset_name
         scanner['AssessmentType'] = "SAST"
         scanner['Product'] = 'Tenable'
         scanner['Vendor'] = 'Tenable'
-        scanner['GuiUrl'] = f"https://cloud.tenable.com/vm/#/explore/findings/host-vulnerabilities/finding-details/{issue_record['finding_id']}"
+        scanner['GuiUrl'] = f"https://cloud.tenable.com/vm/#/explore/findings/host-vulnerabilities/finding-details/{finding['finding_id']}"
 
-        q_issue_doc = self.map_issue_attributes(q_issue_doc, issue_record, current_scan_dict)
+        q_issue_doc = self.map_issue_attributes(q_issue_doc, finding, current_scan_dict)
         return q_issue_doc
 
-    def map_issue_attributes(self, q_issue_doc, issue_record, current_scan_dict):
+    def map_issue_attributes(self, q_issue_doc, finding, current_scan_dict):
         saltminer = q_issue_doc['Saltminer']
         attributes = saltminer['Attributes']
-        operating_systems = issue_record['asset']['operating_system'] if issue_record['asset'].get('operating_system') else ['None']
+        operating_systems = finding['asset']['operating_system'] if finding['asset'].get('operating_system') else ['None']
         schedule_uuid = current_scan_dict['schedule_uuid']
         if len(operating_systems) > 1:
             operating_systems_joined = ", ".join(operating_systems)
@@ -222,42 +273,42 @@ class TenableVulnManagementAdapter:
         else:
             operating_systems_joined = "None"
 
-        attributes['status'] = issue_record['state']
-        attributes['issue_last_found'] = issue_record['last_found']
+        attributes['status'] = finding['state']
+        attributes['issue_last_found'] = finding['last_found']
         attributes['tenable_schedule_uuid'] = schedule_uuid
         attributes['operating_systems'] = operating_systems_joined
         attributes['operating_system'] = operating_systems[0] if len(operating_systems) > 0 else "None"
-        attributes['ipv6'] = issue_record['asset'].get('ipv6')
-        attributes['mac_address'] = issue_record['asset'].get('mac_address')
-        attributes["exploit_available"] = str(issue_record['plugin'].get('exploit_available'))
-        attributes["exploit_framework_canvas"] = str(issue_record['plugin'].get('exploit_framework_canvas'))
-        attributes["exploit_framework_core"] = str(issue_record['plugin'].get('exploit_framework_core'))
-        attributes["exploit_framework_d2_elliot"] = str(issue_record['plugin'].get('exploit_framework_d2_elliot'))
-        attributes["exploit_framework_exploithub"] = str(issue_record['plugin'].get('exploit_framework_exploithub'))
-        attributes["exploit_framework_metasploit"] = str(issue_record['plugin'].get('exploit_framework_metasploit'))
-        attributes["exploited_by_malware"] = str(issue_record['plugin'].get('exploited_by_malware'))
-        attributes["exploited_by_nessus"] = str(issue_record['plugin'].get('exploited_by_nessus'))
-        attributes["has_patch"] = str(issue_record['plugin'].get('has_patch'))
-        attributes["risk_factor"] = issue_record['plugin'].get('risk_factor')
-        attributes["in_the_news"] = str(issue_record['plugin'].get('in_the_news'))
-        attributes["unsupported_by_vendor"] = str(issue_record['plugin'].get('unsupported_by_vendor'))
-        attributes["has_workaround"] = str(issue_record['plugin'].get('has_workaround'))
-        if (vpr := issue_record['plugin'].get("vpr")):
+        attributes['ipv6'] = finding['asset'].get('ipv6')
+        attributes['mac_address'] = finding['asset'].get('mac_address')
+        attributes["exploit_available"] = str(finding['plugin'].get('exploit_available'))
+        attributes["exploit_framework_canvas"] = str(finding['plugin'].get('exploit_framework_canvas'))
+        attributes["exploit_framework_core"] = str(finding['plugin'].get('exploit_framework_core'))
+        attributes["exploit_framework_d2_elliot"] = str(finding['plugin'].get('exploit_framework_d2_elliot'))
+        attributes["exploit_framework_exploithub"] = str(finding['plugin'].get('exploit_framework_exploithub'))
+        attributes["exploit_framework_metasploit"] = str(finding['plugin'].get('exploit_framework_metasploit'))
+        attributes["exploited_by_malware"] = str(finding['plugin'].get('exploited_by_malware'))
+        attributes["exploited_by_nessus"] = str(finding['plugin'].get('exploited_by_nessus'))
+        attributes["has_patch"] = str(finding['plugin'].get('has_patch'))
+        attributes["risk_factor"] = finding['plugin'].get('risk_factor')
+        attributes["in_the_news"] = str(finding['plugin'].get('in_the_news'))
+        attributes["unsupported_by_vendor"] = str(finding['plugin'].get('unsupported_by_vendor'))
+        attributes["has_workaround"] = str(finding['plugin'].get('has_workaround'))
+        if (vpr := finding['plugin'].get("vpr")):
             attributes['vpr_score'] = str(vpr['score'])
-        if (cvss3 := issue_record['plugin'].get('cvss3_base_score')):
+        if (cvss3 := finding['plugin'].get('cvss3_base_score')):
             attributes['cvss3_base_score'] = str(cvss3)
-        if (cvss3_temp := issue_record['plugin'].get('cvss3_temporal_score')):
+        if (cvss3_temp := finding['plugin'].get('cvss3_temporal_score')):
             attributes['cvss3_temporal_score'] = str(cvss3_temp)
-        if (cvss := issue_record['plugin'].get('cvss_base_score')):
+        if (cvss := finding['plugin'].get('cvss_base_score')):
             attributes['cvss_base_score'] = str(cvss)
-        if (cvss_temp := issue_record['plugin'].get('cvss_base_score')):
+        if (cvss_temp := finding['plugin'].get('cvss_base_score')):
             attributes['cvss_temporal_score'] = str(cvss_temp)
 
         return q_issue_doc
 
-    def map_asset_attributes(self, issue_record, q_asset_doc):
+    def map_asset_attributes(self, finding, q_asset_doc):
         asset = q_asset_doc['Saltminer']["Asset"]
-        asset_info = self.tenable_att_tags.get(issue_record['asset'].get('uuid'), {})
+        asset_info = self.tenable_att_tags.get(finding['asset'].get('uuid'), {})
         asset_tags = asset_info.get('tags', [])
         asset_attributes = asset_info.get('attributes', {})
 
@@ -267,10 +318,10 @@ class TenableVulnManagementAdapter:
         for key in asset_attributes.keys():
             asset['Attributes'][key] = asset_attributes[key]
 
-        asset['Attributes']['agent_uuid'] = issue_record['asset'].get('agent_uuid')
-        asset['Attributes']['bios_uuid'] = issue_record['asset'].get('bios_uuid')
-        asset['Attributes']['fqdn'] = issue_record['asset'].get('fqdn')
-        asset['Attributes']['last_scan_target'] = issue_record['asset'].get('last_scan_target')
+        asset['Attributes']['agent_uuid'] = finding['asset'].get('agent_uuid')
+        asset['Attributes']['bios_uuid'] = finding['asset'].get('bios_uuid')
+        asset['Attributes']['fqdn'] = finding['asset'].get('fqdn')
+        asset['Attributes']['last_scan_target'] = finding['asset'].get('last_scan_target')
 
         return q_asset_doc
 
