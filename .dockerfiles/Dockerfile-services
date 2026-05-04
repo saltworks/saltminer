@@ -30,9 +30,10 @@ COPY $PY_ARTIFACT_PATH ./python/
 
 RUN mkdir -p ./python/Defaults/ && \
     ls ./python && \
-    for dir in Config Custom AppVulsCustom Mappings AuthHelperCustom; do \
+    for dir in Config Custom AppVulsCustom AuthHelperCustom; do \
       mv ./python/$dir ./python/Defaults/$dir; \
     done && \
+    mkdir -p ./python/Mappings/ && \
     pip install -r ./python/requirements.txt --break-system-packages
 
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
