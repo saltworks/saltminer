@@ -172,5 +172,72 @@ class TenableAdapterBaseTests(unittest.TestCase):
         self.assertEqual(adapter.current_scan_asset_dict, {})
 
 
+@patch('Sources.Tenable.TenableAdapter.DataClient')
+@patch('Sources.Tenable.TenableAdapter.TenableClient')
+class TenableVulnManagementAdapterTests(unittest.TestCase):
+
+    def test_vm_map_scan_includes_common_and_vm_fields(self, MockTenableClient, MockDataClient):
+        from Sources.Tenable.TenableAdapter import TenableVulnManagementAdapter
+        adapter = TenableVulnManagementAdapter(make_mock_app())
+        scan_record = {
+            'uuid': 'scan-uuid-001',
+            'last_modification_date': 1704067200,  # 2024-01-01T00:00:00Z
+            'schedule_uuid': 'sched-uuid-xyz',
+        }
+        doc = adapter.map_scan(scan_record, VM_FINDING)
+        scan = doc['Saltminer']['Scan']
+        # common fields (from base)
+        self.assertEqual(scan['Product'], 'Tenable')
+        self.assertEqual(scan['Vendor'], 'Tenable')
+        self.assertEqual(scan['SourceType'], 'Saltworks.Tenable')
+        self.assertEqual(scan['Instance'], 'Tenable1')
+        self.assertEqual(scan['AssetType'], 'app')
+        # VM-specific fields
+        self.assertEqual(scan['AssessmentType'], 'SAST')
+        self.assertEqual(scan['ProductType'], 'app')
+        self.assertIn('scan-uuid-001', scan['ReportId'])
+        self.assertIn('asset-uuid-123', scan['ReportId'])
+        self.assertIsNotNone(scan['ScanDate'])
+
+    def test_vm_map_asset_includes_common_and_vm_fields(self, MockTenableClient, MockDataClient):
+        from Sources.Tenable.TenableAdapter import TenableVulnManagementAdapter
+        adapter = TenableVulnManagementAdapter(make_mock_app())
+        doc = adapter.map_asset(VM_FINDING, 'qs-001')
+        asset = doc['Saltminer']['Asset']
+        # common fields
+        self.assertEqual(asset['VersionId'], 'asset-uuid-123')
+        self.assertEqual(asset['SourceId'], 'asset-uuid-123')
+        self.assertEqual(asset['Instance'], 'Tenable1')
+        self.assertEqual(asset['AssetType'], 'app')
+        self.assertEqual(asset['SourceType'], 'Saltworks.Tenable')
+        self.assertEqual(asset['Ip'], '192.168.1.100')
+        # VM-specific fields
+        self.assertEqual(asset['Name'], 'test-host.example.com')
+        self.assertEqual(asset['Host'], 'test-host.example.com')
+        self.assertEqual(asset['Port'], 443)
+        self.assertEqual(asset['Scheme'], 'TCP')
+
+    def test_vm_map_issue_includes_common_and_vm_fields(self, MockTenableClient, MockDataClient):
+        from Sources.Tenable.TenableAdapter import TenableVulnManagementAdapter
+        adapter = TenableVulnManagementAdapter(make_mock_app())
+        doc = adapter.map_issue(VM_FINDING, VM_SCAN_DICT)
+        vuln = doc['Vulnerability']
+        scanner = vuln['Scanner']
+        # common fields
+        self.assertEqual(vuln['Severity'], 'High')
+        self.assertEqual(vuln['FoundDate'], '2024-01-01T00:00:00Z')
+        self.assertEqual(vuln['ReportId'], 'report-001')
+        self.assertEqual(vuln['Recommendation'], 'Apply patch')
+        self.assertEqual(scanner['Product'], 'Tenable')
+        self.assertEqual(scanner['Vendor'], 'Tenable')
+        # VM-specific fields
+        self.assertEqual(vuln['Id'], ['CVE-2024-1234'])
+        self.assertEqual(vuln['Name'], 'Test Vulnerability')
+        self.assertEqual(vuln['Description'], 'A test vuln')
+        self.assertEqual(scanner['AssessmentType'], 'SAST')
+        self.assertIn('finding-123', scanner['Id'])
+        self.assertIn('finding-123', scanner['GuiUrl'])
+
+
 if __name__ == '__main__':
     unittest.main()

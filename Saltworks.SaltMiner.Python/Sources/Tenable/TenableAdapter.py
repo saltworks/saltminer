@@ -113,9 +113,9 @@ class TenableAdapter:
         return sm_scan_data_dict
 
 
-class TenableVulnManagementAdapter:
-    def __init__(self, base):
-        self.base = base
+class TenableVulnManagementAdapter(TenableAdapter):
+    def __init__(self, app):
+        super().__init__(app)
         self.sm_scan_data_dict = {}
         self.current_scan_asset_dict = {}
         self.tenable_att_tags = {}
@@ -125,7 +125,7 @@ class TenableVulnManagementAdapter:
         self.first_load = first_load
         self.get_asset_attributes()
         if not self.first_load:
-            self.sm_scan_data_dict = self.base.get_sm_scans(
+            self.sm_scan_data_dict = self.get_sm_scans(
                 index="issues_app_saltworks.tenable_tenable1",
                 agg_query=self.schedule_uuid_agg_query()
             )
@@ -139,7 +139,7 @@ class TenableVulnManagementAdapter:
             }
             self.sync_scan(scan_record)
         else:
-            for scan_record in self.base.tenable_client.get_vm_scans_generator():
+            for scan_record in self.tenable_client.get_vm_scans_generator():
                 if not self.first_load:
                     if self.sm_scan_data_dict.get(scan_record[scan_id_key]):
                         last_modification_date = self.sm_scan_data_dict[scan_record[scan_id_key]]
@@ -150,12 +150,12 @@ class TenableVulnManagementAdapter:
 
     def sync_scan(self, scan_record):
         if scan_record.get('uuid'):
-            for finding in self.base.tenable_client.get_vm_vuln_export_generator(scan_record['uuid']):
+            for finding in self.tenable_client.get_vm_vuln_export_generator(scan_record['uuid']):
                 if not self.current_scan_asset_dict.get(finding['asset']['uuid']):
                     mapped_scan = self.map_scan(scan_record, finding)
-                    queue_scan = self.base.data_client.queue_scan_add_update(mapped_scan)
+                    queue_scan = self.data_client.queue_scan_add_update(mapped_scan)
                     mapped_asset = self.map_asset(finding, queue_scan['id'])
-                    queue_asset = self.base.data_client.queue_asset_add_update(mapped_asset)
+                    queue_asset = self.data_client.queue_asset_add_update(mapped_asset)
                     self.current_scan_asset_dict[finding['asset']['uuid']] = {
                         "queue_scan_id": queue_scan['id'],
                         "queue_asset_id": queue_asset['id'],
@@ -166,78 +166,40 @@ class TenableVulnManagementAdapter:
                     finding,
                     current_scan_dict=self.current_scan_asset_dict[finding['asset']['uuid']]
                 )
-                self.base.data_client.queue_issue_add_update_batch(mapped_issue)
+                self.data_client.queue_issue_add_update_batch(mapped_issue)
             self.finalize_all_scans()
 
-    def finalize_all_scans(self):
-        self.base.data_client.queue_issue_add_update_batch(None)
-        for asset_id, queue_scan_data in self.current_scan_asset_dict.items():
-            self.base.data_client.queue_scan_update_status(queue_scan_data['queue_scan_id'], QueueStatus.PENDING)
-        self.current_scan_asset_dict = {}
-
     def map_scan(self, scan_record, finding):
-        q_scan_doc = self.base.sm_docs.map_scan_doc()
-        q_scan_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-        q_scan_doc['Saltminer']['Internal']['IssueCount'] = -1
+        q_scan_doc = super().map_scan()
         scan = q_scan_doc['Saltminer']['Scan']
-        scan['Attributes'] = {}
-        scan['Product'] = "Tenable"
-        scan['Vendor'] = "Tenable"
-        scan['ReportId'] = scan_record['uuid'] + " | " + finding['asset']['uuid'] + " | " + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        scan['ReportId'] = (
+            scan_record['uuid'] + " | " +
+            finding['asset']['uuid'] + " | " +
+            datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        )
         timestamp = scan_record['last_modification_date']
         dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
         scan['ScanDate'] = dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-        scan['SourceType'] = "Saltworks.Tenable"
-        scan['Instance'] = "Tenable1"
-        scan["AssetType"] = "app"
         scan['AssessmentType'] = "SAST"
         scan['ProductType'] = 'app'
         return q_scan_doc
 
     def map_asset(self, finding, queue_scan_id):
-        asset_name = finding["asset"]["netbios_name"] if finding['asset'].get(
-            'name') else finding['asset']['hostname']
-
-        q_asset_doc = self.base.sm_docs.map_asset_doc()
-        q_asset_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-        q_asset_doc['Saltminer']['Internal']['QueueScanId'] = queue_scan_id
-
-        asset = q_asset_doc['Saltminer']["Asset"]
+        asset_name = finding["asset"]["netbios_name"] if finding['asset'].get('name') else finding['asset']['hostname']
+        q_asset_doc = super().map_asset(finding, queue_scan_id)
+        asset = q_asset_doc['Saltminer']['Asset']
         asset['Name'] = asset_name
-        asset["Version"] = asset_name
-        asset['VersionId'] = finding['asset']['uuid']
-        asset['SourceId'] = finding['asset']['uuid']
-        asset['Instance'] = 'Tenable1'
-        asset['AssetType'] = 'app'
-        asset['SourceType'] = 'Saltworks.Tenable'
-        asset['Ip'] = finding['asset'].get('ipv4')
+        asset['Version'] = asset_name
         asset['Host'] = finding['asset'].get('hostname')
         asset['Port'] = finding['port']['port'] if finding.get('port') else 'None'
         asset['Scheme'] = finding['port']['protocol'] if finding.get('port') else 'None'
-
         q_asset_doc = self.map_asset_attributes(finding, q_asset_doc)
         return q_asset_doc
 
     def map_issue(self, finding, current_scan_dict):
-        asset_name = finding['asset']['netbios_name'] if finding['asset'].get(
-            'netbios_name') else finding['asset']['hostname']
-        queue_scan_id = current_scan_dict['queue_scan_id']
-        queue_asset_id = current_scan_dict['queue_asset_id']
-        report_id = current_scan_dict['report_id']
-
-        q_issue_doc = self.base.sm_docs.map_issue_doc()
-        q_issue_doc['Timestamp'] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-        saltminer = q_issue_doc['Saltminer']
-        saltminer['QueueScanId'] = queue_scan_id
-        saltminer['QueueAssetId'] = queue_asset_id
-
+        asset_name = finding['asset']['netbios_name'] if finding['asset'].get('netbios_name') else finding['asset']['hostname']
+        q_issue_doc = super().map_issue(finding, current_scan_dict)
         vulnerability = q_issue_doc['Vulnerability']
-        if finding['state'] == "FIXED":
-            vulnerability['RemovedDate'] = finding['last_fixed']
-
-        vulnerability['Severity'] = finding['severity'].title()
-        vulnerability['FoundDate'] = finding['first_found']
         vulnerability['Description'] = finding['plugin'].get('description')
         vulnerability['Id'] = (
             [item for item in finding['plugin'].get('cve', [])]
@@ -245,19 +207,19 @@ class TenableVulnManagementAdapter:
             else ["None"]
         )
         vulnerability['Name'] = finding['plugin']['name']
-        vulnerability['ReportId'] = report_id
         vulnerability['Location'] = asset_name
-        vulnerability['LocationFull'] = asset_name + "|" + \
-            str(finding['port']['port']) + \
-            "|" + finding['port']['protocol']
-        vulnerability['Recommendation'] = finding['plugin'].get('solution')
+        vulnerability['LocationFull'] = (
+            asset_name + "|" +
+            str(finding['port']['port']) + "|" +
+            finding['port']['protocol']
+        )
         scanner = vulnerability['Scanner']
         scanner['Id'] = finding['finding_id'] + " | " + asset_name
         scanner['AssessmentType'] = "SAST"
-        scanner['Product'] = 'Tenable'
-        scanner['Vendor'] = 'Tenable'
-        scanner['GuiUrl'] = f"https://cloud.tenable.com/vm/#/explore/findings/host-vulnerabilities/finding-details/{finding['finding_id']}"
-
+        scanner['GuiUrl'] = (
+            f"https://cloud.tenable.com/vm/#/explore/findings/host-vulnerabilities"
+            f"/finding-details/{finding['finding_id']}"
+        )
         q_issue_doc = self.map_issue_attributes(q_issue_doc, finding, current_scan_dict)
         return q_issue_doc
 
