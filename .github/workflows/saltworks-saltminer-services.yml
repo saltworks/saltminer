@@ -57,8 +57,8 @@ jobs:
       PY_CONFIG_FILE: SMv3.json
       DEPLOY_ARTIFACT_PATH: Saltworks.SaltMiner.Deploy
       EXEC_TRANSFORM: true
-      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == 'true' && 'true' || 'false' }}
-      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == 'true' && 'true' || 'false' }}
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == true && 'true' || 'false' }}
+      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == true && 'true' || 'false' }}
 
     steps:
     - uses: actions/checkout@v4

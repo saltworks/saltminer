@@ -14,7 +14,7 @@ ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config/api
 
 WORKDIR ${APP_ROOT}/app/api
 
-COPY . .
+COPY $ARTIFACT_PATH ./
 
 # curl is used for healthcheck.
 # jq is used for configuration file manipulation

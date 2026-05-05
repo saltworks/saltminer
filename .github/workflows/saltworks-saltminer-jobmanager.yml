@@ -43,8 +43,8 @@ jobs:
         working-directory: ./Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager
     env:
       CONFIGURATION: release
-      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == 'true' && 'true' || 'false' }}
-      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == 'true' && 'true' || 'false' }}
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == true && 'true' || 'false' }}
+      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == true && 'true' || 'false' }}
 
     steps:
     - uses: actions/checkout@v4
