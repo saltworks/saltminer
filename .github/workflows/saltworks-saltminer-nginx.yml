@@ -45,9 +45,6 @@ on:
     types:
       - published
 
-env:
-  IMAGE_NAME: saltminer-nginx
-
 jobs:
   # ── Job 1: Build the UI and upload artifact ──────────────────────────────────
   build_ui:
@@ -166,16 +163,13 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # Resolves to 'saltworks/saltminer' on release or when manually requested,
-      # empty string otherwise. docker/metadata-action silently ignores blank
-      # entries in images:, preventing buildx from contacting Docker Hub.
-      - name: Set Docker Hub image name
-        id: dockerhub-image
+      - name: Determine registry image
+        id: registry
         run: |
-          if [ "${{ github.event_name }}" == "release" ] || [ "${{ env.PUSH_TO_DOCKER_HUB }}" == "true" ]; then
-            echo "name=saltworks/saltminer" >> $GITHUB_OUTPUT
+          if [ "${{ env.PUSH_TO_DOCKER_HUB }}" == "true" ]; then
+            echo "image=saltworks/saltminer" >> $GITHUB_OUTPUT
           else
-            echo "name=" >> $GITHUB_OUTPUT
+            echo "image=ghcr.io/saltworks/saltminer" >> $GITHUB_OUTPUT
           fi
 
       - name: Extract Docker metadata
@@ -183,8 +177,7 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: |
-            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
-            ${{ steps.dockerhub-image.outputs.name }}
+            ${{ steps.registry.outputs.image }}
           tags: |
             type=raw,value=sm-nginx-${{ github.ref_name }}.${{ github.run_number }}
             type=raw,value=sm-nginx-${{ github.ref_name }}

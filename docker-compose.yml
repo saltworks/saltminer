@@ -2,7 +2,7 @@
 # https://www.elastic.co/guide/en/elastic-stack-get-started/7.17/get-started-docker.html#get-started-docker-tls
 services:
   init:
-    image: busybox
+    image: docker.io/library/busybox
     container_name: sm-init
     volumes:
     - ${APP_ROOT}:/app_root
