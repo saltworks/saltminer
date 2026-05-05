@@ -94,3 +94,89 @@ def test_get_settings_by_section_called_with_correct_args():
     ) as mock_get:
         custom_jobs_path()
     mock_get.assert_called_with("general", subsection="paths")
+
+
+# ---------------------------------------------------------------------------
+# seed_defaults_if_missing
+# ---------------------------------------------------------------------------
+
+from app.services.paths_service import seed_defaults_if_missing
+
+
+def test_seed_writes_all_four_when_index_empty():
+    with patch(
+        "app.services.paths_service.get_settings_by_section",
+        return_value=[],
+    ), patch(
+        "app.services.paths_service.update_settings",
+    ) as mock_update:
+        seed_defaults_if_missing()
+
+    mock_update.assert_called_once()
+    args, _ = mock_update.call_args
+    section, subsection, payload = args
+    assert section == "general"
+    assert subsection == "paths"
+    written_props = {item["property"] for item in payload}
+    assert written_props == set(DEFAULTS.keys())
+    for item in payload:
+        assert item["value"] == DEFAULTS[item["property"]]
+        assert item["value_type"] == "string"
+        assert item["label"]  # non-empty
+        assert item["description"]  # non-empty
+
+
+def test_seed_writes_only_missing_when_some_exist():
+    existing = [
+        {"property": "customJobsPath", "value": "/already/set/"},
+        {"property": "sslCertsPath", "value": "/etc/ssl/"},
+    ]
+    with patch(
+        "app.services.paths_service.get_settings_by_section",
+        return_value=existing,
+    ), patch(
+        "app.services.paths_service.update_settings",
+    ) as mock_update:
+        seed_defaults_if_missing()
+
+    mock_update.assert_called_once()
+    _, _, payload = mock_update.call_args.args
+    written_props = {item["property"] for item in payload}
+    assert written_props == {"saltminerJobsPath", "reportTemplatesPath"}
+
+
+def test_seed_is_noop_when_all_exist():
+    existing = [{"property": prop, "value": "/x/"} for prop in DEFAULTS]
+    with patch(
+        "app.services.paths_service.get_settings_by_section",
+        return_value=existing,
+    ), patch(
+        "app.services.paths_service.update_settings",
+    ) as mock_update:
+        seed_defaults_if_missing()
+
+    mock_update.assert_not_called()
+
+
+def test_seed_swallows_read_errors():
+    with patch(
+        "app.services.paths_service.get_settings_by_section",
+        side_effect=Exception("ES down"),
+    ), patch(
+        "app.services.paths_service.update_settings",
+    ) as mock_update:
+        seed_defaults_if_missing()  # must not raise
+
+    mock_update.assert_not_called()
+
+
+def test_seed_swallows_write_errors():
+    with patch(
+        "app.services.paths_service.get_settings_by_section",
+        return_value=[],
+    ), patch(
+        "app.services.paths_service.update_settings",
+        side_effect=Exception("ES write failed"),
+    ):
+        # must not raise
+        seed_defaults_if_missing()
