@@ -29,6 +29,7 @@ on:
       - "Saltworks.SaltMiner.Nginx/**"
       - "Saltworks.SaltMiner.Ui/**"
       - ".dockerfiles/Dockerfile-sm-nginx"
+      - ".github/workflows/saltworks-saltminer-nginx.yml"
 
   workflow_dispatch:
     inputs:
