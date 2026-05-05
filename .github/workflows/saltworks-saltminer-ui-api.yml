@@ -56,6 +56,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Store artifact path
+      id: paths
+      run: |
+        echo "artifact-path=./artifacts/bin/Saltworks.SaltMiner.Ui.Api/${{ env.CONFIGURATION }}" >> $GITHUB_OUTPUT
+        echo "docker-artifact-path=Saltworks.SaltMiner.Ui.Api/Saltworks.SaltMiner.Ui.Api/artifacts/bin/Saltworks.SaltMiner.Ui.Api/${{ env.CONFIGURATION }}" >> $GITHUB_OUTPUT
+
     - name: Determine registry image
       id: registry
       run: |

@@ -6,17 +6,17 @@ services:
     container_name: sm-init
     volumes:
     - ${APP_ROOT}:/app_root
-    command: >
+    command: >-
       sh -c "mkdir -p
-        /app_root/logs/nginx
-        /app_root/app/ui-files
-        /app_root/config/nginx
-        /app_root/config/api/data
-        /app_root/config/python/scripts
-        /app_root/config/python/Custom
-        /app_root/config/python/Mappings
-        /app_root/config/python/AppVulsCustom
-        /app_root/config/python/AuthSyncCustom"
+      /app_root/logs/nginx
+      /app_root/app/ui-files
+      /app_root/config/nginx
+      /app_root/config/api/data
+      /app_root/config/python/scripts
+      /app_root/config/python/Custom
+      /app_root/config/python/Mappings
+      /app_root/config/python/AppVulsCustom
+      /app_root/config/python/AuthSyncCustom"
     restart: "no"
 
   sm-nginx:
@@ -149,11 +149,9 @@ services:
     container_name: jobmanager
     hostname: jobmanager
     volumes:
-    - type: bind
-      source: /etc/saltworks/saltminer/jobmanager/JobManagerSettings.json
-      target: /etc/saltworks/saltminer-3.0.0/jobmanager/JobManagerSettings.json
-    - ui-files:/usr/share/saltworks/saltminer-3.0.0/ui-files
-    - jobmanager-logs:/var/log/saltworks/saltminer-3.0.0
+    - ${APP_ROOT}/config/jobmanager:/opt/saltworks/saltminer/config/jobmanager
+    - ui-files:/opt/saltworks/saltminer/app/ui-files
+    - ${APP_ROOT}/logs:/opt/saltworks/saltminer/logs
     networks:
     - ${CONTAINER_NETWORK}
     restart: "always"
@@ -169,55 +167,47 @@ services:
         reservations:
           memory: 50mb
 
-  elastic-agent:
-    image: docker.elastic.co/elastic-agent/elastic-agent:${STACK_VERSION}
-    container_name: elastic-agent
-    hostname: ${ELASTIC_AGENT_HOSTNAME}
-    restart: on-failure:10
-    user: root # note, synthetic browser monitors require this set to `elastic-agent`
-    volumes:
-    - services-logs:/var/log/saltworks/saltminer-3.0.0/services
-    - api-logs:/var/log/saltworks/saltminer-3.0.0/api
-    - jobmanager-logs:/var/log/saltworks/saltminer-3.0.0/jobmanager
-    - agent25-logs:/var/log/saltworks/saltminer-2.5.0
-    - ui-api-logs:/var/log/saltworks/saltminer-3.0.0/ui-api
-    environment:
-    - FLEET_ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
-    - FLEET_ENROLL=1
-    - FLEET_URL=${FLEET_SERVER_URL}
-    - FLEET_INSECURE=1
-    networks:
-    - ${CONTAINER_NETWORK}
-    deploy:
-      resources:
-        limits:
-          memory: 1gb
-        reservations:
-          memory: 500mb
-    depends_on:
-      api:
-        condition: service_healthy
-      ui-api:
-        condition: service_healthy
-      sm-services:
-        condition: service_started
-      jobmanager:
-        condition: service_started
-    profiles:
-    - fleet
+  # elastic-agent:
+  #   image: docker.elastic.co/elastic-agent/elastic-agent:${STACK_VERSION}
+  #   container_name: elastic-agent
+  #   hostname: ${ELASTIC_AGENT_HOSTNAME}
+  #   restart: on-failure:10
+  #   user: root # note, synthetic browser monitors require this set to `elastic-agent`
+  #   volumes:
+  #   - services-logs:/var/log/saltworks/saltminer-3.0.0/services
+  #   - api-logs:/var/log/saltworks/saltminer-3.0.0/api
+  #   - jobmanager-logs:/var/log/saltworks/saltminer-3.0.0/jobmanager
+  #   - agent25-logs:/var/log/saltworks/saltminer-2.5.0
+  #   - ui-api-logs:/var/log/saltworks/saltminer-3.0.0/ui-api
+  #   environment:
+  #   - FLEET_ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
+  #   - FLEET_ENROLL=1
+  #   - FLEET_URL=${FLEET_SERVER_URL}
+  #   - FLEET_INSECURE=1
+  #   networks:
+  #   - ${CONTAINER_NETWORK}
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 1gb
+  #       reservations:
+  #         memory: 500mb
+  #   depends_on:
+  #     api:
+  #       condition: service_healthy
+  #     ui-api:
+  #       condition: service_healthy
+  #     sm-services:
+  #       condition: service_started
+  #     jobmanager:
+  #       condition: service_started
+  #   profiles:
+  #   - fleet
 
 volumes:
-  agent25-logs:
-    driver: local
   api-logs:
     driver: local
-  certs:
-    driver: local
-  data01:
-    driver: local
   jobmanager-logs:
-    driver: local
-  kibanadata:
     driver: local
   services-logs:
     driver: local
