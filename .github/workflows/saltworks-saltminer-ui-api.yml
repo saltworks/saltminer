@@ -77,6 +77,8 @@ jobs:
       run: dotnet restore --disable-build-servers
     - name: Build
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=0
+    - name: Publish
+      run: dotnet publish --no-build --configuration $CONFIGURATION --property WarningLevel=0
 
     - name: Show output
       run: |

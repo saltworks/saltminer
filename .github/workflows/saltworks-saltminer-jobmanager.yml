@@ -54,6 +54,8 @@ jobs:
       run: dotnet restore --disable-build-servers
     - name: Build
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
+    - name: Publish
+      run: dotnet publish --no-build --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
 
     - name: Store paths
       id: paths
