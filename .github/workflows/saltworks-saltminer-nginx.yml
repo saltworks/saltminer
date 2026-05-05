@@ -59,7 +59,7 @@ jobs:
         node-version: [18.x]
 
     env:
-      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == 'true' && 'true' || 'false' }}
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == true && 'true' || 'false' }}
 
     outputs:
       tag: ${{ steps.set-tag.outputs.tag }}
@@ -124,8 +124,8 @@ jobs:
       packages: write   # required to push to ghcr.io
 
     env:
-      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == 'true' && 'true' || 'false' }}
-      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == 'true' && 'true' || 'false' }}
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == true && 'true' || 'false' }}
+      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == true && 'true' || 'false' }}
 
     outputs:
       digest: ${{ steps.build-push.outputs.digest }}
