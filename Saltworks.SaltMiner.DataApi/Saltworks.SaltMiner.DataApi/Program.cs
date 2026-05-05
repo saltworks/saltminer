@@ -47,7 +47,6 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.OpenApi;
 using Elastic.Transport;
-using System.Text;
 
 namespace Saltworks.SaltMiner.DataApi
 {

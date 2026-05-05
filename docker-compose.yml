@@ -78,7 +78,7 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
-    entrypoint: ["/usr/bin/dotnet /opt/saltworks/saltminer/app/api/Saltworks.SaltMiner.DataApi.dll"]
+    entrypoint: ["/usr/bin/dotnet", "/opt/saltworks/saltminer/app/api/Saltworks.SaltMiner.DataApi.dll"]
 
   ui-api:
     image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_UI_API_IMAGE_VERSION}
