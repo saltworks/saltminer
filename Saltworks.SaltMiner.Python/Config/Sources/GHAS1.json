@@ -1,6 +1,6 @@
 {
     "Source": "GHAS",
-    "SourceName": "GHAS",
+    "SourceName": "ghas1",
     "Enabled": false,
     "BaseUrl": "https://api.github.com/",
     "Org": "",
@@ -9,7 +9,7 @@
     "Engines": ["code_scanning", "secret_scanning", "dependabot"],
     "IncludeSarif": false,
     "ConcurrencyLimit": 10,
-    "StateFile": "./ghas-state.json",
+    "StateFile": "",
     "ExcludeRepos": [],
     "ExcludeTopics": [],
     "ExcludePattern": ""
