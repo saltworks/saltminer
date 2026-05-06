@@ -16,7 +16,6 @@ No SaltMiner dependencies. Fully testable in isolation.
 import asyncio
 import json
 import logging
-import re
 import time
 from typing import AsyncGenerator, Optional
 
