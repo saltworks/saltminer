@@ -100,7 +100,8 @@ namespace Saltworks.SaltMiner.ServiceManager
 
         private static void RunAppBuilder(IConsoleAppHostArgs args)
         {
-            var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, DEFAULT_SETTINGS_FILE, APP_FOLDER);
+            var defaultSettingsPath = Path.Combine(AppContext.BaseDirectory, DEFAULT_SETTINGS_FILE);
+            var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, defaultSettingsPath, APP_FOLDER);
             ILogger startLogger = null;
             try
             {
