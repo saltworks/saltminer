@@ -14,7 +14,6 @@ No SaltMiner dependencies. Fully testable in isolation.
 """
 
 import asyncio
-import base64
 import json
 import logging
 import re
