@@ -58,6 +58,7 @@ namespace Saltworks.SaltMiner.DataApi
         private const string CONFIG_SECTION = "ApiConfig";
         private const string SEED_INDICATOR_FILE = "seeded.txt";
         private const string ELASTIC_CONNECT_STRING = "ELASTICSEARCH_CONNECTION_STRING";
+        private const string KIBANA_URL_STRING = "KIBANA_URL";
         private const string JE = ".json";
         private static bool KestrelAllowRemote = false;
         private static int KestrelPort = 5000;
@@ -905,6 +906,12 @@ namespace Saltworks.SaltMiner.DataApi
             {
                 Log.Information("Overriding Elastic connection settings from environment variable '{VarName}'", ELASTIC_CONNECT_STRING);
                 config.ElasticConnectionString = configString;
+            }
+            var kibanaUrl = Environment.GetEnvironmentVariable(KIBANA_URL_STRING);
+            if (!string.IsNullOrEmpty(kibanaUrl))
+            {
+                Log.Information("Overriding Kibana URL from environment variable '{VarName}'", KIBANA_URL_STRING);
+                config.KibanaBaseUrl = kibanaUrl;
             }
             return config;
         }
