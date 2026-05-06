@@ -95,6 +95,60 @@ namespace Saltworks.SaltMiner.DataApi
 
         #region Helpers
 
+        private static void DecodeElasticConnectionString(ApiConfig config)
+        {
+            if (string.IsNullOrEmpty(config.ElasticConnectionString))
+                return;
+
+            var knownParts = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { "host", "port", "scheme", "username", "password", "sslverify", "cloudid", "apikeyid", "apikeyvalue", "useauth" };
+
+            foreach (var part in config.ElasticConnectionString.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var eq = part.IndexOf('=');
+                if (eq <= 0) continue;
+                var key = part[..eq].Trim();
+                var value = part[(eq + 1)..].Trim();
+                if (!knownParts.Contains(key))
+                {
+                    Log.Warning("Unknown key '{Key}' in ElasticConnectionString, ignoring...", key);
+                    continue;
+                }
+                switch (key.ToLowerInvariant())
+                {
+                    case "host":
+                        config.ElasticHost = value.Split(',')[0].Trim();
+                        break;
+                    case "port":
+                        if (int.TryParse(value, out var port))
+                            config.ElasticPort = port;
+                        break;
+                    case "scheme":
+                        config.ElasticHttpScheme = value;
+                        break;
+                    case "username":
+                        config.ElasticUsername = value;
+                        break;
+                    case "password":
+                        config.ElasticPassword = value;
+                        break;
+                    case "sslverify":
+                        if (bool.TryParse(value, out var sslVerify))
+                            config.VerifySsl = sslVerify;
+                        break;
+                    case "apikeyid":
+                        config.ElasticApiKeyId = value;
+                        break;
+                    case "apikeyvalue":
+                        config.ElasticApiKeySecret = value;
+                        break;
+                    case "cloudid":
+                        Log.Warning("CloudID in ElasticConnectionString is not supported by this client, ignoring.");
+                        break;
+                }
+            }
+        }
+
         private static void ConfigureServices(IServiceCollection services, ApiConfig config)
         {
             services.AddControllers();
@@ -127,6 +181,7 @@ namespace Saltworks.SaltMiner.DataApi
             services.AddSingleton(typeof(ILogger<>), typeof(CustomLogger<>));
 
             ConfigureSwaggerServices(services, config);
+            DecodeElasticConnectionString(config);
             services.AddEsClient(configureOptions =>
             {
                 configureOptions.HttpScheme = config.ElasticHttpScheme;
@@ -416,80 +471,6 @@ namespace Saltworks.SaltMiner.DataApi
                 Log.Debug(ex, "Error in GetDirectory() helper, will be ignored");
             }
             return string.Empty;
-        }
-
-        private static void ProcessKibanaImport(ApiConfig config, KibanaContext kibanaContext)
-        {
-            var failMsg = "";
-            try
-            {
-                failMsg = "Failed to list Kibana path files";
-                
-                var dir = GetDirectory(config.DataKibanaSpacePath);
-                if (!string.IsNullOrEmpty(dir))
-                {
-                    var kibanaImports = Directory.GetFiles(dir).Where(t => t.ToLower().EndsWith(".ndjson")).ToList();
-                    Log.Debug("Found {Counts} Kibana import file(s).", kibanaImports.Count);
-
-                    foreach (var kibanaImport in kibanaImports)
-                    {
-                        failMsg = $"Failed processing Kibana import '{kibanaImport}'";
-
-                        using (var fs = new FileStream(kibanaImport, FileMode.Open, FileAccess.Read))
-                        {
-                            var spaceName = Path.GetFileName(kibanaImport).Replace(".ndjson", "");
-
-                            var kibanaDto = new KibanaSpaceDto
-                            {
-                                Id = spaceName.ToLower().Replace(" ", "-"),
-                                Name = spaceName
-                            };
-
-                            var space = kibanaContext.GetSpace(kibanaDto.Id);
-                            if (!space.IsSuccessStatusCode)
-                            {
-                                var createResults = kibanaContext.CreateSpace(kibanaDto);
-
-                                if (!createResults.IsSuccessStatusCode)
-                                {
-                                    throw new ApiException($"Kibana space '{spaceName}' was not created. Reason: {createResults.RawContent}");
-                                }
-                            }
-                            else
-                            {
-                                Log.Warning("Kibana space '{SpaceName}' already exists, will not import file {FileName}.", spaceName, kibanaImport);
-                                continue;
-                            }
-
-                            var task = kibanaContext.ImportSpaceData(kibanaDto.Id, fs);
-                            task.Wait();
-                            var importResults = task.Result;
-
-                            if (!importResults.IsSuccessStatusCode)
-                            {
-                                throw new NonCriticalStartupException($"Failed to import data to the Space '{spaceName}'. Reason: {importResults.RawContent}");
-                            }
-                        }
-                        try
-                        {
-                            File.Delete(kibanaImport);
-                        }
-                        catch (Exception ex)
-                        {
-                            Log.Error(ex, "Failed to remove kibana space import file '{Path}' after use.", kibanaImport);
-                        }
-                    }
-                    Log.Information("Processed {Counts} Kibana import file(s).", kibanaImports.Count);
-                }
-                else
-                {
-                    Log.Information("No Kibana import files found in '{Path}' (or invalid/doesn't exist)", config.DataKibanaSpacePath);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "{FMsg}: {ExMsg}", failMsg, ex.Message);
-            }
         }
 
         #region One-time stuff
@@ -802,6 +783,80 @@ namespace Saltworks.SaltMiner.DataApi
             ProcessRoles(config, client);
             ProcessEnrichments(config, client);
             ProcessPipelines(config, client);
+        }
+
+        private static void ProcessKibanaImport(ApiConfig config, KibanaContext kibanaContext)
+        {
+            var failMsg = "";
+            try
+            {
+                failMsg = "Failed to list Kibana path files";
+
+                var dir = GetDirectory(config.DataKibanaSpacePath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    var kibanaImports = Directory.GetFiles(dir).Where(t => t.ToLower().EndsWith(".ndjson")).ToList();
+                    Log.Debug("Found {Counts} Kibana import file(s).", kibanaImports.Count);
+
+                    foreach (var kibanaImport in kibanaImports)
+                    {
+                        failMsg = $"Failed processing Kibana import '{kibanaImport}'";
+
+                        using (var fs = new FileStream(kibanaImport, FileMode.Open, FileAccess.Read))
+                        {
+                            var spaceName = Path.GetFileName(kibanaImport).Replace(".ndjson", "");
+
+                            var kibanaDto = new KibanaSpaceDto
+                            {
+                                Id = spaceName.ToLower().Replace(" ", "-"),
+                                Name = spaceName
+                            };
+
+                            var space = kibanaContext.GetSpace(kibanaDto.Id);
+                            if (!space.IsSuccessStatusCode)
+                            {
+                                var createResults = kibanaContext.CreateSpace(kibanaDto);
+
+                                if (!createResults.IsSuccessStatusCode)
+                                {
+                                    throw new ApiException($"Kibana space '{spaceName}' was not created. Reason: {createResults.RawContent}");
+                                }
+                            }
+                            else
+                            {
+                                Log.Warning("Kibana space '{SpaceName}' already exists, will not import file {FileName}.", spaceName, kibanaImport);
+                                continue;
+                            }
+
+                            var task = kibanaContext.ImportSpaceData(kibanaDto.Id, fs);
+                            task.Wait();
+                            var importResults = task.Result;
+
+                            if (!importResults.IsSuccessStatusCode)
+                            {
+                                throw new NonCriticalStartupException($"Failed to import data to the Space '{spaceName}'. Reason: {importResults.RawContent}");
+                            }
+                        }
+                        try
+                        {
+                            File.Delete(kibanaImport);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Error(ex, "Failed to remove kibana space import file '{Path}' after use.", kibanaImport);
+                        }
+                    }
+                    Log.Information("Processed {Counts} Kibana import file(s).", kibanaImports.Count);
+                }
+                else
+                {
+                    Log.Information("No Kibana import files found in '{Path}' (or invalid/doesn't exist)", config.DataKibanaSpacePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "{FMsg}: {ExMsg}", failMsg, ex.Message);
+            }
         }
 
         #endregion

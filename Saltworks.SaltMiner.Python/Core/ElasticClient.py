@@ -37,11 +37,13 @@ from .ApplicationSettings import ApplicationSettings
 from .StringUtils import StringUtils
 from .DictUtils import DictUtils
 
+RETRY_LIMIT_ERROR = "Elastic client operation failed after maximum retry attempts due to connection errors."
+ELASTIC_CONNECT_STR_ENV = "ELASTICSEARCH_CONNECTION_STRING"
+ELASTIC_CONNECT_STR_CONFIG = "ConnectionString"
+IDX_NOT_EXIST_ERR_TEMPLATE = "Index '%s' does not exist."
+
 class ElasticClient(object):
     """ Elasticsearch client class """
-    RETRY_LIMIT_ERROR = "Elastic client operation failed after maximum retry attempts due to connection errors."
-    ELASTIC_CONNECT_STR_ENV = "ELASTICSEARCH_CONNECTION_STRING"
-    ELASTIC_CONNECT_STR_CONFIG = "ConnectionString"
 
     def __init__(self, appSettings, configName="Elastic"):
         '''
@@ -50,7 +52,7 @@ class ElasticClient(object):
         appSettings: Settings instance containing application settings
         configName: Config section for this class (usually "Elastic")
         '''
-        if type(appSettings).__name__ != "ApplicationSettings":
+        if not isinstance(appSettings, ApplicationSettings):
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
         if not configName or configName not in appSettings.GetConfigNames():
             raise ElasticClientException(f"Invalid or missing configuration for name '{configName}'")
@@ -339,7 +341,7 @@ class ElasticClient(object):
             self.BulkInsert(self.__BulkBatch)
             self.__BulkBatch = []
 
-    def BulkInsertDocument(self, index, source, id=None, action=None):
+    def BulkInsertDocument(self, index, source, doc_id=None, action=None):
         '''
         Generates a document suitable for bulk insert operations
 
@@ -351,13 +353,13 @@ class ElasticClient(object):
         '''
         if action and action not in ['create','delete','index','update']:
             raise ElasticClientValidationException(f"Bulk action '{action}' invalid/unknown.")
-        if action in ['delete', 'update'] and not id:
+        if action in ['delete', 'update'] and not doc_id:
             raise ElasticClientValidationException(f"Bulk action '{action}' requires parameter id to be included.")
-        if not id:
-            id = uuid.uuid4()
+        if not doc_id:
+            doc_id = uuid.uuid4()
         doc = {
         '_index': index,
-        '_id': id
+        '_id': doc_id
         }
         if not action or action != 'delete':
             doc['_source'] = source
@@ -411,13 +413,13 @@ class ElasticClient(object):
             if 'error' in rsp.keys() and rsp['error']:
                 try:
                     logging.error("%s:%s", rsp['error'], rsp['error']['failed_shards'][0]['reason']['reason'])
-                except:
+                except Exception:
                     pass
                 raise ElasticClientSearchFailureException(rsp['error']['reason'])
             if conflictsAreBad and 'task' in rsp.keys() and rsp['task'] and 'status' in rsp['task'].keys() and rsp['task']['status'] and rsp['task']['status']['version_conflicts'] > 0:
                 raise exceptions.ConflictError()
                 # we should also attempt to cancel the task if still running
-            if rsp['completed'] == True:
+            if rsp['completed']:
                 return rsp
             total = "?"
             curr = "?"
@@ -449,7 +451,6 @@ class ElasticClient(object):
         return count
 
     def UpdateByQuery(self, index, queryBody, noWait=False, ignoreConflicts=False, retryConflicts=False, slices=None):
-        #TODO:TEST
         '''
         Calls ES update_by_query, trapping and then retrying for connection exceptions
 
@@ -505,11 +506,11 @@ class ElasticClient(object):
 
         except exceptions.ConflictError as e:
             wait = self.__RetryConflictDelaySecs
-            if ignoreConflicts == True:
+            if ignoreConflicts:
                 if not rsp:
                     rsp = True
                 return rsp
-            if retryConflicts == True:
+            if retryConflicts:
                 logging.debug("[%s] %s", type(e).__name__, e.__str__())
                 logging.error(f"API conflict error during update by query operation, retrying in {wait} secs...")
             else:
@@ -592,10 +593,10 @@ class ElasticClient(object):
         
         Exact matches (==) only.
         '''
-        if not type(filters) is dict:
+        if not isinstance(filters, dict):
             raise TypeError("Parameter filters should be a dict")
-        if not len(filters) > 0:
-            raise Exception("Parameter filters must include at least one filter")
+        if len(filters) < 1:
+            raise ElasticClientException("Parameter filters must include at least one filter")
         body = { "query": { "bool": { "must": [] } } }
         for f in filters:
             DictUtils.GetValue(body, 'query.bool.must').append({ "match": { f: filters[f] } })
@@ -813,7 +814,7 @@ class ElasticClient(object):
             return rsp
 
         except exceptions.NotFoundError as e:
-            if raiseNotFoundError == False:
+            if not raiseNotFoundError:
                 return e.info
             raise
             
@@ -840,11 +841,12 @@ class ElasticClient(object):
         :pitKeepAlive: How long to extend the PIT on each call, e.g. "5m".  Only used when pitId is provided.
         '''
         response = self.ResilientSearch(index, queryBody, size, includeLockingInfo=includeLockingInfo, requestTimeout=requestTimeout, pitId=pitId, pitKeepAlive=pitKeepAlive)
+        rsp_pit_id = response.get("pit_id") if response else None
         if navToData:
             if not response or 'hits' not in response or 'hits' not in response['hits'] or not response['hits']['hits']:
-                return (None, response.get("pit_id") if response else None) if pitId else None
+                return (None, rsp_pit_id) if pitId else None
             hits = response['hits']['hits']
-            return (hits, response.get("pit_id", pitId)) if pitId else hits
+            return (hits, rsp_pit_id) if pitId else hits
         else:
             return response
     
@@ -1001,7 +1003,7 @@ class ElasticClient(object):
             if ignoreMissingIndex:
                 return
             else:
-                raise ElasticClientException("Index '%s' does not exist.", index)
+                raise ElasticClientException(IDX_NOT_EXIST_ERR_TEMPLATE, index)
 
         try:
             logging.debug("Running delete by id for index '%s', id %s", index, idToRemove)
@@ -1017,7 +1019,7 @@ class ElasticClient(object):
 
         except (exceptions.ConnectionError, exceptions.ConnectionTimeout, exceptions.TransportError, ReadTimeoutError) as e:
             wait = self.__RetryDelaySecs
-            msg = "[no message]" if not 'keys' in dir(e) or "message" not in e.keys() else e.message
+            msg = "[no message]" if 'keys' not in dir(e) or "message" not in e.keys() else e.message
             self.__RetryCount += 1
             logging.error(f"API connection error during delete by id operation - [{type(e).__name__}] {msg}, retrying in {wait} secs...")
             time.sleep(wait)
@@ -1026,15 +1028,15 @@ class ElasticClient(object):
 
     def DeleteByMatchQuery(self, index, filters, ignoreMissingIndex=False):
         ''' Deletes from index based on one or more match conditions.  Filters parameter should be dict of field:value. '''
-        if not type(filters) is dict:
+        if not isinstance(filters, dict):
             raise TypeError("Parameter filters should be a dict")
-        if not len(filters) > 0:
-            raise Exception("Parameter filters must include at least one filter")
+        if len(filters) < 1:
+            raise ElasticClientException("Parameter filters must include at least one filter")
         if not self.IndexExists(index):
             if ignoreMissingIndex:
                 return
             else:
-                raise ElasticClientException("Index '%s' does not exist.", index)
+                raise ElasticClientException(IDX_NOT_EXIST_ERR_TEMPLATE, index)
         filt = []
         for f in filters.keys():
             filt.append({ "match": { f: filters[f] } })
@@ -1080,7 +1082,7 @@ class ElasticClient(object):
             if ignoreMissingIndex:
                 return None
             else:
-                raise ElasticClientException("Index '%s' does not exist.", index)
+                raise ElasticClientException(IDX_NOT_EXIST_ERR_TEMPLATE, index)
         if not timeout:
             timeout = self.__DeleteRequestTimeout
         timeout = int(timeout)
@@ -1223,7 +1225,7 @@ class ElasticClient(object):
         self.MapIndexWithMapping(indexToMap, mapping, force)
 
     def MapIndexWithMapping(self, indexToMap, mapping, force):
-        if not type(mapping) is dict:
+        if not isinstance(mapping, dict):
             raise ElasticClientMappingException("Invalid mapping body.  Requires dict.")
 
         exists = self.es.indices.exists(index=indexToMap)
@@ -1282,7 +1284,7 @@ class ElasticClient(object):
         except exceptions.NotFoundError:
             forceNeededToCreate = False
 
-        if force == False and forceNeededToCreate == True:
+        if not force and forceNeededToCreate:
             #It exists and we were not asked to force the update.  Just exit.
             return
         if aliasBody == '':

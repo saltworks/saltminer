@@ -24,11 +24,11 @@ import os
 import datetime
 import ntpath
 
-_MISSING = object()  # sentinel: distinguishes "no default provided" from default=None
-
 from .EncryptionHelper import EncryptionHelper
 from .ElasticClient import ElasticClient
-from .ApplicationExceptions import *
+from .ApplicationExceptions import ApplicationConfigurationException
+
+_MISSING = object()  # sentinel: distinguishes "no default provided" from default=None
 
 class ApplicationSettings(object):
     """Settings class - automatic handling of encryption/decryption for settings ending in 'Secret' or 'Password'"""
@@ -102,7 +102,7 @@ class ApplicationSettings(object):
 
     def __GetFromConfig(self, config, section, key, default, isSource):
         template = (f"source '{section}' and key '{key}'." if isSource else f"config '{section}' and key '{key}'.")
-        if not section in config.keys() or not key in config[section].keys():
+        if section not in config.keys() or key not in config[section].keys():
             if default is not _MISSING:
                 return default
             msg = f"Settings incorrect or missing value for {template}"
@@ -207,7 +207,7 @@ class ApplicationSettings(object):
 
     def GetSourceDict(self, sourceName):
         ''' Returns an entire source config as a Dict '''
-        if not sourceName in self.__Sources.keys():
+        if sourceName not in self.__Sources.keys():
             msg = f"Source '{sourceName}' not found in configuration."
             self.__Log("error", msg)
             raise ApplicationConfigurationException(msg)
@@ -223,7 +223,7 @@ class ApplicationSettings(object):
 
     def GetDict(self, section):
         ''' Gets an entire config file as a Dict '''
-        if not section in self.__Config.keys():
+        if section not in self.__Config.keys():
             msg = f"Configuration section '{section}' not found - check to make sure '{section}.json' exists."
             self.__Log("error", msg)
             raise ApplicationConfigurationException(msg)
