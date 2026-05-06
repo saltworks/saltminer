@@ -41,7 +41,7 @@ namespace Saltworks.SaltMiner.ServiceManager
      */
     public static class Program
     {
-        private const string APP_FOLDER = "api";
+        private const string APP_FOLDER = "servicemanager";
         private const string SETTINGS_FILE = "appsettings.json";
         private const string DEFAULT_SETTINGS_FILE = "appsettings-default.json";
         private const string SETTINGS_APP_SECTION = "ServiceManagerConfig";
@@ -100,7 +100,7 @@ namespace Saltworks.SaltMiner.ServiceManager
 
         private static void RunAppBuilder(IConsoleAppHostArgs args)
         {
-            var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, APP_FOLDER, DEFAULT_SETTINGS_FILE);
+            var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, DEFAULT_SETTINGS_FILE, APP_FOLDER);
             ILogger startLogger = null;
             try
             {
