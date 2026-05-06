@@ -9,7 +9,7 @@
     "Engines": ["code_scanning", "secret_scanning", "dependabot"],
     "IncludeSarif": false,
     "ConcurrencyLimit": 10,
-    "StateFile": "./ghas-state.json",
+    "StateFile": "",
     "ExcludeRepos": [],
     "ExcludeTopics": [],
     "ExcludePattern": ""
