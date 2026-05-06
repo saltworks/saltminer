@@ -19,7 +19,7 @@ ENV GID=10001
 WORKDIR ${APP_ROOT}/app/api
 
 COPY $ARTIFACT_PATH ./
-COPY $DATASTORE_SEED_PATH/* ./default-datastore-seed/
+COPY $DATASTORE_SEED_PATH/ ./default-datastore-seed/
 
 # curl is used for healthcheck.
 RUN apk add --no-cache curl \

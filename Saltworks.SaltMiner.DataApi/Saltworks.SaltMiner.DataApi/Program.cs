@@ -117,7 +117,7 @@ namespace Saltworks.SaltMiner.DataApi
                 switch (key.ToLowerInvariant())
                 {
                     case "host":
-                        config.ElasticHost = value.Split(',')[0].Trim();
+                        config.ElasticHost = [.. value.Split(',').Select(h => h.Trim())];
                         break;
                     case "port":
                         if (int.TryParse(value, out var port))
@@ -185,7 +185,7 @@ namespace Saltworks.SaltMiner.DataApi
             services.AddEsClient(configureOptions =>
             {
                 configureOptions.HttpScheme = config.ElasticHttpScheme;
-                configureOptions.ElasticSearchHost = [config.ElasticHost];
+                configureOptions.ElasticSearchHost = config.ElasticHost;
                 configureOptions.Port = config.ElasticPort;
                 configureOptions.Username = config.ElasticUsername;
                 configureOptions.Password = config.ElasticPassword;
