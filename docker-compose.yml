@@ -16,7 +16,8 @@ services:
       /app_root/config/python/Custom
       /app_root/config/python/Mappings
       /app_root/config/python/AppVulsCustom
-      /app_root/config/python/AuthSyncCustom"
+      /app_root/config/python/AuthSyncCustom
+      && chown -R 10000:10001 /app_root"
     restart: "no"
 
   sm-nginx:

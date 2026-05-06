@@ -16,6 +16,12 @@ ENV MGR_ARTIFACT_PATH=$MGR_ARTIFACT_PATH
 ENV AGENT_ARTIFACT_PATH=$AGENT_ARTIFACT_PATH
 ENV PY_ARTIFACT_PATH=$PY_ARTIFACT_PATH
 ENV JOB_ARTIFACT_PATH=$JOB_ARTIFACT_PATH
+ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
+ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config
+ENV USER=saltminer
+ENV GROUPNAME=$USER
+ENV UID=10000
+ENV GID=10001
 
 WORKDIR ${APP_ROOT}/app
 
@@ -34,9 +40,22 @@ RUN mkdir -p ./python/Defaults/ && \
       mv ./python/$dir ./python/Defaults/$dir; \
     done && \
     mkdir -p ./python/Mappings/ && \
-    pip install -r ./python/requirements.txt --break-system-packages
+    pip install -r ./python/requirements.txt --break-system-packages && \
+    addgroup \
+      --gid "$GID" \
+      "$GROUPNAME" && \
+    adduser \
+      --disabled-password \
+      --gecos "" \
+      --home "$(pwd)" \
+      --ingroup "$GROUPNAME" \
+      --no-create-home \
+      --uid "$UID" \
+      $USER && \
+    chown -R $USER:$GROUPNAME . && \
+    chown -R $USER:$GROUPNAME ${APP_ROOT}/config && \
+    chown -R $USER:$GROUPNAME ${APP_ROOT}/logs
 
-ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
-ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config
+USER $USER
 
-ENTRYPOINT ["/usr/bin/dotnet", "${APP_ROOT}/app/servicemanager/Saltworks.SaltMiner.ServiceManager.dll"]
+ENTRYPOINT ["/usr/bin/dotnet", "/opt/saltworks/saltminer/app/servicemanager/Saltworks.SaltMiner.ServiceManager.dll"]

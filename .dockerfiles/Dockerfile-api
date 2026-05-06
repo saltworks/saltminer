@@ -11,21 +11,37 @@ ENV ARTIFACT_PATH=$ARTIFACT_PATH
 ENV DATASTORE_SEED_PATH=$DATASTORE_SEED_PATH
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config/api
+ENV USER=saltminer
+ENV GROUPNAME=$USER
+ENV UID=10000
+ENV GID=10001
 
 WORKDIR ${APP_ROOT}/app/api
 
 COPY $ARTIFACT_PATH ./
+COPY $DATASTORE_SEED_PATH/* ./default-datastore-seed/
 
 # curl is used for healthcheck.
-# jq is used for configuration file manipulation
-# RUN apk add --no-cache curl jq bash \
-#   && mkdir -p ${APP_ROOT}/config/api \
-#   && mkdir -p ${APP_ROOT}/logs \
-#   && chmod u+x config-api.sh \
-#   && mv ${APP_ROOT}/app/api/appsettings.json ${APP_ROOT}/config/api/
-RUN mkdir -p ${APP_ROOT}/logs
-COPY $DATASTORE_SEED_PATH/* ./default-datastore-seed/
+RUN apk add --no-cache curl \
+  && mkdir -p ${APP_ROOT}/config/api \
+  && mkdir -p ${APP_ROOT}/logs \
+  && addgroup \
+    --gid "$GID" \
+    "$GROUPNAME" \
+  && adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "$(pwd)" \
+    --ingroup "$GROUPNAME" \
+    --no-create-home \
+    --uid "$UID" \
+    $USER \
+  && chown -R $USER:$GROUPNAME . \
+  && chown -R $USER:$GROUPNAME ${APP_ROOT}/config \
+  && chown -R $USER:$GROUPNAME ${APP_ROOT}/logs
 
 EXPOSE 5000
 
-ENTRYPOINT ["/usr/bin/dotnet", "${smapp}/Saltworks.SaltMiner.DataApi.dll"]
+USER $USER
+
+ENTRYPOINT ["/usr/bin/dotnet", "/opt/saltworks/saltminer/app/api/Saltworks.SaltMiner.DataApi.dll"]
