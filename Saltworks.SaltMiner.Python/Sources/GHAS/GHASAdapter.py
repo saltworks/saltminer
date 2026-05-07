@@ -7,7 +7,13 @@ Implements the two-phase sync model:
   Phase 1 — Cheap change detection via local watermark (one API call per repo/engine)
   Phase 2 — Full alert fetch + ReplaceIssues=True for changed scopes only
 
-Uses DataClient async API throughout. No ElasticClient dependency.
+Compatible with SaltMiner 3.4 (uses SmDataClient — the synchronous PascalCase
+SaltMiner client). GitHub API access remains async via aiohttp; SmDataClient
+calls are dispatched to a thread pool via asyncio.to_thread() and serialised
+across concurrent repo/engine tasks by a per-instance asyncio.Lock to avoid a
+known concurrency hazard in SmDataClient's internal batch buffer.
+
+No ElasticClient dependency — state tracking is via a local JSON file.
 
 Multi-instance support:
   The adapter is instantiated with a `source_name` that identifies which
@@ -28,7 +34,7 @@ from typing import Optional
 
 from Sources.GHAS.GHASClient import GHASClient
 from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
-from Core.DataClient import DataClient, QueueStatus
+from Core.SmDataClient import SmDataClient
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +135,9 @@ class GHASAdapter:
     SaltMiner source adapter for GitHub Advanced Security.
 
     Collects Code Scanning, Secret Scanning, and Dependabot alerts from the
-    GitHub REST API and queues them to SaltMiner via the DataClient async API.
+    GitHub REST API and queues them to SaltMiner via SmDataClient (3.4 client).
+    GitHub fetches remain async via aiohttp; SmDataClient calls are dispatched
+    to threads via asyncio.to_thread() and serialised by self._queue_lock.
 
     Sync model:
       - Phase 1: one API call per repo/engine to check for changes since watermark
@@ -146,7 +154,8 @@ class GHASAdapter:
         Construct an adapter for the named GHAS instance.
 
         Args:
-            app: Application context (provides Settings and DataClient context).
+            app: Application context (provides Settings and the platform-wide
+                 SMv3 configuration consumed by SmDataClient).
             source_name: The lookup key used by app.Settings.GetSource(...).
                          Should match the SourceName field in the corresponding
                          config file (e.g. "ghas1" → loads ghas1.json with
@@ -157,7 +166,9 @@ class GHASAdapter:
 
         self.client = GHASClient(app.Settings, source_name)
         self.sm_docs = SnykDocs()
-        self._data_client = DataClient(app)
+        # SmDataClient takes (appSettings, sourceName) and reads connection
+        # config from the platform-level "SMv3" section.
+        self._data_client = SmDataClient(app.Settings, source_name)
 
         self.instance = app.Settings.GetSource(source_name, "SourceName") or source_name
         self.org = app.Settings.GetSource(source_name, "Org")
@@ -180,6 +191,15 @@ class GHASAdapter:
         self._state = GHASStateManager(state_file)
         self._state_lock = asyncio.Lock()
 
+        # Serialises all SmDataClient calls across concurrent repo/engine tasks.
+        # SmDataClient maintains an internal batch buffer (__IssueBatch) that is
+        # not thread-safe — concurrent threads from asyncio.to_thread() could
+        # race the threshold check and double-send. Holding this lock around
+        # the entire scan→asset→issues→flush→finalize sequence eliminates the
+        # hazard. Wall-clock impact is small because GitHub fetch time
+        # dominates queue time.
+        self._queue_lock = asyncio.Lock()
+
     # ── Entry points ───────────────────────────────────────────────────────
 
     def run_sync(self, first_load=False):
@@ -194,7 +214,9 @@ class GHASAdapter:
             self._state.load()
             asyncio.run(self._run_async())
         finally:
-            self._data_client.close()
+            # SmDataClient has no close() method; the underlying RestClient
+            # (sync, requests-based) cleans up via garbage collection.
+            pass
 
     async def _run_async(self):
         async with self.client:
@@ -213,20 +235,20 @@ class GHASAdapter:
         logger.info("[%s] %d repositories to process after exclusions.", self.instance, len(repos))
 
         sem = asyncio.Semaphore(self.concurrency_limit)
-        tasks = []
 
-        for repo in repos:
-            try:
-                enablement = await self.client.get_repo_enablement_async(repo["full_name"])
-            except Exception as exc:
-                logger.error("Failed enablement check for %s: %s — skipping.", repo["full_name"], exc)
-                continue
-
-            for engine in self.engines:
-                if not enablement.get(engine, False):
-                    logger.debug("Engine '%s' not enabled on %s — skipping.", engine, repo["full_name"])
-                    continue
-                tasks.append(self._sync_with_semaphore(sem, repo, engine))
+        # Dispatch all engines for all repos. We deliberately do NOT pre-check
+        # security_and_analysis on the repo metadata: that field is only
+        # returned by GitHub to tokens with administrative permissions, so
+        # tokens with the documented read-only alert permissions would falsely
+        # report all engines disabled. Instead, the per-engine alert endpoint
+        # in GHASClient returns 404 when an engine is not enabled, which
+        # get_alerts_async() and get_latest_alert_timestamp_async() handle
+        # gracefully (see architecture doc §9.4).
+        tasks = [
+            self._sync_with_semaphore(sem, repo, engine)
+            for repo in repos
+            for engine in self.engines
+        ]
 
         logger.info(
             "[%s] Dispatching %d repo/engine sync tasks (concurrency limit: %d).",
@@ -302,40 +324,54 @@ class GHASAdapter:
             logger.info("Queueing %d alerts + %d SARIF findings for %s/%s.",
                         len(alerts), len(sarif_issues), full_name, engine)
 
-            # ── 1: Scan ───────────────────────────────────────────────────
-            mapped_scan = self.map_scan(repo, engine, report_id, alerts)
-            queue_scan = await self._data_client.queue_scan_add_update_async(
-                json.loads(mapped_scan.model_dump_json())
-            )
-
-            # ── 2: Asset ──────────────────────────────────────────────────
-            mapped_asset = self.map_asset(repo, queue_scan["id"])
-            queue_asset = await self._data_client.queue_asset_add_update_async(
-                json.loads(mapped_asset.model_dump_json())
-            )
-
-            # ── 3: Issues ─────────────────────────────────────────────────
-            for alert in alerts:
-                mapped_issue = self.map_issue(
-                    alert, engine, queue_scan["id"], queue_asset["id"], report_id
-                )
-                await self._data_client.queue_issue_add_update_batch_async(
-                    json.loads(mapped_issue.model_dump_json())
+            # SmDataClient is sync and not thread-safe across its internal
+            # batch buffer. Hold the queue lock around the whole scan→asset→
+            # issues→flush→finalize sequence so concurrent repo/engine tasks
+            # cannot interleave and double-send batched issues.
+            async with self._queue_lock:
+                # ── 1: Scan ───────────────────────────────────────────────
+                # SmDataClient.AddQueueScan sets QueueStatus="Loading" itself.
+                mapped_scan = self.map_scan(repo, engine, report_id, alerts)
+                queue_scan = await asyncio.to_thread(
+                    self._data_client.AddQueueScan,
+                    json.loads(mapped_scan.model_dump_json())
                 )
 
-            for sarif_result in sarif_issues:
-                mapped_issue = self.map_sarif_issue(
-                    sarif_result, engine, queue_scan["id"], queue_asset["id"], report_id
-                )
-                await self._data_client.queue_issue_add_update_batch_async(
-                    json.loads(mapped_issue.model_dump_json())
+                # ── 2: Asset ──────────────────────────────────────────────
+                mapped_asset = self.map_asset(repo, queue_scan["id"])
+                queue_asset = await asyncio.to_thread(
+                    self._data_client.AddQueueAsset,
+                    json.loads(mapped_asset.model_dump_json())
                 )
 
-            # ── 4: Flush and mark pending ─────────────────────────────────
-            await self._data_client.queue_issue_add_update_batch_async(None)
-            await self._data_client.queue_scan_update_status_async(
-                queue_scan["id"], QueueStatus.PENDING
-            )
+                # ── 3: Issues ─────────────────────────────────────────────
+                # AddQueueIssue batches internally (BatchSize from SMv3 config).
+                for alert in alerts:
+                    mapped_issue = self.map_issue(
+                        alert, engine, queue_scan["id"], queue_asset["id"], report_id
+                    )
+                    await asyncio.to_thread(
+                        self._data_client.AddQueueIssue,
+                        json.loads(mapped_issue.model_dump_json())
+                    )
+
+                for sarif_result in sarif_issues:
+                    mapped_issue = self.map_sarif_issue(
+                        sarif_result, engine, queue_scan["id"], queue_asset["id"], report_id
+                    )
+                    await asyncio.to_thread(
+                        self._data_client.AddQueueIssue,
+                        json.loads(mapped_issue.model_dump_json())
+                    )
+
+                # ── 4: Flush remaining batch and finalize the scan ────────
+                # SendAllBatchIssues drains any queued issues below batch size.
+                # FinalizeQueue flips QueueStatus from "Loading" to "Pending"
+                # via GET /queuescan/status/{id}/Pending.
+                await asyncio.to_thread(self._data_client.SendAllBatchIssues)
+                await asyncio.to_thread(
+                    self._data_client.FinalizeQueue, queue_scan["id"]
+                )
 
             # ── 5: Advance watermark ──────────────────────────────────────
             if max_ts:
@@ -442,13 +478,16 @@ class GHASAdapter:
 
     def map_scan(self, repo: dict, engine: str, report_id: str, alerts: list) -> MapScanDocDTO:
         """Map repo + engine metadata to a SaltMiner scan document."""
-        doc = self.sm_docs.GetScanDoc()
+        doc = self.sm_docs.map_scan_doc()
         now = self._now()
 
         doc["Timestamp"] = now
         doc["Saltminer"]["Internal"]["IssueCount"] = -1
         doc["Saltminer"]["Internal"]["ReplaceIssues"] = True
-        doc["Saltminer"]["Internal"]["QueueStatus"] = QueueStatus.LOADING
+        # QueueStatus is set by SmDataClient.AddQueueScan itself (to "Loading"
+        # when immediate=False, the default). FinalizeQueue() flips it to
+        # "Pending" at the end of the queueing sequence. The adapter does not
+        # touch this field directly under the 3.4 client.
 
         doc["Saltminer"]["Scan"]["AssessmentType"] = self._assessment_type(engine)
         doc["Saltminer"]["Scan"]["ProductType"] = "Application"
@@ -464,7 +503,7 @@ class GHASAdapter:
 
     def map_asset(self, repo: dict, queue_scan_id: str) -> MapAssetDocDTO:
         """Map a GitHub repository to a SaltMiner asset document."""
-        doc = self.sm_docs.GetAssetDoc()
+        doc = self.sm_docs.map_asset_doc()
 
         full_name = repo.get("full_name", "")
         short_name = repo.get("name", full_name.split("/")[-1] if "/" in full_name else full_name)
@@ -501,7 +540,7 @@ class GHASAdapter:
         report_id: str,
     ) -> MapIssueDocDTO:
         """Map a raw GitHub alert to a SaltMiner issue document."""
-        doc = self.sm_docs.GetIssueDoc()
+        doc = self.sm_docs.map_issue_doc()
         assessment_type = self._assessment_type(engine)
 
         doc["Timestamp"] = self._now()
@@ -563,7 +602,7 @@ class GHASAdapter:
         report_id: str,
     ) -> MapIssueDocDTO:
         """Map a SARIF suppressed finding to a SaltMiner issue document."""
-        doc = self.sm_docs.GetIssueDoc()
+        doc = self.sm_docs.map_issue_doc()
         assessment_type = self._assessment_type(engine)
         now = self._now()
 
