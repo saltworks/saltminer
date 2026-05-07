@@ -224,70 +224,8 @@ class GHASClient:
                 return parts[0].strip().strip("<>")
         return None
 
-    async def _get_with_retry(self, url: str, params: dict = None, headers: dict = None) -> dict:
-        """GET with rate-limit backoff. Returns parsed JSON."""
-        await self._ensure_session()
-        h = headers or await self._headers()
-        backoff_idx = 0
-
-        while True:
-            try:
-                async with self._session.get(url, headers=h, params=params) as resp:
-
-                    # Primary rate limit
-                    if resp.status == 429:
-                        retry_after = int(resp.headers.get("Retry-After", 60))
-                        jitter = 5
-                        wait = retry_after + jitter
-                        logger.warning("Primary rate limit hit. Sleeping %ss.", wait)
-                        await asyncio.sleep(wait)
-                        h = headers or await self._headers()
-                        continue
-
-                    # Proactive primary rate limit
-                    remaining = resp.headers.get("x-ratelimit-remaining")
-                    if remaining is not None and int(remaining) == 0:
-                        reset_ts = int(resp.headers.get("x-ratelimit-reset", time.time() + 60))
-                        wait = max(reset_ts - int(time.time()), 0) + 5
-                        logger.warning("Rate limit exhausted. Sleeping %ss until reset.", wait)
-                        await asyncio.sleep(wait)
-                        h = headers or await self._headers()
-                        continue
-
-                    # Secondary rate limit (403 with specific body)
-                    if resp.status == 403:
-                        body = await resp.text()
-                        if "secondary rate limit" in body.lower() or "rate limit exceeded" in body.lower():
-                            if backoff_idx >= len(SECONDARY_BACKOFF):
-                                raise aiohttp.ClientResponseError(
-                                    resp.request_info, resp.history,
-                                    status=403, message="Secondary rate limit — max retries exceeded."
-                                )
-                            wait = SECONDARY_BACKOFF[backoff_idx] + 5
-                            logger.warning("Secondary rate limit. Backoff %ss (attempt %d).", wait, backoff_idx + 1)
-                            await asyncio.sleep(wait)
-                            backoff_idx += 1
-                            h = headers or await self._headers()
-                            continue
-                        # Non-rate-limit 403 — surface as error
-                        raise aiohttp.ClientResponseError(
-                            resp.request_info, resp.history,
-                            status=403, message=f"Forbidden: {body[:200]}"
-                        )
-
-                    await self._raise_for_status(resp, url)
-                    return await resp.json()
-
-            except aiohttp.ServerConnectionError as exc:
-                logger.warning("Connection error for %s: %s — retrying once.", url, exc)
-                await asyncio.sleep(10)
-                h = headers or await self._headers()
-                async with self._session.get(url, headers=h, params=params) as resp2:
-                    await self._raise_for_status(resp2, url)
-                    return await resp2.json()
-
     async def _get_response_with_retry(self, url: str, params: dict = None, headers: dict = None) -> aiohttp.ClientResponse:
-        """Like _get_with_retry but returns the raw response for Link header access."""
+        """GET with rate-limit backoff and connection-error retry. Returns the raw response so callers can read the Link header for pagination."""
         await self._ensure_session()
         h = headers or await self._headers()
         backoff_idx = 0
@@ -347,31 +285,13 @@ class GHASClient:
         logger.info("Discovered %d repositories in org '%s'.", len(repos), self._org)
         return repos
 
-    async def get_repo_enablement_async(self, full_name: str) -> dict:
-        """
-        Return a dict of {engine: bool} indicating which GHAS engines are enabled.
-        Gracefully returns all-False if the repo is inaccessible.
-        """
-        url = f"{self._base_url}/repos/{full_name}"
-        try:
-            data = await self._get_with_retry(url)
-        except aiohttp.ClientResponseError as exc:
-            if exc.status in (404, 403):
-                logger.warning("Cannot access repo %s (HTTP %d) — skipping all engines.", full_name, exc.status)
-                return {"code_scanning": False, "secret_scanning": False, "dependabot": False}
-            raise
-
-        sa = data.get("security_and_analysis") or {}
-
-        def _enabled(block_name: str) -> bool:
-            block = sa.get(block_name) or {}
-            return block.get("status") == "enabled"
-
-        return {
-            "code_scanning": _enabled("advanced_security"),
-            "secret_scanning": _enabled("secret_scanning"),
-            "dependabot": _enabled("dependabot_security_updates"),
-        }
+    # NOTE: A previous version of this client included get_repo_enablement_async()
+    # that read GitHub's repo-level security_and_analysis block to pre-filter
+    # which engines were enabled per repo. That field is only returned to tokens
+    # with administrative permissions, so it gave false negatives for tokens
+    # with the documented read-only alert permissions. The pre-check has been
+    # removed; engine availability is now determined authoritatively by 404
+    # responses from the per-engine alert endpoints, handled below.
 
     # ── Change detection ───────────────────────────────────────────────────
 
