@@ -7,13 +7,7 @@ Implements the two-phase sync model:
   Phase 1 — Cheap change detection via local watermark (one API call per repo/engine)
   Phase 2 — Full alert fetch + ReplaceIssues=True for changed scopes only
 
-Compatible with SaltMiner 3.4 (uses SmDataClient — the synchronous PascalCase
-SaltMiner client). GitHub API access remains async via aiohttp; SmDataClient
-calls are dispatched to a thread pool via asyncio.to_thread() and serialised
-across concurrent repo/engine tasks by a per-instance asyncio.Lock to avoid a
-known concurrency hazard in SmDataClient's internal batch buffer.
-
-No ElasticClient dependency — state tracking is via a local JSON file.
+Uses DataClient async API throughout. No ElasticClient dependency.
 
 Multi-instance support:
   The adapter is instantiated with a `source_name` that identifies which
@@ -34,7 +28,7 @@ from typing import Optional
 
 from Sources.GHAS.GHASClient import GHASClient
 from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
-from Core.SmDataClient import SmDataClient
+from Core.DataClient import DataClient, QueueStatus
 
 logger = logging.getLogger(__name__)
 
@@ -135,9 +129,7 @@ class GHASAdapter:
     SaltMiner source adapter for GitHub Advanced Security.
 
     Collects Code Scanning, Secret Scanning, and Dependabot alerts from the
-    GitHub REST API and queues them to SaltMiner via SmDataClient (3.4 client).
-    GitHub fetches remain async via aiohttp; SmDataClient calls are dispatched
-    to threads via asyncio.to_thread() and serialised by self._queue_lock.
+    GitHub REST API and queues them to SaltMiner via the DataClient async API.
 
     Sync model:
       - Phase 1: one API call per repo/engine to check for changes since watermark
@@ -154,8 +146,7 @@ class GHASAdapter:
         Construct an adapter for the named GHAS instance.
 
         Args:
-            app: Application context (provides Settings and the platform-wide
-                 SMv3 configuration consumed by SmDataClient).
+            app: Application context (provides Settings and DataClient context).
             source_name: The lookup key used by app.Settings.GetSource(...).
                          Should match the SourceName field in the corresponding
                          config file (e.g. "ghas1" → loads ghas1.json with
@@ -166,9 +157,7 @@ class GHASAdapter:
 
         self.client = GHASClient(app.Settings, source_name)
         self.sm_docs = SnykDocs()
-        # SmDataClient takes (appSettings, sourceName) and reads connection
-        # config from the platform-level "SMv3" section.
-        self._data_client = SmDataClient(app.Settings, source_name)
+        self._data_client = DataClient(app)
 
         self.instance = app.Settings.GetSource(source_name, "SourceName") or source_name
         self.org = app.Settings.GetSource(source_name, "Org")
@@ -191,15 +180,6 @@ class GHASAdapter:
         self._state = GHASStateManager(state_file)
         self._state_lock = asyncio.Lock()
 
-        # Serialises all SmDataClient calls across concurrent repo/engine tasks.
-        # SmDataClient maintains an internal batch buffer (__IssueBatch) that is
-        # not thread-safe — concurrent threads from asyncio.to_thread() could
-        # race the threshold check and double-send. Holding this lock around
-        # the entire scan→asset→issues→flush→finalize sequence eliminates the
-        # hazard. Wall-clock impact is small because GitHub fetch time
-        # dominates queue time.
-        self._queue_lock = asyncio.Lock()
-
     # ── Entry points ───────────────────────────────────────────────────────
 
     def run_sync(self, first_load=False):
@@ -214,9 +194,7 @@ class GHASAdapter:
             self._state.load()
             asyncio.run(self._run_async())
         finally:
-            # SmDataClient has no close() method; the underlying RestClient
-            # (sync, requests-based) cleans up via garbage collection.
-            pass
+            self._data_client.close()
 
     async def _run_async(self):
         async with self.client:
@@ -324,54 +302,40 @@ class GHASAdapter:
             logger.info("Queueing %d alerts + %d SARIF findings for %s/%s.",
                         len(alerts), len(sarif_issues), full_name, engine)
 
-            # SmDataClient is sync and not thread-safe across its internal
-            # batch buffer. Hold the queue lock around the whole scan→asset→
-            # issues→flush→finalize sequence so concurrent repo/engine tasks
-            # cannot interleave and double-send batched issues.
-            async with self._queue_lock:
-                # ── 1: Scan ───────────────────────────────────────────────
-                # SmDataClient.AddQueueScan sets QueueStatus="Loading" itself.
-                mapped_scan = self.map_scan(repo, engine, report_id, alerts)
-                queue_scan = await asyncio.to_thread(
-                    self._data_client.AddQueueScan,
-                    json.loads(mapped_scan.model_dump_json())
+            # ── 1: Scan ───────────────────────────────────────────────────
+            mapped_scan = self.map_scan(repo, engine, report_id, alerts)
+            queue_scan = await self._data_client.queue_scan_add_update_async(
+                json.loads(mapped_scan.model_dump_json())
+            )
+
+            # ── 2: Asset ──────────────────────────────────────────────────
+            mapped_asset = self.map_asset(repo, queue_scan["id"])
+            queue_asset = await self._data_client.queue_asset_add_update_async(
+                json.loads(mapped_asset.model_dump_json())
+            )
+
+            # ── 3: Issues ─────────────────────────────────────────────────
+            for alert in alerts:
+                mapped_issue = self.map_issue(
+                    alert, engine, queue_scan["id"], queue_asset["id"], report_id
+                )
+                await self._data_client.queue_issue_add_update_batch_async(
+                    json.loads(mapped_issue.model_dump_json())
                 )
 
-                # ── 2: Asset ──────────────────────────────────────────────
-                mapped_asset = self.map_asset(repo, queue_scan["id"])
-                queue_asset = await asyncio.to_thread(
-                    self._data_client.AddQueueAsset,
-                    json.loads(mapped_asset.model_dump_json())
+            for sarif_result in sarif_issues:
+                mapped_issue = self.map_sarif_issue(
+                    sarif_result, engine, queue_scan["id"], queue_asset["id"], report_id
+                )
+                await self._data_client.queue_issue_add_update_batch_async(
+                    json.loads(mapped_issue.model_dump_json())
                 )
 
-                # ── 3: Issues ─────────────────────────────────────────────
-                # AddQueueIssue batches internally (BatchSize from SMv3 config).
-                for alert in alerts:
-                    mapped_issue = self.map_issue(
-                        alert, engine, queue_scan["id"], queue_asset["id"], report_id
-                    )
-                    await asyncio.to_thread(
-                        self._data_client.AddQueueIssue,
-                        json.loads(mapped_issue.model_dump_json())
-                    )
-
-                for sarif_result in sarif_issues:
-                    mapped_issue = self.map_sarif_issue(
-                        sarif_result, engine, queue_scan["id"], queue_asset["id"], report_id
-                    )
-                    await asyncio.to_thread(
-                        self._data_client.AddQueueIssue,
-                        json.loads(mapped_issue.model_dump_json())
-                    )
-
-                # ── 4: Flush remaining batch and finalize the scan ────────
-                # SendAllBatchIssues drains any queued issues below batch size.
-                # FinalizeQueue flips QueueStatus from "Loading" to "Pending"
-                # via GET /queuescan/status/{id}/Pending.
-                await asyncio.to_thread(self._data_client.SendAllBatchIssues)
-                await asyncio.to_thread(
-                    self._data_client.FinalizeQueue, queue_scan["id"]
-                )
+            # ── 4: Flush and mark pending ─────────────────────────────────
+            await self._data_client.queue_issue_add_update_batch_async(None)
+            await self._data_client.queue_scan_update_status_async(
+                queue_scan["id"], QueueStatus.PENDING
+            )
 
             # ── 5: Advance watermark ──────────────────────────────────────
             if max_ts:
@@ -484,10 +448,7 @@ class GHASAdapter:
         doc["Timestamp"] = now
         doc["Saltminer"]["Internal"]["IssueCount"] = -1
         doc["Saltminer"]["Internal"]["ReplaceIssues"] = True
-        # QueueStatus is set by SmDataClient.AddQueueScan itself (to "Loading"
-        # when immediate=False, the default). FinalizeQueue() flips it to
-        # "Pending" at the end of the queueing sequence. The adapter does not
-        # touch this field directly under the 3.4 client.
+        doc["Saltminer"]["Internal"]["QueueStatus"] = QueueStatus.LOADING
 
         doc["Saltminer"]["Scan"]["AssessmentType"] = self._assessment_type(engine)
         doc["Saltminer"]["Scan"]["ProductType"] = "Application"
