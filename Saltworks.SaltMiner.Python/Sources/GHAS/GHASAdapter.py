@@ -570,16 +570,27 @@ class GHASAdapter:
         if alert.get("rule", {}).get("help_uri"):
             vuln["Recommendation"] = alert["rule"]["help_uri"]
 
-        # Code Scanning location
+        # Location fields are required on every issue document by the platform
+        # schema. Default both to "N/A" (non-empty placeholder per project
+        # convention) and overwrite with file/line info when the alert provides
+        # it. Code Scanning carries location data; Dependabot and Secret
+        # Scanning do not, so they keep "N/A".
+        vuln["Location"] = "N/A"
+        vuln["LocationFull"] = "N/A"
+
         instance = alert.get("most_recent_instance") or {}
-        if instance.get("location"):
-            loc = instance["location"]
-            path = loc.get("path", "")
-            start_line = loc.get("start_line", "")
-            start_col = loc.get("start_column", "")
+        loc = instance.get("location") or {}
+        path = loc.get("path") or ""
+        if path:
             vuln["Location"] = path
-            if path and start_line:
-                vuln["LocationFull"] = f"{path}:{start_line}:{start_col}" if start_col else f"{path}:{start_line}"
+            start_line = loc.get("start_line")
+            start_col = loc.get("start_column")
+            if start_line:
+                vuln["LocationFull"] = (
+                    f"{path}:{start_line}:{start_col}" if start_col else f"{path}:{start_line}"
+                )
+            else:
+                vuln["LocationFull"] = path
 
         # CVSS score (Dependabot)
         if engine == "dependabot":
@@ -619,7 +630,11 @@ class GHASAdapter:
         vuln["IsSuppressed"] = True
         vuln["Id"] = []
         vuln["Details"] = sarif_result.get("rule_description", "")
-        vuln["Location"] = sarif_result.get("location_path", "")
+        # Location fields are required on every issue. Default to "N/A" and
+        # overwrite when the SARIF result actually carries a location path.
+        sarif_location = sarif_result.get("location_path") or ""
+        vuln["Location"] = sarif_location if sarif_location else "N/A"
+        vuln["LocationFull"] = sarif_location if sarif_location else "N/A"
         vuln["ReportId"] = report_id
 
         vuln["Scanner"]["Id"] = f"sarif:{sarif_result.get('rule_id', 'unknown')}"
