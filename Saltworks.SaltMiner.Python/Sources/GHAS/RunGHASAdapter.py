@@ -1,768 +1,201 @@
 """
-GHASAdapter.py
-==============
-SaltMiner source adapter for GitHub Advanced Security (GHAS).
+RunGHASAdapter.py
+=================
+Entry point for the SaltMiner GHAS Source Adapter.
 
-Implements the two-phase sync model:
-  Phase 1 — Cheap change detection via local watermark (one API call per repo/engine)
-  Phase 2 — Full alert fetch + ReplaceIssues=True for changed scopes only
+Discovers all enabled GHAS instance configs in the platform Sources directory
+(any .json file where `Source == "GHAS"` and `Enabled != false`), then runs each
+instance independently and sequentially. A failure in one instance does not
+prevent other instances from running.
 
-Compatible with SaltMiner 3.4 (uses SmDataClient — the synchronous PascalCase
-SaltMiner client). GitHub API access remains async via aiohttp; SmDataClient
-calls are dispatched to a thread pool via asyncio.to_thread() and serialised
-across concurrent repo/engine tasks by a per-instance asyncio.Lock to avoid a
-known concurrency hazard in SmDataClient's internal batch buffer.
+Each config file represents one GHAS instance. The `SourceName` field in the
+config is the key passed to `GHASAdapter` and to all `Settings.GetSource()`
+calls. Convention: name the config file after its SourceName, e.g.
+`ghas1.json` with `SourceName: "ghas1"`.
 
-No ElasticClient dependency — state tracking is via a local JSON file.
+Usage:
+    python RunGHASAdapter.py
+    python RunGHASAdapter.py --first-load
+    python RunGHASAdapter.py --instance ghas1          # Run a specific instance only
+    python RunGHASAdapter.py --config-dir /path/to/Sources
 
-Multi-instance support:
-  The adapter is instantiated with a `source_name` that identifies which
-  configured instance it represents (e.g. "ghas1", "ghas2"). All settings
-  lookups use this key, so multiple instances can run from a single deployment
-  by providing one config file per instance, each with a unique SourceName.
+Arguments:
+    --first-load    Accepted for interface compatibility — first-load is
+                    auto-detected from the absence of a watermark in each
+                    instance's state file. To force a re-baseline, delete
+                    or edit the relevant state file directly.
+    --instance      Run only the named instance (matching SourceName) instead
+                    of discovering all enabled instances.
+    --config-dir    Directory to scan for GHAS instance configs.
+                    Default: /etc/saltworks/saltminer-2.5.0/Sources
+    --log-level     Logging verbosity. Default: INFO
 """
 
-import asyncio
+import argparse
 import json
 import logging
 import os
-import re
-import tempfile
-import uuid
-from datetime import datetime, timezone
-from typing import Optional
+import sys
+from typing import List
 
-from Sources.GHAS.GHASClient import GHASClient
-from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
-from Core.SmDataClient import SmDataClient
+# SaltMiner core bootstrap — adjust import path to match your deployment layout
+from Core.Application import Application
+from Sources.GHAS.GHASAdapter import GHASAdapter
 
-logger = logging.getLogger(__name__)
 
-# ── State Manager ─────────────────────────────────────────────────────────────
+def configure_logging(level: str = "INFO"):
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
 
-class GHASStateManager:
+
+def discover_ghas_instances(config_dir: str) -> List[str]:
     """
-    Manages the local JSON state file storing per-{org/repo/engine} watermarks.
+    Scan the given directory for GHAS instance configs.
 
-    Watermark values are GitHub API updated_at timestamps (ISO8601 strings).
-    Writes are atomic: temp file → rename. Concurrent writes are serialised
-    by the caller via asyncio.Lock.
+    A config file qualifies as a GHAS instance if all of:
+      - It is a .json file
+      - Its 'Source' field equals 'GHAS' (case-sensitive type marker)
+      - It has a non-empty 'SourceName' field
+      - 'Enabled' is not explicitly set to False
 
-    State file schema:
-    {
-        "schema_version": 1,
-        "last_updated": "<ISO8601>",
-        "watermarks": {
-            "<org>/<repo>/<engine>": "<ISO8601>",
-            ...
-        }
-    }
-
-    Each adapter instance has its own state file (path is per-instance), so
-    instances do not share or contend for state.
+    Returns a sorted list of SourceName values. A malformed config file is
+    logged and skipped — it does not abort discovery.
     """
+    log = logging.getLogger("RunGHASAdapter")
 
-    SCHEMA_VERSION = 1
-
-    def __init__(self, state_file_path: str):
-        self._path = state_file_path
-        self._data: dict = {"schema_version": self.SCHEMA_VERSION, "watermarks": {}}
-        self._loaded = False
-
-    def load(self):
-        """Load state from disk. Call once at startup before sync begins."""
-        if not os.path.exists(self._path):
-            logger.info("State file not found at '%s' — starting fresh.", self._path)
-            self._loaded = True
-            return
-
-        try:
-            with open(self._path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError) as exc:
-            raise RuntimeError(
-                f"State file '{self._path}' exists but cannot be parsed: {exc}. "
-                "Delete or repair the file before running the adapter."
-            ) from exc
-
-        if data.get("schema_version") != self.SCHEMA_VERSION:
-            logger.warning(
-                "State file '%s' schema version %s does not match expected %s — starting fresh.",
-                self._path, data.get("schema_version"), self.SCHEMA_VERSION
-            )
-            self._loaded = True
-            return
-
-        self._data = data
-        self._loaded = True
-        watermark_count = len(self._data.get("watermarks", {}))
-        logger.info("Loaded state file with %d watermarks from '%s'.", watermark_count, self._path)
-
-    def get_watermark(self, repo_full_name: str, engine: str) -> Optional[str]:
-        """Return the stored watermark for this repo/engine, or None if not present."""
-        key = f"{repo_full_name}/{engine}"
-        return self._data.get("watermarks", {}).get(key)
-
-    def set_watermark(self, repo_full_name: str, engine: str, timestamp: str):
-        """Update the in-memory watermark. Call save_async() to persist."""
-        key = f"{repo_full_name}/{engine}"
-        if "watermarks" not in self._data:
-            self._data["watermarks"] = {}
-        self._data["watermarks"][key] = timestamp
-        self._data["last_updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    async def save_async(self):
-        """Atomically write the current state to disk (temp file → rename)."""
-        dir_name = os.path.dirname(os.path.abspath(self._path))
-        os.makedirs(dir_name, exist_ok=True)
-
-        fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, indent=2)
-            os.replace(tmp_path, self._path)
-        except Exception:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
-
-# ── Adapter ───────────────────────────────────────────────────────────────────
-
-class GHASAdapter:
-    """
-    SaltMiner source adapter for GitHub Advanced Security.
-
-    Collects Code Scanning, Secret Scanning, and Dependabot alerts from the
-    GitHub REST API and queues them to SaltMiner via SmDataClient (3.4 client).
-    GitHub fetches remain async via aiohttp; SmDataClient calls are dispatched
-    to threads via asyncio.to_thread() and serialised by self._queue_lock.
-
-    Sync model:
-      - Phase 1: one API call per repo/engine to check for changes since watermark
-      - Phase 2: full alert fetch + ReplaceIssues=True for changed scopes only
-      - State: local JSON file per instance, atomic writes,
-               asyncio.Lock for concurrent updates within a single instance
-    """
-
-    # Default engines if not specified in config
-    DEFAULT_ENGINES = ["code_scanning", "secret_scanning", "dependabot"]
-
-    def __init__(self, app, source_name: str = "GHAS"):
-        """
-        Construct an adapter for the named GHAS instance.
-
-        Args:
-            app: Application context (provides Settings and the platform-wide
-                 SMv3 configuration consumed by SmDataClient).
-            source_name: The lookup key used by app.Settings.GetSource(...).
-                         Should match the SourceName field in the corresponding
-                         config file (e.g. "ghas1" → loads ghas1.json with
-                         SourceName == "ghas1"). Defaults to "GHAS" for
-                         backward compatibility with single-instance deployments.
-        """
-        self._source_name = source_name
-
-        self.client = GHASClient(app.Settings, source_name)
-        self.sm_docs = SnykDocs()
-        # SmDataClient takes (appSettings, sourceName) and reads connection
-        # config from the platform-level "SMv3" section.
-        self._data_client = SmDataClient(app.Settings, source_name)
-
-        self.instance = app.Settings.GetSource(source_name, "SourceName") or source_name
-        self.org = app.Settings.GetSource(source_name, "Org")
-        self.engines = app.Settings.GetSource(source_name, "Engines") or self.DEFAULT_ENGINES
-        self.include_sarif = app.Settings.GetSource(source_name, "IncludeSarif") or False
-        self.concurrency_limit = int(app.Settings.GetSource(source_name, "ConcurrencyLimit") or 10)
-
-        # Exclusion filters
-        self.exclude_repos = set(app.Settings.GetSource(source_name, "ExcludeRepos") or [])
-        self.exclude_topics = set(app.Settings.GetSource(source_name, "ExcludeTopics") or [])
-        exclude_pat = app.Settings.GetSource(source_name, "ExcludePattern") or ""
-        self.exclude_pattern = re.compile(exclude_pat) if exclude_pat else None
-
-        # State management — default path includes the instance name so multiple
-        # instances running from the same working directory do not collide.
-        state_file = (
-            app.Settings.GetSource(source_name, "StateFile")
-            or f"./ghas-state-{self.instance}.json"
-        )
-        self._state = GHASStateManager(state_file)
-        self._state_lock = asyncio.Lock()
-
-        # Serialises all SmDataClient calls across concurrent repo/engine tasks.
-        # SmDataClient maintains an internal batch buffer (__IssueBatch) that is
-        # not thread-safe — concurrent threads from asyncio.to_thread() could
-        # race the threshold check and double-send. Holding this lock around
-        # the entire scan→asset→issues→flush→finalize sequence eliminates the
-        # hazard. Wall-clock impact is small because GitHub fetch time
-        # dominates queue time.
-        self._queue_lock = asyncio.Lock()
-
-    # ── Entry points ───────────────────────────────────────────────────────
-
-    def run_sync(self, first_load=False):
-        """
-        Synchronous entry point called by RunGHASAdapter.py.
-
-        first_load parameter accepted for interface compatibility but not used —
-        absence of a watermark in the state file drives first-load behaviour
-        automatically. To force a re-baseline, delete keys from the state file.
-        """
-        try:
-            self._state.load()
-            asyncio.run(self._run_async())
-        finally:
-            # SmDataClient has no close() method; the underlying RestClient
-            # (sync, requests-based) cleans up via garbage collection.
-            pass
-
-    async def _run_async(self):
-        async with self.client:
-            await self.get_sync_async()
-
-    # ── Main sync loop ─────────────────────────────────────────────────────
-
-    async def get_sync_async(self):
-        """
-        Discover all repos, apply exclusions, then run concurrent repo/engine sync.
-        """
-        logger.info("[%s] Starting GHAS sync for org '%s'.", self.instance, self.org)
-
-        repos = await self.client.get_repos_async()
-        repos = self._apply_exclusions(repos)
-        logger.info("[%s] %d repositories to process after exclusions.", self.instance, len(repos))
-
-        sem = asyncio.Semaphore(self.concurrency_limit)
-
-        # Dispatch all engines for all repos. We deliberately do NOT pre-check
-        # security_and_analysis on the repo metadata: that field is only
-        # returned by GitHub to tokens with administrative permissions, so
-        # tokens with the documented read-only alert permissions would falsely
-        # report all engines disabled. Instead, the per-engine alert endpoint
-        # in GHASClient returns 404 when an engine is not enabled, which
-        # get_alerts_async() and get_latest_alert_timestamp_async() handle
-        # gracefully (see architecture doc §9.4).
-        tasks = [
-            self._sync_with_semaphore(sem, repo, engine)
-            for repo in repos
-            for engine in self.engines
-        ]
-
-        logger.info(
-            "[%s] Dispatching %d repo/engine sync tasks (concurrency limit: %d).",
-            self.instance, len(tasks), self.concurrency_limit
-        )
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        failures = [r for r in results if isinstance(r, Exception)]
-        if failures:
-            logger.warning(
-                "[%s] %d sync task(s) failed out of %d total.",
-                self.instance, len(failures), len(tasks)
-            )
-        else:
-            logger.info("[%s] All %d sync tasks completed successfully.", self.instance, len(tasks))
-
-    async def _sync_with_semaphore(self, sem: asyncio.Semaphore, repo: dict, engine: str):
-        async with sem:
-            await self.sync_repo_engine_async(repo, engine)
-
-    # ── Repo/engine sync ───────────────────────────────────────────────────
-
-    async def sync_repo_engine_async(self, repo: dict, engine: str):
-        """
-        Two-phase sync for a single repo/engine combination.
-
-        Phase 1: Fetch the most recent alert's updated_at, compare to watermark.
-                 Skip if unchanged.
-        Phase 2: Full alert fetch, queue Scan→Asset→Issues, advance watermark.
-        """
-        full_name = repo["full_name"]
-
-        try:
-            # ── Phase 1: Change detection ──────────────────────────────────
-            watermark = self._state.get_watermark(full_name, engine)
-
-            if watermark:
-                latest_ts = await self.client.get_latest_alert_timestamp_async(full_name, engine)
-                if latest_ts and latest_ts <= watermark:
-                    logger.debug("No changes for %s/%s (latest=%s, watermark=%s) — skipping.",
-                                 full_name, engine, latest_ts, watermark)
-                    return
-                logger.debug("Changes detected for %s/%s (latest=%s > watermark=%s).",
-                             full_name, engine, latest_ts, watermark)
-            else:
-                logger.info("No watermark for %s/%s — first sync, fetching all alerts.", full_name, engine)
-
-            # ── Phase 2: Full fetch ────────────────────────────────────────
-            alerts = []
-            async for alert in self.client.get_alerts_async(full_name, engine):
-                alerts.append(alert)
-
-            # Collect SARIF suppressed findings (Code Scanning only, opt-in)
-            sarif_issues = []
-            if self.include_sarif and engine == "code_scanning":
-                sarif_issues = await self._collect_sarif_issues_async(full_name)
-
-            if not alerts and not sarif_issues:
-                logger.info("No alerts or SARIF findings for %s/%s — skipping queue.", full_name, engine)
-                # Still advance watermark to now so we don't re-check immediately
-                async with self._state_lock:
-                    self._state.set_watermark(
-                        full_name, engine,
-                        datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    )
-                    await self._state.save_async()
-                return
-
-            run_id = str(uuid.uuid4())
-            report_id = f"{self.org}/{full_name}/{engine}/{run_id}"
-            max_ts = max((a["updated_at"] for a in alerts), default=None)
-
-            logger.info("Queueing %d alerts + %d SARIF findings for %s/%s.",
-                        len(alerts), len(sarif_issues), full_name, engine)
-
-            # SmDataClient is sync and not thread-safe across its internal
-            # batch buffer. Hold the queue lock around the whole scan→asset→
-            # issues→flush→finalize sequence so concurrent repo/engine tasks
-            # cannot interleave and double-send batched issues.
-            async with self._queue_lock:
-                # ── 1: Scan ───────────────────────────────────────────────
-                # SmDataClient.AddQueueScan sets QueueStatus="Loading" itself.
-                mapped_scan = self.map_scan(repo, engine, report_id, alerts)
-                queue_scan = await asyncio.to_thread(
-                    self._data_client.AddQueueScan,
-                    json.loads(mapped_scan.model_dump_json())
-                )
-
-                # ── 2: Asset ──────────────────────────────────────────────
-                mapped_asset = self.map_asset(repo, queue_scan["id"])
-                queue_asset = await asyncio.to_thread(
-                    self._data_client.AddQueueAsset,
-                    json.loads(mapped_asset.model_dump_json())
-                )
-
-                # ── 3: Issues ─────────────────────────────────────────────
-                # AddQueueIssue batches internally (BatchSize from SMv3 config).
-                for alert in alerts:
-                    mapped_issue = self.map_issue(
-                        alert, engine, queue_scan["id"], queue_asset["id"], report_id
-                    )
-                    await asyncio.to_thread(
-                        self._data_client.AddQueueIssue,
-                        json.loads(mapped_issue.model_dump_json())
-                    )
-
-                for sarif_result in sarif_issues:
-                    mapped_issue = self.map_sarif_issue(
-                        sarif_result, engine, queue_scan["id"], queue_asset["id"], report_id
-                    )
-                    await asyncio.to_thread(
-                        self._data_client.AddQueueIssue,
-                        json.loads(mapped_issue.model_dump_json())
-                    )
-
-                # ── 4: Flush remaining batch and finalize the scan ────────
-                # SendAllBatchIssues drains any queued issues below batch size.
-                # FinalizeQueue flips QueueStatus from "Loading" to "Pending"
-                # via GET /queuescan/status/{id}/Pending.
-                await asyncio.to_thread(self._data_client.SendAllBatchIssues)
-                await asyncio.to_thread(
-                    self._data_client.FinalizeQueue, queue_scan["id"]
-                )
-
-            # ── 5: Advance watermark ──────────────────────────────────────
-            if max_ts:
-                async with self._state_lock:
-                    self._state.set_watermark(full_name, engine, max_ts)
-                    await self._state.save_async()
-                logger.debug("Watermark advanced for %s/%s → %s", full_name, engine, max_ts)
-
-        except Exception as exc:
-            logger.error(
-                "Sync failed for %s/%s: %s", full_name, engine, exc, exc_info=True
-            )
-
-    # ── SARIF collection ───────────────────────────────────────────────────
-
-    async def _collect_sarif_issues_async(self, full_name: str) -> list:
-        """
-        Fetch SARIF documents for the most recent analyses and extract
-        suppressed results (results filtered out by GitHub's API layer).
-        Returns a list of synthetic issue dicts ready for map_sarif_issue().
-        """
-        sarif_issues = []
-        seen_rule_location = set()
-
-        async for analysis in self.client.get_analyses_async(full_name):
-            sarif_doc = await self.client.get_sarif_async(full_name, analysis["id"])
-            if not sarif_doc:
-                continue
-
-            for run in sarif_doc.get("runs", []):
-                tool_name = run.get("tool", {}).get("driver", {}).get("name", "Unknown")
-                rules = {r["id"]: r for r in run.get("tool", {}).get("driver", {}).get("rules", [])}
-
-                for result in run.get("results", []):
-                    # SARIF suppressed results have a suppressions array
-                    if not result.get("suppressions"):
-                        continue
-
-                    rule_id = result.get("ruleId", "unknown")
-                    locations = result.get("locations", [])
-                    loc_path = ""
-                    if locations:
-                        loc_path = (
-                            locations[0]
-                            .get("physicalLocation", {})
-                            .get("artifactLocation", {})
-                            .get("uri", "")
-                        )
-
-                    dedup_key = f"{rule_id}:{loc_path}"
-                    if dedup_key in seen_rule_location:
-                        continue
-                    seen_rule_location.add(dedup_key)
-
-                    rule_meta = rules.get(rule_id, {})
-                    sarif_issues.append({
-                        "_sarif": True,
-                        "rule_id": rule_id,
-                        "rule_name": rule_meta.get("shortDescription", {}).get("text", rule_id),
-                        "rule_description": rule_meta.get("fullDescription", {}).get("text", ""),
-                        "tool_name": tool_name,
-                        "location_path": loc_path,
-                        "level": result.get("level", "warning"),
-                        "suppression_reason": result.get("suppressions", [{}])[0].get("justification", ""),
-                    })
-
-        logger.debug("Collected %d SARIF suppressed findings for %s.", len(sarif_issues), full_name)
-        return sarif_issues
-
-    # ── Exclusion filtering ────────────────────────────────────────────────
-
-    def _apply_exclusions(self, repos: list) -> list:
-        """
-        Filter the repo list applying all configured exclusion mechanisms.
-        A repo is excluded if it matches ANY of the three criteria.
-        """
-        filtered = []
-        for repo in repos:
-            full_name = repo.get("full_name", "")
-            name = repo.get("name", "")
-            topics = set(repo.get("topics") or [])
-
-            if full_name in self.exclude_repos or name in self.exclude_repos:
-                logger.debug("Excluding repo '%s' (explicit list).", full_name)
-                continue
-
-            if self.exclude_topics and topics & self.exclude_topics:
-                matched = topics & self.exclude_topics
-                logger.debug("Excluding repo '%s' (topics: %s).", full_name, matched)
-                continue
-
-            if self.exclude_pattern and self.exclude_pattern.search(full_name):
-                logger.debug("Excluding repo '%s' (pattern match).", full_name)
-                continue
-
-            filtered.append(repo)
-
-        excluded_count = len(repos) - len(filtered)
-        if excluded_count:
-            logger.info("[%s] Excluded %d repo(s) by filter rules.", self.instance, excluded_count)
-        return filtered
-
-    # ── DTO Mapping ────────────────────────────────────────────────────────
-
-    def map_scan(self, repo: dict, engine: str, report_id: str, alerts: list) -> MapScanDocDTO:
-        """Map repo + engine metadata to a SaltMiner scan document."""
-        doc = self.sm_docs.GetScanDoc()
-        now = self._now()
-
-        doc["Timestamp"] = now
-        doc["Saltminer"]["Internal"]["IssueCount"] = -1
-        doc["Saltminer"]["Internal"]["ReplaceIssues"] = True
-        # QueueStatus is set by SmDataClient.AddQueueScan itself (to "Loading"
-        # when immediate=False, the default). FinalizeQueue() flips it to
-        # "Pending" at the end of the queueing sequence. The adapter does not
-        # touch this field directly under the 3.4 client.
-
-        doc["Saltminer"]["Scan"]["AssessmentType"] = self._assessment_type(engine)
-        doc["Saltminer"]["Scan"]["ProductType"] = "Application"
-        doc["Saltminer"]["Scan"]["Product"] = "GitHub Advanced Security"
-        doc["Saltminer"]["Scan"]["Vendor"] = "GitHub"
-        doc["Saltminer"]["Scan"]["ReportId"] = report_id
-        doc["Saltminer"]["Scan"]["ScanDate"] = self._max_updated_at(alerts) or now
-        doc["Saltminer"]["Scan"]["SourceType"] = "Saltworks.GHAS"
-        doc["Saltminer"]["Scan"]["AssetType"] = "app"
-        doc["Saltminer"]["Scan"]["Instance"] = self.instance
-
-        return MapScanDocDTO(**doc)
-
-    def map_asset(self, repo: dict, queue_scan_id: str) -> MapAssetDocDTO:
-        """Map a GitHub repository to a SaltMiner asset document."""
-        doc = self.sm_docs.GetAssetDoc()
-
-        full_name = repo.get("full_name", "")
-        short_name = repo.get("name", full_name.split("/")[-1] if "/" in full_name else full_name)
-        topics = repo.get("topics") or []
-
-        doc["Timestamp"] = self._now()
-        doc["Saltminer"]["Internal"]["QueueScanId"] = queue_scan_id
-
-        doc["Saltminer"]["Asset"]["Name"] = short_name
-        doc["Saltminer"]["Asset"]["VersionId"] = full_name
-        doc["Saltminer"]["Asset"]["Version"] = repo.get("default_branch") or "main"
-        doc["Saltminer"]["Asset"]["SourceId"] = str(repo.get("id", ""))
-        doc["Saltminer"]["Asset"]["SourceType"] = "Saltworks.GHAS"
-        doc["Saltminer"]["Asset"]["AssetType"] = "app"
-        doc["Saltminer"]["Asset"]["Instance"] = self.instance
-
-        doc["Saltminer"]["Asset"]["Attributes"] = {
-            "ghas_org": self.org,
-            "ghas_repo_id": repo.get("id"),
-            "ghas_repo_full_name": full_name,
-            "ghas_default_branch": repo.get("default_branch") or "main",
-            "ghas_visibility": repo.get("visibility") or "private",
-            "ghas_topics": ",".join(topics) if topics else "",
-        }
-
-        return MapAssetDocDTO(**doc)
-
-    def map_issue(
-        self,
-        alert: dict,
-        engine: str,
-        queue_scan_id: str,
-        queue_asset_id: str,
-        report_id: str,
-    ) -> MapIssueDocDTO:
-        """Map a raw GitHub alert to a SaltMiner issue document."""
-        doc = self.sm_docs.GetIssueDoc()
-        assessment_type = self._assessment_type(engine)
-
-        doc["Timestamp"] = self._now()
-        doc["Saltminer"]["QueueScanId"] = queue_scan_id
-        doc["Saltminer"]["QueueAssetId"] = queue_asset_id
-        doc["Saltminer"]["IssueType"] = assessment_type
-
-        # ── Vulnerability fields ───────────────────────────────────────────
-        vuln = doc["Vulnerability"]
-        vuln["FoundDate"] = alert.get("created_at") or self._now()
-        vuln["Name"] = self._alert_name(alert, engine)
-        vuln["Severity"] = self._normalize_severity(alert, engine)
-        vuln["IsRemoved"] = False
-        vuln["Id"] = self._alert_ids(alert, engine)
-        vuln["ReportId"] = report_id
-
-        # Scanner sub-block
-        vuln["Scanner"]["Id"] = str(alert.get("number", ""))
-        vuln["Scanner"]["AssessmentType"] = assessment_type
-        vuln["Scanner"]["Product"] = self._tool_name(alert, engine)
-        vuln["Scanner"]["Vendor"] = "GitHub"
-        vuln["Scanner"]["GuiUrl"] = alert.get("html_url")
-
-        # Optional fields
-        if alert.get("rule", {}).get("description"):
-            vuln["Details"] = alert["rule"]["description"]
-        if alert.get("rule", {}).get("help_uri"):
-            vuln["Recommendation"] = alert["rule"]["help_uri"]
-
-        # Code Scanning location
-        instance = alert.get("most_recent_instance") or {}
-        if instance.get("location"):
-            loc = instance["location"]
-            path = loc.get("path", "")
-            start_line = loc.get("start_line", "")
-            start_col = loc.get("start_column", "")
-            vuln["Location"] = path
-            if path and start_line:
-                vuln["LocationFull"] = f"{path}:{start_line}:{start_col}" if start_col else f"{path}:{start_line}"
-
-        # CVSS score (Dependabot)
-        if engine == "dependabot":
-            cvss = (alert.get("security_advisory") or {}).get("cvss") or {}
-            if cvss.get("score") is not None:
-                doc["Vulnerability"]["Score"] = doc["Vulnerability"].get("Score", {})
-                doc["Vulnerability"]["Score"]["Base"] = float(cvss["score"])
-
-        # ── Saltminer attributes ───────────────────────────────────────────
-        doc["Saltminer"]["Attributes"] = self._issue_attributes(alert, engine)
-
-        return MapIssueDocDTO(**doc)
-
-    def map_sarif_issue(
-        self,
-        sarif_result: dict,
-        engine: str,
-        queue_scan_id: str,
-        queue_asset_id: str,
-        report_id: str,
-    ) -> MapIssueDocDTO:
-        """Map a SARIF suppressed finding to a SaltMiner issue document."""
-        doc = self.sm_docs.GetIssueDoc()
-        assessment_type = self._assessment_type(engine)
-        now = self._now()
-
-        doc["Timestamp"] = now
-        doc["Saltminer"]["QueueScanId"] = queue_scan_id
-        doc["Saltminer"]["QueueAssetId"] = queue_asset_id
-        doc["Saltminer"]["IssueType"] = assessment_type
-
-        vuln = doc["Vulnerability"]
-        vuln["FoundDate"] = now
-        vuln["Name"] = sarif_result.get("rule_name") or sarif_result.get("rule_id", "Unknown")
-        vuln["Severity"] = self._sarif_level_to_severity(sarif_result.get("level", "warning"))
-        vuln["IsRemoved"] = False
-        vuln["IsSuppressed"] = True
-        vuln["Id"] = []
-        vuln["Details"] = sarif_result.get("rule_description", "")
-        vuln["Location"] = sarif_result.get("location_path", "")
-        vuln["ReportId"] = report_id
-
-        vuln["Scanner"]["Id"] = f"sarif:{sarif_result.get('rule_id', 'unknown')}"
-        vuln["Scanner"]["AssessmentType"] = assessment_type
-        vuln["Scanner"]["Product"] = sarif_result.get("tool_name", "GitHub Advanced Security")
-        vuln["Scanner"]["Vendor"] = "GitHub"
-
-        doc["Saltminer"]["Attributes"] = {
-            "ghas_engine": engine,
-            "ghas_alert_state": "suppressed",
-            "ghas_rule_id": sarif_result.get("rule_id", ""),
-            "ghas_tool_name": sarif_result.get("tool_name", ""),
-            "ghas_suppression_reason": sarif_result.get("suppression_reason", ""),
-            "ghas_org": self.org,
-        }
-
-        return MapIssueDocDTO(**doc)
-
-    # ── Mapping helpers ────────────────────────────────────────────────────
-
-    @staticmethod
-    def _assessment_type(engine: str) -> str:
-        return {
-            "code_scanning": "SAST",
-            "dependabot": "Open",
-            "secret_scanning": "Custom",
-        }.get(engine, "Custom")
-
-    @staticmethod
-    def _now() -> str:
-        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-    @staticmethod
-    def _max_updated_at(alerts: list) -> Optional[str]:
-        timestamps = [a.get("updated_at") for a in alerts if a.get("updated_at")]
-        return max(timestamps) if timestamps else None
-
-    @staticmethod
-    def _normalize_severity(alert: dict, engine: str) -> str:
-        """Normalise GitHub severity to SaltMiner title-cased five-value scale."""
-        if engine == "secret_scanning":
-            return "High"  # Secret Scanning has no severity field — default High
-
-        # Code Scanning uses alert['rule']['severity'] or alert['rule']['security_severity_level']
-        if engine == "code_scanning":
-            sev = (
-                (alert.get("rule") or {}).get("security_severity_level")
-                or (alert.get("rule") or {}).get("severity")
-                or ""
-            ).lower()
-
-        # Dependabot uses alert['security_advisory']['severity']
-        elif engine == "dependabot":
-            sev = ((alert.get("security_advisory") or {}).get("severity") or "").lower()
-        else:
-            sev = ""
-
-        mapping = {
-            "critical": "Critical",
-            "high": "High",
-            "medium": "Medium",
-            "moderate": "Medium",
-            "low": "Low",
-            "note": "Info",
-            "warning": "Low",
-            "info": "Info",
-            "error": "High",
-        }
-        return mapping.get(sev, "Medium")
-
-    @staticmethod
-    def _sarif_level_to_severity(level: str) -> str:
-        return {
-            "error": "High",
-            "warning": "Medium",
-            "note": "Info",
-        }.get((level or "").lower(), "Medium")
-
-    @staticmethod
-    def _alert_name(alert: dict, engine: str) -> str:
-        if engine == "code_scanning":
-            return (alert.get("rule") or {}).get("description") or \
-                   (alert.get("rule") or {}).get("id") or "Unknown Rule"
-        if engine == "secret_scanning":
-            return alert.get("secret_type_display_name") or alert.get("secret_type") or "Secret Detected"
-        if engine == "dependabot":
-            return (alert.get("security_advisory") or {}).get("summary") or \
-                   (alert.get("dependency") or {}).get("package", {}).get("name") or "Vulnerable Dependency"
-        return "Unknown"
-
-    @staticmethod
-    def _alert_ids(alert: dict, engine: str) -> list:
-        """Return a list of CVE/CWE IDs associated with the alert."""
-        if engine == "dependabot":
-            ids = []
-            for identifier in (alert.get("security_advisory") or {}).get("identifiers", []):
-                if identifier.get("type") in ("CVE", "GHSA"):
-                    ids.append(identifier.get("value", ""))
-            return [i for i in ids if i]
-        if engine == "code_scanning":
-            cwes = []
-            for tag in (alert.get("rule") or {}).get("tags", []):
-                if tag.startswith("external/cwe/"):
-                    cwes.append(tag.replace("external/cwe/", "").upper())
-            return cwes
+    if not os.path.isdir(config_dir):
+        log.error("Config directory '%s' does not exist.", config_dir)
         return []
 
-    @staticmethod
-    def _tool_name(alert: dict, engine: str) -> str:
-        if engine == "code_scanning":
-            return (alert.get("tool") or {}).get("name") or "CodeQL"
-        if engine == "secret_scanning":
-            return "GitHub Secret Scanning"
-        if engine == "dependabot":
-            return "Dependabot"
-        return "GitHub Advanced Security"
+    instances = []
+    for filename in sorted(os.listdir(config_dir)):
+        if not filename.endswith(".json"):
+            continue
 
-    def _issue_attributes(self, alert: dict, engine: str) -> dict:
-        attrs = {
-            "ghas_engine": engine,
-            "ghas_alert_state": alert.get("state") or "",
-            "ghas_alert_number": alert.get("number"),
-            "ghas_org": self.org,
-            "ghas_repo": alert.get("repository", {}).get("full_name") or "",
-        }
+        path = os.path.join(config_dir, filename)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as exc:
+            log.warning("Skipping unreadable config '%s': %s", path, exc)
+            continue
 
-        if engine == "code_scanning":
-            attrs["ghas_rule_id"] = (alert.get("rule") or {}).get("id") or ""
-            attrs["ghas_tool_name"] = (alert.get("tool") or {}).get("name") or ""
-            if alert.get("dismissed_reason"):
-                attrs["ghas_dismissed_reason"] = alert["dismissed_reason"]
+        if data.get("Source") != "GHAS":
+            continue
 
-        elif engine == "secret_scanning":
-            attrs["ghas_rule_id"] = alert.get("secret_type") or ""
-            if alert.get("resolution"):
-                attrs["ghas_dismissed_reason"] = alert["resolution"]
+        source_name = data.get("SourceName")
+        if not source_name:
+            log.warning(
+                "Config '%s' has Source=GHAS but no SourceName — skipping.", path
+            )
+            continue
 
-        elif engine == "dependabot":
-            dep = (alert.get("dependency") or {}).get("package") or {}
-            attrs["ghas_package_name"] = dep.get("name") or ""
-            attrs["ghas_package_ecosystem"] = dep.get("ecosystem") or ""
-            attrs["ghas_rule_id"] = (alert.get("security_advisory") or {}).get("ghsa_id") or ""
-            if alert.get("dismissed_reason"):
-                attrs["ghas_dismissed_reason"] = alert["dismissed_reason"]
+        if data.get("Enabled") is False:
+            log.info("Instance '%s' is disabled in '%s' — skipping.", source_name, path)
+            continue
 
-        return attrs
+        instances.append(source_name)
+
+    return instances
+
+
+def run_instance(source_name: str, first_load: bool) -> bool:
+    """
+    Run a single GHAS adapter instance. Returns True on success, False on failure.
+
+    All exceptions are caught and logged so that a failure in one instance
+    does not prevent other instances from running.
+    """
+    log = logging.getLogger("RunGHASAdapter")
+    log.info("=== Starting instance: %s ===", source_name)
+    try:
+        app = Application()
+        adapter = GHASAdapter(app, source_name)
+        adapter.run_sync(first_load=first_load)
+        log.info("=== Completed instance: %s ===", source_name)
+        return True
+    except Exception as exc:
+        log.error(
+            "Instance '%s' failed with unhandled exception: %s",
+            source_name, exc, exc_info=True
+        )
+        return False
+
+
+def main():
+    parser = argparse.ArgumentParser(description="SaltMiner GHAS Source Adapter")
+    parser.add_argument(
+        "--first-load",
+        action="store_true",
+        default=False,
+        help="Accepted for compatibility — first-load is auto-detected from state file.",
+    )
+    parser.add_argument(
+        "--instance",
+        default=None,
+        help="Run only the named instance (matching SourceName) instead of all discovered ones.",
+    )
+    parser.add_argument(
+        "--config-dir",
+        default="/etc/saltworks/saltminer-2.5.0/Sources",
+        help="Directory containing GHAS instance configs (default: /etc/saltworks/saltminer-2.5.0/Sources)",
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Logging verbosity (default: INFO)",
+    )
+    args = parser.parse_args()
+
+    configure_logging(args.log_level)
+    log = logging.getLogger("RunGHASAdapter")
+
+    try:
+        if args.instance:
+            instances = [args.instance]
+            log.info("Running single specified instance: %s", args.instance)
+        else:
+            instances = discover_ghas_instances(args.config_dir)
+            if not instances:
+                log.warning(
+                    "No enabled GHAS instances discovered in '%s'. Nothing to do.",
+                    args.config_dir,
+                )
+                sys.exit(0)
+            log.info(
+                "Discovered %d enabled GHAS instance(s): %s",
+                len(instances), ", ".join(instances),
+            )
+
+        failed = []
+        for source_name in instances:
+            ok = run_instance(source_name, args.first_load)
+            if not ok:
+                failed.append(source_name)
+
+        if failed:
+            log.error(
+                "Run completed with %d failure(s) out of %d instance(s): %s",
+                len(failed), len(instances), ", ".join(failed),
+            )
+            sys.exit(1)
+
+        log.info("All %d instance(s) completed successfully.", len(instances))
+        sys.exit(0)
+
+    except KeyboardInterrupt:
+        log.info("Run interrupted by operator.")
+        sys.exit(0)
+    except Exception as exc:
+        log.critical(
+            "Run script failed with unhandled exception: %s", exc, exc_info=True
+        )
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
