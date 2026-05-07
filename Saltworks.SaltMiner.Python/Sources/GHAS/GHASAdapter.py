@@ -483,7 +483,7 @@ class GHASAdapter:
 
         doc["Saltminer"]["Asset"]["Attributes"] = {
             "ghas_org": self.org,
-            "ghas_repo_id": repo.get("id"),
+            "ghas_repo_id": str(repo.get("id", "")),
             "ghas_repo_full_name": full_name,
             "ghas_default_branch": repo.get("default_branch") or "main",
             "ghas_visibility": repo.get("visibility") or "private",
@@ -702,7 +702,7 @@ class GHASAdapter:
         attrs = {
             "ghas_engine": engine,
             "ghas_alert_state": alert.get("state") or "",
-            "ghas_alert_number": alert.get("number"),
+            "ghas_alert_number": str(alert.get("number", "")),
             "ghas_org": self.org,
             "ghas_repo": alert.get("repository", {}).get("full_name") or "",
         }
