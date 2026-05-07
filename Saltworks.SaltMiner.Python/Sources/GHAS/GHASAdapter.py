@@ -235,20 +235,20 @@ class GHASAdapter:
         logger.info("[%s] %d repositories to process after exclusions.", self.instance, len(repos))
 
         sem = asyncio.Semaphore(self.concurrency_limit)
-        tasks = []
 
-        for repo in repos:
-            try:
-                enablement = await self.client.get_repo_enablement_async(repo["full_name"])
-            except Exception as exc:
-                logger.error("Failed enablement check for %s: %s — skipping.", repo["full_name"], exc)
-                continue
-
-            for engine in self.engines:
-                if not enablement.get(engine, False):
-                    logger.debug("Engine '%s' not enabled on %s — skipping.", engine, repo["full_name"])
-                    continue
-                tasks.append(self._sync_with_semaphore(sem, repo, engine))
+        # Dispatch all engines for all repos. We deliberately do NOT pre-check
+        # security_and_analysis on the repo metadata: that field is only
+        # returned by GitHub to tokens with administrative permissions, so
+        # tokens with the documented read-only alert permissions would falsely
+        # report all engines disabled. Instead, the per-engine alert endpoint
+        # in GHASClient returns 404 when an engine is not enabled, which
+        # get_alerts_async() and get_latest_alert_timestamp_async() handle
+        # gracefully (see architecture doc §9.4).
+        tasks = [
+            self._sync_with_semaphore(sem, repo, engine)
+            for repo in repos
+            for engine in self.engines
+        ]
 
         logger.info(
             "[%s] Dispatching %d repo/engine sync tasks (concurrency limit: %d).",
@@ -478,7 +478,7 @@ class GHASAdapter:
 
     def map_scan(self, repo: dict, engine: str, report_id: str, alerts: list) -> MapScanDocDTO:
         """Map repo + engine metadata to a SaltMiner scan document."""
-        doc = self.sm_docs.GetScanDoc()
+        doc = self.sm_docs.map_scan_doc()
         now = self._now()
 
         doc["Timestamp"] = now
@@ -503,7 +503,7 @@ class GHASAdapter:
 
     def map_asset(self, repo: dict, queue_scan_id: str) -> MapAssetDocDTO:
         """Map a GitHub repository to a SaltMiner asset document."""
-        doc = self.sm_docs.GetAssetDoc()
+        doc = self.sm_docs.map_asset_doc()
 
         full_name = repo.get("full_name", "")
         short_name = repo.get("name", full_name.split("/")[-1] if "/" in full_name else full_name)
@@ -540,7 +540,7 @@ class GHASAdapter:
         report_id: str,
     ) -> MapIssueDocDTO:
         """Map a raw GitHub alert to a SaltMiner issue document."""
-        doc = self.sm_docs.GetIssueDoc()
+        doc = self.sm_docs.map_issue_doc()
         assessment_type = self._assessment_type(engine)
 
         doc["Timestamp"] = self._now()
@@ -602,7 +602,7 @@ class GHASAdapter:
         report_id: str,
     ) -> MapIssueDocDTO:
         """Map a SARIF suppressed finding to a SaltMiner issue document."""
-        doc = self.sm_docs.GetIssueDoc()
+        doc = self.sm_docs.map_issue_doc()
         assessment_type = self._assessment_type(engine)
         now = self._now()
 
