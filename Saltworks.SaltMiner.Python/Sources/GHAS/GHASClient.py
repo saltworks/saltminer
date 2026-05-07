@@ -297,59 +297,84 @@ class GHASClient:
 
     async def get_latest_alert_timestamp_async(self, full_name: str, engine: str) -> Optional[str]:
         """
-        Fetch a single alert sorted by updated_at descending.
-        Returns the updated_at string of the most recent alert, or None if no alerts exist.
-        Used for Phase 1 change detection — costs exactly one API call.
+        Return the most recent alert.updated_at across all relevant states for
+        this engine, or None if no alerts exist (or the engine is not enabled).
+        Used for Phase 1 change detection.
+
+        For most engines this costs one API call. For secret_scanning, GitHub
+        rejects comma-separated state parameters, so we issue one call per
+        state ("open", "resolved") and take the max of the per-state results.
         """
         endpoint = self._engine_endpoint(full_name, engine)
-        params = {"per_page": 1, "sort": "updated", "direction": "desc", "state": self._engine_states(engine)}
-        try:
-            resp = await self._get_response_with_retry(endpoint, params=params)
-            async with resp:
-                data = await resp.json()
-        except aiohttp.ClientResponseError as exc:
-            if exc.status == 404:
-                return None  # Engine not enabled
-            logger.warning("Error checking latest alert for %s/%s: %s", full_name, engine, exc)
-            return None
+        latest: Optional[str] = None
 
-        if not data:
-            return None
-        return data[0].get("updated_at")
+        for state in self._engine_state_queries(engine):
+            params = {"per_page": 1, "sort": "updated", "direction": "desc", "state": state}
+            try:
+                resp = await self._get_response_with_retry(endpoint, params=params)
+                async with resp:
+                    data = await resp.json()
+            except aiohttp.ClientResponseError as exc:
+                if exc.status == 404:
+                    return None  # Engine not enabled — no per-state retry needed
+                logger.warning(
+                    "Error checking latest alert for %s/%s (state=%s): %s",
+                    full_name, engine, state, exc,
+                )
+                continue  # Try the next state — partial result is better than none
+
+            if data:
+                ts = data[0].get("updated_at")
+                if ts and (latest is None or ts > latest):
+                    latest = ts
+
+        return latest
 
     # ── Alert generators ───────────────────────────────────────────────────
 
     async def get_alerts_async(self, full_name: str, engine: str) -> AsyncGenerator[dict, None]:
         """
-        Async generator yielding all alerts for a given repo and engine.
-        Handles pagination transparently. Yields raw GitHub API alert objects.
+        Async generator yielding all alerts for a given repo and engine across
+        all relevant states. Handles pagination transparently. Yields raw
+        GitHub API alert objects.
+
+        For most engines this issues one paginated query covering all states.
+        For secret_scanning, GitHub rejects comma-separated state values, so
+        we issue one paginated query per state ("open", "resolved") and yield
+        results from each.
         """
-        url = self._engine_endpoint(full_name, engine)
-        params = {
-            "per_page": PAGE_SIZE,
-            "sort": "updated",
-            "direction": "desc",
-            "state": self._engine_states(engine),
-        }
+        endpoint = self._engine_endpoint(full_name, engine)
 
-        while url:
-            try:
-                resp = await self._get_response_with_retry(url, params=params)
-                async with resp:
-                    alerts = await resp.json()
-                    link = resp.headers.get("Link")
-            except aiohttp.ClientResponseError as exc:
-                if exc.status == 404:
-                    logger.info("Engine %s not enabled on %s — no alerts.", engine, full_name)
-                    return
-                logger.error("Failed fetching %s alerts for %s: %s", engine, full_name, exc)
-                return
+        for state in self._engine_state_queries(engine):
+            url = endpoint
+            params = {
+                "per_page": PAGE_SIZE,
+                "sort": "updated",
+                "direction": "desc",
+                "state": state,
+            }
 
-            for alert in alerts:
-                yield alert
+            while url:
+                try:
+                    resp = await self._get_response_with_retry(url, params=params)
+                    async with resp:
+                        alerts = await resp.json()
+                        link = resp.headers.get("Link")
+                except aiohttp.ClientResponseError as exc:
+                    if exc.status == 404:
+                        logger.info("Engine %s not enabled on %s — no alerts.", engine, full_name)
+                        return  # No point trying other states
+                    logger.error(
+                        "Failed fetching %s alerts for %s (state=%s): %s",
+                        engine, full_name, state, exc,
+                    )
+                    break  # Stop this state's pagination, try the next state
 
-            url = self._parse_next_link(link)
-            params = None
+                for alert in alerts:
+                    yield alert
+
+                url = self._parse_next_link(link)
+                params = None  # params are encoded in the next URL
 
     @staticmethod
     def _engine_endpoint(full_name: str, engine: str) -> str:
@@ -363,14 +388,24 @@ class GHASClient:
         return endpoints[engine]
 
     @staticmethod
-    def _engine_states(engine: str) -> str:
-        """Comma-separated list of alert states to fetch for each engine."""
-        states = {
+    def _engine_state_queries(engine: str) -> list:
+        """
+        Return the list of `state` query values to issue for a given engine.
+
+        GitHub's code-scanning and dependabot endpoints accept a comma-separated
+        list of states in a single request, so a list with one element wrapping
+        the CSV is sufficient. Secret scanning rejects comma-separated states
+        (HTTP 400 — "State needs to be either 'open' or 'resolved'") and must
+        be queried once per state. Callers iterate over the returned list and
+        merge results.
+        """
+        if engine == "secret_scanning":
+            return ["open", "resolved"]
+        csv = {
             "code_scanning": "open,dismissed,fixed",
-            "secret_scanning": "open,resolved",
             "dependabot": "open,dismissed,fixed,auto_dismissed",
-        }
-        return states.get(engine, "open")
+        }.get(engine, "open")
+        return [csv]
 
     # ── SARIF ──────────────────────────────────────────────────────────────
 
