@@ -72,8 +72,9 @@ class ElasticClient(object):
         self.__MappingsPath = appSettings.Get(configName, "MappingsPath", "Mappings/")
         self.__MappingsTemplatePath = appSettings.Get(configName, "MappingsTemplatePath", "Template/Mappings/")
         self.__App = appSettings.Application
-        self.__BulkBatch = []
-        self.__BulkBatchSize = 10000
+        self.__BulkBatches = {}
+        self.__BulkBatchSizes = {}
+        self.__DefaultBulkBatchSize = 500
         self.es = None
         self._Connect(appSettings, configName)
 
@@ -316,13 +317,14 @@ class ElasticClient(object):
 
     def BulkSendBatch(self, index=None, doc=None, docId=None, action="index", batchSize=None):
         '''
-        Batches document updates/additions to send via the bulk API.
-        
-        :index: index upon which to operate (or None to flush remaining)
-        :doc: document to send, not including "doc" node for updates (or None to flush remaining)
+        Batches document updates/additions to send via the bulk API.  Tracks separate batches per
+        index, each with its own batch size.
+
+        :index: index upon which to operate (or None to flush all tracked indices)
+        :doc: document to send, not including "doc" node for updates (or None to flush remaining for the given index, or all if index is also None)
         :docId: document ID for updates (or index, but not required for additions)
         :action: update or index ('index' upserts, 'update' is a partial doc update that requires the doc ID to be included, None defaults to 'index')
-        :batchSize: number of documents to batch before sending (overrides default if included)
+        :batchSize: number of documents to batch before sending for this index (overrides default; remembered per index)
         '''
         if action not in ['index', 'update'] and doc:
             raise ElasticClientArgumentException(f"Invalid action '{action}', must be index or update")
@@ -330,16 +332,29 @@ class ElasticClient(object):
             docId = doc['_id']
         if not docId and action == "update":
             raise ElasticClientArgumentException("Update action requires docId parameter, but docId parameter was empty/None")
-        if batchSize:
-            self.__BulkBatchSize = batchSize
         doc = doc['_source'] if doc and '_source' in doc.keys() else doc
-        finishIt = True if not (doc and index) else False
-        if doc and index:
-            self.__BulkBatch.append(self.BulkInsertDocument(index, doc, docId, action))
-        if len(self.__BulkBatch) >= self.__BulkBatchSize or (finishIt and len(self.__BulkBatch) > 0):
-            logging.info("Bulk batch send %s items", len(self.__BulkBatch))
-            self.BulkInsert(self.__BulkBatch)
-            self.__BulkBatch = []
+
+        if doc is None:
+            # flush signal: flush specified index, or all tracked indices if index is None
+            indicesToFlush = [index] if index else list(self.__BulkBatches.keys())
+            for idx in indicesToFlush:
+                batch = self.__BulkBatches.get(idx)
+                if batch:
+                    logging.info("Bulk batch send %s items to '%s'", len(batch), idx)
+                    self.BulkInsert(batch)
+                    self.__BulkBatches[idx] = []
+            return
+
+        if batchSize:
+            self.__BulkBatchSizes[index] = batchSize
+        if index not in self.__BulkBatches:
+            self.__BulkBatches[index] = []
+        self.__BulkBatches[index].append(self.BulkInsertDocument(index, doc, docId, action))
+        effectiveSize = self.__BulkBatchSizes.get(index, self.__DefaultBulkBatchSize)
+        if len(self.__BulkBatches[index]) >= effectiveSize:
+            logging.info("Bulk batch send %s items to '%s'", len(self.__BulkBatches[index]), index)
+            self.BulkInsert(self.__BulkBatches[index])
+            self.__BulkBatches[index] = []
 
     def BulkInsertDocument(self, index, source, doc_id=None, action=None):
         '''
