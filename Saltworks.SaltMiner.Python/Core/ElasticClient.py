@@ -36,10 +36,9 @@ from elasticsearch.helpers.errors import BulkIndexError
 from .ApplicationSettings import ApplicationSettings
 from .StringUtils import StringUtils
 from .DictUtils import DictUtils
+from .Constants import ElasticConstants
 
 RETRY_LIMIT_ERROR = "Elastic client operation failed after maximum retry attempts due to connection errors."
-ELASTIC_CONNECT_STR_ENV = "ELASTICSEARCH_CONNECTION_STRING"
-ELASTIC_CONNECT_STR_CONFIG = "ConnectionString"
 IDX_NOT_EXIST_ERR_TEMPLATE = "Index '%s' does not exist."
 
 class ElasticClient(object):
@@ -95,7 +94,7 @@ class ElasticClient(object):
 
         Returns a dict with the decoded values.
         '''
-        connectionString = appSettings.Get(configName, self.ELASTIC_CONNECT_STR_CONFIG, "")
+        connectionString = appSettings.Get(configName, ElasticConstants.ELASTIC_CONNECT_STR_CONFIG, "")
         if len(connectionString) == 0:
             return None
         known_parts = ['host', 'port', 'scheme', 'username', 'password', 'sslverify', 'cloudid', 'apikeyid', 'apikeyvalue', 'useauth']
@@ -194,7 +193,7 @@ class ElasticClient(object):
         configName: Config section for this class (usually "Elastic")
         '''
         # pull config str from config and decode (if present)
-        connectionParms = self._DecodeConnectionString(appSettings, configName)
+        connectionParms = self._DecodeConnectionString(appSettings, configName) or {}
 
         # setup SSL verification and default headers
         sslVerify = self._SslVerify(appSettings.Get(configName, 'SslVerify', True))
