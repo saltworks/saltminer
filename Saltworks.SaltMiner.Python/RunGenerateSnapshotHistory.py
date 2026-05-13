@@ -34,7 +34,13 @@ if hasattr(threading, '_DeleteDummyThreadOnDel'):
 from Core.Application import Application
 from snapshot import run_snapshot_history
 
-# Usage: python RunGenerateSnapshotHistory.py <source_type|all> [start_date YYYY-MM-DD]
+# Usage: python RunGenerateSnapshotHistory.py <source_type|all> [start_date YYYY-MM-DD] [mode all|current|historical|daily]
+#
+# mode all        — rebuild all historical monthly indices AND refresh _current (default)
+# mode current    — refresh only _current for the live month
+# mode historical — rebuild historical monthly indices only, skip _current
+# mode daily      — smart daily job: rebuild last closed month if its index is missing,
+#                   then always refresh _current (no start_date needed)
 
 timers = {}
 prog = os.path.splitext(os.path.basename(__file__))[0]
@@ -56,22 +62,33 @@ app = Application()
 
 source_type_arg = sys.argv[1] if len(sys.argv) > 1 else "all"
 
-start_date: datetime.datetime | None = None
-if len(sys.argv) > 2:
-    try:
-        start_date = datetime.datetime.strptime(sys.argv[2], "%Y-%m-%d").replace(
-            tzinfo=datetime.timezone.utc
-        )
-    except ValueError:
-        logging.error("[%s] Invalid start_date '%s' — expected YYYY-MM-DD", prog, sys.argv[2])
-        sys.exit(1)
+_MODES = {"all", "current", "historical", "daily"}
 
+start_date: datetime.datetime | None = None
+mode = "all"
+
+if len(sys.argv) > 2:
+    arg2 = sys.argv[2]
+    if arg2 in _MODES:
+        # mode supplied in position 2 (no start_date)
+        mode = arg2
+    else:
+        try:
+            start_date = datetime.datetime.strptime(arg2, "%Y-%m-%d").replace(
+                tzinfo=datetime.timezone.utc
+            )
+        except ValueError:
+            logging.error("[%s] Invalid argument '%s' — expected YYYY-MM-DD or a mode (%s)",
+                          prog, arg2, "|".join(sorted(_MODES)))
+            sys.exit(1)
+        if len(sys.argv) > 3:
+            mode = sys.argv[3]
 worker_count       = app.Settings.Get("Snapshots", "HistoryWorkerCount",        4)
 page_size          = app.Settings.Get("Snapshots", "HistoryCompositePageSize",  1000)
 chunk_size         = app.Settings.Get("Snapshots", "HistorySourceIdChunkSize",  1000)
 default_start_str  = app.Settings.Get("Snapshots", "HistoryStartDate",          "2000-01-01")
 
-if start_date is None:
+if start_date is None and mode not in ("current", "daily"):
     try:
         start_date = datetime.datetime.strptime(default_start_str, "%Y-%m-%d").replace(
             tzinfo=datetime.timezone.utc
@@ -83,8 +100,8 @@ if start_date is None:
         )
         start_date = None
 
-logging.info("[%s] Starting — source_type=%s, start_date=%s, workers=%d",
-             prog, source_type_arg, start_date, worker_count)
+logging.info("[%s] Starting — source_type=%s, start_date=%s, workers=%d, mode=%s",
+             prog, source_type_arg, start_date, worker_count, mode)
 
 try:
     start_timer("RunGenerateSnapshotHistory")
@@ -95,6 +112,7 @@ try:
         worker_count=worker_count,
         composite_page_size=page_size,
         source_id_chunk_size=chunk_size,
+        mode=mode,
     )
     end_timer("RunGenerateSnapshotHistory")
 except Exception as e:

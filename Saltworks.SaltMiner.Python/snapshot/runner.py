@@ -4,8 +4,14 @@ import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
-from .index_names import issue_index_pattern
-from .month_range import earliest_data_date, iter_months
+from .index_names import (
+    issue_index_pattern,
+    historical_snapshot_index,
+    historical_scan_snapshot_index,
+    current_snapshot_index,
+    current_scan_snapshot_index,
+)
+from .month_range import earliest_data_date, iter_months, month_start, next_month_start
 from .issue_snapshot_builder import (
     fetch_asset_descriptors,
     build_monthly_issue_snapshots,
@@ -110,39 +116,59 @@ def _process_partition(
     months: list[tuple[int, int]],
     composite_page_size: int,
     source_id_chunk_size: int,
+    current_month: tuple[int, int] | None = None,
 ) -> None:
-    """Process all months for one partition of source IDs."""
+    """Process all months for one partition of source IDs.
+
+    months: historical months to write into per-month indices.
+    current_month: if provided, also processed and written to the _current index.
+    """
     logging.info("Partition of %d source IDs starting (%s / %s)", len(partition_ids), source_type, asset_type)
 
-    # Build per-asset descriptors once for the whole partition
+    all_months = list(months)
+    if current_month and current_month not in all_months:
+        all_months.append(current_month)
+
     descriptors = fetch_asset_descriptors(es, asset_type, source_type, partition_ids)
     logging.debug("Fetched %d asset descriptors for partition", len(descriptors))
 
-    # Carry forward average LOC per source_id across months for the scan snapshot
     prev_avg_loc: dict[str, float] = {}
 
-    # For large partitions, chunk the terms filter to avoid too_many_clauses
     id_chunks = _chunk(partition_ids, max(1, math.ceil(len(partition_ids) / source_id_chunk_size)))
 
-    for year, month in months:
-        # Build and write issue snapshots first — scan builder reads from them
+    for year, month in all_months:
+        is_current = current_month == (year, month)
+        issue_write_target = current_snapshot_index(asset_type, source_type) if is_current \
+                             else historical_snapshot_index(asset_type, source_type)
+        scan_write_target  = current_scan_snapshot_index(asset_type, source_type) if is_current \
+                             else historical_scan_snapshot_index(asset_type, source_type)
+        snap_source_index  = issue_write_target  # scan builder reads from the same index issue snapshots were just written to
+
         issue_docs: list[dict] = []
         for chunk in id_chunks:
             issue_docs.extend(build_monthly_issue_snapshots(
                 es, asset_type, source_type, chunk, year, month, descriptors, composite_page_size
             ))
-        write_monthly_issue_snapshots(es, asset_type, source_type, partition_ids, year, month, issue_docs)
+        write_monthly_issue_snapshots(
+            es, asset_type, source_type, partition_ids, year, month, issue_docs,
+            target_index=issue_write_target,
+        )
 
-        # Now build and write scan snapshots (queries the just-written issue snapshot index)
         scan_docs: list[dict] = []
         for chunk in id_chunks:
             month_scan_docs, prev_avg_loc = build_monthly_scan_snapshots(
-                es, asset_type, source_type, chunk, year, month, prev_avg_loc, composite_page_size
+                es, asset_type, source_type, chunk, year, month, prev_avg_loc,
+                snapshot_source_index=snap_source_index,
+                page_size=composite_page_size,
             )
             scan_docs.extend(month_scan_docs)
-        write_monthly_scan_snapshots(es, asset_type, source_type, partition_ids, year, month, scan_docs)
+        write_monthly_scan_snapshots(
+            es, asset_type, source_type, partition_ids, year, month, scan_docs,
+            target_index=scan_write_target,
+        )
 
-    logging.info("Partition complete (%d source IDs, %d months)", len(partition_ids), len(months))
+    logging.info("Partition complete (%d source IDs, %d months, current=%s)",
+                 len(partition_ids), len(all_months), current_month is not None)
 
 
 def run_snapshot_history(
@@ -152,14 +178,23 @@ def run_snapshot_history(
     worker_count: int = 4,
     composite_page_size: int = 1000,
     source_id_chunk_size: int = 1000,
+    mode: str = "all",
 ) -> None:
     """
-    Entry point for full historical snapshot generation.
+    Entry point for snapshot generation.
+
+    mode values:
+      "all"        — rebuild historical monthly indices AND refresh the _current index (default)
+      "current"    — refresh only the _current index for the live month (fast, runs daily)
+      "historical" — rebuild historical monthly indices only, skip _current
 
     app_settings: ApplicationSettings instance from Application.Settings
     source_type_arg: 'all' or a source type name like 'FOD' / 'Saltworks.FOD'
-    start_date: override earliest start; if None the earliest data date is used
+    start_date: override earliest start for historical months; ignored in "current" mode
     """
+    if mode not in ("all", "current", "historical", "daily"):
+        raise ValueError(f"Invalid mode '{mode}'. Expected one of: all, current, historical, daily")
+
     es = app_settings.Application.GetElasticClient()
 
     all_pairs = discover_source_type_asset_type_pairs(es)
@@ -181,23 +216,77 @@ def run_snapshot_history(
             return
         selected_pairs = [(st, at) for st, at in all_pairs if st == resolved]
 
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    this_month = (now.year, now.month)
+
     for source_type, asset_type in selected_pairs:
-        logging.info("Starting snapshot history: source_type=%s, asset_type=%s", source_type, asset_type)
+        logging.info("Starting snapshot [mode=%s]: source_type=%s, asset_type=%s",
+                     mode, source_type, asset_type)
 
-        # Determine start month
-        if start_date:
-            effective_start = start_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0,
-                                                  tzinfo=datetime.timezone.utc)
+        # Determine which months go to historical per-month indices
+        if mode == "current":
+            historical_months: list[tuple[int, int]] = []
+
+        elif mode == "daily":
+            # Refresh the _current index every run, and rebuild the last closed month
+            # only if the _historical index has no docs for it (handles month roll-over).
+            last_closed = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
+            hist_idx = historical_snapshot_index(asset_type, source_type)
+            lc_start = month_start(*last_closed)
+            lc_next  = next_month_start(*last_closed)
+            has_last_month = False
+            if es.IndexExists(hist_idx):
+                count_result = es.Search(hist_idx, queryBody={
+                    "query": {"range": {"saltminer.snapshot_date": {
+                        "gte": lc_start.isoformat(),
+                        "lt":  lc_next.isoformat(),
+                    }}},
+                    "size": 0,
+                }, size=0, navToData=False)
+                has_last_month = bool(
+                    count_result and
+                    count_result.get("hits", {}).get("total", {}).get("value", 0) > 0
+                )
+            if has_last_month:
+                logging.info(
+                    "Daily: %d-%02d data present in %s — skipping historical rebuild.",
+                    *last_closed, hist_idx,
+                )
+                historical_months = []
+            else:
+                logging.info(
+                    "Daily: %d-%02d data missing from %s — will build.",
+                    *last_closed, hist_idx,
+                )
+                historical_months = [last_closed]
+
         else:
-            detected = earliest_data_date(es, issue_index_pattern(asset_type), source_type)
-            if not detected:
-                logging.warning("No issue data found for %s / %s — skipping.", source_type, asset_type)
-                continue
-            effective_start = detected
+            if start_date:
+                effective_start = start_date.replace(
+                    day=1, hour=0, minute=0, second=0, microsecond=0,
+                    tzinfo=datetime.timezone.utc,
+                )
+            else:
+                detected = earliest_data_date(es, issue_index_pattern(asset_type), source_type)
+                if not detected:
+                    logging.warning("No issue data found for %s / %s — skipping.", source_type, asset_type)
+                    continue
+                effective_start = detected
 
-        now = datetime.datetime.now(tz=datetime.timezone.utc)
-        months = list(iter_months(effective_start, now))
-        logging.info("Processing %d months from %s to %s", len(months), effective_start.date(), now.date())
+            # Historical = all closed months (exclude the current live month)
+            all_months = list(iter_months(effective_start, now))
+            historical_months = [m for m in all_months if m != this_month]
+            logging.info(
+                "Historical: %d months from %s to last closed month",
+                len(historical_months), effective_start.date(),
+            )
+
+        # Determine whether to refresh the _current index
+        current_month = this_month if mode in ("all", "current", "daily") else None
+
+        if not historical_months and current_month is None:
+            logging.warning("Nothing to process for %s / %s in mode '%s'.", source_type, asset_type, mode)
+            continue
 
         all_source_ids = _collect_all_source_ids(es, asset_type, source_type)
         if not all_source_ids:
@@ -210,16 +299,18 @@ def run_snapshot_history(
 
         if worker_count == 1:
             _process_partition(
-                es, asset_type, source_type, partitions[0], months,
+                es, asset_type, source_type, partitions[0], historical_months,
                 composite_page_size, source_id_chunk_size,
+                current_month=current_month,
             )
         else:
             with ThreadPoolExecutor(max_workers=worker_count) as pool:
                 futures = {
                     pool.submit(
                         _process_partition,
-                        es, asset_type, source_type, part, months,
+                        es, asset_type, source_type, part, historical_months,
                         composite_page_size, source_id_chunk_size,
+                        current_month,
                     ): i
                     for i, part in enumerate(partitions)
                 }
@@ -230,4 +321,4 @@ def run_snapshot_history(
                     except Exception:
                         logging.exception("Partition %d failed", idx)
 
-        logging.info("Completed snapshot history for %s / %s", source_type, asset_type)
+        logging.info("Completed snapshot [mode=%s] for %s / %s", mode, source_type, asset_type)

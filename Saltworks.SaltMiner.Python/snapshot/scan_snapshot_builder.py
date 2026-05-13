@@ -5,7 +5,7 @@ from typing import Any
 
 from elasticsearch import BadRequestError, NotFoundError
 
-from .index_names import scan_index_pattern, scan_snapshot_index_for_date, snapshot_index_for_date
+from .index_names import scan_index_pattern, historical_snapshot_index, historical_scan_snapshot_index
 from .month_range import month_start, next_month_start, snapshot_date_for_month
 
 _FIELD_SOURCE_ID  = "saltminer.asset.source_id"
@@ -25,20 +25,23 @@ def _get(doc, *path: str, default=None):
 
 def _fetch_vuln_counts_for_month(
     es,
-    asset_type: str,
-    source_type: str,
+    snapshot_source_index: str,
     source_id: str,
     year: int,
     month: int,
 ) -> dict[str, int]:
-    """Return {'Critical': n, 'High': n, ...} from the snapshot index for this asset/month."""
-    snap_idx = snapshot_index_for_date(asset_type, source_type, datetime.datetime(year, month, 1))
+    """Return {'Critical': n, 'High': n, ...} from the given snapshot index for this asset/month."""
+    m_start = month_start(year, month)
+    m_next  = next_month_start(year, month)
     query = {
         "query": {
             "bool": {
                 "must": [
-                    {"term":  {"saltminer.is_historical": True}},
                     {"term":  {_FIELD_SOURCE_ID: source_id}},
+                    {"range": {"saltminer.snapshot_date": {
+                        "gte": m_start.isoformat(),
+                        "lt":  m_next.isoformat(),
+                    }}},
                 ]
             }
         },
@@ -50,7 +53,7 @@ def _fetch_vuln_counts_for_month(
         "size": 0,
     }
     try:
-        result = es.Search(snap_idx, queryBody=query, size=0, navToData=False)
+        result = es.Search(snapshot_source_index, queryBody=query, size=0, navToData=False)
     except NotFoundError:
         return {}
     if not result:
@@ -67,11 +70,14 @@ def build_monthly_scan_snapshots(
     year: int,
     month: int,
     previous_avg_loc: dict[str, float],
+    snapshot_source_index: str,
     page_size: int = 1000,
 ) -> tuple[list[dict], dict[str, float]]:
     """
     Run the scan composite agg for one month.
 
+    snapshot_source_index: the issue snapshot index to read vuln counts from
+      (historical_snapshot_index for closed months, current_snapshot_index for live month).
     Returns (docs, updated_previous_avg_loc).
     previous_avg_loc is carried forward for assets with no scans in a given month.
     """
@@ -152,7 +158,7 @@ def build_monthly_scan_snapshots(
                 previous_avg_loc[sid] = avg_loc_val
 
             effective_avg_loc = previous_avg_loc.get(sid, 0.0)
-            vuln_counts = _fetch_vuln_counts_for_month(es, asset_type, source_type, sid, year, month)
+            vuln_counts = _fetch_vuln_counts_for_month(es, snapshot_source_index, sid, year, month)
             total_vulns = sum(vuln_counts.values())
 
             density1k  = (total_vulns / effective_avg_loc) * 1_000    if effective_avg_loc else 0.0
@@ -217,11 +223,12 @@ def write_monthly_scan_snapshots(
     year: int,
     month: int,
     docs: list[dict],
+    target_index: str | None = None,
 ) -> None:
     if not docs:
         return
 
-    target = scan_snapshot_index_for_date(asset_type, source_type, datetime.datetime(year, month, 1))
+    target = target_index or historical_scan_snapshot_index(asset_type, source_type)
 
     if not es.IndexExists(target):
         try:
@@ -230,12 +237,17 @@ def write_monthly_scan_snapshots(
             if "resource_already_exists_exception" not in str(e):
                 raise
 
+    m_start = month_start(year, month)
+    m_next  = next_month_start(year, month)
     delete_query = {
         "query": {
             "bool": {
                 "must": [
-                    {"term":  {"saltminer.is_historical": True}},
                     {"terms": {_FIELD_SOURCE_ID: source_ids}},
+                    {"range": {"saltminer.snapshot_date": {
+                        "gte": m_start.isoformat(),
+                        "lt":  m_next.isoformat(),
+                    }}},
                 ]
             }
         }

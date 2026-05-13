@@ -22,17 +22,21 @@ def scan_index_pattern(asset_type: str) -> str:
     return f"scans_{asset_type.lower()}_*"
 
 
-def snapshot_index(asset_type: str, source_type: str, year: int, month: int) -> str:
-    return f"snapshots_{asset_type.lower()}_{_short_source(source_type)}_monthly_{year:04d}_{month:02d}"
+def historical_snapshot_index(asset_type: str, source_type: str) -> str:
+    """Single index holding all historical monthly issue snapshots for a source type."""
+    return f"snapshots_{asset_type.lower()}_{_short_source(source_type)}_historical"
 
 
-def scan_snapshot_index(asset_type: str, source_type: str, year: int, month: int) -> str:
-    return f"scan_snapshots_{asset_type.lower()}_{_short_source(source_type)}_monthly_{year:04d}_{month:02d}"
+def historical_scan_snapshot_index(asset_type: str, source_type: str) -> str:
+    """Single index holding all historical monthly scan snapshots for a source type."""
+    return f"scan_snapshots_{asset_type.lower()}_{_short_source(source_type)}_historical"
 
 
-def snapshot_index_for_date(asset_type: str, source_type: str, dt: datetime.datetime) -> str:
-    return snapshot_index(asset_type, source_type, dt.year, dt.month)
+def current_snapshot_index(asset_type: str, source_type: str) -> str:
+    """Index holding the live current-month issue summarization, refreshed daily."""
+    return f"snapshots_{asset_type.lower()}_{_short_source(source_type)}_current"
 
 
-def scan_snapshot_index_for_date(asset_type: str, source_type: str, dt: datetime.datetime) -> str:
-    return scan_snapshot_index(asset_type, source_type, dt.year, dt.month)
+def current_scan_snapshot_index(asset_type: str, source_type: str) -> str:
+    """Index holding the live current-month scan summarization, refreshed daily."""
+    return f"scan_snapshots_{asset_type.lower()}_{_short_source(source_type)}_current"

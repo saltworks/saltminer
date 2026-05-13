@@ -5,7 +5,7 @@ from typing import Any
 
 from elasticsearch import BadRequestError
 
-from .index_names import issue_index_pattern, snapshot_index_for_date
+from .index_names import issue_index_pattern, historical_snapshot_index
 from .month_range import (
     month_start, next_month_start, month_end_inclusive, snapshot_date_for_month
 )
@@ -306,12 +306,17 @@ def write_monthly_issue_snapshots(
     year: int,
     month: int,
     docs: list[dict],
+    target_index: str | None = None,
 ) -> None:
-    """Delete existing historical docs for the partition then bulk-insert new ones."""
+    """Delete this month's docs for the partition from the target index, then bulk-insert new ones.
+
+    target_index: explicit destination; defaults to the _historical index.
+    The delete is always scoped to the given month so other months' data is not disturbed.
+    """
     if not docs:
         return
 
-    target = snapshot_index_for_date(asset_type, source_type, datetime.datetime(year, month, 1))
+    target = target_index or historical_snapshot_index(asset_type, source_type)
 
     if not es.IndexExists(target):
         try:
@@ -320,13 +325,17 @@ def write_monthly_issue_snapshots(
             if "resource_already_exists_exception" not in str(e):
                 raise
 
-    # Delete existing historical docs for these source_ids
+    m_start = month_start(year, month)
+    m_next  = next_month_start(year, month)
     delete_query = {
         "query": {
             "bool": {
                 "must": [
-                    {"term":  {"saltminer.is_historical": True}},
                     {"terms": {_FIELD_SOURCE_ID: source_ids}},
+                    {"range": {"saltminer.snapshot_date": {
+                        "gte": m_start.isoformat(),
+                        "lt":  m_next.isoformat(),
+                    }}},
                 ]
             }
         }
