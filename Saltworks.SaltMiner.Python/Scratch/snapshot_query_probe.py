@@ -2,7 +2,7 @@
 '''
 Probe script — verifies every ES query the snapshot pipeline will use, against opov.
 Connection: ai/scratch/opov.saltminer.io.md (do NOT commit credentials).
-Run: SALTMINER_2_CONFIG_PATH=... python -m Scratch.snapshot_query_probe
+Run: SALTMINER_CONFIG_PATH=... python -m Scratch.snapshot_query_probe
 '''
 import json
 import logging
