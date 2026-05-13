@@ -7,6 +7,17 @@ Implements the two-phase sync model:
   Phase 1 — Cheap change detection via local watermark (one API call per repo/engine)
   Phase 2 — Full alert fetch + ReplaceIssues=True for changed scopes only
 
+Clean-scan visibility (ENH-004, Option B):
+  When an engine is enabled on a repo but produces zero alerts, the adapter still
+  queues an empty Scan+Asset so SaltMiner can show the repo as "scanned and clean."
+  ScanDate reflects honest per-engine execution evidence:
+    - code_scanning  → most recent analysis.created_at (from /analyses endpoint)
+    - dependabot     → repo.pushed_at
+    - secret_scanning → repo.pushed_at
+  Empty scans are only re-queued when this timestamp advances past the last
+  queued value (state-file mitigation). Engines that appear unrun (null
+  pushed_at, or no analyses records) are skipped entirely.
+
 Compatible with SaltMiner 3.4 (uses SmDataClient — the synchronous PascalCase
 SaltMiner client). GitHub API access remains async via aiohttp; SmDataClient
 calls are dispatched to a thread pool via asyncio.to_thread() and serialised
@@ -42,31 +53,45 @@ logger = logging.getLogger(__name__)
 
 class GHASStateManager:
     """
-    Manages the local JSON state file storing per-{org/repo/engine} watermarks.
+    Manages the local JSON state file storing per-{org/repo/engine} watermarks
+    and last-queued scan dates.
 
-    Watermark values are GitHub API updated_at timestamps (ISO8601 strings).
+    Two maps are tracked:
+      watermarks     — max alert.updated_at observed per scope. Drives Phase 1
+                       change detection. ISO8601 strings.
+      last_scan_dates — the ScanDate value of the most recent clean Scan+Asset
+                       queued for this scope. Drives ENH-004 clean-scan re-queue
+                       mitigation: if a new ScanDate hasn't advanced past this,
+                       a clean scan is not re-queued. ISO8601 strings.
+
     Writes are atomic: temp file → rename. Concurrent writes are serialised
     by the caller via asyncio.Lock.
 
-    State file schema:
+    State file schema (v2):
     {
-        "schema_version": 1,
+        "schema_version": 2,
         "last_updated": "<ISO8601>",
-        "watermarks": {
-            "<org>/<repo>/<engine>": "<ISO8601>",
-            ...
-        }
+        "watermarks":      {"<org>/<repo>/<engine>": "<ISO8601>", ...},
+        "last_scan_dates": {"<org>/<repo>/<engine>": "<ISO8601>", ...}
     }
+
+    Schema v1 files (no last_scan_dates) load successfully and gain an empty
+    last_scan_dates map. On first save the file is rewritten as v2.
 
     Each adapter instance has its own state file (path is per-instance), so
     instances do not share or contend for state.
     """
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
+    SUPPORTED_SCHEMA_VERSIONS = (1, 2)
 
     def __init__(self, state_file_path: str):
         self._path = state_file_path
-        self._data: dict = {"schema_version": self.SCHEMA_VERSION, "watermarks": {}}
+        self._data: dict = {
+            "schema_version": self.SCHEMA_VERSION,
+            "watermarks": {},
+            "last_scan_dates": {},
+        }
         self._loaded = False
 
     def load(self):
@@ -85,30 +110,65 @@ class GHASStateManager:
                 "Delete or repair the file before running the adapter."
             ) from exc
 
-        if data.get("schema_version") != self.SCHEMA_VERSION:
+        version = data.get("schema_version")
+        if version not in self.SUPPORTED_SCHEMA_VERSIONS:
             logger.warning(
-                "State file '%s' schema version %s does not match expected %s — starting fresh.",
-                self._path, data.get("schema_version"), self.SCHEMA_VERSION
+                "State file '%s' schema version %s not supported (expected one of %s) — starting fresh.",
+                self._path, version, self.SUPPORTED_SCHEMA_VERSIONS,
             )
             self._loaded = True
             return
 
+        # Forward-compatible upgrade from v1 → v2: ensure both maps exist.
+        if "last_scan_dates" not in data:
+            data["last_scan_dates"] = {}
+        if "watermarks" not in data:
+            data["watermarks"] = {}
+
+        if version != self.SCHEMA_VERSION:
+            logger.info(
+                "Upgrading state file '%s' from schema v%s to v%s (existing data preserved).",
+                self._path, version, self.SCHEMA_VERSION,
+            )
+            data["schema_version"] = self.SCHEMA_VERSION
+
         self._data = data
         self._loaded = True
-        watermark_count = len(self._data.get("watermarks", {}))
-        logger.info("Loaded state file with %d watermarks from '%s'.", watermark_count, self._path)
+        wm_count = len(self._data.get("watermarks", {}))
+        sd_count = len(self._data.get("last_scan_dates", {}))
+        logger.info(
+            "Loaded state file from '%s' (%d watermarks, %d clean-scan dates).",
+            self._path, wm_count, sd_count,
+        )
+
+    # ── Watermark accessors (alert.updated_at tracking) ────────────────────
 
     def get_watermark(self, repo_full_name: str, engine: str) -> Optional[str]:
-        """Return the stored watermark for this repo/engine, or None if not present."""
+        """Return the stored alert-updated watermark for this scope, or None."""
         key = f"{repo_full_name}/{engine}"
         return self._data.get("watermarks", {}).get(key)
 
     def set_watermark(self, repo_full_name: str, engine: str, timestamp: str):
-        """Update the in-memory watermark. Call save_async() to persist."""
+        """Update the in-memory alert-updated watermark. Call save_async() to persist."""
         key = f"{repo_full_name}/{engine}"
         if "watermarks" not in self._data:
             self._data["watermarks"] = {}
         self._data["watermarks"][key] = timestamp
+        self._data["last_updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # ── Last-scan-date accessors (clean-scan re-queue mitigation) ──────────
+
+    def get_last_scan_date(self, repo_full_name: str, engine: str) -> Optional[str]:
+        """Return the ScanDate of the most recent clean scan queued for this scope, or None."""
+        key = f"{repo_full_name}/{engine}"
+        return self._data.get("last_scan_dates", {}).get(key)
+
+    def set_last_scan_date(self, repo_full_name: str, engine: str, timestamp: str):
+        """Record the ScanDate of a just-queued clean scan. Call save_async() to persist."""
+        key = f"{repo_full_name}/{engine}"
+        if "last_scan_dates" not in self._data:
+            self._data["last_scan_dates"] = {}
+        self._data["last_scan_dates"][key] = timestamp
         self._data["last_updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     async def save_async(self):
@@ -276,8 +336,12 @@ class GHASAdapter:
         Two-phase sync for a single repo/engine combination.
 
         Phase 1: Fetch the most recent alert's updated_at, compare to watermark.
-                 Skip if unchanged.
-        Phase 2: Full alert fetch, queue Scan→Asset→Issues, advance watermark.
+                 If unchanged, fall through to the clean-scan path (ENH-004) —
+                 the engine may still need a clean-scan re-queue if execution
+                 evidence has advanced.
+        Phase 2: Full alert fetch.
+          - If alerts present → queue Scan→Asset→Issues normally, advance state.
+          - If zero alerts → evaluate clean-scan path (ENH-004 Option B).
         """
         full_name = repo["full_name"]
 
@@ -288,10 +352,13 @@ class GHASAdapter:
             if watermark:
                 latest_ts = await self.client.get_latest_alert_timestamp_async(full_name, engine)
                 if latest_ts and latest_ts <= watermark:
-                    logger.debug("No changes for %s/%s (latest=%s, watermark=%s) — skipping.",
+                    logger.debug("No alert changes for %s/%s (latest=%s, watermark=%s).",
                                  full_name, engine, latest_ts, watermark)
+                    # Alerts unchanged — but clean-scan may need re-queuing if
+                    # engine-execution evidence has advanced.
+                    await self._maybe_queue_clean_scan_async(repo, engine)
                     return
-                logger.debug("Changes detected for %s/%s (latest=%s > watermark=%s).",
+                logger.debug("Alert changes detected for %s/%s (latest=%s > watermark=%s).",
                              full_name, engine, latest_ts, watermark)
             else:
                 logger.info("No watermark for %s/%s — first sync, fetching all alerts.", full_name, engine)
@@ -307,22 +374,24 @@ class GHASAdapter:
                 sarif_issues = await self._collect_sarif_issues_async(full_name)
 
             if not alerts and not sarif_issues:
-                logger.info("No alerts or SARIF findings for %s/%s — skipping queue.", full_name, engine)
-                # Still advance watermark to now so we don't re-check immediately
-                async with self._state_lock:
-                    self._state.set_watermark(
-                        full_name, engine,
-                        datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    )
-                    await self._state.save_async()
+                logger.info("No alerts or SARIF findings for %s/%s — evaluating clean-scan path.",
+                            full_name, engine)
+                await self._maybe_queue_clean_scan_async(repo, engine)
                 return
+
+            # Resolve Code Scanning analyses metadata up front for Asset
+            # Attributes and (when present) honest ScanDate.
+            latest_analysis = None
+            if engine == "code_scanning":
+                latest_analysis = await self._get_latest_analysis_async(full_name)
 
             run_id = str(uuid.uuid4())
             report_id = f"{self.org}/{full_name}/{engine}/{run_id}"
+            scan_date = self._resolve_scan_date(repo, engine, latest_analysis) or self._now()
             max_ts = max((a["updated_at"] for a in alerts), default=None)
 
-            logger.info("Queueing %d alerts + %d SARIF findings for %s/%s.",
-                        len(alerts), len(sarif_issues), full_name, engine)
+            logger.info("Queueing %d alerts + %d SARIF findings for %s/%s (ScanDate=%s).",
+                        len(alerts), len(sarif_issues), full_name, engine, scan_date)
 
             # SmDataClient is sync and not thread-safe across its internal
             # batch buffer. Hold the queue lock around the whole scan→asset→
@@ -331,14 +400,14 @@ class GHASAdapter:
             async with self._queue_lock:
                 # ── 1: Scan ───────────────────────────────────────────────
                 # SmDataClient.AddQueueScan sets QueueStatus="Loading" itself.
-                mapped_scan = self.map_scan(repo, engine, report_id, alerts)
+                mapped_scan = self.map_scan(repo, engine, report_id, scan_date)
                 queue_scan = await asyncio.to_thread(
                     self._data_client.AddQueueScan,
                     json.loads(mapped_scan.model_dump_json())
                 )
 
                 # ── 2: Asset ──────────────────────────────────────────────
-                mapped_asset = self.map_asset(repo, queue_scan["id"])
+                mapped_asset = self.map_asset(repo, queue_scan["id"], engine, latest_analysis)
                 queue_asset = await asyncio.to_thread(
                     self._data_client.AddQueueAsset,
                     json.loads(mapped_asset.model_dump_json())
@@ -373,17 +442,151 @@ class GHASAdapter:
                     self._data_client.FinalizeQueue, queue_scan["id"]
                 )
 
-            # ── 5: Advance watermark ──────────────────────────────────────
-            if max_ts:
-                async with self._state_lock:
+            # ── 5: Advance state ──────────────────────────────────────────
+            async with self._state_lock:
+                if max_ts:
                     self._state.set_watermark(full_name, engine, max_ts)
-                    await self._state.save_async()
-                logger.debug("Watermark advanced for %s/%s → %s", full_name, engine, max_ts)
+                # Record the ScanDate so future clean-scan re-queues are
+                # mitigated consistently regardless of whether the prior run
+                # had alerts.
+                self._state.set_last_scan_date(full_name, engine, scan_date)
+                await self._state.save_async()
+            logger.debug("State advanced for %s/%s — watermark=%s, last_scan_date=%s.",
+                         full_name, engine, max_ts, scan_date)
 
         except Exception as exc:
             logger.error(
                 "Sync failed for %s/%s: %s", full_name, engine, exc, exc_info=True
             )
+
+    # ── Clean-scan path (ENH-004) ──────────────────────────────────────────
+
+    async def _maybe_queue_clean_scan_async(self, repo: dict, engine: str):
+        """
+        Consider queuing an empty Scan+Asset for a repo with no alerts.
+
+        Skips entirely when:
+          - We have no honest scan-execution evidence (engine appears unrun:
+            for code_scanning, no analyses endpoint records; for the others,
+            null pushed_at).
+          - The execution evidence hasn't advanced past the last clean-scan
+            ScanDate we recorded for this scope.
+
+        Stamps the Asset with engine-specific "recently scanned" attributes.
+
+        Queues are dispatched via the same _queue_lock + asyncio.to_thread
+        pattern as the alerts-present path to preserve SmDataClient's
+        batch-buffer safety invariant.
+        """
+        full_name = repo["full_name"]
+
+        latest_analysis = None
+        if engine == "code_scanning":
+            latest_analysis = await self._get_latest_analysis_async(full_name)
+
+        scan_date = self._resolve_scan_date(repo, engine, latest_analysis)
+        if scan_date is None:
+            logger.info(
+                "No execution evidence for %s/%s — engine appears unrun or "
+                "repo has null pushed_at. Skipping clean-scan queue.",
+                full_name, engine,
+            )
+            return
+
+        last_queued = self._state.get_last_scan_date(full_name, engine)
+        if last_queued and not self._is_strictly_newer(scan_date, last_queued):
+            logger.debug(
+                "Clean scan for %s/%s already current (scan_date=%s, last_queued=%s) — skipping.",
+                full_name, engine, scan_date, last_queued,
+            )
+            return
+
+        run_id = str(uuid.uuid4())
+        report_id = f"{self.org}/{full_name}/{engine}/{run_id}"
+
+        logger.info(
+            "Queueing clean Scan+Asset for %s/%s (zero alerts, ScanDate=%s).",
+            full_name, engine, scan_date,
+        )
+
+        async with self._queue_lock:
+            # ── 1: Scan ───────────────────────────────────────────────────
+            mapped_scan = self.map_scan(repo, engine, report_id, scan_date)
+            queue_scan = await asyncio.to_thread(
+                self._data_client.AddQueueScan,
+                json.loads(mapped_scan.model_dump_json())
+            )
+
+            # ── 2: Asset ──────────────────────────────────────────────────
+            mapped_asset = self.map_asset(repo, queue_scan["id"], engine, latest_analysis)
+            queue_asset = await asyncio.to_thread(
+                self._data_client.AddQueueAsset,
+                json.loads(mapped_asset.model_dump_json())
+            )
+
+            # ── 3: Issues (none) — flush remaining batch and finalize ─────
+            # SendAllBatchIssues is a no-op when the buffer is empty, but we
+            # call it anyway for symmetry with the alerts-present path.
+            # FinalizeQueue flips QueueStatus from "Loading" to "Pending".
+            await asyncio.to_thread(self._data_client.SendAllBatchIssues)
+            await asyncio.to_thread(
+                self._data_client.FinalizeQueue, queue_scan["id"]
+            )
+
+        # ── 4: Record last clean-scan ScanDate ────────────────────────────
+        async with self._state_lock:
+            self._state.set_last_scan_date(full_name, engine, scan_date)
+            await self._state.save_async()
+        logger.debug("Clean scan recorded for %s/%s → %s", full_name, engine, scan_date)
+
+    async def _get_latest_analysis_async(self, full_name: str) -> Optional[dict]:
+        """
+        Fetch the single most recent code-scanning analysis record, or None
+        if the repo has never had an analysis run (or the engine is disabled —
+        the analyses endpoint returns 404 in that case, which the client
+        gracefully treats as "no records").
+        """
+        try:
+            async for analysis in self.client.get_analyses_async(full_name):
+                return analysis  # generator yields newest-first; first record suffices
+        except Exception as exc:
+            logger.warning("Failed to fetch analyses for %s: %s", full_name, exc)
+        return None
+
+    def _resolve_scan_date(
+        self, repo: dict, engine: str, latest_analysis: Optional[dict]
+    ) -> Optional[str]:
+        """
+        Determine the honest ScanDate for this repo/engine.
+
+        - code_scanning: analysis.created_at from the most recent analysis.
+                         No analyses → None (skip the clean-scan path).
+        - dependabot, secret_scanning: repo.pushed_at.
+                         Null pushed_at → None (skip the clean-scan path).
+        """
+        if engine == "code_scanning":
+            if latest_analysis:
+                ts = latest_analysis.get("created_at")
+                return ts or None
+            return None
+
+        # Continuous engines key off repo activity as the scan-time proxy.
+        pushed_at = repo.get("pushed_at")
+        return pushed_at or None
+
+    @staticmethod
+    def _is_strictly_newer(candidate: str, baseline: str) -> bool:
+        """
+        Return True iff candidate represents a strictly newer instant than baseline.
+        Both inputs are ISO8601 strings; falls back to string comparison if
+        either fails to parse (defensive — GitHub timestamps are well-formed).
+        """
+        try:
+            c = datetime.fromisoformat(candidate.replace("Z", "+00:00"))
+            b = datetime.fromisoformat(baseline.replace("Z", "+00:00"))
+            return c > b
+        except (ValueError, AttributeError):
+            return candidate > baseline
 
     # ── SARIF collection ───────────────────────────────────────────────────
 
@@ -476,8 +679,14 @@ class GHASAdapter:
 
     # ── DTO Mapping ────────────────────────────────────────────────────────
 
-    def map_scan(self, repo: dict, engine: str, report_id: str, alerts: list) -> MapScanDocDTO:
-        """Map repo + engine metadata to a SaltMiner scan document."""
+    def map_scan(self, repo: dict, engine: str, report_id: str, scan_date: str) -> MapScanDocDTO:
+        """
+        Map repo + engine metadata to a SaltMiner scan document.
+
+        scan_date is the resolved per-engine execution timestamp (see
+        _resolve_scan_date). Caller guarantees it is non-None before reaching
+        this method.
+        """
         doc = self.sm_docs.map_scan_doc()
         now = self._now()
 
@@ -494,15 +703,26 @@ class GHASAdapter:
         doc["Saltminer"]["Scan"]["Product"] = "GitHub Advanced Security"
         doc["Saltminer"]["Scan"]["Vendor"] = "GitHub"
         doc["Saltminer"]["Scan"]["ReportId"] = report_id
-        doc["Saltminer"]["Scan"]["ScanDate"] = self._max_updated_at(alerts) or now
+        doc["Saltminer"]["Scan"]["ScanDate"] = scan_date
         doc["Saltminer"]["Scan"]["SourceType"] = "Saltworks.GHAS"
         doc["Saltminer"]["Scan"]["AssetType"] = "app"
         doc["Saltminer"]["Scan"]["Instance"] = self.instance
 
         return MapScanDocDTO(**doc)
 
-    def map_asset(self, repo: dict, queue_scan_id: str) -> MapAssetDocDTO:
-        """Map a GitHub repository to a SaltMiner asset document."""
+    def map_asset(
+        self,
+        repo: dict,
+        queue_scan_id: str,
+        engine: Optional[str] = None,
+        latest_analysis: Optional[dict] = None,
+    ) -> MapAssetDocDTO:
+        """
+        Map a GitHub repository to a SaltMiner asset document.
+
+        When engine and latest_analysis are supplied, engine-specific
+        "recently scanned" attributes are stamped onto the asset (ENH-004).
+        """
         doc = self.sm_docs.map_asset_doc()
 
         full_name = repo.get("full_name", "")
@@ -520,7 +740,7 @@ class GHASAdapter:
         doc["Saltminer"]["Asset"]["AssetType"] = "app"
         doc["Saltminer"]["Asset"]["Instance"] = self.instance
 
-        doc["Saltminer"]["Asset"]["Attributes"] = {
+        attrs = {
             "ghas_org": self.org,
             "ghas_repo_id": str(repo.get("id", "")),
             "ghas_repo_full_name": full_name,
@@ -529,7 +749,40 @@ class GHASAdapter:
             "ghas_topics": ",".join(topics) if topics else "",
         }
 
+        # ENH-004: engine-specific "recently scanned" enrichment.
+        if engine == "code_scanning" and latest_analysis:
+            attrs.update(self._code_scanning_asset_attrs(latest_analysis))
+        elif engine == "dependabot":
+            pushed_at = repo.get("pushed_at")
+            attrs["ghas_dependabot_enabled"] = True
+            if pushed_at:
+                attrs["ghas_repo_pushed_at"] = pushed_at
+        elif engine == "secret_scanning":
+            pushed_at = repo.get("pushed_at")
+            attrs["ghas_secret_scanning_enabled"] = True
+            if pushed_at:
+                attrs["ghas_repo_pushed_at"] = pushed_at
+
+        doc["Saltminer"]["Asset"]["Attributes"] = attrs
         return MapAssetDocDTO(**doc)
+
+    @staticmethod
+    def _code_scanning_asset_attrs(analysis: dict) -> dict:
+        """Build the ghas_last_code_scan_* attribute block from an analysis record."""
+        tool = analysis.get("tool") or {}
+        out = {
+            "ghas_last_code_scan_at": analysis.get("created_at") or "",
+            "ghas_last_code_scan_tool": tool.get("name") or "",
+            "ghas_last_code_scan_tool_version": tool.get("version") or "",
+            "ghas_last_code_scan_ref": analysis.get("ref") or "",
+            "ghas_last_code_scan_commit_sha": analysis.get("commit_sha") or "",
+        }
+        env = analysis.get("environment")
+        if env:
+            out["ghas_last_code_scan_environment"] = (
+                env if isinstance(env, str) else json.dumps(env)
+            )
+        return out
 
     def map_issue(
         self,
@@ -572,25 +825,51 @@ class GHASAdapter:
 
         # Location fields are required on every issue document by the platform
         # schema. Default both to "N/A" (non-empty placeholder per project
-        # convention) and overwrite with file/line info when the alert provides
-        # it. Code Scanning carries location data; Dependabot and Secret
-        # Scanning do not, so they keep "N/A".
+        # convention) and overwrite per engine when real data is available.
         vuln["Location"] = "N/A"
         vuln["LocationFull"] = "N/A"
 
-        instance = alert.get("most_recent_instance") or {}
-        loc = instance.get("location") or {}
-        path = loc.get("path") or ""
-        if path:
-            vuln["Location"] = path
-            start_line = loc.get("start_line")
-            start_col = loc.get("start_column")
-            if start_line:
+        # Code Scanning location (most_recent_instance.location)
+        if engine == "code_scanning":
+            instance = alert.get("most_recent_instance") or {}
+            loc = instance.get("location") or {}
+            path = loc.get("path") or ""
+            if path:
+                vuln["Location"] = path
+                start_line = loc.get("start_line")
+                start_col = loc.get("start_column")
+                if start_line:
+                    vuln["LocationFull"] = (
+                        f"{path}:{start_line}:{start_col}" if start_col else f"{path}:{start_line}"
+                    )
+                else:
+                    vuln["LocationFull"] = path
+
+        # ENH-001: Dependabot location from dependency block.
+        elif engine == "dependabot":
+            dep = alert.get("dependency") or {}
+            manifest_path = dep.get("manifest_path") or ""
+            pkg = dep.get("package") or {}
+            ecosystem = pkg.get("ecosystem") or ""
+            pkg_name = pkg.get("name") or ""
+            if manifest_path:
+                vuln["Location"] = manifest_path
+                if ecosystem and pkg_name:
+                    vuln["LocationFull"] = f"{manifest_path} ({ecosystem}: {pkg_name})"
+                elif pkg_name:
+                    vuln["LocationFull"] = f"{manifest_path} ({pkg_name})"
+                else:
+                    vuln["LocationFull"] = manifest_path
+            elif pkg_name:
+                # Manifest path missing but we still know the package — better
+                # than "N/A" for downstream filtering.
+                vuln["Location"] = pkg_name
                 vuln["LocationFull"] = (
-                    f"{path}:{start_line}:{start_col}" if start_col else f"{path}:{start_line}"
+                    f"{ecosystem}: {pkg_name}" if ecosystem else pkg_name
                 )
-            else:
-                vuln["LocationFull"] = path
+
+        # Secret Scanning location stays "N/A" until ENH-002 implements the
+        # per-alert /locations endpoint fan-out.
 
         # CVSS score (Dependabot)
         if engine == "dependabot":
@@ -660,7 +939,7 @@ class GHASAdapter:
         return {
             "code_scanning": "SAST",
             "dependabot": "Open",
-            "secret_scanning": "Custom",
+            "secret_scanning": "Secrets",
         }.get(engine, "Custom")
 
     @staticmethod
