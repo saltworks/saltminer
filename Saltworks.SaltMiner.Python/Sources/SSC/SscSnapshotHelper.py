@@ -23,6 +23,9 @@ import calendar
 import datetime
 import uuid
 
+# DEPRECATED: Use RunGenerateSnapshotHistory.py instead. This SSC-only helper
+# will be removed in a future release.
+
 class SscSnapshotHelper(object):
 
     def __init__(self, appSettings):

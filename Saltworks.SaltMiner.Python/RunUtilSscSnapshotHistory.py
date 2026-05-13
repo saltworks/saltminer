@@ -22,6 +22,9 @@ import logging
 import datetime
 import time
 
+# DEPRECATED: Use RunGenerateSnapshotHistory.py instead. This entry point is
+# SSC-only and will be removed in a future release.
+
 from Core.Application import Application
 from Sources.SSC.SscScanSnapshotHelper import SscScanSnapshotHelper
 from Sources.SSC.SscSnapshotHelper import SscSnapshotHelper

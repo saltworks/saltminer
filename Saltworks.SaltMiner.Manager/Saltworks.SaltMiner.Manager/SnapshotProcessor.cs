@@ -18,6 +18,9 @@
 * ----
 */
 
+// DEPRECATED: Use the Python RunGenerateSnapshotHistory.py script instead.
+// This going-forward snapshot processor will be removed in a future release.
+
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;

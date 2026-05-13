@@ -104,7 +104,8 @@ public static class Program
             HandleQueue(sourceType, queueScanId, limit, listOnly);
         }, queueSourceTypeOption, queueQueueScanIdOption, queueLimitOption, queueListOnlyOption);
 
-        //Snapshot CMD
+        // DEPRECATED: The "snapshot" verb is superseded by RunGenerateSnapshotHistory.py.
+        // It will be removed in a future release.
         var snapshotVerb = new Command("snapshot", "Runs snapshot processor, which generates snapshots and should be run once daily.");
         var snapshotSourceTypeOption = new Option<string>(["--sourceType", "-st"], description: "Process specified sourceType only.  Source must be a valid source name or 'all'.", getDefaultValue: () => "all");
         var snapshotSourceIdOption = new Option<string>(["--sourceId", "-sid"], description: "Processes specified source ID only.  Requires Source as well. Defaults to 'all'.", getDefaultValue: () => "all");

@@ -2,7 +2,7 @@
 
 ## The Required Environment Variable
 
-All Python test runs need `SALTMINER_2_CONFIG_PATH` set to the external config directory. Without it, `Application()` loads `Config/` from the repo which has Docker hostnames (`http://api`) that don't resolve on the host. The correct config is at:
+All Python test runs need `SALTMINER_CONFIG_PATH` set to the external config directory. Without it, `Application()` loads `Config/` from the repo which has Docker hostnames (`http://api`) that don't resolve on the host. The correct config is at:
 
 ```
 C:\Source\saltminer-internal\config\python
@@ -57,7 +57,7 @@ ApplicationConfigurationException: Settings incorrect or missing value for confi
 The env var is missing or wrong. Verify:
 
 ```bash
-echo $SALTMINER_2_CONFIG_PATH
+echo $SALTMINER_CONFIG_PATH
 ls "C:/Source/saltminer-internal/config/python/Logging.json"
 ```
 
