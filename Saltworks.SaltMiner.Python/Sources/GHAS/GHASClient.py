@@ -39,6 +39,50 @@ class GHASAuthError(Exception):
     """Raised when authentication fails and cannot be recovered."""
 
 
+class GHASEngineInaccessibleError(Exception):
+    """
+    Raised when a per-repo alert endpoint returns 403 or 404, indicating
+    we cannot determine the open-alert set for this repo/engine right now.
+
+    The two statuses mean slightly different things at GitHub's end:
+      - 403 "Resource not accessible by personal access token": the PAT
+        can talk to GitHub but does not have access to *this specific*
+        alert endpoint. Common causes: fine-grained PAT missing the
+        specific alert-read permission for this engine; classic PAT
+        missing SSO authorization on a SAML-enforced org; fine-grained
+        PAT awaiting org admin approval; PAT repo-selection scope
+        excludes this repo's alerts.
+      - 404 "Not Found": the alert endpoint doesn't exist for this PAT.
+        Common causes: engine has never been enabled on this repo;
+        repo is genuinely inaccessible to this PAT at all (more likely
+        surfaces at the org-list level instead).
+
+    From the adapter's perspective both outcomes are operationally
+    equivalent: we can't see alerts here, and we don't know whether
+    the lack of alerts is real (engine off, alerts truly zero) or
+    apparent (PAT missing scope). The conservative response is to
+    skip the scope WITHOUT advancing state and WITHOUT firing the
+    FIX-001 replacement or ENH-004 heartbeat paths. This preserves
+    whatever data SaltMiner has already accepted for the scope.
+
+    Why we don't fire the replacement path on this:
+      Treating "engine inaccessible" as "alerts are all closed → empty
+      replacement" would destroy previously-queued alerts in SaltMiner
+      on the first sync after any transient access issue. The safer
+      default is to leave SaltMiner's prior data untouched and skip
+      the scope cleanly. Operators who genuinely want to clean up a
+      permanently-disabled scope can remove its watermark from the
+      state file, which converts it to a first-sync scope on the next
+      run.
+
+    Diagnostic guidance:
+      If all (or nearly all) scopes are skipped via this exception on
+      a single run, the cause is almost certainly a systemic PAT issue,
+      not 20 independently-disabled engines. The adapter logs an
+      explicit warning at the end of such runs pointing at the PAT.
+    """
+
+
 class GHASClient:
     """
     Async GitHub REST API client for GHAS data collection.
@@ -267,7 +311,15 @@ class GHASClient:
     # ── Repository inventory ───────────────────────────────────────────────
 
     async def get_repos_async(self) -> list:
-        """Return all repositories in the configured org."""
+        """Return all repositories in the configured org accessible to the PAT.
+
+        Note: the returned set depends on the PAT's permissions. A
+        misconfigured PAT (missing org/repo scopes, missing SSO authorization,
+        fine-grained repo-selection limit) may return fewer repos than the
+        org actually contains. The full repo name list is emitted at DEBUG
+        level so operators can verify the visible set matches expectations
+        without having to grep GitHub manually.
+        """
         await self._ensure_session()
         repos = []
         url = f"{self._base_url}/orgs/{self._org}/repos"
@@ -283,6 +335,9 @@ class GHASClient:
             params = None  # params are encoded in next URL
 
         logger.info("Discovered %d repositories in org '%s'.", len(repos), self._org)
+        if logger.isEnabledFor(logging.DEBUG):
+            names = sorted(r.get("full_name", "?") for r in repos)
+            logger.debug("Visible repositories: %s", ", ".join(names))
         return repos
 
     # NOTE: A previous version of this client included get_repo_enablement_async()
@@ -298,8 +353,8 @@ class GHASClient:
     async def get_latest_alert_timestamp_async(self, full_name: str, engine: str) -> Optional[str]:
         """
         Return the most recent alert.updated_at across ALL alert states for
-        this engine, or None if no alerts exist (or the engine is not enabled).
-        Used for Phase 1 change detection.
+        this engine, or None if the engine returns no alerts. Used for
+        Phase 1 change detection.
 
         Phase 1 must query across all states (open + closed). A state transition
         out of open (dismissal, fix, resolution) bumps the alert's updated_at
@@ -310,6 +365,14 @@ class GHASClient:
         For most engines this costs one API call. For secret_scanning, GitHub
         rejects comma-separated state parameters, so we issue one call per
         state ("open", "resolved") and take the max of the per-state results.
+
+        Error handling:
+          - 403 or 404 → raises GHASEngineInaccessibleError. The adapter
+            catches this and skips the scope without state changes (see
+            the exception's docstring for rationale).
+          - Other ClientResponseError (5xx, transient network issues, real
+            auth failures on other endpoints) → re-raised. The adapter's
+            outer except logs and the gather summary counts it as a failure.
         """
         endpoint = self._engine_endpoint(full_name, engine)
         latest: Optional[str] = None
@@ -321,13 +384,27 @@ class GHASClient:
                 async with resp:
                     data = await resp.json()
             except aiohttp.ClientResponseError as exc:
-                if exc.status == 404:
-                    return None  # Engine not enabled — no per-state retry needed
-                logger.warning(
-                    "Error checking latest alert for %s/%s (state=%s): %s",
+                if exc.status in (403, 404):
+                    # Engine alert endpoint not accessible. Both status codes
+                    # produce the same operational outcome (skip the scope),
+                    # but the message preserves which one was returned so the
+                    # operator can diagnose:
+                    #   403 → PAT permission scope likely insufficient, OR
+                    #         SSO authorization missing, OR fine-grained PAT
+                    #         admin-approval missing.
+                    #   404 → Engine has never been enabled on this repo, OR
+                    #         the repo is inaccessible to this PAT entirely.
+                    raise GHASEngineInaccessibleError(
+                        f"HTTP {exc.status} on Phase 1 fetch for {full_name}/{engine} "
+                        f"(state={state})"
+                    ) from exc
+                # Real error (5xx, etc.) — surface to the adapter so it counts
+                # as a failure rather than a silent skip.
+                logger.error(
+                    "Phase 1 fetch failed for %s/%s (state=%s): %s — aborting scope.",
                     full_name, engine, state, exc,
                 )
-                continue  # Try the next state — partial result is better than none
+                raise
 
             if data:
                 ts = data[0].get("updated_at")
@@ -355,6 +432,13 @@ class GHASClient:
         For code_scanning and dependabot this is one paginated query. For
         secret_scanning, the GitHub API still requires a state parameter on
         the request, but for "open" we issue exactly one paginated query.
+
+        Error handling:
+          - 403 or 404 → raises GHASEngineInaccessibleError. The adapter
+            catches this and skips the scope without state changes (see
+            the exception's docstring for rationale).
+          - Other ClientResponseError → re-raised. The adapter's outer
+            except logs and the gather summary counts it as a failure.
         """
         endpoint = self._engine_endpoint(full_name, engine)
 
@@ -374,14 +458,19 @@ class GHASClient:
                         alerts = await resp.json()
                         link = resp.headers.get("Link")
                 except aiohttp.ClientResponseError as exc:
-                    if exc.status == 404:
-                        logger.info("Engine %s not enabled on %s — no alerts.", engine, full_name)
-                        return  # No point trying other states
+                    if exc.status in (403, 404):
+                        # Engine alert endpoint not accessible. See the
+                        # matching block in get_latest_alert_timestamp_async
+                        # for the distinction between 403 and 404 causes.
+                        raise GHASEngineInaccessibleError(
+                            f"HTTP {exc.status} on Phase 2 fetch for {full_name}/{engine} "
+                            f"(state={state})"
+                        ) from exc
                     logger.error(
-                        "Failed fetching %s alerts for %s (state=%s): %s",
-                        engine, full_name, state, exc,
+                        "Phase 2 fetch failed for %s/%s (state=%s): %s — aborting scope.",
+                        full_name, engine, state, exc,
                     )
-                    break  # Stop this state's pagination, try the next state
+                    raise
 
                 for alert in alerts:
                     yield alert
@@ -441,7 +530,13 @@ class GHASClient:
     # ── SARIF ──────────────────────────────────────────────────────────────
 
     async def get_analyses_async(self, full_name: str) -> AsyncGenerator[dict, None]:
-        """Yield Code Scanning analyses metadata records for a repository."""
+        """Yield Code Scanning analyses metadata records for a repository.
+
+        403 and 404 are both treated as "no analyses available" (engine not
+        accessible) and end the generator cleanly without logging an error.
+        Callers that need scan-date evidence already handle the no-analyses
+        outcome gracefully (heartbeat skips, replacement uses now() fallback).
+        """
         url = f"{self._base_url}/repos/{full_name}/code-scanning/analyses"
         params = {"per_page": PAGE_SIZE}
 
@@ -452,7 +547,11 @@ class GHASClient:
                     analyses = await resp.json()
                     link = resp.headers.get("Link")
             except aiohttp.ClientResponseError as exc:
-                if exc.status == 404:
+                if exc.status in (403, 404):
+                    logger.debug(
+                        "Analyses endpoint inaccessible for %s (HTTP %d) — no analyses.",
+                        full_name, exc.status,
+                    )
                     return
                 logger.error("Failed fetching analyses for %s: %s", full_name, exc)
                 return
@@ -466,7 +565,8 @@ class GHASClient:
     async def get_sarif_async(self, full_name: str, analysis_id: int) -> Optional[dict]:
         """
         Fetch the raw SARIF document for a specific analysis.
-        Returns None if the document is no longer retained by GitHub.
+        Returns None if the document is no longer retained by GitHub or the
+        endpoint is inaccessible (403/404).
         """
         url = f"{self._base_url}/repos/{full_name}/code-scanning/analyses/{analysis_id}"
         headers = await self._headers_sarif()
@@ -476,8 +576,11 @@ class GHASClient:
                 text = await resp.text()
             return json.loads(text)
         except aiohttp.ClientResponseError as exc:
-            if exc.status == 404:
-                logger.info("SARIF document for analysis %d on %s no longer retained.", analysis_id, full_name)
+            if exc.status in (403, 404):
+                logger.info(
+                    "SARIF document for analysis %d on %s not available (HTTP %d).",
+                    analysis_id, full_name, exc.status,
+                )
                 return None
             logger.error("Failed fetching SARIF %d for %s: %s", analysis_id, full_name, exc)
             return None
