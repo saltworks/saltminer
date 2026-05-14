@@ -297,9 +297,15 @@ class GHASClient:
 
     async def get_latest_alert_timestamp_async(self, full_name: str, engine: str) -> Optional[str]:
         """
-        Return the most recent alert.updated_at across all relevant states for
+        Return the most recent alert.updated_at across ALL alert states for
         this engine, or None if no alerts exist (or the engine is not enabled).
         Used for Phase 1 change detection.
+
+        Phase 1 must query across all states (open + closed). A state transition
+        out of open (dismissal, fix, resolution) bumps the alert's updated_at
+        and must trigger Phase 2 so the open set in SaltMiner can be refreshed
+        via ReplaceIssues=True. If Phase 1 narrowed to open-only, dismissals
+        would be invisible and dismissed alerts would linger in SaltMiner.
 
         For most engines this costs one API call. For secret_scanning, GitHub
         rejects comma-separated state parameters, so we issue one call per
@@ -308,7 +314,7 @@ class GHASClient:
         endpoint = self._engine_endpoint(full_name, engine)
         latest: Optional[str] = None
 
-        for state in self._engine_state_queries(engine):
+        for state in self._engine_state_queries(engine, purpose="all"):
             params = {"per_page": 1, "sort": "updated", "direction": "desc", "state": state}
             try:
                 resp = await self._get_response_with_retry(endpoint, params=params)
@@ -334,18 +340,25 @@ class GHASClient:
 
     async def get_alerts_async(self, full_name: str, engine: str) -> AsyncGenerator[dict, None]:
         """
-        Async generator yielding all alerts for a given repo and engine across
-        all relevant states. Handles pagination transparently. Yields raw
-        GitHub API alert objects.
+        Async generator yielding currently-open alerts for a given repo and
+        engine. Handles pagination transparently. Yields raw GitHub API alert
+        objects.
 
-        For most engines this issues one paginated query covering all states.
-        For secret_scanning, GitHub rejects comma-separated state values, so
-        we issue one paginated query per state ("open", "resolved") and yield
-        results from each.
+        FIX-001: Phase 2 fetch is narrowed to state=open for every engine. The
+        customer-visible Open count in SaltMiner is drawn exclusively from
+        currently-open GHAS alerts; closed-state alerts (dismissed/fixed/
+        resolved/auto_dismissed) are never queued. Removal is handled via
+        ReplaceIssues=True on the Scan document — alerts that have transitioned
+        out of open are simply absent from the replacement set, and SaltMiner
+        removes them by absence.
+
+        For code_scanning and dependabot this is one paginated query. For
+        secret_scanning, the GitHub API still requires a state parameter on
+        the request, but for "open" we issue exactly one paginated query.
         """
         endpoint = self._engine_endpoint(full_name, engine)
 
-        for state in self._engine_state_queries(engine):
+        for state in self._engine_state_queries(engine, purpose="open"):
             url = endpoint
             params = {
                 "per_page": PAGE_SIZE,
@@ -388,17 +401,35 @@ class GHASClient:
         return endpoints[engine]
 
     @staticmethod
-    def _engine_state_queries(engine: str) -> list:
+    def _engine_state_queries(engine: str, purpose: str = "all") -> list:
         """
-        Return the list of `state` query values to issue for a given engine.
+        Return the list of `state` query values to issue for a given engine
+        and purpose.
 
-        GitHub's code-scanning and dependabot endpoints accept a comma-separated
-        list of states in a single request, so a list with one element wrapping
-        the CSV is sufficient. Secret scanning rejects comma-separated states
-        (HTTP 400 — "State needs to be either 'open' or 'resolved'") and must
-        be queried once per state. Callers iterate over the returned list and
-        merge results.
+        purpose:
+          "open" — Phase 2 narrow fetch (FIX-001). Returns ["open"] for every
+                   engine. The customer-visible Open count in SaltMiner must
+                   match GHAS's Open tab, so closed-state alerts are never
+                   fetched into the issue replacement set.
+          "all"  — Phase 1 change detection. Returns the full per-engine
+                   state set so that state transitions out of open
+                   (dismissal, fix, resolution) bump the alert's updated_at
+                   and trigger Phase 2.
+
+        GitHub's code-scanning and dependabot endpoints accept a comma-
+        separated list of states in a single request, so the "all" path
+        returns a one-element list wrapping the CSV. Secret scanning rejects
+        comma-separated states (HTTP 400 — "State needs to be either 'open'
+        or 'resolved'") and must be queried once per state; callers iterate
+        and merge results. For "open" purpose the secret_scanning path
+        returns ["open"] (still a single call).
         """
+        if purpose == "open":
+            return ["open"]
+        if purpose != "all":
+            raise ValueError(
+                f"Unknown purpose '{purpose}'. Expected 'open' or 'all'."
+            )
         if engine == "secret_scanning":
             return ["open", "resolved"]
         csv = {
