@@ -37,7 +37,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from Sources.GHAS.GHASClient import GHASClient
+from Sources.GHAS.GHASClient import GHASClient, GHASEngineInaccessibleError
 from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 from Core.DataClient import DataClient, QueueStatus
 
@@ -240,6 +240,11 @@ class GHASAdapter:
         self._state = GHASStateManager(state_file)
         self._state_lock = asyncio.Lock()
 
+        # Tracks scopes skipped because the engine is not accessible (403/404
+        # on alert endpoints). Surfaced in the run summary so operators can
+        # tell the difference between "all clean" and "many engines disabled."
+        self._inaccessible_scopes: list = []
+
     # ── Entry points ───────────────────────────────────────────────────────
 
     def run_sync(self, first_load=False):
@@ -295,13 +300,47 @@ class GHASAdapter:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         failures = [r for r in results if isinstance(r, Exception)]
+        skipped_count = len(self._inaccessible_scopes)
+        succeeded = len(tasks) - len(failures) - skipped_count
+
         if failures:
             logger.warning(
-                "[%s] %d sync task(s) failed out of %d total.",
-                self.instance, len(failures), len(tasks)
+                "[%s] %d sync task(s) failed, %d skipped (engine inaccessible), %d succeeded out of %d total.",
+                self.instance, len(failures), skipped_count, succeeded, len(tasks)
+            )
+        elif skipped_count:
+            logger.info(
+                "[%s] %d sync task(s) completed, %d skipped (engine inaccessible) out of %d total.",
+                self.instance, succeeded, skipped_count, len(tasks)
             )
         else:
             logger.info("[%s] All %d sync tasks completed successfully.", self.instance, len(tasks))
+
+        # Per-scope skipped detail at debug level so operators can see which
+        # specific repo/engine pairs are currently inaccessible.
+        if self._inaccessible_scopes:
+            logger.debug(
+                "[%s] Inaccessible scopes (skipped this run): %s",
+                self.instance, ", ".join(self._inaccessible_scopes),
+            )
+
+        # Heuristic: if all (or nearly all) scopes were skipped as inaccessible,
+        # the most likely cause is a systemic PAT/access issue rather than 20
+        # independently-disabled engines. Surface a clear diagnostic line
+        # rather than letting the operator infer it from the count.
+        if tasks and skipped_count >= max(1, len(tasks) // 2):
+            logger.warning(
+                "[%s] %d of %d scopes skipped as inaccessible — this is unusual. "
+                "Verify the PAT has the required permissions for code scanning, "
+                "secret scanning, and dependabot alerts on org '%s'. Possible "
+                "causes: fine-grained PAT missing specific alert-read permissions; "
+                "SAML SSO authorization not granted on the PAT; fine-grained PAT "
+                "awaiting org admin approval; PAT repo-selection scope too narrow. "
+                "See architecture doc §9.3.1 for required scopes. Run with "
+                "--log-level DEBUG to see the visible repository set and per-scope "
+                "skip messages.",
+                self.instance, skipped_count, len(tasks), self.org,
+            )
 
     async def _sync_with_semaphore(self, sem: asyncio.Semaphore, repo: dict, engine: str):
         async with sem:
@@ -462,10 +501,29 @@ class GHASAdapter:
             logger.debug("State advanced for %s/%s — watermark=%s, last_scan_date=%s.",
                          full_name, engine, new_watermark, scan_date)
 
+        except GHASEngineInaccessibleError as exc:
+            # Engine not enabled / not accessible on this repo (403 or 404 from
+            # the alert endpoints). Skip the scope without advancing state
+            # and without firing replacement or heartbeat — see the exception
+            # class docstring for the full rationale. Log at INFO so this
+            # doesn't generate alarm-worthy log noise on every sync.
+            logger.info(
+                "Skipping %s/%s: %s. State and prior SaltMiner data preserved.",
+                full_name, engine, exc,
+            )
+            self._inaccessible_scopes.append(f"{full_name}/{engine}")
+            return
+
         except Exception as exc:
+            # Log per-scope context (which scope failed, with traceback) then
+            # re-raise so asyncio.gather(return_exceptions=True) counts it as
+            # a failure. Without the re-raise, gather sees None and the run
+            # summary reports "All tasks completed successfully" even when
+            # most scopes errored.
             logger.error(
                 "Sync failed for %s/%s: %s", full_name, engine, exc, exc_info=True
             )
+            raise
 
     # ── Clean-scan path (ENH-004) ──────────────────────────────────────────
 
@@ -774,16 +832,20 @@ class GHASAdapter:
         }
 
         # ENH-004: engine-specific "recently scanned" enrichment.
+        # NOTE: Saltminer.Asset.Attributes.* values must all be strings — the
+        # DataApi rejects booleans and integers (cf. ghas_repo_id, ghas_alert_number
+        # already string-coerced elsewhere). Boolean "enabled" flags are
+        # stringified to "true" rather than left as Python True.
         if engine == "code_scanning" and latest_analysis:
             attrs.update(self._code_scanning_asset_attrs(latest_analysis))
         elif engine == "dependabot":
             pushed_at = repo.get("pushed_at")
-            attrs["ghas_dependabot_enabled"] = True
+            attrs["ghas_dependabot_enabled"] = "true"
             if pushed_at:
                 attrs["ghas_repo_pushed_at"] = pushed_at
         elif engine == "secret_scanning":
             pushed_at = repo.get("pushed_at")
-            attrs["ghas_secret_scanning_enabled"] = True
+            attrs["ghas_secret_scanning_enabled"] = "true"
             if pushed_at:
                 attrs["ghas_repo_pushed_at"] = pushed_at
 
