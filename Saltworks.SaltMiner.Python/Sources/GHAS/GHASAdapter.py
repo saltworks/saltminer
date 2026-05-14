@@ -313,35 +313,49 @@ class GHASAdapter:
         """
         Two-phase sync for a single repo/engine combination.
 
-        Phase 1: Fetch the most recent alert's updated_at, compare to watermark.
-                 If unchanged, fall through to the clean-scan path (ENH-004) —
-                 the engine may still need a clean-scan re-queue if execution
-                 evidence has advanced.
-        Phase 2: Full alert fetch.
+        Phase 1: Fetch the most recent alert's updated_at across ALL states
+                 (FIX-001 — must include closed states to detect dismissals).
+                 Compare to watermark.
+                 If unchanged, fall through to the heartbeat clean-scan path
+                 (ENH-004) — the engine may still need a clean-scan re-queue
+                 if execution evidence has advanced.
+        Phase 2: Full alert fetch — open-state only (FIX-001).
           - If alerts present → queue Scan→Asset→Issues normally, advance state.
-          - If zero alerts → evaluate clean-scan path (ENH-004 Option B).
+            Watermark advances to latest_ts_from_phase1 (or alerts max when
+            Phase 1 didn't run), so it never regresses below a closed-state
+            timestamp that Phase 2 can't see.
+          - If zero alerts AND watermark was non-None on entry → REPLACEMENT
+            event. All previously-open alerts have transitioned to closed.
+            Queue an unconditional empty Scan+Asset replacement so SaltMiner
+            removes the prior alerts by absence (ReplaceIssues=True).
+          - If zero alerts AND no prior watermark → HEARTBEAT event. First-time
+            sync of a scope that was always clean. Evaluate the existing
+            ENH-004 strict-newer gated clean-scan path.
         """
         full_name = repo["full_name"]
 
         try:
             # ── Phase 1: Change detection ──────────────────────────────────
             watermark = self._state.get_watermark(full_name, engine)
+            latest_ts_from_phase1: Optional[str] = None
 
             if watermark:
-                latest_ts = await self.client.get_latest_alert_timestamp_async(full_name, engine)
-                if latest_ts and latest_ts <= watermark:
+                latest_ts_from_phase1 = await self.client.get_latest_alert_timestamp_async(
+                    full_name, engine
+                )
+                if latest_ts_from_phase1 and latest_ts_from_phase1 <= watermark:
                     logger.debug("No alert changes for %s/%s (latest=%s, watermark=%s).",
-                                 full_name, engine, latest_ts, watermark)
+                                 full_name, engine, latest_ts_from_phase1, watermark)
                     # Alerts unchanged — but clean-scan may need re-queuing if
                     # engine-execution evidence has advanced.
                     await self._maybe_queue_clean_scan_async(repo, engine)
                     return
                 logger.debug("Alert changes detected for %s/%s (latest=%s > watermark=%s).",
-                             full_name, engine, latest_ts, watermark)
+                             full_name, engine, latest_ts_from_phase1, watermark)
             else:
                 logger.info("No watermark for %s/%s — first sync, fetching all alerts.", full_name, engine)
 
-            # ── Phase 2: Full fetch ────────────────────────────────────────
+            # ── Phase 2: Full fetch (open-only per FIX-001) ────────────────
             alerts = []
             async for alert in self.client.get_alerts_async(full_name, engine):
                 alerts.append(alert)
@@ -352,9 +366,32 @@ class GHASAdapter:
                 sarif_issues = await self._collect_sarif_issues_async(full_name)
 
             if not alerts and not sarif_issues:
-                logger.info("No alerts or SARIF findings for %s/%s — evaluating clean-scan path.",
-                            full_name, engine)
-                await self._maybe_queue_clean_scan_async(repo, engine)
+                if watermark is not None:
+                    # FIX-001 replacement event: previously-queued open alerts
+                    # have all transitioned to closed states. Phase 1 detected
+                    # the state change. Queue an unconditional empty Scan+Asset
+                    # so SaltMiner removes the prior alerts by absence.
+                    logger.info(
+                        "Open alerts have all closed for %s/%s — queueing empty replacement.",
+                        full_name, engine,
+                    )
+                    # latest_ts_from_phase1 may be None if Phase 1 returned no
+                    # alerts in any state (alerts physically gone from GHAS,
+                    # e.g. analysis retention). Fall back to now() so we don't
+                    # re-trigger on the same event.
+                    watermark_target = latest_ts_from_phase1 or self._now()
+                    await self._maybe_queue_clean_scan_async(
+                        repo, engine,
+                        unconditional=True,
+                        watermark_advance=watermark_target,
+                    )
+                else:
+                    # Heartbeat: first sync of a scope that was always clean.
+                    logger.info(
+                        "No alerts on first sync for %s/%s — evaluating clean-scan heartbeat.",
+                        full_name, engine,
+                    )
+                    await self._maybe_queue_clean_scan_async(repo, engine)
                 return
 
             # Resolve Code Scanning analyses metadata up front for Asset
@@ -365,12 +402,15 @@ class GHASAdapter:
 
             run_id = str(uuid.uuid4())
             report_id = f"{self.org}/{full_name}/{engine}/{run_id}"
-            # Resolved ScanDate; fall back to run start time only when no honest
-            # evidence is available (which is unusual in the alerts-present
-            # path but possible for code_scanning with no analyses endpoint
-            # record yet).
             scan_date = self._resolve_scan_date(repo, engine, latest_analysis) or self._now()
-            max_ts = max((a["updated_at"] for a in alerts), default=None)
+
+            # FIX-001: advance watermark to Phase 1's latest_ts (which reflects
+            # max across ALL states) rather than max over the open-only Phase 2
+            # set. Without this, the watermark regresses any time an alert
+            # newer than the open set transitions to a closed state, causing
+            # spurious re-triggers next sync. Falls back to alerts max only
+            # when Phase 1 wasn't run (first-time sync with no prior watermark).
+            new_watermark = latest_ts_from_phase1 or self._max_updated_at(alerts)
 
             logger.info("Queueing %d alerts + %d SARIF findings for %s/%s (ScanDate=%s).",
                         len(alerts), len(sarif_issues), full_name, engine, scan_date)
@@ -412,15 +452,15 @@ class GHASAdapter:
 
             # ── 5: Advance state ──────────────────────────────────────────
             async with self._state_lock:
-                if max_ts:
-                    self._state.set_watermark(full_name, engine, max_ts)
+                if new_watermark:
+                    self._state.set_watermark(full_name, engine, new_watermark)
                 # Record the ScanDate so future clean-scan re-queues are
                 # mitigated consistently regardless of whether the prior run
                 # had alerts.
                 self._state.set_last_scan_date(full_name, engine, scan_date)
                 await self._state.save_async()
             logger.debug("State advanced for %s/%s — watermark=%s, last_scan_date=%s.",
-                         full_name, engine, max_ts, scan_date)
+                         full_name, engine, new_watermark, scan_date)
 
         except Exception as exc:
             logger.error(
@@ -429,16 +469,38 @@ class GHASAdapter:
 
     # ── Clean-scan path (ENH-004) ──────────────────────────────────────────
 
-    async def _maybe_queue_clean_scan_async(self, repo: dict, engine: str):
+    async def _maybe_queue_clean_scan_async(
+        self,
+        repo: dict,
+        engine: str,
+        *,
+        unconditional: bool = False,
+        watermark_advance: Optional[str] = None,
+    ):
         """
-        Consider queuing an empty Scan+Asset for a repo with no alerts.
+        Consider queueing an empty Scan+Asset for a repo with no alerts.
 
-        Skips entirely when:
-          - We have no honest scan-execution evidence (engine appears unrun:
-            for code_scanning, no analyses endpoint records; for the others,
-            null pushed_at).
-          - The execution evidence hasn't advanced past the last clean-scan
-            ScanDate we recorded for this scope.
+        Two callers:
+
+        Heartbeat (default — unconditional=False, watermark_advance=None):
+          ENH-004 Option B. Alerts unchanged on Phase 1, or first-time sync
+          of a scope that was always clean. Strict-newer gate applies — only
+          re-queues when execution evidence has actually advanced past the
+          prior last_scan_date.
+
+        Replacement (FIX-001 — unconditional=True, watermark_advance set):
+          Phase 1 detected an alert state transition, Phase 2 returned zero
+          alerts, watermark was non-None on entry. All previously-queued
+          open alerts have transitioned to closed states. Bypasses the
+          strict-newer gate because the trigger is a state-transition event,
+          not a heartbeat tick — ReplaceIssues=True is the right tool to
+          remove the prior alerts by absence. Also advances the watermark
+          (in addition to last_scan_date) to the supplied target so the
+          same dismissal event does not re-trigger on the next sync.
+
+        Skips entirely (both modes) when there's no honest scan-execution
+        evidence (engine appears unrun: for code_scanning, no analyses
+        records; for the others, null pushed_at).
 
         Stamps the Asset with engine-specific "recently scanned" attributes.
         """
@@ -457,20 +519,22 @@ class GHASAdapter:
             )
             return
 
-        last_queued = self._state.get_last_scan_date(full_name, engine)
-        if last_queued and not self._is_strictly_newer(scan_date, last_queued):
-            logger.debug(
-                "Clean scan for %s/%s already current (scan_date=%s, last_queued=%s) — skipping.",
-                full_name, engine, scan_date, last_queued,
-            )
-            return
+        if not unconditional:
+            last_queued = self._state.get_last_scan_date(full_name, engine)
+            if last_queued and not self._is_strictly_newer(scan_date, last_queued):
+                logger.debug(
+                    "Clean scan for %s/%s already current (scan_date=%s, last_queued=%s) — skipping.",
+                    full_name, engine, scan_date, last_queued,
+                )
+                return
 
         run_id = str(uuid.uuid4())
         report_id = f"{self.org}/{full_name}/{engine}/{run_id}"
 
+        kind = "empty replacement" if unconditional else "clean Scan+Asset (heartbeat)"
         logger.info(
-            "Queueing clean Scan+Asset for %s/%s (zero alerts, ScanDate=%s).",
-            full_name, engine, scan_date,
+            "Queueing %s for %s/%s (zero alerts, ScanDate=%s).",
+            kind, full_name, engine, scan_date,
         )
 
         # ── 1: Scan ───────────────────────────────────────────────────────
@@ -491,11 +555,16 @@ class GHASAdapter:
             queue_scan["id"], QueueStatus.PENDING
         )
 
-        # ── 4: Record last clean-scan ScanDate ────────────────────────────
+        # ── 4: Record state ───────────────────────────────────────────────
         async with self._state_lock:
+            if watermark_advance:
+                self._state.set_watermark(full_name, engine, watermark_advance)
             self._state.set_last_scan_date(full_name, engine, scan_date)
             await self._state.save_async()
-        logger.debug("Clean scan recorded for %s/%s → %s", full_name, engine, scan_date)
+        logger.debug(
+            "Clean scan recorded for %s/%s — last_scan_date=%s, watermark=%s.",
+            full_name, engine, scan_date, watermark_advance,
+        )
 
     async def _get_latest_analysis_async(self, full_name: str) -> Optional[dict]:
         """
@@ -933,7 +1002,7 @@ class GHASAdapter:
             "moderate": "Medium",
             "low": "Low",
             "note": "Info",
-            "warning": "Low",
+            "warning": "Medium",
             "info": "Info",
             "error": "High",
         }
