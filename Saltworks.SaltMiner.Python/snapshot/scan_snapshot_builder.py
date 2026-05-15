@@ -30,7 +30,8 @@ def _fetch_vuln_counts_for_month(
     year: int,
     month: int,
 ) -> dict[str, int]:
-    """Return {'Critical': n, 'High': n, ...} from the given snapshot index for this asset/month."""
+    """Return {'Critical': n, 'High': n, ...} by summing the flat severity-count
+    fields on each issue-snapshot doc for this asset/month."""
     m_start = month_start(year, month)
     m_next  = next_month_start(year, month)
     query = {
@@ -46,9 +47,11 @@ def _fetch_vuln_counts_for_month(
             }
         },
         "aggs": {
-            "by_severity": {
-                "terms": {"field": "saltminer.vulnerability.severity", "size": 20}
-            }
+            "critical": {"sum": {"field": "saltminer.critical"}},
+            "high":     {"sum": {"field": "saltminer.high"}},
+            "medium":   {"sum": {"field": "saltminer.medium"}},
+            "low":      {"sum": {"field": "saltminer.low"}},
+            "info":     {"sum": {"field": "saltminer.info"}},
         },
         "size": 0,
     }
@@ -58,8 +61,14 @@ def _fetch_vuln_counts_for_month(
         return {}
     if not result:
         return {}
-    buckets = _get(result, "aggregations", "by_severity", "buckets", default=[])
-    return {b["key"]: b["doc_count"] for b in buckets}
+    aggs = _get(result, "aggregations", default={})
+    return {
+        "Critical": int(_get(aggs, "critical", "value", default=0) or 0),
+        "High":     int(_get(aggs, "high",     "value", default=0) or 0),
+        "Medium":   int(_get(aggs, "medium",   "value", default=0) or 0),
+        "Low":      int(_get(aggs, "low",      "value", default=0) or 0),
+        "Info":     int(_get(aggs, "info",     "value", default=0) or 0),
+    }
 
 
 def build_monthly_scan_snapshots(

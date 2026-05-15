@@ -167,8 +167,6 @@ def _build_snapshot_doc(
             },
             "vulnerability": {
                 "name":           bucket_key["vuln_name"],
-                "severity":       severity,
-                "source_severity": _get(descriptor, "vulnerability", "source_severity"),
                 "category":       _get(descriptor, "vulnerability", "category"),
                 "classification": _get(descriptor, "vulnerability", "classification"),
                 "scanner": {

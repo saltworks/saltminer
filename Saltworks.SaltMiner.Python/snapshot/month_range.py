@@ -1,6 +1,5 @@
 import calendar
 import datetime
-import logging
 
 
 def _utc_now() -> datetime.datetime:
@@ -46,31 +45,3 @@ def iter_months(start: datetime.datetime, end: datetime.datetime):
             current = current.replace(month=current.month + 1)
 
 
-def earliest_data_date(es, issue_index: str, source_type: str) -> datetime.datetime | None:
-    """Return the earliest month start with issue data for this source type."""
-    query = {
-        "query": {"term": {"saltminer.asset.source_type": source_type}},
-        "aggs": {
-            "min_found":   {"min": {"field": "vulnerability.found_date"}},
-            "min_removed": {"min": {"field": "vulnerability.removed_date"}},
-        },
-        "size": 0,
-    }
-    result = es.Search(issue_index, queryBody=query, size=0, navToData=False)
-    if not result or "aggregations" not in result:
-        return None
-
-    dates = []
-    for key in ("min_found", "min_removed"):
-        raw = result["aggregations"].get(key, {}).get("value_as_string")
-        if raw:
-            try:
-                dt = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
-                dates.append(dt)
-            except ValueError:
-                logging.debug("Could not parse date '%s' from agg key '%s'", raw, key)
-
-    if not dates:
-        return None
-    earliest = min(dates)
-    return month_start(earliest.year, earliest.month)

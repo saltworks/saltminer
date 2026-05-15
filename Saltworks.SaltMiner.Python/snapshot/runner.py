@@ -11,7 +11,7 @@ from .index_names import (
     current_snapshot_index,
     current_scan_snapshot_index,
 )
-from .month_range import earliest_data_date, iter_months, month_start, next_month_start
+from .month_range import iter_months, month_start
 from .issue_snapshot_builder import (
     fetch_asset_descriptors,
     build_monthly_issue_snapshots,
@@ -21,6 +21,11 @@ from .scan_snapshot_builder import (
     build_monthly_scan_snapshots,
     write_monthly_scan_snapshots,
 )
+
+
+_FIELD_SOURCE_TYPE = "saltminer.asset.source_type"
+_FIELD_ASSET_TYPE  = "saltminer.asset.asset_type"
+_FIELD_SOURCE_ID   = "saltminer.asset.source_id"
 
 
 def _get(doc, *path: str, default=None):
@@ -55,8 +60,8 @@ def discover_source_type_asset_type_pairs(es) -> list[tuple[str, str]]:
                 "composite": {
                     "size": 200,
                     "sources": [
-                        {"source_type": {"terms": {"field": "saltminer.asset.source_type"}}},
-                        {"asset_type":  {"terms": {"field": "saltminer.asset.asset_type"}}},
+                        {"source_type": {"terms": {"field": _FIELD_SOURCE_TYPE}}},
+                        {"asset_type":  {"terms": {"field": _FIELD_ASSET_TYPE}}},
                     ],
                 }
             }
@@ -78,6 +83,71 @@ def discover_source_type_asset_type_pairs(es) -> list[tuple[str, str]]:
     return pairs
 
 
+def _pair_needs_backfill(es, source_type: str, asset_type: str) -> bool:
+    """True when the historical issue-snapshot index is missing or empty."""
+    idx = historical_snapshot_index(asset_type, source_type)
+    return es.Count(idx, suppressErrorOnMissingIndex=True) == 0
+
+
+def _earliest_found_dates(
+    es, pairs: list[tuple[str, str]]
+) -> dict[tuple[str, str], datetime.datetime]:
+    """
+    Single aggregate query: for each (source_type, asset_type) in `pairs`,
+    return the earliest vulnerability.found_date truncated to month start.
+    Pairs with no non-null found_date are omitted from the result.
+    """
+    if not pairs:
+        return {}
+    should_clauses = [
+        {"bool": {"must": [
+            {"term": {_FIELD_SOURCE_TYPE: st}},
+            {"term": {_FIELD_ASSET_TYPE:  at}},
+        ]}}
+        for st, at in pairs
+    ]
+    query: dict[str, Any] = {
+        "query": {"bool": {"should": should_clauses, "minimum_should_match": 1}},
+        "aggs": {
+            "pairs": {
+                "composite": {
+                    "size": 200,
+                    "sources": [
+                        {"source_type": {"terms": {"field": _FIELD_SOURCE_TYPE}}},
+                        {"asset_type":  {"terms": {"field": _FIELD_ASSET_TYPE}}},
+                    ],
+                },
+                "aggs": {
+                    "min_found": {"min": {"field": "vulnerability.found_date"}},
+                },
+            }
+        },
+        "size": 0,
+    }
+    out: dict[tuple[str, str], datetime.datetime] = {}
+    after_key = None
+    while True:
+        if after_key:
+            query["aggs"]["pairs"]["composite"]["after"] = after_key
+        res = es.Search("issues_*", queryBody=query, size=0, navToData=False)
+        buckets = _get(res, "aggregations", "pairs", "buckets", default=[])
+        for b in buckets:
+            raw = b.get("min_found", {}).get("value_as_string")
+            if not raw:
+                continue
+            try:
+                dt = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            except ValueError:
+                logging.warning("Could not parse min_found '%s' for bucket %s", raw, b.get("key"))
+                continue
+            key = (b["key"]["source_type"], b["key"]["asset_type"])
+            out[key] = month_start(dt.year, dt.month)
+        after_key = _get(res, "aggregations", "pairs", "after_key")
+        if not after_key or len(buckets) == 0:
+            break
+    return out
+
+
 def _collect_all_source_ids(es, asset_type: str, source_type: str, page_size: int = 1000) -> list[str]:
     index = issue_index_pattern(asset_type)
     ids: list[str] = []
@@ -85,12 +155,12 @@ def _collect_all_source_ids(es, asset_type: str, source_type: str, page_size: in
     while True:
         composite: dict[str, Any] = {
             "size": page_size,
-            "sources": [{"source_id": {"terms": {"field": "saltminer.asset.source_id"}}}],
+            "sources": [{"source_id": {"terms": {"field": _FIELD_SOURCE_ID}}}],
         }
         if after_key:
             composite["after"] = after_key
         query: dict[str, Any] = {
-            "query": {"term": {"saltminer.asset.source_type": source_type}},
+            "query": {"term": {_FIELD_SOURCE_TYPE: source_type}},
             "aggs": {"ids": {"composite": composite}},
             "size": 0,
         }
@@ -173,27 +243,30 @@ def _process_partition(
 
 def run_snapshot_history(
     app_settings,
-    source_type_arg: str,
-    start_date: datetime.datetime | None = None,
+    source_type_arg: str | None = None,
     worker_count: int = 4,
     composite_page_size: int = 1000,
     source_id_chunk_size: int = 1000,
-    mode: str = "all",
+    rebuild: bool = False,
 ) -> None:
     """
-    Entry point for snapshot generation.
+    Smart snapshot entry point.
 
-    mode values:
-      "all"        — rebuild historical monthly indices AND refresh the _current index (default)
-      "current"    — refresh only the _current index for the live month (fast, runs daily)
-      "historical" — rebuild historical monthly indices only, skip _current
+    On each run:
+      - Discover all (source_type, asset_type) pairs from issues_*.
+      - For pairs whose _historical index is missing or empty, build historical
+        months starting from min(vulnerability.found_date) for that pair.
+      - For pairs whose _historical already has data, skip historical and only
+        refresh _current.
+      - Always refresh _current for every selected pair.
 
-    app_settings: ApplicationSettings instance from Application.Settings
-    source_type_arg: 'all' or a source type name like 'FOD' / 'Saltworks.FOD'
-    start_date: override earliest start for historical months; ignored in "current" mode
+    source_type_arg: optional source-type filter (e.g. 'FOD' or 'Saltworks.FOD').
+    rebuild: requires source_type_arg. Deletes the _historical issue and scan
+             indices for the matched pairs before running, so the normal flow
+             rebuilds from earliest data.
     """
-    if mode not in ("all", "current", "historical", "daily"):
-        raise ValueError(f"Invalid mode '{mode}'. Expected one of: all, current, historical, daily")
+    if rebuild and not source_type_arg:
+        raise ValueError("rebuild=True requires source_type_arg")
 
     es = app_settings.Application.GetElasticClient()
 
@@ -202,91 +275,65 @@ def run_snapshot_history(
         logging.warning("No source type / asset type pairs found in issues_* indices. Nothing to do.")
         return
 
-    available_source_types = list({st for st, _ in all_pairs})
-
-    if source_type_arg.lower() == "all":
-        selected_pairs = all_pairs
-    else:
-        resolved = _normalize_source_type(source_type_arg, available_source_types)
+    if source_type_arg:
+        available = list({st for st, _ in all_pairs})
+        resolved = _normalize_source_type(source_type_arg, available)
         if not resolved:
-            logging.error(
-                "Source type '%s' not found in data. Available: %s",
-                source_type_arg, available_source_types,
-            )
+            logging.error("Source type '%s' not found in data. Available: %s",
+                          source_type_arg, available)
             return
         selected_pairs = [(st, at) for st, at in all_pairs if st == resolved]
+    else:
+        selected_pairs = all_pairs
+
+    if rebuild:
+        for source_type, asset_type in selected_pairs:
+            for idx in (
+                historical_snapshot_index(asset_type, source_type),
+                historical_scan_snapshot_index(asset_type, source_type),
+            ):
+                if es.IndexExists(idx):
+                    logging.info("Rebuild: deleting %s", idx)
+                    es.DeleteIndex(idx)
+
+    needs_backfill: list[tuple[str, str]] = []
+    current_only:   list[tuple[str, str]] = []
+    for source_type, asset_type in selected_pairs:
+        if _pair_needs_backfill(es, source_type, asset_type):
+            needs_backfill.append((source_type, asset_type))
+        else:
+            current_only.append((source_type, asset_type))
+
+    logging.info("Selected %d pair(s): %d need backfill, %d current-only",
+                 len(selected_pairs), len(needs_backfill), len(current_only))
+
+    earliest: dict[tuple[str, str], datetime.datetime] = (
+        _earliest_found_dates(es, needs_backfill) if needs_backfill else {}
+    )
 
     now = datetime.datetime.now(tz=datetime.timezone.utc)
     this_month = (now.year, now.month)
 
     for source_type, asset_type in selected_pairs:
-        logging.info("Starting snapshot [mode=%s]: source_type=%s, asset_type=%s",
-                     mode, source_type, asset_type)
+        logging.info("Starting snapshot: source_type=%s, asset_type=%s", source_type, asset_type)
 
-        # Determine which months go to historical per-month indices
-        if mode == "current":
-            historical_months: list[tuple[int, int]] = []
-
-        elif mode == "daily":
-            # Refresh the _current index every run, and rebuild the last closed month
-            # only if the _historical index has no docs for it (handles month roll-over).
-            last_closed = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
-            hist_idx = historical_snapshot_index(asset_type, source_type)
-            lc_start = month_start(*last_closed)
-            lc_next  = next_month_start(*last_closed)
-            has_last_month = False
-            if es.IndexExists(hist_idx):
-                count_result = es.Search(hist_idx, queryBody={
-                    "query": {"range": {"saltminer.snapshot_date": {
-                        "gte": lc_start.isoformat(),
-                        "lt":  lc_next.isoformat(),
-                    }}},
-                    "size": 0,
-                }, size=0, navToData=False)
-                has_last_month = bool(
-                    count_result and
-                    count_result.get("hits", {}).get("total", {}).get("value", 0) > 0
+        if (source_type, asset_type) in needs_backfill:
+            start = earliest.get((source_type, asset_type))
+            if not start:
+                logging.warning(
+                    "No valid vulnerability.found_date for %s / %s — skipping backfill, refreshing _current only.",
+                    source_type, asset_type,
                 )
-            if has_last_month:
-                logging.info(
-                    "Daily: %d-%02d data present in %s — skipping historical rebuild.",
-                    *last_closed, hist_idx,
-                )
-                historical_months = []
+                historical_months: list[tuple[int, int]] = []
             else:
+                all_months = list(iter_months(start, now))
+                historical_months = [m for m in all_months if m != this_month]
                 logging.info(
-                    "Daily: %d-%02d data missing from %s — will build.",
-                    *last_closed, hist_idx,
+                    "%s / %s: building %d historical month(s) from %s",
+                    source_type, asset_type, len(historical_months), start.date(),
                 )
-                historical_months = [last_closed]
-
         else:
-            if start_date:
-                effective_start = start_date.replace(
-                    day=1, hour=0, minute=0, second=0, microsecond=0,
-                    tzinfo=datetime.timezone.utc,
-                )
-            else:
-                detected = earliest_data_date(es, issue_index_pattern(asset_type), source_type)
-                if not detected:
-                    logging.warning("No issue data found for %s / %s — skipping.", source_type, asset_type)
-                    continue
-                effective_start = detected
-
-            # Historical = all closed months (exclude the current live month)
-            all_months = list(iter_months(effective_start, now))
-            historical_months = [m for m in all_months if m != this_month]
-            logging.info(
-                "Historical: %d months from %s to last closed month",
-                len(historical_months), effective_start.date(),
-            )
-
-        # Determine whether to refresh the _current index
-        current_month = this_month if mode in ("all", "current", "daily") else None
-
-        if not historical_months and current_month is None:
-            logging.warning("Nothing to process for %s / %s in mode '%s'.", source_type, asset_type, mode)
-            continue
+            historical_months = []
 
         all_source_ids = _collect_all_source_ids(es, asset_type, source_type)
         if not all_source_ids:
@@ -301,7 +348,7 @@ def run_snapshot_history(
             _process_partition(
                 es, asset_type, source_type, partitions[0], historical_months,
                 composite_page_size, source_id_chunk_size,
-                current_month=current_month,
+                current_month=this_month,
             )
         else:
             with ThreadPoolExecutor(max_workers=worker_count) as pool:
@@ -310,7 +357,7 @@ def run_snapshot_history(
                         _process_partition,
                         es, asset_type, source_type, part, historical_months,
                         composite_page_size, source_id_chunk_size,
-                        current_month,
+                        this_month,
                     ): i
                     for i, part in enumerate(partitions)
                 }
@@ -321,4 +368,4 @@ def run_snapshot_history(
                     except Exception:
                         logging.exception("Partition %d failed", idx)
 
-        logging.info("Completed snapshot [mode=%s] for %s / %s", mode, source_type, asset_type)
+        logging.info("Completed snapshot for %s / %s", source_type, asset_type)
