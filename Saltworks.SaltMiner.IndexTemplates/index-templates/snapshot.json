@@ -44,6 +44,15 @@
 			      "noscan": {
               "type": "integer"
             },
+            "opened": {
+              "type": "long"
+            },
+            "removed": {
+              "type": "long"
+            },
+            "total": {
+              "type": "long"
+            },
             "is_historical": {
               "type": "boolean"
             },
@@ -210,9 +219,6 @@
             },
             "vulnerability": {
               "properties": {
-                "source_severity": {
-                  "type": "keyword"
-                },
                 "category": {
                   "type": "keyword",
                   "fields": {
@@ -230,12 +236,6 @@
                   "fields": {
                     "text": { "type": "text" }
                   }
-                },
-                "severity": {
-                  "type": "keyword"
-                },
-                "severity_level": {
-                  "type": "integer"
                 },
                 "scanner": {
                   "properties": {

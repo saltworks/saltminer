@@ -15,7 +15,8 @@
       "TenableAgent": "/usr/share/saltworks/saltminer-2.5.0/Sources/Tenable/RunTenableAdapter.sh",
       "GHASAgent": "/usr/share/saltworks/saltminer-2.5.0/Sources/GHAS/RunGHASAdapter.sh",
       "SnykAgent": "/usr/share/saltworks/saltminer-2.5.0/Sources/SNYK/RunSnykAdapter.sh",
-      "SeekerAgent": "/usr/share/saltworks/saltminer-2.5.0/Sources/Seeker/RunSeeker.sh"
+      "SeekerAgent": "/usr/share/saltworks/saltminer-2.5.0/Sources/Seeker/RunSeeker.sh",
+      "Snapshots": "/usr/share/saltworks/saltminer-3.0.0/snapshots.sh"
     }
   },
   "LogConfig": {
