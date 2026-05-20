@@ -7,7 +7,7 @@ from elasticsearch import BadRequestError
 
 from .index_names import issue_index_pattern, historical_snapshot_index
 from .month_range import (
-    month_start, next_month_start, month_end_inclusive, snapshot_date_for_month
+    month_start, next_month_start, snapshot_date_for_month
 )
 
 _SEVERITY_FIELDS = ("Critical", "High", "Medium", "Low", "Info", "Zero")
@@ -96,7 +96,7 @@ def fetch_asset_descriptors(es, asset_type: str, source_type: str, source_ids: l
 
 def _build_snapshot_doc(
     bucket_key: dict,
-    open_count: int,
+    balance: int,
     opened_count: int,
     removed_count: int,
     descriptor: dict,
@@ -118,15 +118,15 @@ def _build_snapshot_doc(
         "saltminer": {
             "snapshot_date": snap_date.isoformat(),
             "is_historical": True,
-            "critical": open_count if severity == "Critical" else 0,
-            "high":     open_count if severity == "High"     else 0,
-            "medium":   open_count if severity == "Medium"   else 0,
-            "low":      open_count if severity == "Low"      else 0,
-            "info":     open_count if severity == "Info"     else 0,
+            "critical": balance if severity == "Critical" else 0,
+            "high":     balance if severity == "High"     else 0,
+            "medium":   balance if severity == "Medium"   else 0,
+            "low":      balance if severity == "Low"      else 0,
+            "info":     balance if severity == "Info"     else 0,
             "noscan":   0,
             "opened":   opened_count,
             "removed":  removed_count,
-            "total":    open_count,
+            "total":    balance,
             "asset": {
                 "id":                  asset.get("id"),
                 "name":                asset.get("name"),
@@ -199,7 +199,6 @@ def build_monthly_issue_snapshots(
     """Run the composite aggregation for one month and return snapshot docs."""
     index = issue_index_pattern(asset_type)
     m_start = month_start(year, month)
-    m_end = month_end_inclusive(year, month)
     m_next = next_month_start(year, month)
     snap_date = snapshot_date_for_month(year, month)
 
@@ -234,14 +233,14 @@ def build_monthly_issue_snapshots(
                 "buckets": {
                     "composite": composite,
                     "aggs": {
-                        "open_now": {
+                        "open_prior": {
                             "filter": {
                                 "bool": {
                                     "must": [
-                                        {"range": {"vulnerability.found_date": {"lte": m_end.isoformat()}}},
+                                        {"range": {"vulnerability.found_date": {"lt": m_start.isoformat()}}},
                                         {"bool": {"should": [
                                             {"term":  {"vulnerability.is_removed": False}},
-                                            {"range": {"vulnerability.removed_date": {"gt": m_end.isoformat()}}},
+                                            {"range": {"vulnerability.removed_date": {"gte": m_start.isoformat()}}},
                                         ]}},
                                     ]
                                 }
@@ -279,15 +278,16 @@ def build_monthly_issue_snapshots(
 
         for bucket in buckets:
             key = bucket["key"]
-            open_count    = _get(bucket, "open_now",         "doc_count", default=0)
-            opened_count  = _get(bucket, "opened_in_month",  "doc_count", default=0)
-            removed_count = _get(bucket, "removed_in_month", "doc_count", default=0)
+            prior_count   = _get(bucket, "open_prior",        "doc_count", default=0)
+            opened_count  = _get(bucket, "opened_in_month",   "doc_count", default=0)
+            removed_count = _get(bucket, "removed_in_month",  "doc_count", default=0)
 
-            if open_count == 0 and opened_count == 0 and removed_count == 0:
+            if prior_count == 0 and opened_count == 0 and removed_count == 0:
                 continue
 
+            balance = prior_count + opened_count - removed_count
             descriptor = descriptors.get(key["source_id"], {})
-            docs.append(_build_snapshot_doc(key, open_count, opened_count, removed_count, descriptor, snap_date))
+            docs.append(_build_snapshot_doc(key, balance, opened_count, removed_count, descriptor, snap_date))
 
         logging.debug("%d-%02d page %d: %d buckets, %d docs so far", year, month, page, len(buckets), len(docs))
         after_key = _get(result, "aggregations", "buckets", "after_key")
