@@ -165,22 +165,22 @@ def _build_snapshot_doc(
             "inventory_asset": {
                 "key": inv.get("key"),
             },
-            "vulnerability": {
-                "name":           bucket_key["vuln_name"],
-                "severity":       bucket_key["severity"],
-                "category":       _get(descriptor, "vulnerability", "category"),
-                "classification": _get(descriptor, "vulnerability", "classification"),
-                "scanner": {
-                    "assessment_type": bucket_key["assess_type"],
-                    "product":         vul_scanner.get("product"),
-                    "vendor":          vul_scanner.get("vendor"),
-                },
-                "score": {
-                    "base":          vul_score.get("base"),
-                    "environmental": vul_score.get("environmental"),
-                    "temporal":      vul_score.get("temporal"),
-                    "version":       vul_score.get("version"),
-                },
+        },
+        "vulnerability": {
+            "name":           bucket_key["vuln_name"],
+            "severity":       bucket_key["severity"],
+            "category":       _get(descriptor, "vulnerability", "category"),
+            "classification": _get(descriptor, "vulnerability", "classification"),
+            "scanner": {
+                "assessment_type": bucket_key["assess_type"],
+                "product":         vul_scanner.get("product"),
+                "vendor":          vul_scanner.get("vendor"),
+            },
+            "score": {
+                "base":          vul_score.get("base"),
+                "environmental": vul_score.get("environmental"),
+                "temporal":      vul_score.get("temporal"),
+                "version":       vul_score.get("version"),
             },
         },
     }

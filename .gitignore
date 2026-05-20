@@ -41,4 +41,8 @@ Saltworks.SaltMiner.Python/sm-run-config-location.json
 ai-*.ps1
 *.http
 
-/.claude
+/.claude/settings.local.json
+/.claude/settings.json
+
+# AI scratch - connection files contain credentials
+ai/scratch/*-connection.md

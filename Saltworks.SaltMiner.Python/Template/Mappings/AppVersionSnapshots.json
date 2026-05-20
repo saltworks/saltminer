@@ -253,67 +253,67 @@
                 }
               }
             }
+          }
+        }
+      },
+      "vulnerability": {
+        "properties": {
+          "name": {
+            "type": "keyword",
+            "fields": {
+              "text": { "type": "text" }
+            }
           },
-          "vulnerability": {
+          "severity": {
+            "type": "keyword",
+            "fields": {
+              "text": { "type": "text" }
+            }
+          },
+          "category": {
+            "type": "keyword",
+            "fields": {
+              "text": { "type": "text" }
+            }
+          },
+          "classification": {
+            "type": "keyword",
+            "fields": {
+              "text": { "type": "text" }
+            }
+          },
+          "scanner": {
             "properties": {
-              "name": {
+              "assessment_type": {
+                "type": "keyword"
+              },
+              "product": {
                 "type": "keyword",
                 "fields": {
                   "text": { "type": "text" }
                 }
               },
-              "severity": {
+              "vendor": {
                 "type": "keyword",
                 "fields": {
                   "text": { "type": "text" }
                 }
+              }
+            }
+          },
+          "score": {
+            "properties": {
+              "base": {
+                "type": "float"
               },
-              "category": {
-                "type": "keyword",
-                "fields": {
-                  "text": { "type": "text" }
-                }
+              "environmental": {
+                "type": "float"
               },
-              "classification": {
-                "type": "keyword",
-                "fields": {
-                  "text": { "type": "text" }
-                }
+              "temporal": {
+                "type": "float"
               },
-              "scanner": {
-                "properties": {
-                  "assessment_type": {
-                    "type": "keyword"
-                  },
-                  "product": {
-                    "type": "keyword",
-                    "fields": {
-                      "text": { "type": "text" }
-                    }
-                  },
-                  "vendor": {
-                    "type": "keyword",
-                    "fields": {
-                      "text": { "type": "text" }
-                    }
-                  }
-                }
-              },
-              "score": {
-                "properties": {
-                  "base": {
-                    "type": "float"
-                  },
-                  "environmental": {
-                    "type": "float"
-                  },
-                  "temporal": {
-                    "type": "float"
-                  },
-                  "version": {
-                    "type": "keyword"
-                  }
-                }
+              "version": {
+                "type": "keyword"
               }
             }
           }
