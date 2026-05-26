@@ -1351,17 +1351,26 @@ class ElasticClient(object):
             body['dest']['pipeline'] = destPipeline
         return self.es.reindex(body=body, wait_for_completion=block) # pylint: disable=unexpected-keyword-arg,  missing-kwoa
     
+
     def GetPipeline(self, pipelineName = None, error_trace=None, filter_path=None, human=None, master_timeout=None, pretty=None, summary=None):
         '''
         https://elasticsearch-py.readthedocs.io/en/latest/api/ingest-pipelines.html
-        Returns a pipeline by the name also known as the id. If you omit the id parameter it returns all pipelines
-        example on how to get pipeline by Name: 
-        _Es = ElasticClient(app.Settings)
-        data = helper.GetPipeline(pipelineName = "saltminer-issues-risk-roller-pipeline")
-
-        too easy
+        Returns a single pipeline by name, or all pipelines if pipelineName is None.
+        Returns a dict keyed by pipeline name.
         '''
         return self.ingestClient.get_pipeline(id=pipelineName, error_trace=error_trace, filter_path=filter_path, human=human, master_timeout=master_timeout, pretty= pretty, summary = summary)
+
+
+    def GetPipelines(self, nameStartsWith=None):
+        '''
+        Returns all ingest pipelines as a dict keyed by pipeline name.
+        Optionally filters to only pipelines whose name starts with nameStartsWith.
+        '''
+        result = dict(self.GetPipeline())
+        if nameStartsWith:
+            result = {k: v for k, v in result.items() if k.startswith(nameStartsWith)}
+        return result
+    
 
     def PutPipeline(self, id, body):
         '''
