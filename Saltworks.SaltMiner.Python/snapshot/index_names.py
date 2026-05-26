@@ -1,6 +1,3 @@
-import datetime
-
-
 def _short_source(source_type: str) -> str:
     """Return the lowercase suffix after the last '.' in the source type string.
 

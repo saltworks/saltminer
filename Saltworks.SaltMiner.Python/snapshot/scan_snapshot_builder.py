@@ -5,7 +5,7 @@ from typing import Any
 
 from elasticsearch import BadRequestError, NotFoundError
 
-from .index_names import scan_index_pattern, historical_snapshot_index, historical_scan_snapshot_index
+from .index_names import scan_index_pattern, historical_scan_snapshot_index
 from .month_range import month_start, next_month_start, snapshot_date_for_month
 
 _FIELD_SOURCE_ID  = "saltminer.asset.source_id"

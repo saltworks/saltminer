@@ -11,7 +11,7 @@ from .index_names import (
     current_snapshot_index,
     current_scan_snapshot_index,
 )
-from .month_range import iter_months, month_start
+from .month_range import iter_months, month_start, next_month_start
 from .issue_snapshot_builder import (
     fetch_asset_descriptors,
     build_monthly_issue_snapshots,
@@ -148,6 +148,71 @@ def _earliest_found_dates(
     return out
 
 
+def _earliest_found_month_by_source_id(
+    es, asset_type: str, source_type: str, source_ids: list[str], page_size: int = 1000,
+) -> dict[str, datetime.datetime]:
+    """For each source_id in `source_ids`, return month_start(min(found_date)).
+
+    Applies the same filters as the snapshot builder so the earliest reflects
+    the docs that will actually contribute: is_filtered=false, and excluding
+    bad-data docs where removed_date < found_date.
+    """
+    index = issue_index_pattern(asset_type)
+    out: dict[str, datetime.datetime] = {}
+    after_key = None
+    while True:
+        composite: dict[str, Any] = {
+            "size": page_size,
+            "sources": [{"source_id": {"terms": {"field": _FIELD_SOURCE_ID}}}],
+        }
+        if after_key:
+            composite["after"] = after_key
+        query: dict[str, Any] = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {"term":  {"vulnerability.is_filtered": False}},
+                        {"term":  {_FIELD_SOURCE_TYPE: source_type}},
+                        {"terms": {_FIELD_SOURCE_ID: source_ids}},
+                    ],
+                    "must_not": [
+                        {"script": {"script": {
+                            "lang": "painless",
+                            "source": (
+                                "doc['vulnerability.removed_date'].size() != 0 "
+                                "&& doc['vulnerability.found_date'].size() != 0 "
+                                "&& doc['vulnerability.removed_date'].value"
+                                ".isBefore(doc['vulnerability.found_date'].value)"
+                            ),
+                        }}},
+                    ],
+                }
+            },
+            "aggs": {
+                "ids": {
+                    "composite": composite,
+                    "aggs": {"min_found": {"min": {"field": "vulnerability.found_date"}}},
+                }
+            },
+            "size": 0,
+        }
+        result = es.Search(index, queryBody=query, size=0, navToData=False)
+        buckets = _get(result, "aggregations", "ids", "buckets", default=[])
+        for b in buckets:
+            raw = b.get("min_found", {}).get("value_as_string")
+            if not raw:
+                continue
+            try:
+                dt = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            out[b["key"]["source_id"]] = month_start(dt.year, dt.month)
+        after_key = _get(result, "aggregations", "ids", "after_key")
+        if not after_key or len(buckets) == 0:
+            break
+    return out
+
+
 def _collect_all_source_ids(es, asset_type: str, source_type: str, page_size: int = 1000) -> list[str]:
     index = issue_index_pattern(asset_type)
     ids: list[str] = []
@@ -170,6 +235,14 @@ def _collect_all_source_ids(es, asset_type: str, source_type: str, page_size: in
         after_key = _get(result, "aggregations", "ids", "after_key")
         if not after_key or len(buckets) == 0:
             break
+    # Sort numerically when possible so partition chunks are contiguous ID ranges
+    # rather than lexicographic order ("10005" < "9000" in lex but not numerically).
+    # Combined with the per-source-id earliest-month skip, contiguous ranges mean
+    # newer ID partitions skip more months (assuming larger IDs == newer == less history).
+    try:
+        ids.sort(key=int)
+    except ValueError:
+        ids.sort()
     return ids
 
 
@@ -202,12 +275,26 @@ def _process_partition(
     descriptors = fetch_asset_descriptors(es, asset_type, source_type, partition_ids)
     logging.debug("Fetched %d asset descriptors for partition", len(descriptors))
 
+    earliest_by_id = _earliest_found_month_by_source_id(es, asset_type, source_type, partition_ids)
+    logging.debug("Earliest found-month known for %d/%d source IDs in partition",
+                  len(earliest_by_id), len(partition_ids))
+
     prev_avg_loc: dict[str, float] = {}
 
-    id_chunks = _chunk(partition_ids, max(1, math.ceil(len(partition_ids) / source_id_chunk_size)))
-
+    skipped_months = 0
     for year, month in all_months:
         is_current = current_month == (year, month)
+        next_m = next_month_start(year, month)
+        active_ids = [
+            sid for sid in partition_ids
+            if (em := earliest_by_id.get(sid)) is not None and em < next_m
+        ]
+        if not active_ids:
+            skipped_months += 1
+            continue
+
+        active_chunks = _chunk(active_ids, max(1, math.ceil(len(active_ids) / source_id_chunk_size)))
+
         issue_write_target = current_snapshot_index(asset_type, source_type) if is_current \
                              else historical_snapshot_index(asset_type, source_type)
         scan_write_target  = current_scan_snapshot_index(asset_type, source_type) if is_current \
@@ -215,17 +302,19 @@ def _process_partition(
         snap_source_index  = issue_write_target  # scan builder reads from the same index issue snapshots were just written to
 
         issue_docs: list[dict] = []
-        for chunk in id_chunks:
+        for chunk in active_chunks:
             issue_docs.extend(build_monthly_issue_snapshots(
                 es, asset_type, source_type, chunk, year, month, descriptors, composite_page_size
             ))
+        # Delete scope stays on partition_ids so stale snapshots from prior runs
+        # are still cleaned up even for source_ids that no longer have data this month.
         write_monthly_issue_snapshots(
             es, asset_type, source_type, partition_ids, year, month, issue_docs,
             target_index=issue_write_target,
         )
 
         scan_docs: list[dict] = []
-        for chunk in id_chunks:
+        for chunk in active_chunks:
             month_scan_docs, prev_avg_loc = build_monthly_scan_snapshots(
                 es, asset_type, source_type, chunk, year, month, prev_avg_loc,
                 snapshot_source_index=snap_source_index,
@@ -236,6 +325,9 @@ def _process_partition(
             es, asset_type, source_type, partition_ids, year, month, scan_docs,
             target_index=scan_write_target,
         )
+
+    if skipped_months:
+        logging.info("Partition skipped %d month(s) with no active source IDs", skipped_months)
 
     logging.info("Partition complete (%d source IDs, %d months, current=%s)",
                  len(partition_ids), len(all_months), current_month is not None)

@@ -226,7 +226,22 @@ def build_monthly_issue_snapshots(
                         {"term":  {"vulnerability.is_filtered": False}},
                         {"term":  {_FIELD_SOURCE_TYPE: source_type}},
                         {"terms": {_FIELD_SOURCE_ID: source_ids}},
-                    ]
+                    ],
+                    "must_not": [
+                        # Drop bad-data docs whose removed_date precedes found_date
+                        # (e.g. 1876-01-01 sentinels from legacy imports). These
+                        # otherwise leak: counted in opened_in_month but never in
+                        # removed_in_month, then silently absent from next prior.
+                        {"script": {"script": {
+                            "lang": "painless",
+                            "source": (
+                                "doc['vulnerability.removed_date'].size() != 0 "
+                                "&& doc['vulnerability.found_date'].size() != 0 "
+                                "&& doc['vulnerability.removed_date'].value"
+                                ".isBefore(doc['vulnerability.found_date'].value)"
+                            ),
+                        }}},
+                    ],
                 }
             },
             "aggs": {
