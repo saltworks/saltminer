@@ -46,3 +46,5 @@ ai-*.ps1
 .claude
 .DS_Store
 ai/scratch
+Scratch/
+.ruff_cache/
