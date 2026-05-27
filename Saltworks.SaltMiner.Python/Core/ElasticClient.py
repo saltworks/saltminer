@@ -1234,6 +1234,13 @@ class ElasticClient(object):
         mapping = self.es.indices.get_mapping(index=index)
         return mapping
         
+    def GetIndexSettings(self, index):
+        '''
+        Gets settings for one or more indices.  Pass "*" to retrieve all indices.
+        Returns a dict keyed by index name, each value being its "settings" block.
+        '''
+        return dict(self.es.indices.get_settings(index=index))
+
     def MapIndex(self, indexToMap, force):
         if type(force) is dict:
             raise ElasticClientMappingException("MapIndex no longer accepts mapping body.  See ElasticClient.py.")
