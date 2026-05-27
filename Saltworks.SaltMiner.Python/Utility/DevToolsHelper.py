@@ -90,7 +90,7 @@ class DevToolsHelper(object):
             isNewMethod = False
 
 
-    def ExecuteDevToolsFiles(self, folder_path:list[str], file_ext:str=None, log_file_path:str=None):
+    def ExecuteDevToolsFiles(self, folder_path:list[str], file_ext:str=None, log_file_path:str=None, continue_on_error:bool=False):
         count = 0
         for path in folder_path:
             if file_ext:
@@ -100,7 +100,12 @@ class DevToolsHelper(object):
 
             for file in files:
                 file_path = os.path.join(path, file)
-                self.ExecuteDevToolsFile(file_path=file_path, log_file_path=log_file_path)
-                count += 1
+                try:
+                    self.ExecuteDevToolsFile(file_path=file_path, log_file_path=log_file_path)
+                    count += 1
+                except Exception as e:
+                    logging.exception("Error processing file %s: %s", file_path, e)
+                    if not continue_on_error:
+                        raise
         logging.info('%s files processed', count)
 
