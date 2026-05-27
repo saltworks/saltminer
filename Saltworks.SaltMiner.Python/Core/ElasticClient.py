@@ -162,6 +162,8 @@ class ElasticClient(object):
     def _ConnectBasic(self, connectionParms:dict, sslVerify:bool|str, headers:dict):
         sslWarn = True if sslVerify else False
         auth = (connectionParms.get('username'), connectionParms.get('password'))
+        if not auth[0] or not auth[1]:
+            raise ElasticClientConnectionException("Basic connection must include username and password")
         useAuth = connectionParms.get('useauth', True)
         if isinstance(useAuth, str):
             useAuth = useAuth.lower() == 'true'  # Convert string to bool
@@ -1381,6 +1383,20 @@ class ElasticClient(object):
         this within the processor itself. 
         '''
         self.ingestClient.put_pipeline(id=id, body=body) # pylint: disable=unexpected-keyword-arg #, on_failure= on_failure, version=version)
+
+    def PerformRequest(self, method: str, path: str, body: dict = None):
+        '''
+        Sends a raw HTTP request to Elasticsearch, bypassing all ElasticClient abstractions.
+        Equivalent to using Kibana Dev Tools directly.
+
+        :method: HTTP method (GET, POST, PUT, DELETE, etc.)
+        :path: Request path including leading slash, e.g. "/queue_assets/_mapping"
+        :body: Optional request body as a dict
+        '''
+        kwargs = {}
+        if body is not None:
+            kwargs['body'] = body
+        return self.es.perform_request(method, path, **kwargs)
 
 class ElasticSearchUtilsScroller(object):
     def __init__(self, elasticClient, index, scrollSize, scrollTimeout, queryBody=None):

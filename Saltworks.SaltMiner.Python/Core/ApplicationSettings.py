@@ -48,7 +48,7 @@ class ApplicationSettings(object):
         if autoEncryptCreds:
             self.EncryptCredentials()
         cs_env = os.environ.get(ElasticConstants.ELASTIC_CONNECT_STR_ENV, "")
-        if cs_env:
+        if cs_env and len(cs_env) > 0:
             self.__Log("info", f"Found {ElasticConstants.ELASTIC_CONNECT_STR_ENV} environment variable, overriding Elastic connection string")
             self.__SetToConfig(self.__Config, "Elastic", ElasticConstants.ELASTIC_CONNECT_STR_CONFIG, cs_env, save=False)
         self.__Log("debug", "Settings class initialization complete")
