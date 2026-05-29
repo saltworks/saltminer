@@ -216,61 +216,61 @@
                   }
                 }
               }
+            }
+          }
+        },
+        "vulnerability": {
+          "properties": {
+            "category": {
+              "type": "keyword",
+              "fields": {
+                "text": { "type": "text" }
+              }
             },
-            "vulnerability": {
+            "classification": {
+              "type": "keyword",
+              "fields": {
+                "text": { "type": "text" }
+              }
+            },
+            "name": {
+              "type": "keyword",
+              "fields": {
+                "text": { "type": "text" }
+              }
+            },
+            "scanner": {
               "properties": {
-                "category": {
+                "assessment_type": {
+                  "type": "keyword"
+                },
+                "product": {
                   "type": "keyword",
                   "fields": {
                     "text": { "type": "text" }
                   }
                 },
-                "classification": {
+                "vendor": {
                   "type": "keyword",
                   "fields": {
                     "text": { "type": "text" }
                   }
+                }
+              }
+            },
+            "score": {
+              "properties": {
+                "base": {
+                  "type": "float"
                 },
-                "name": {
-                  "type": "keyword",
-                  "fields": {
-                    "text": { "type": "text" }
-                  }
+                "environmental": {
+                  "type": "float"
                 },
-                "scanner": {
-                  "properties": {
-                    "assessment_type": {
-                      "type": "keyword"
-                    },
-                    "product": {
-                      "type": "keyword",
-                      "fields": {
-                        "text": { "type": "text" }
-                      }
-                    },
-                    "vendor": {
-                      "type": "keyword",
-                      "fields": {
-                        "text": { "type": "text" }
-                      }
-                    }
-                  }
+                "temporal": {
+                  "type": "float"
                 },
-                "score": {
-                  "properties": {
-                    "base": {
-                      "type": "float"
-                    },
-                    "environmental": {
-                      "type": "float"
-                    },
-                    "temporal": {
-                      "type": "float"
-                    },
-                    "version": {
-                      "type": "keyword"
-                    }
-                  }
+                "version": {
+                  "type": "keyword"
                 }
               }
             }
