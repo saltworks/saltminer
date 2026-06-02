@@ -37,7 +37,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from Sources.GHAS.GHASClient import GHASClient, GHASEngineInaccessibleError
+from Sources.GHAS.GHASClient import GHASClient, GHASEngineInaccessibleError, GHASRateLimitError
 from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 from Core.DataClient import DataClient, QueueStatus
 
@@ -142,6 +142,19 @@ class GHASStateManager:
         key = f"{repo_full_name}/{engine}"
         return self._data.get("watermarks", {}).get(key)
 
+    def watermark_count(self) -> int:
+        """Number of watermarks currently loaded. Zero ⇒ empty/new state file
+        ⇒ a re-baseline run (every scope will first-sync)."""
+        return len(self._data.get("watermarks", {}))
+
+    def clear_watermark(self, repo_full_name: str, engine: str):
+        """Remove a scope's watermark (used after tombstoning an archived repo
+        so the empty-replacement is not re-fired every subsequent run)."""
+        key = f"{repo_full_name}/{engine}"
+        if key in self._data.get("watermarks", {}):
+            del self._data["watermarks"][key]
+            self._data["last_updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     def set_watermark(self, repo_full_name: str, engine: str, timestamp: str):
         """Update the in-memory alert-updated watermark. Call save_async() to persist."""
         key = f"{repo_full_name}/{engine}"
@@ -241,9 +254,31 @@ class GHASAdapter:
         self._state_lock = asyncio.Lock()
 
         # Tracks scopes skipped because the engine is not accessible (403/404
-        # on alert endpoints). Surfaced in the run summary so operators can
-        # tell the difference between "all clean" and "many engines disabled."
+        # on alert endpoints) for a PERMISSION/ENABLEMENT reason. Surfaced in
+        # the run summary, distinct from rate-limited and archived scopes.
         self._inaccessible_scopes: list = []
+        # Tracks scopes that could not complete because GitHub's SECONDARY rate
+        # limit could not be cleared within the retry budget. These are NOT
+        # permission problems — the data is accessible, we were throttled. They
+        # keep their watermark (no advance) so they re-attempt next run.
+        self._rate_limited_scopes: list = []
+        # Tracks archived repos that were tombstoned (findings purged) this run.
+        self._archived_purged_scopes: list = []
+        # Counts scopes that ingested alerts vs. recorded a clean/heartbeat scan.
+        self._ingested_scopes: list = []
+        self._clean_scopes: list = []
+
+        # Run-tag: a single id/timestamp for this whole run, stamped onto every
+        # queued asset/issue doc (see map_asset/_issue_attributes) so the
+        # orphan-cleanup script can find docs NOT written by the latest run.
+        self._run_id = str(uuid.uuid4())
+        self._run_ts = self._now()
+
+        # is_rebaseline is a SNAPSHOT taken once at run_sync start (after state
+        # load, before any sync mutates state). Fixed for the entire run so the
+        # archived-tombstone behaviour and the client's rate-limit posture are
+        # consistent across the concurrent fan-out. See run_sync.
+        self._is_rebaseline = False
 
     # ── Entry points ───────────────────────────────────────────────────────
 
@@ -257,6 +292,23 @@ class GHASAdapter:
         """
         try:
             self._state.load()
+
+            # is_rebaseline SNAPSHOT: empty state (zero watermarks) at startup
+            # means this is a cold full-pull — every scope will first-sync. Fix
+            # this boolean now, before any task mutates state, so all archived /
+            # rate-limit decisions are consistent across the concurrent run.
+            self._is_rebaseline = (self._state.watermark_count() == 0)
+            if self._is_rebaseline:
+                logger.warning(
+                    "[%s] Empty state file → RE-BASELINE run. Archived repos will be "
+                    "tombstoned (findings purged) and the client will use "
+                    "rate-limit-safe code-scanning settings.",
+                    self.instance,
+                )
+                # Switch the client into avoidance-first + deep-retry posture so
+                # code-scanning tries to complete in a single pass.
+                self.client.enable_rebaseline_mode()
+
             asyncio.run(self._run_async())
         finally:
             self._data_client.close()
@@ -269,82 +321,160 @@ class GHASAdapter:
 
     async def get_sync_async(self):
         """
-        Discover all repos, apply exclusions, then run concurrent repo/engine sync.
+        Discover all repos, apply exclusions, divert archived repos to the
+        tombstone/purge path, then run concurrent repo/engine sync for the
+        active repos.
         """
         logger.info("[%s] Starting GHAS sync for org '%s'.", self.instance, self.org)
 
         repos = await self.client.get_repos_async()
         repos = self._apply_exclusions(repos)
-        logger.info("[%s] %d repositories to process after exclusions.", self.instance, len(repos))
+
+        # Split archived from active. Archived repos are handled by the
+        # tombstone path (purge findings) and are NEVER sent through the alert
+        # fetch — so an archived repo can never produce a 403/404 that would be
+        # misread as "engine inaccessible". `archived` comes straight from the
+        # repo metadata (get_repos_async uses type=all and includes archived).
+        active_repos = [r for r in repos if not r.get("archived")]
+        archived_repos = [r for r in repos if r.get("archived")]
+
+        logger.info(
+            "[%s] %d repositories after exclusions (active: %d, archived: %d).",
+            self.instance, len(repos), len(active_repos), len(archived_repos),
+        )
 
         sem = asyncio.Semaphore(self.concurrency_limit)
 
-        # Dispatch all engines for all repos. We deliberately do NOT pre-check
-        # security_and_analysis on the repo metadata: that field is only
-        # returned by GitHub to tokens with administrative permissions, so
-        # tokens with the documented read-only alert permissions would falsely
-        # report all engines disabled. Instead, the per-engine alert endpoint
-        # in GHASClient returns 404 when an engine is not enabled, which
-        # get_alerts_async() and get_latest_alert_timestamp_async() handle
-        # gracefully (see architecture doc §9.4).
-        tasks = [
+        # ── Active repos: normal engine fan-out ────────────────────────────
+        # We deliberately do NOT pre-check security_and_analysis on the repo
+        # metadata: that field is only returned to tokens with administrative
+        # permissions, so read-only alert tokens would falsely report all
+        # engines disabled. The per-engine alert endpoint returns 404 when an
+        # engine is genuinely not enabled, handled gracefully downstream.
+        # Code-scanning request volume is additionally paced/concurrency-gated
+        # inside the client to respect GitHub's secondary rate limit.
+        active_tasks = [
             self._sync_with_semaphore(sem, repo, engine)
-            for repo in repos
+            for repo in active_repos
             for engine in self.engines
         ]
 
+        # ── Archived repos: tombstone (purge) fan-out ──────────────────────
+        # On a re-baseline run, tombstone every archived repo unconditionally
+        # (no watermark exists to gate on, and the point is to scrub stale
+        # findings). On a normal incremental run, the tombstone is watermark-
+        # gated inside _tombstone_archived_async (only purge scopes we actually
+        # collected before), so never-collected archived repos stay untouched.
+        archived_tasks = [
+            self._tombstone_with_semaphore(sem, repo, engine)
+            for repo in archived_repos
+            for engine in self.engines
+        ]
+
+        all_tasks = active_tasks + archived_tasks
         logger.info(
-            "[%s] Dispatching %d repo/engine sync tasks (concurrency limit: %d).",
-            self.instance, len(tasks), self.concurrency_limit
+            "[%s] Dispatching %d task(s): %d active sync + %d archived-tombstone "
+            "(concurrency limit: %d%s).",
+            self.instance, len(all_tasks), len(active_tasks), len(archived_tasks),
+            self.concurrency_limit,
+            ", RE-BASELINE rate-limit posture" if self._is_rebaseline else "",
         )
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*all_tasks, return_exceptions=True)
 
         failures = [r for r in results if isinstance(r, Exception)]
-        skipped_count = len(self._inaccessible_scopes)
-        succeeded = len(tasks) - len(failures) - skipped_count
+        self._log_run_summary(len(all_tasks), len(active_tasks), len(archived_tasks), failures)
 
-        if failures:
+    def _log_run_summary(self, total_tasks, active_tasks, archived_tasks, failures):
+        """Emit a single human-readable end-of-run summary block.
+
+        Categories are mutually meaningful and chosen so a glance tells you
+        whether the run was healthy. Crucially, RATE-LIMITED is reported
+        separately from INACCESSIBLE: the former is a throttling/tuning issue
+        (data is reachable, we were slowed), the latter a permission/enablement
+        issue. Conflating them (as the old summary did) is what made a
+        rate-limit problem look like a PAT-permissions problem.
+        """
+        ingested = len(self._ingested_scopes)
+        clean = len(self._clean_scopes)
+        archived_purged = len(self._archived_purged_scopes)
+        rate_limited = len(self._rate_limited_scopes)
+        inaccessible = len(self._inaccessible_scopes)
+        failed = len(failures)
+        alerts_total = sum(n for _, n in self._ingested_scopes)
+
+        bar = "=" * 58
+        lines = [
+            "",
+            bar,
+            f"  GHAS SYNC SUMMARY — {self.instance} (org: {self.org})",
+            f"  Mode: {'RE-BASELINE (cold full pull)' if self._is_rebaseline else 'incremental'}",
+            bar,
+            f"  Tasks dispatched     : {total_tasks:>6}   (active sync: {active_tasks}, archived tombstone: {archived_tasks})",
+            f"    ingested w/ alerts : {ingested:>6}   ({alerts_total} alerts queued)",
+            f"    clean (heartbeat)  : {clean:>6}   (zero open alerts, scan recorded)",
+            f"    archived (purged)  : {archived_purged:>6}   (findings tombstoned via ReplaceIssues)",
+            f"    RATE-LIMITED       : {rate_limited:>6}   {'← retried next run; data IS reachable' if rate_limited else ''}",
+            f"    INACCESSIBLE       : {inaccessible:>6}   {'← permission/enablement; see note below' if inaccessible else ''}",
+            f"    failed (error)     : {failed:>6}   {'← unhandled errors; check traceback logs' if failed else ''}",
+        ]
+
+        # Per-engine alert breakdown (only the engines that ingested anything).
+        if self._ingested_scopes:
+            by_engine = {}
+            for scope, n in self._ingested_scopes:
+                eng = scope.rsplit("/", 1)[-1]
+                by_engine[eng] = by_engine.get(eng, 0) + n
+            eng_str = "   ".join(f"{e}: {c}" for e, c in sorted(by_engine.items()))
+            lines.append(f"  Alerts by engine     : {eng_str}")
+
+        lines.append(bar)
+        logger.info("\n".join(lines))
+
+        # Explicit, greppable per-scope detail for the actionable categories.
+        if self._rate_limited_scopes:
             logger.warning(
-                "[%s] %d sync task(s) failed, %d skipped (engine inaccessible), %d succeeded out of %d total.",
-                self.instance, len(failures), skipped_count, succeeded, len(tasks)
+                "[%s] RATE-LIMITED scopes (not collected this run — will retry next run): %s",
+                self.instance, ", ".join(self._rate_limited_scopes),
             )
-        elif skipped_count:
-            logger.info(
-                "[%s] %d sync task(s) completed, %d skipped (engine inaccessible) out of %d total.",
-                self.instance, succeeded, skipped_count, len(tasks)
-            )
-        else:
-            logger.info("[%s] All %d sync tasks completed successfully.", self.instance, len(tasks))
-
-        # Per-scope skipped detail at debug level so operators can see which
-        # specific repo/engine pairs are currently inaccessible.
         if self._inaccessible_scopes:
-            logger.debug(
-                "[%s] Inaccessible scopes (skipped this run): %s",
+            logger.info(
+                "[%s] INACCESSIBLE scopes (permission/enablement; prior data preserved): %s",
                 self.instance, ", ".join(self._inaccessible_scopes),
             )
 
-        # Heuristic: if all (or nearly all) scopes were skipped as inaccessible,
-        # the most likely cause is a systemic PAT/access issue rather than 20
-        # independently-disabled engines. Surface a clear diagnostic line
-        # rather than letting the operator infer it from the count.
-        if tasks and skipped_count >= max(1, len(tasks) // 2):
+        # Systemic diagnostics, now correctly attributing the likely cause.
+        if rate_limited and rate_limited >= max(1, total_tasks // 4):
+            cs_share = sum(1 for s in self._rate_limited_scopes if s.endswith("/code_scanning"))
             logger.warning(
-                "[%s] %d of %d scopes skipped as inaccessible — this is unusual. "
-                "Verify the PAT has the required permissions for code scanning, "
-                "secret scanning, and dependabot alerts on org '%s'. Possible "
-                "causes: fine-grained PAT missing specific alert-read permissions; "
-                "SAML SSO authorization not granted on the PAT; fine-grained PAT "
-                "awaiting org admin approval; PAT repo-selection scope too narrow. "
-                "See architecture doc §9.3.1 for required scopes. Run with "
-                "--log-level DEBUG to see the visible repository set and per-scope "
-                "skip messages.",
-                self.instance, skipped_count, len(tasks), self.org,
+                "[%s] %d scope(s) hit GitHub's SECONDARY RATE LIMIT this run "
+                "(%d on code_scanning). This is a throttling/tuning issue, NOT a "
+                "permissions problem — the data is reachable. Lower "
+                "CodeScanningConcurrencyLimit and/or raise CodeScanningMinIntervalMs "
+                "(or the Rebaseline* equivalents) and re-run. Affected scopes kept "
+                "their state and will be retried on the next run.",
+                self.instance, rate_limited, cs_share,
+            )
+        if inaccessible and inaccessible >= max(1, total_tasks // 2):
+            logger.warning(
+                "[%s] %d of %d scopes are INACCESSIBLE (permission/enablement). "
+                "If this is unexpected, verify the PAT has read access to code "
+                "scanning, secret scanning, and dependabot alerts on org '%s': "
+                "fine-grained PAT missing alert-read permissions; SAML SSO not "
+                "authorized; fine-grained PAT awaiting org admin approval; PAT "
+                "repo-selection scope too narrow. NOTE: secondary-rate-limit "
+                "skips are counted separately as RATE-LIMITED above, so a high "
+                "count here is genuinely about access, not throttling. "
+                "See architecture doc §9.3.1.",
+                self.instance, inaccessible, total_tasks, self.org,
             )
 
     async def _sync_with_semaphore(self, sem: asyncio.Semaphore, repo: dict, engine: str):
         async with sem:
             await self.sync_repo_engine_async(repo, engine)
+
+    async def _tombstone_with_semaphore(self, sem: asyncio.Semaphore, repo: dict, engine: str):
+        async with sem:
+            await self._tombstone_archived_async(repo, engine)
 
     # ── Repo/engine sync ───────────────────────────────────────────────────
 
@@ -500,6 +630,25 @@ class GHASAdapter:
                 await self._state.save_async()
             logger.debug("State advanced for %s/%s — watermark=%s, last_scan_date=%s.",
                          full_name, engine, new_watermark, scan_date)
+            self._ingested_scopes.append((f"{full_name}/{engine}", len(alerts) + len(sarif_issues)))
+
+        except GHASRateLimitError as exc:
+            # GitHub's SECONDARY rate limit could not be cleared within the
+            # retry budget for this scope. This is a THROTTLING condition, not
+            # a permission/enablement one — the data is reachable, we were
+            # slowed. Critically, we do NOT advance state and do NOT fire the
+            # replacement/heartbeat paths: the scope keeps its prior watermark
+            # (or stays first-sync) so it re-attempts cleanly on the next run.
+            # Counted separately from inaccessible so the summary attributes the
+            # cause correctly (this is the misclassification the whole fix
+            # exists to prevent).
+            logger.warning(
+                "Rate-limited %s/%s: %s. Scope NOT collected this run; state "
+                "preserved for retry next run.",
+                full_name, engine, exc,
+            )
+            self._rate_limited_scopes.append(f"{full_name}/{engine}")
+            return
 
         except GHASEngineInaccessibleError as exc:
             # Engine not enabled / not accessible on this repo (403 or 404 from
@@ -623,6 +772,90 @@ class GHASAdapter:
             "Clean scan recorded for %s/%s — last_scan_date=%s, watermark=%s.",
             full_name, engine, scan_date, watermark_advance,
         )
+        self._clean_scopes.append(f"{full_name}/{engine}")
+
+    async def _tombstone_archived_async(self, repo: dict, engine: str):
+        """
+        Purge a SaltMiner scope for an ARCHIVED GitHub repository by queueing an
+        empty Scan+Asset with ReplaceIssues=True (the tombstone). SaltMiner
+        removes the scope's prior alerts by absence.
+
+        Archived repos reject the code-scanning alert endpoint with 403 and are
+        excluded from org-level alert lists, so their findings would otherwise
+        linger in SaltMiner forever (the "phantom" rows). This path is the
+        deliberate, in-architecture purge.
+
+        Firing policy (driven by the is_rebaseline snapshot taken at startup):
+          - RE-BASELINE run (empty state): tombstone EVERY archived repo/engine
+            unconditionally. No watermark exists to gate on, and the goal is to
+            scrub all stale findings as part of the clean rebuild. A brand-new
+            deployment will therefore queue empty Scan+Asset docs for already-
+            archived repos it never collected — accepted as benign noise (the
+            asset simply shows "archived, no findings").
+          - INCREMENTAL run (state present): tombstone ONLY scopes we have a
+            watermark for (previously collected). An archived repo we never
+            collected has no watermark and is left untouched, so we don't
+            manufacture empty assets for repos with no SaltMiner presence.
+
+        ScanDate: a tombstone is a delete instruction, not a real scan — its
+        date is semantically irrelevant. We deliberately use run-clock now()
+        (no analyses/pushed_at lookup, no null-skip), so the purge can never be
+        suppressed by missing execution evidence the way a clean scan can.
+
+        After a successful tombstone the scope's watermark is cleared so the
+        empty replacement is not re-fired on every subsequent run.
+        """
+        full_name = repo["full_name"]
+
+        if not self._is_rebaseline:
+            if self._state.get_watermark(full_name, engine) is None:
+                logger.debug(
+                    "Archived repo %s/%s has no watermark (never collected) — "
+                    "nothing to purge, skipping tombstone.",
+                    full_name, engine,
+                )
+                return
+
+        try:
+            run_id = str(uuid.uuid4())
+            report_id = f"{self.org}/{full_name}/{engine}/{run_id}"
+            scan_date = self._now()  # run-clock; see docstring
+
+            logger.info(
+                "Tombstoning archived repo %s/%s (purging findings via empty "
+                "ReplaceIssues, ScanDate=%s).",
+                full_name, engine, scan_date,
+            )
+
+            mapped_scan = self.map_scan(repo, engine, report_id, scan_date)
+            queue_scan = await self._data_client.queue_scan_add_update_async(
+                json.loads(mapped_scan.model_dump_json())
+            )
+
+            mapped_asset = self.map_asset(repo, queue_scan["id"], engine, None)
+            queue_asset = await self._data_client.queue_asset_add_update_async(
+                json.loads(mapped_asset.model_dump_json())
+            )
+
+            # No issues — flush empty batch and finalize. Empty replacement set
+            # + ReplaceIssues=True removes prior alerts by absence.
+            await self._data_client.queue_issue_add_update_batch_async(None)
+            await self._data_client.queue_scan_update_status_async(
+                queue_scan["id"], QueueStatus.PENDING
+            )
+
+            async with self._state_lock:
+                self._state.clear_watermark(full_name, engine)
+                await self._state.save_async()
+
+            self._archived_purged_scopes.append(f"{full_name}/{engine}")
+
+        except Exception as exc:
+            logger.error(
+                "Failed to tombstone archived %s/%s: %s",
+                full_name, engine, exc, exc_info=True,
+            )
+            raise
 
     async def _get_latest_analysis_async(self, full_name: str) -> Optional[dict]:
         """
@@ -829,6 +1062,13 @@ class GHASAdapter:
             "ghas_default_branch": repo.get("default_branch") or "main",
             "ghas_visibility": repo.get("visibility") or "private",
             "ghas_topics": ",".join(topics) if topics else "",
+            # Run-tag: stamps every asset with the current run's id/timestamp so
+            # the companion orphan-cleanup script can identify assets NOT seen
+            # in the most recent run (repos deleted/renamed/transferred at the
+            # GitHub side, which the adapter can no longer enumerate and so
+            # cannot tombstone in-band — Category-2 orphans).
+            "ghas_run_id": self._run_id,
+            "ghas_run_ts": self._run_ts,
         }
 
         # ENH-004: engine-specific "recently scanned" enrichment.
@@ -889,7 +1129,11 @@ class GHASAdapter:
 
         # ── Vulnerability fields ───────────────────────────────────────────
         vuln = doc["Vulnerability"]
-        vuln["FoundDate"] = alert.get("created_at") or self._now()
+        # FIX-003: normalise to a single canonical UTC suffix. GitHub usually
+        # returns created_at as "...Z", but some payloads/paths carry "+00:00"
+        # and a naive "+ Z" elsewhere produced a "+00:00Z" double-suffix. The
+        # helper collapses any of {Z, +00:00, +00:00Z, naive} to exactly one Z.
+        vuln["FoundDate"] = self._iso_utc(alert.get("created_at")) or self._now()
         vuln["Name"] = self._alert_name(alert, engine)
         vuln["Severity"] = self._normalize_severity(alert, engine)
         vuln["IsRemoved"] = False
@@ -1014,6 +1258,8 @@ class GHASAdapter:
             "ghas_tool_name": sarif_result.get("tool_name", ""),
             "ghas_suppression_reason": sarif_result.get("suppression_reason", ""),
             "ghas_org": self.org,
+            "ghas_run_id": self._run_id,
+            "ghas_run_ts": self._run_ts,
         }
 
         return MapIssueDocDTO(**doc)
@@ -1031,6 +1277,37 @@ class GHASAdapter:
     @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+    @staticmethod
+    def _iso_utc(value: Optional[str]) -> Optional[str]:
+        """
+        FIX-003: Return an ISO8601 UTC timestamp with exactly one trailing 'Z'
+        suffix, regardless of the input's suffix form. Collapses all of:
+            "2024-03-08T22:14:49Z"        → "2024-03-08T22:14:49Z"
+            "2024-03-08T22:14:49+00:00"   → "2024-03-08T22:14:49Z"
+            "2024-03-08T22:14:49+00:00Z"  → "2024-03-08T22:14:49Z"   (the bug)
+            "2024-03-08T22:14:49"         → "2024-03-08T22:14:49Z"
+        Non-UTC offsets are converted to UTC. Returns None for falsy input so
+        the caller can fall back. On any parse failure the original value is
+        returned unchanged (never worse than the input).
+        """
+        if not value:
+            return None
+        v = value.strip()
+        # Strip the specific malformed double-suffix first.
+        if v.endswith("+00:00Z"):
+            v = v[:-1]  # drop the stray trailing Z → "...+00:00"
+        try:
+            dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.astimezone(timezone.utc)
+            # Emit canonical Z form; preserve sub-seconds only if present.
+            if dt.microsecond:
+                return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            return dt.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+        except (ValueError, TypeError):
+            return value
 
     @staticmethod
     def _max_updated_at(alerts: list) -> Optional[str]:
@@ -1124,6 +1401,8 @@ class GHASAdapter:
             "ghas_alert_number": str(alert.get("number", "")),
             "ghas_org": self.org,
             "ghas_repo": alert.get("repository", {}).get("full_name") or "",
+            "ghas_run_id": self._run_id,
+            "ghas_run_ts": self._run_ts,
         }
 
         if engine == "code_scanning":
