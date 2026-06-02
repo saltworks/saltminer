@@ -30,8 +30,68 @@ logger = logging.getLogger(__name__)
 # GitHub API pagination limit
 PAGE_SIZE = 100
 
-# Rate limit backoff constants (seconds)
-SECONDARY_BACKOFF = [60, 120, 240]
+# ── Rate-limit defaults (grounded in GitHub's published limits) ─────────────
+#
+# GitHub's documented secondary rate limits (docs.github.com, "Rate limits for
+# the REST API"):
+#   - No more than 900 points/minute to a single REST endpoint. GET = 1 point,
+#     so ~900 GET/min == ~15 req/s is the *documented ceiling* for one endpoint.
+#   - No more than 100 concurrent requests (shared REST + GraphQL).
+#   - No more than 90s of CPU time per 60s real time. Code-scanning alert
+#     queries are comparatively expensive server-side, so this CPU rule trips
+#     for code-scanning *below* the 900/min request ceiling — which is why a
+#     high-concurrency fan-out fails on code-scanning while dependabot/secret
+#     scanning survive the same request rate.
+#   - The secondary limit is DYNAMIC ("may change based on current load or risk
+#     factors") and may fire "for undisclosed reasons". So a fixed request rate
+#     can only ever be a conservative target, never a guarantee — the authoritative
+#     signal is the 403/429 "secondary rate limit" response itself plus its
+#     Retry-After / x-ratelimit-reset headers.
+#
+# Design (layered):
+#   1. PACE requests to the expensive code-scanning endpoint well under the
+#      documented ceiling (token-bucket min-interval). This is the primary
+#      avoidance mechanism and matches GitHub's own advice to "make requests
+#      serially ... implement a queue system".
+#   2. Cap CONCURRENCY on code-scanning low (separate from the global limit),
+#      because concurrency interacts with the CPU-time rule.
+#   3. On a secondary-limit signal, BACK OFF using GitHub's own headers
+#      (Retry-After → x-ratelimit-reset → >=60s then exponential), and after a
+#      bounded number of attempts FAIL LOUD as a distinct rate-limit error —
+#      never silently skip the scope (which previously masqueraded as "engine
+#      inaccessible" and preserved stale/empty data).
+#
+# All of these are overridable per-instance via config (see GHASClient.__init__).
+# Defaults are deliberately conservative: code-scanning paced to ~5 req/s
+# (200ms min interval), which is ~1/3 of the documented 900/min ceiling, with a
+# concurrency ceiling of 3. Tune upward in config if your org tolerates it.
+
+DEFAULT_CODE_SCANNING_MIN_INTERVAL_MS = 200   # ~5 req/s to the code-scanning endpoint
+DEFAULT_CODE_SCANNING_CONCURRENCY = 3         # max concurrent code-scanning requests
+DEFAULT_OTHER_ENGINE_MIN_INTERVAL_MS = 0      # no pacing on cheaper endpoints by default
+
+# Re-baseline (cold full-pull) mode defaults — avoidance-first + deep-retry
+# backstop, engaged only when the state file is empty. Slower but designed to
+# complete code-scanning in a single pass without tripping the secondary limit.
+DEFAULT_REBASELINE_CS_MIN_INTERVAL_MS = 330   # ~3 req/s — gentler than steady-state
+DEFAULT_REBASELINE_CS_CONCURRENCY = 2         # very low concurrency on the expensive endpoint
+DEFAULT_REBASELINE_SECONDARY_MAX_ATTEMPTS = 10  # deep retry backstop (vs 5 normally)
+
+# Secondary-rate-limit retry policy.
+#   SECONDARY_MAX_ATTEMPTS — how many times to wait-and-retry a single request
+#     that keeps hitting the secondary limit before giving up and raising
+#     GHASRateLimitError for that scope (the scope is retried on the next run).
+#   SECONDARY_FALLBACK_BACKOFF — used only when GitHub sends NO Retry-After and
+#     NO usable x-ratelimit-reset (a documented-but-undocumented gap: GitHub
+#     does not always send Retry-After on secondary limits). Per GitHub's
+#     guidance: wait >=60s, then increase exponentially.
+SECONDARY_MAX_ATTEMPTS = 5
+SECONDARY_FALLBACK_BACKOFF = [60, 120, 240, 480, 900]  # seconds; last value repeats if needed
+
+# Legacy name retained for compatibility with any external references; the
+# fallback schedule above supersedes it for secondary-limit handling.
+SECONDARY_BACKOFF = SECONDARY_FALLBACK_BACKOFF
+
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=60, connect=10)
 
 
@@ -39,47 +99,90 @@ class GHASAuthError(Exception):
     """Raised when authentication fails and cannot be recovered."""
 
 
+class GHASRateLimitError(Exception):
+    """
+    Raised when a request to a GHAS alert endpoint repeatedly hits GitHub's
+    SECONDARY rate limit and exhausts the retry budget (SECONDARY_MAX_ATTEMPTS).
+
+    This is deliberately DISTINCT from GHASEngineInaccessibleError. The two
+    look identical on the wire (both surface as HTTP 403) but mean opposite
+    things and demand opposite handling:
+
+      - GHASEngineInaccessibleError (403 "Resource not accessible" / 404):
+        a *permission/enablement* condition. The scope is skipped and prior
+        SaltMiner data is preserved. Stable across runs.
+
+      - GHASRateLimitError (403/429 "secondary rate limit"):
+        a *load* condition. The data IS accessible — we simply asked too fast.
+        Skipping-and-preserving here is wrong twice over: it hides a tuning
+        problem as if it were a permissions problem, and (because the scope
+        keeps its stale/absent watermark) it re-attempts as a full first-sync
+        every run, re-hammering the endpoint and re-tripping the limit.
+
+    Historical note: before this class existed, a secondary-limit 403 that
+    survived backoff was caught by the `status in (403, 404)` branch and
+    converted into GHASEngineInaccessibleError — so an entire org's worth of
+    code-scanning scopes were reported as "engine inaccessible" (implying a PAT
+    permissions problem) when the real cause was the adapter overrunning the
+    code-scanning secondary rate limit under high concurrency. This class makes
+    that failure mode visible and separately counted in the run summary.
+
+    The carried `scope` (e.g. "org/repo/code_scanning") lets the adapter list
+    rate-limited scopes explicitly in the end-of-run summary.
+    """
+
+    def __init__(self, message: str, scope: Optional[str] = None):
+        super().__init__(message)
+        self.scope = scope
+
+
 class GHASEngineInaccessibleError(Exception):
     """
-    Raised when a per-repo alert endpoint returns 403 or 404, indicating
-    we cannot determine the open-alert set for this repo/engine right now.
+    Raised when a per-repo alert endpoint returns 403 or 404 for a
+    *permission/enablement* reason — NOT a rate-limit reason and NOT an
+    archived repo.
 
-    The two statuses mean slightly different things at GitHub's end:
-      - 403 "Resource not accessible by personal access token": the PAT
-        can talk to GitHub but does not have access to *this specific*
-        alert endpoint. Common causes: fine-grained PAT missing the
-        specific alert-read permission for this engine; classic PAT
-        missing SSO authorization on a SAML-enforced org; fine-grained
-        PAT awaiting org admin approval; PAT repo-selection scope
-        excludes this repo's alerts.
-      - 404 "Not Found": the alert endpoint doesn't exist for this PAT.
-        Common causes: engine has never been enabled on this repo;
-        repo is genuinely inaccessible to this PAT at all (more likely
-        surfaces at the org-list level instead).
+    Two related but separate conditions are handled elsewhere and must not
+    reach this exception:
+      - SECONDARY RATE LIMIT (403/429 with a "secondary rate limit" body):
+        raised as GHASRateLimitError after the retry budget is exhausted.
+        See that class. A rate-limit 403 means the data IS accessible; we
+        asked too fast. Treating it as "inaccessible" is the bug this split
+        was created to fix.
+      - ARCHIVED REPOS: detected up front from the repo's `archived` flag and
+        diverted to the tombstone/purge path by the adapter BEFORE any alert
+        fetch. An archived repo therefore never reaches an alert request and
+        never produces one of these 403/404s.
 
-    From the adapter's perspective both outcomes are operationally
-    equivalent: we can't see alerts here, and we don't know whether
-    the lack of alerts is real (engine off, alerts truly zero) or
-    apparent (PAT missing scope). The conservative response is to
-    skip the scope WITHOUT advancing state and WITHOUT firing the
-    FIX-001 replacement or ENH-004 heartbeat paths. This preserves
-    whatever data SaltMiner has already accepted for the scope.
+    With those removed, the 403/404 that *does* reach here is a genuine
+    permission/enablement condition:
+      - 403 "Resource not accessible by personal access token": the PAT can
+        talk to GitHub but lacks access to this specific alert endpoint.
+        Causes: fine-grained PAT missing the engine's alert-read permission;
+        classic PAT missing SSO authorization on a SAML-enforced org;
+        fine-grained PAT awaiting org admin approval; PAT repo-selection scope
+        excludes this repo.
+      - 404 "Not Found": the alert endpoint doesn't exist for this PAT —
+        usually the engine has never been enabled on this repo.
+
+    From the adapter's perspective both are operationally equivalent: we can't
+    see alerts here, and we don't know whether the absence is real (engine off)
+    or apparent (PAT scope). The conservative response is to skip the scope
+    WITHOUT advancing state and WITHOUT firing the FIX-001 replacement or
+    ENH-004 heartbeat paths, preserving whatever SaltMiner already holds.
 
     Why we don't fire the replacement path on this:
-      Treating "engine inaccessible" as "alerts are all closed → empty
-      replacement" would destroy previously-queued alerts in SaltMiner
-      on the first sync after any transient access issue. The safer
-      default is to leave SaltMiner's prior data untouched and skip
-      the scope cleanly. Operators who genuinely want to clean up a
-      permanently-disabled scope can remove its watermark from the
-      state file, which converts it to a first-sync scope on the next
-      run.
+      Treating "engine inaccessible" as "alerts all closed → empty replacement"
+      would destroy previously-queued alerts on the first transient access blip.
+      Operators who want to clean up a permanently-disabled scope can remove its
+      watermark from the state file (→ first-sync next run).
 
     Diagnostic guidance:
-      If all (or nearly all) scopes are skipped via this exception on
-      a single run, the cause is almost certainly a systemic PAT issue,
-      not 20 independently-disabled engines. The adapter logs an
-      explicit warning at the end of such runs pointing at the PAT.
+      If many scopes are skipped via THIS exception (not GHASRateLimitError) on
+      one run, suspect a systemic PAT permission/SSO/approval problem. If the
+      skips are instead GHASRateLimitError and concentrated on code_scanning,
+      suspect secondary rate limiting, not permissions — lower the code-scanning
+      pacing/concurrency in config.
     """
 
 
@@ -117,6 +220,84 @@ class GHASClient:
         self._token_expiry: Optional[datetime] = None
         self._token_lock = asyncio.Lock()
 
+        # ── Rate-limit / pacing configuration (all optional, defaulted) ─────
+        # Code-scanning is the expensive, secondary-limit-prone endpoint, so it
+        # gets its own pacing and concurrency knobs distinct from the other
+        # engines. All keys are optional; absent → conservative defaults, so
+        # existing configs run unchanged.
+        cs_interval_ms = settings.GetSource(source_name, "CodeScanningMinIntervalMs")
+        if cs_interval_ms is None:
+            cs_interval_ms = DEFAULT_CODE_SCANNING_MIN_INTERVAL_MS
+        other_interval_ms = settings.GetSource(source_name, "OtherEngineMinIntervalMs")
+        if other_interval_ms is None:
+            other_interval_ms = DEFAULT_OTHER_ENGINE_MIN_INTERVAL_MS
+        cs_concurrency = settings.GetSource(source_name, "CodeScanningConcurrencyLimit")
+        if cs_concurrency is None:
+            cs_concurrency = DEFAULT_CODE_SCANNING_CONCURRENCY
+
+        # Per-engine minimum interval between requests (seconds). Enforced by a
+        # simple monotonic-clock pacer guarded by a lock per engine, so it works
+        # correctly regardless of how many coroutines share the client.
+        self._engine_min_interval = {
+            "code_scanning": max(0.0, float(cs_interval_ms) / 1000.0),
+            "secret_scanning": max(0.0, float(other_interval_ms) / 1000.0),
+            "dependabot": max(0.0, float(other_interval_ms) / 1000.0),
+        }
+        # Pacer state: last-request monotonic timestamp + a lock, per engine.
+        self._pace_locks = {eng: asyncio.Lock() for eng in self._engine_min_interval}
+        self._pace_last = {eng: 0.0 for eng in self._engine_min_interval}
+
+        # Dedicated concurrency gate for code-scanning requests, layered UNDER
+        # the adapter's overall semaphore. Even if the adapter dispatches many
+        # code-scanning scopes at once, no more than this many code-scanning
+        # HTTP requests are in flight simultaneously. Other engines are not
+        # gated here (they use the adapter's global semaphore only).
+        self._code_scanning_concurrency = max(1, int(cs_concurrency))
+        self._code_scanning_gate = asyncio.Semaphore(self._code_scanning_concurrency)
+
+        # Secondary-limit retry budget for normal (incremental) runs.
+        self._secondary_max_attempts = SECONDARY_MAX_ATTEMPTS
+
+        # ── Re-baseline (cold full-pull) mode values ────────────────────────
+        # A re-baseline run pulls every scope as a first-sync full fetch, which
+        # is the highest-volume / most rate-limit-prone scenario (e.g. ~179
+        # code-scanning repos at once). When the adapter detects an empty state
+        # file it calls enable_rebaseline_mode(), which tightens code-scanning
+        # concurrency and pacing (avoidance-first) AND raises the retry budget
+        # (deep-retry backstop) so the run tries to complete code-scanning in a
+        # single pass. These engage ONLY on empty-state runs; normal
+        # incremental runs keep the faster everyday values above.
+        #
+        # All overridable per-instance via config; absent → defaults below.
+        self._rebaseline_cs_interval_ms = settings.GetSource(
+            source_name, "RebaselineCodeScanningMinIntervalMs"
+        )
+        if self._rebaseline_cs_interval_ms is None:
+            self._rebaseline_cs_interval_ms = DEFAULT_REBASELINE_CS_MIN_INTERVAL_MS
+        self._rebaseline_cs_concurrency = settings.GetSource(
+            source_name, "RebaselineCodeScanningConcurrencyLimit"
+        )
+        if self._rebaseline_cs_concurrency is None:
+            self._rebaseline_cs_concurrency = DEFAULT_REBASELINE_CS_CONCURRENCY
+        self._rebaseline_max_attempts = settings.GetSource(
+            source_name, "RebaselineSecondaryMaxAttempts"
+        )
+        if self._rebaseline_max_attempts is None:
+            self._rebaseline_max_attempts = DEFAULT_REBASELINE_SECONDARY_MAX_ATTEMPTS
+
+        logger.info(
+            "[%s] Rate-limit config: code_scanning pacing=%.0fms concurrency=%d; "
+            "other-engine pacing=%.0fms. Re-baseline mode (if state empty): "
+            "code_scanning pacing=%.0fms concurrency=%d, retry budget=%d.",
+            source_name,
+            self._engine_min_interval["code_scanning"] * 1000.0,
+            self._code_scanning_concurrency,
+            self._engine_min_interval["dependabot"] * 1000.0,
+            float(self._rebaseline_cs_interval_ms),
+            int(self._rebaseline_cs_concurrency),
+            int(self._rebaseline_max_attempts),
+        )
+
         # aiohttp session — created on first use or via async context manager
         self._session: Optional[aiohttp.ClientSession] = None
 
@@ -137,6 +318,35 @@ class GHASClient:
     async def _ensure_session(self):
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(timeout=REQUEST_TIMEOUT)
+
+    def enable_rebaseline_mode(self):
+        """
+        Switch the client into re-baseline (cold full-pull) rate-limit posture:
+        tighter code-scanning concurrency + wider pacing (avoidance-first) and a
+        larger secondary-limit retry budget (deep-retry backstop), so a full
+        first-sync of every scope tries to complete code-scanning in one pass.
+
+        Called by the adapter ONCE at startup when it detects an empty state
+        file (the is_rebaseline snapshot). Idempotent and safe to call before
+        any requests are issued. Has no effect on normal incremental runs.
+        """
+        self._engine_min_interval["code_scanning"] = max(
+            0.0, float(self._rebaseline_cs_interval_ms) / 1000.0
+        )
+        self._code_scanning_concurrency = max(1, int(self._rebaseline_cs_concurrency))
+        # Re-create the gate at the tighter size. Safe here because no requests
+        # are in flight yet (called before dispatch).
+        self._code_scanning_gate = asyncio.Semaphore(self._code_scanning_concurrency)
+        self._secondary_max_attempts = int(self._rebaseline_max_attempts)
+        logger.warning(
+            "[%s] RE-BASELINE MODE engaged (empty state file detected): "
+            "code_scanning pacing=%.0fms, concurrency=%d, secondary-retry budget=%d. "
+            "Code-scanning will pull slower but aims to complete in a single pass.",
+            self._source_name,
+            self._engine_min_interval["code_scanning"] * 1000.0,
+            self._code_scanning_concurrency,
+            self._secondary_max_attempts,
+        )
 
     # ── Auth detection ─────────────────────────────────────────────────────
 
@@ -268,45 +478,209 @@ class GHASClient:
                 return parts[0].strip().strip("<>")
         return None
 
-    async def _get_response_with_retry(self, url: str, params: dict = None, headers: dict = None) -> aiohttp.ClientResponse:
-        """GET with rate-limit backoff and connection-error retry. Returns the raw response so callers can read the Link header for pagination."""
+    async def _pace(self, engine: Optional[str]):
+        """
+        Enforce the configured minimum interval between requests for a given
+        engine (token-bucket style, monotonic clock). No-op when the engine has
+        no pacing configured (interval 0) or engine is None (non-engine calls
+        like repo inventory and App-token requests are not paced here).
+
+        This is the primary secondary-rate-limit AVOIDANCE mechanism: by
+        spacing code-scanning requests we stay well under GitHub's ~900
+        points/min single-endpoint ceiling and, more importantly, under the
+        opaque CPU-time secondary limit that code-scanning trips first.
+        """
+        if not engine:
+            return
+        interval = self._engine_min_interval.get(engine, 0.0)
+        if interval <= 0.0:
+            return
+        lock = self._pace_locks[engine]
+        async with lock:
+            now = time.monotonic()
+            wait = (self._pace_last[engine] + interval) - now
+            if wait > 0:
+                await asyncio.sleep(wait)
+                now = time.monotonic()
+            self._pace_last[engine] = now
+
+    @staticmethod
+    def _is_secondary_rate_limit(status: int, body: str) -> bool:
+        """
+        Identify a GitHub SECONDARY rate-limit response. GitHub returns 403 or
+        429 with a body that mentions a secondary rate limit. We match on the
+        body text (case-insensitive) rather than status alone, because a plain
+        403 is a permission error and must NOT be treated as rate limiting.
+        """
+        if status not in (403, 429):
+            return False
+        b = (body or "").lower()
+        return (
+            "secondary rate limit" in b
+            or "exceeded a secondary rate limit" in b
+            or "you have triggered an abuse detection" in b   # legacy phrasing
+        )
+
+    @staticmethod
+    def _compute_rate_limit_wait(resp_headers, attempt: int) -> float:
+        """
+        Decide how long to wait before retrying a secondary-rate-limited
+        request, following GitHub's documented guidance and tolerating the
+        known gap where Retry-After is sometimes absent on secondary limits:
+
+          1. Retry-After header present  → wait that many seconds.
+          2. else x-ratelimit-remaining == 0 → wait until x-ratelimit-reset.
+          3. else (no usable headers)    → fall back to >=60s, increasing
+             exponentially per SECONDARY_FALLBACK_BACKOFF.
+
+        A small fixed cushion is added so we resume just after the window.
+        """
+        cushion = 2.0
+
+        retry_after = resp_headers.get("Retry-After")
+        if retry_after is not None:
+            try:
+                return max(0.0, float(int(retry_after))) + cushion
+            except (ValueError, TypeError):
+                pass
+
+        remaining = resp_headers.get("x-ratelimit-remaining")
+        reset = resp_headers.get("x-ratelimit-reset")
+        if remaining is not None and reset is not None:
+            try:
+                if int(remaining) == 0:
+                    wait = int(reset) - int(time.time())
+                    return max(0.0, float(wait)) + cushion
+            except (ValueError, TypeError):
+                pass
+
+        # No usable headers — fall back to the documented "wait >=60s then
+        # exponential" schedule. Clamp the index to the last entry so further
+        # attempts keep waiting the maximum rather than indexing out of range.
+        idx = min(attempt, len(SECONDARY_FALLBACK_BACKOFF) - 1)
+        return float(SECONDARY_FALLBACK_BACKOFF[idx]) + cushion
+
+    async def _get_response_with_retry(
+        self,
+        url: str,
+        params: dict = None,
+        headers: dict = None,
+        engine: Optional[str] = None,
+        scope: Optional[str] = None,
+    ) -> aiohttp.ClientResponse:
+        """
+        GET with engine-aware pacing, secondary-rate-limit backoff, and primary
+        rate-limit handling. Returns the raw response so callers can read the
+        Link header for pagination.
+
+        engine: which GHAS engine this request is for (drives pacing and, for
+                code_scanning, the dedicated concurrency gate). None for
+                non-engine calls (repo inventory, App token, analyses, SARIF).
+        scope:  "org/repo/engine" for diagnostics, carried into
+                GHASRateLimitError if the secondary limit can't be beaten.
+
+        Distinguishes two 403 meanings that previously collapsed together:
+          - secondary rate limit  → retry with header-driven backoff; after
+            SECONDARY_MAX_ATTEMPTS raise GHASRateLimitError (NOT a permission
+            error, NOT a silent skip).
+          - anything else (incl. permission 403) → raised via _raise_for_status
+            for the caller to classify (the alert generators turn a permission
+            403/404 into GHASEngineInaccessibleError).
+        """
         await self._ensure_session()
         h = headers or await self._headers()
-        backoff_idx = 0
+        secondary_attempts = 0
 
-        while True:
-            resp = await self._session.get(url, headers=h, params=params)
+        # Code-scanning requests pass through a dedicated low-concurrency gate
+        # layered under the adapter's global semaphore, so the expensive
+        # endpoint never has more than CodeScanningConcurrencyLimit requests in
+        # flight regardless of how many scopes the adapter dispatched at once.
+        gate = self._code_scanning_gate if engine == "code_scanning" else None
+        if gate is not None:
+            await gate.acquire()
+        try:
+            while True:
+                # Pace BEFORE each attempt (including retries) so backoff and
+                # pacing compose correctly.
+                await self._pace(engine)
 
-            if resp.status == 429:
-                retry_after = int(resp.headers.get("Retry-After", 60))
-                await asyncio.sleep(retry_after + 5)
-                h = headers or await self._headers()
-                continue
+                resp = await self._session.get(url, headers=h, params=params)
 
-            remaining = resp.headers.get("x-ratelimit-remaining")
-            if remaining is not None and int(remaining) == 0:
-                reset_ts = int(resp.headers.get("x-ratelimit-reset", time.time() + 60))
-                wait = max(reset_ts - int(time.time()), 0) + 5
-                await asyncio.sleep(wait)
-                h = headers or await self._headers()
-                continue
-
-            if resp.status == 403:
-                body = await resp.text()
-                if "secondary rate limit" in body.lower() or "rate limit exceeded" in body.lower():
-                    if backoff_idx >= len(SECONDARY_BACKOFF):
-                        raise aiohttp.ClientResponseError(
-                            resp.request_info, resp.history,
-                            status=403, message="Secondary rate limit — max retries exceeded."
-                        )
-                    await asyncio.sleep(SECONDARY_BACKOFF[backoff_idx] + 5)
-                    backoff_idx += 1
+                # Primary rate limit: 429 with Retry-After, OR remaining==0.
+                if resp.status == 429 and not self._peek_secondary(resp):
+                    retry_after = int(resp.headers.get("Retry-After", 60))
+                    await resp.release()
+                    await asyncio.sleep(retry_after + 2)
                     h = headers or await self._headers()
                     continue
-                raise aiohttp.ClientResponseError(resp.request_info, resp.history, status=403, message=body[:200])
 
-            await self._raise_for_status(resp, url)
-            return resp
+                remaining = resp.headers.get("x-ratelimit-remaining")
+                if (
+                    remaining is not None
+                    and remaining.isdigit()
+                    and int(remaining) == 0
+                    and resp.status >= 400
+                ):
+                    # Primary budget exhausted. Wait until reset.
+                    reset_ts = int(resp.headers.get("x-ratelimit-reset", time.time() + 60))
+                    await resp.release()
+                    wait = max(reset_ts - int(time.time()), 0) + 2
+                    logger.warning(
+                        "Primary rate limit hit (remaining=0). Waiting %ds before retry. scope=%s",
+                        wait, scope or url,
+                    )
+                    await asyncio.sleep(wait)
+                    h = headers or await self._headers()
+                    continue
+
+                # Secondary rate limit: 403/429 with a secondary-limit body.
+                if resp.status in (403, 429):
+                    body = await resp.text()
+                    if self._is_secondary_rate_limit(resp.status, body):
+                        if secondary_attempts >= self._secondary_max_attempts:
+                            await resp.release()
+                            raise GHASRateLimitError(
+                                f"Secondary rate limit not cleared after "
+                                f"{self._secondary_max_attempts} attempts for {scope or url}.",
+                                scope=scope,
+                            )
+                        wait = self._compute_rate_limit_wait(resp.headers, secondary_attempts)
+                        await resp.release()
+                        secondary_attempts += 1
+                        logger.warning(
+                            "Secondary rate limit on %s (attempt %d/%d) — waiting %.0fs. "
+                            "If concentrated on code_scanning, lower CodeScanningConcurrencyLimit "
+                            "or raise CodeScanningMinIntervalMs.",
+                            scope or url, secondary_attempts, self._secondary_max_attempts, wait,
+                        )
+                        await asyncio.sleep(wait)
+                        h = headers or await self._headers()
+                        continue
+                    # Not a secondary-limit 403/429 → genuine error (e.g.
+                    # permission 403). Fall through to _raise_for_status, which
+                    # raises ClientResponseError preserving the status so the
+                    # caller can classify 403/404 → GHASEngineInaccessibleError.
+                    raise aiohttp.ClientResponseError(
+                        resp.request_info, resp.history,
+                        status=resp.status, message=body[:200],
+                    )
+
+                await self._raise_for_status(resp, url)
+                return resp
+        finally:
+            if gate is not None:
+                gate.release()
+
+    @staticmethod
+    def _peek_secondary(resp: aiohttp.ClientResponse) -> bool:
+        """
+        Best-effort check (header-only, no body read) for whether a 429 is a
+        secondary-limit response, used to route 429s. GitHub does not provide a
+        definitive header, so this conservatively returns False and lets the
+        body-based _is_secondary_rate_limit make the real determination in the
+        403/429 branch. Kept as a seam for future header-based signals.
+        """
+        return False
 
     # ── Repository inventory ───────────────────────────────────────────────
 
@@ -380,15 +754,19 @@ class GHASClient:
         for state in self._engine_state_queries(engine, purpose="all"):
             params = {"per_page": 1, "sort": "updated", "direction": "desc", "state": state}
             try:
-                resp = await self._get_response_with_retry(endpoint, params=params)
+                resp = await self._get_response_with_retry(
+                    endpoint, params=params,
+                    engine=engine, scope=f"{full_name}/{engine}",
+                )
                 async with resp:
                     data = await resp.json()
             except aiohttp.ClientResponseError as exc:
                 if exc.status in (403, 404):
-                    # Engine alert endpoint not accessible. Both status codes
-                    # produce the same operational outcome (skip the scope),
-                    # but the message preserves which one was returned so the
-                    # operator can diagnose:
+                    # Permission/enablement 403 or 404 only. Secondary
+                    # rate-limit 403s never reach here — they are retried inside
+                    # _get_response_with_retry and, if unbeatable, raised as
+                    # GHASRateLimitError (a different exception type). The
+                    # status distinction for diagnosis:
                     #   403 → PAT permission scope likely insufficient, OR
                     #         SSO authorization missing, OR fine-grained PAT
                     #         admin-approval missing.
@@ -453,15 +831,21 @@ class GHASClient:
 
             while url:
                 try:
-                    resp = await self._get_response_with_retry(url, params=params)
+                    resp = await self._get_response_with_retry(
+                        url, params=params,
+                        engine=engine, scope=f"{full_name}/{engine}",
+                    )
                     async with resp:
                         alerts = await resp.json()
                         link = resp.headers.get("Link")
                 except aiohttp.ClientResponseError as exc:
                     if exc.status in (403, 404):
-                        # Engine alert endpoint not accessible. See the
-                        # matching block in get_latest_alert_timestamp_async
-                        # for the distinction between 403 and 404 causes.
+                        # Permission/enablement 403 or 404 (NOT a secondary
+                        # rate-limit 403 — those are handled inside
+                        # _get_response_with_retry and raised as
+                        # GHASRateLimitError, which is a different exception
+                        # type and bypasses this block entirely). See the
+                        # matching block in get_latest_alert_timestamp_async.
                         raise GHASEngineInaccessibleError(
                             f"HTTP {exc.status} on Phase 2 fetch for {full_name}/{engine} "
                             f"(state={state})"
