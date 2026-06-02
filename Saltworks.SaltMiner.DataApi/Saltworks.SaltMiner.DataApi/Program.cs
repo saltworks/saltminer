@@ -57,6 +57,7 @@ namespace Saltworks.SaltMiner.DataApi
         private const string API_CONFIG_SECTION = "ApiConfig";
         const string LOCATOR_FILE_NAME = "ConfigLocator.json";
         const string DUMP_CONFIG_FILE_NAME = "ConfigDump.json";
+        const string JE = ".json";
         private static bool KestrelAllowRemote = false;
         private static int KestrelPort = 5000;
 
@@ -530,7 +531,6 @@ namespace Saltworks.SaltMiner.DataApi
         private static void ProcessIndexPolicies(ApiConfig config, IElasticClient client)
         {
             var failMsg = "Failed to list index policy path files";
-            const string JE = ".json";
             // Index Policies
             try
             {
@@ -572,7 +572,6 @@ namespace Saltworks.SaltMiner.DataApi
         {
             // Index Templates
             var failMsg = "Failed to list index template path files";
-            const string JE = ".json";
             try
             {
                 var dir = GetDirectory(config.DataIndexTemplatePath);
@@ -614,7 +613,6 @@ namespace Saltworks.SaltMiner.DataApi
         private static void ProcessSeeds(ApiConfig config, IElasticClient client)
         {
             var failMsg = "Failed to list seed path files";
-            const string JE = ".json";
             // Seeds
             try
             {
@@ -675,7 +673,6 @@ namespace Saltworks.SaltMiner.DataApi
 
         private static void ProcessRoles(ApiConfig config, IElasticClient client)
         {
-            const string JE = ".json";
             var failMsg = "Failed to list role path files";
             // Roles
             try
@@ -718,7 +715,6 @@ namespace Saltworks.SaltMiner.DataApi
         private static void ProcessEnrichments(ApiConfig config, IElasticClient client)
         {
             var failMsg = "Failed to list enrichment path files";
-            const string JE = ".json";
             // Enrichments
             try
             {
@@ -777,7 +773,6 @@ namespace Saltworks.SaltMiner.DataApi
 
         private static void ProcessPipelines(ApiConfig config, IElasticClient client)
         {
-            const string JE = ".json";
             var failMsg = "Failed to list ingest pipeline path files";
             // Ingest pipelines
             try
