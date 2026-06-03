@@ -1408,7 +1408,11 @@ class GHASAdapter:
         ghas_codeql_level attribute (see _issue_attributes).
         """
         if engine == "secret_scanning":
-            return "High"  # Secret Scanning has no severity field — default High
+            # GitHub classifies all exposed secrets as CRITICAL in its security
+            # overview, and the REST secret-scanning alert object carries no
+            # per-alert severity field. Use a blanket Critical default to match
+            # GitHub's UI (was previously a blanket High, one notch low).
+            return "Critical"
 
         if engine == "code_scanning":
             ssl = ((alert.get("rule") or {}).get("security_severity_level") or "").strip().lower()
