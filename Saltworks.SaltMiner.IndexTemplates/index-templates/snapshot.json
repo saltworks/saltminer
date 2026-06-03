@@ -239,6 +239,12 @@
                 "text": { "type": "text" }
               }
             },
+            "severity": {
+              "type": "keyword",
+              "fields": {
+                "text": { "type": "text" }
+              }
+            },
             "scanner": {
               "properties": {
                 "assessment_type": {
