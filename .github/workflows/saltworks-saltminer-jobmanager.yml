@@ -11,6 +11,7 @@ on:
     - 'Saltworks.SaltMiner.ConfigurationWizard/**'
     - 'Saltworks.SaltMiner.ConsoleApp.Core/**'
     - 'Saltworks.SaltMiner.Core/**'
+    - 'Saltworks.SaltMiner.JobManager/**'
     - 'Saltworks.Common.Data/**'
     - 'Saltworks.Utility.ApiHelper/**'
     - '.github/workflows/saltworks-saltminer-jobmanager.yml'
