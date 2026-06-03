@@ -18,7 +18,7 @@
 * ----
 */
 
-﻿using Saltworks.SaltMiner.Core.Entities;
+using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.UiApiClient;
 using Saltworks.SaltMiner.JobManager.Helpers;
 using Saltworks.SaltMiner.Core.Util;

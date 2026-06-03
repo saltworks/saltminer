@@ -5,6 +5,13 @@ LABEL vendor="Saltworks Security, LLC"
 
 WORKDIR /usr/share/saltworks/saltminer-3.0.0/jobmanager
 
+# Native deps for Syncfusion DocIORenderer -> SkiaSharp (DOCX->PDF rendering).
+# The alpine base ships no font libraries; without these libSkiaSharp.so fails to
+# load (libfontconfig.so.1 missing), surfacing as a SkiaSharp.SKImageInfo
+# TypeInitializationException during PDF report generation. ttf-dejavu provides
+# fallback fonts for substitution.
+RUN apk add --no-cache fontconfig freetype ttf-dejavu
+
 ARG ARTIFACT_PATH=.
 ARG smapp=/usr/share/saltworks
 ARG smapp3=${smapp}/saltminer-3.0.0
@@ -14,13 +21,13 @@ ARG smlog=/var/log/saltworks
 ARG smlog3=${smlog}/saltminer-3.0.0
 
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
-RUN mkdir -p ${smcfg3}/jobmanager/report-templates
-RUN mkdir -p ${smlog3}
+RUN mkdir -p ${smcfg3}/jobmanager/report-templates && \
+    mkdir -p ${smlog3}
 
 COPY  $ARTIFACT_PATH .
 
-RUN mv ${smapp3}/jobmanager/JobManagerSettings.json ${smcfg3}/jobmanager/
-RUN mv ${smapp3}/jobmanager/Template/Saltworks ${smcfg3}/jobmanager/report-templates/
+RUN mv ${smapp3}/jobmanager/JobManagerSettings.json ${smcfg3}/jobmanager/ && \
+    mv ${smapp3}/jobmanager/Template/Saltworks ${smcfg3}/jobmanager/report-templates/
 
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_JOBMANAGER_CONFIG_PATH=/etc/saltworks/saltminer-3.0.0/jobmanager/
