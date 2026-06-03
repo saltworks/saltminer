@@ -267,6 +267,10 @@ class GHASAdapter:
         # Counts scopes that ingested alerts vs. recorded a clean/heartbeat scan.
         self._ingested_scopes: list = []
         self._clean_scopes: list = []
+        # Scopes whose WRITE to SaltMiner raised (e.g. a bulk issue batch
+        # rejected by the DataApi). Surfaced by name in the summary so a
+        # write-side data loss can never again hide behind a clean run.
+        self._write_failed_scopes: list = []   # (scope, error) tuples
 
         # Run-tag: a single id/timestamp for this whole run, stamped onto every
         # queued asset/issue doc (see map_asset/_issue_attributes) so the
@@ -416,6 +420,7 @@ class GHASAdapter:
             f"    RATE-LIMITED       : {rate_limited:>6}   {'← retried next run; data IS reachable' if rate_limited else ''}",
             f"    INACCESSIBLE       : {inaccessible:>6}   {'← permission/enablement; see note below' if inaccessible else ''}",
             f"    failed (error)     : {failed:>6}   {'← unhandled errors; check traceback logs' if failed else ''}",
+            f"    WRITE-FAILED       : {len(self._write_failed_scopes):>6}   {'← scope(s) raised on write; data NOT persisted — see list below' if self._write_failed_scopes else ''}",
         ]
 
         # Per-engine alert breakdown (only the engines that ingested anything).
@@ -440,6 +445,12 @@ class GHASAdapter:
             logger.info(
                 "[%s] INACCESSIBLE scopes (permission/enablement; prior data preserved): %s",
                 self.instance, ", ".join(self._inaccessible_scopes),
+            )
+        if self._write_failed_scopes:
+            logger.error(
+                "[%s] WRITE-FAILED scopes (data NOT persisted this run — investigate): %s",
+                self.instance,
+                "; ".join(f"{scope} ({err})" for scope, err in self._write_failed_scopes),
             )
 
         # Systemic diagnostics, now correctly attributing the likely cause.
@@ -570,7 +581,7 @@ class GHASAdapter:
                 latest_analysis = await self._get_latest_analysis_async(full_name)
 
             run_id = str(uuid.uuid4())
-            report_id = f"{self.org}/{full_name}/{engine}/{run_id}"
+            report_id = f"{full_name}/{engine}/{run_id}"  # full_name already includes the org (org/repo)
             scan_date = self._resolve_scan_date(repo, engine, latest_analysis) or self._now()
 
             # FIX-001: advance watermark to Phase 1's latest_ts (which reflects
@@ -664,14 +675,19 @@ class GHASAdapter:
             return
 
         except Exception as exc:
-            # Log per-scope context (which scope failed, with traceback) then
-            # re-raise so asyncio.gather(return_exceptions=True) counts it as
-            # a failure. Without the re-raise, gather sees None and the run
-            # summary reports "All tasks completed successfully" even when
-            # most scopes errored.
+            # Log per-scope context (which scope failed, with traceback), record
+            # the scope by name, then re-raise so
+            # asyncio.gather(return_exceptions=True) counts it as a failure.
+            # Without the re-raise, gather sees None and the run summary reports
+            # "All tasks completed successfully" even when most scopes errored.
+            # Recording the scope+error here makes a WRITE failure (e.g. a bulk
+            # issue batch rejected by the DataApi) visible BY NAME in the summary
+            # instead of an anonymous count — the all-or-nothing bulk batch once
+            # dropped 203 alerts while the summary read "failed: 0".
             logger.error(
                 "Sync failed for %s/%s: %s", full_name, engine, exc, exc_info=True
             )
+            self._write_failed_scopes.append((f"{full_name}/{engine}", str(exc)))
             raise
 
     # ── Clean-scan path (ENH-004) ──────────────────────────────────────────
@@ -736,7 +752,7 @@ class GHASAdapter:
                 return
 
         run_id = str(uuid.uuid4())
-        report_id = f"{self.org}/{full_name}/{engine}/{run_id}"
+        report_id = f"{full_name}/{engine}/{run_id}"  # full_name already includes the org (org/repo)
 
         kind = "empty replacement" if unconditional else "clean Scan+Asset (heartbeat)"
         logger.info(
@@ -818,7 +834,7 @@ class GHASAdapter:
 
         try:
             run_id = str(uuid.uuid4())
-            report_id = f"{self.org}/{full_name}/{engine}/{run_id}"
+            report_id = f"{full_name}/{engine}/{run_id}"  # full_name already includes the org (org/repo)
             scan_date = self._now()  # run-clock; see docstring
 
             logger.info(
