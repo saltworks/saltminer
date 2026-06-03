@@ -948,6 +948,12 @@ class GHASAdapter:
                     seen_rule_location.add(dedup_key)
 
                     rule_meta = rules.get(rule_id, {})
+                    # SARIF carries the numeric security-severity (0.0–10.0) in
+                    # the rule's properties block when the rule is security-
+                    # relevant; quality rules omit it. Preserve it so the mapper
+                    # can reproduce GitHub's bucket and classify security vs
+                    # quality (mirrors the alert-path security_severity_level).
+                    security_severity = (rule_meta.get("properties") or {}).get("security-severity")
                     sarif_issues.append({
                         "_sarif": True,
                         "rule_id": rule_id,
@@ -956,6 +962,7 @@ class GHASAdapter:
                         "tool_name": tool_name,
                         "location_path": loc_path,
                         "level": result.get("level", "warning"),
+                        "security_severity": security_severity,
                         "suppression_reason": result.get("suppressions", [{}])[0].get("justification", ""),
                     })
 
@@ -1234,7 +1241,17 @@ class GHASAdapter:
         vuln = doc["Vulnerability"]
         vuln["FoundDate"] = now
         vuln["Name"] = sarif_result.get("rule_name") or sarif_result.get("rule_id", "Unknown")
-        vuln["Severity"] = self._sarif_level_to_severity(sarif_result.get("level", "warning"))
+        # SARIF severity: if the rule carries a numeric security-severity, map it
+        # to GitHub's bucket (true security finding, real severity preserved);
+        # otherwise fall back to the error/warning/note level (quality finding).
+        _sarif_score = sarif_result.get("security_severity")
+        _sarif_bucket = self._sarif_security_severity_to_bucket(_sarif_score)
+        if _sarif_bucket is not None:
+            vuln["Severity"] = _sarif_bucket
+            _sarif_finding_class = "security"
+        else:
+            vuln["Severity"] = self._sarif_level_to_severity(sarif_result.get("level", "warning"))
+            _sarif_finding_class = "quality"
         vuln["IsRemoved"] = False
         vuln["IsSuppressed"] = True
         vuln["Id"] = []
@@ -1251,7 +1268,7 @@ class GHASAdapter:
         vuln["Scanner"]["Product"] = sarif_result.get("tool_name", "GitHub Advanced Security")
         vuln["Scanner"]["Vendor"] = "GitHub"
 
-        doc["Saltminer"]["Attributes"] = {
+        sarif_attrs = {
             "ghas_engine": engine,
             "ghas_alert_state": "suppressed",
             "ghas_rule_id": sarif_result.get("rule_id", ""),
@@ -1260,7 +1277,14 @@ class GHASAdapter:
             "ghas_org": self.org,
             "ghas_run_id": self._run_id,
             "ghas_run_ts": self._run_ts,
+            # Security-vs-quality classification (Option C). Filterable once the
+            # issue index template maps these ghas_* attributes.
+            "ghas_finding_class": _sarif_finding_class,
+            "ghas_codeql_level": (sarif_result.get("level") or "").lower(),
         }
+        if _sarif_score is not None and str(_sarif_score).strip() != "":
+            sarif_attrs["ghas_security_severity_score"] = str(_sarif_score)
+        doc["Saltminer"]["Attributes"] = sarif_attrs
 
         return MapIssueDocDTO(**doc)
 
@@ -1314,38 +1338,61 @@ class GHASAdapter:
         timestamps = [a.get("updated_at") for a in alerts if a.get("updated_at")]
         return max(timestamps) if timestamps else None
 
+    # Map a GitHub security-severity bucket (critical/high/medium/low) to the
+    # SaltMiner title-cased scale. Shared by the alert and SARIF paths.
+    _SECURITY_SEVERITY_MAP = {
+        "critical": "Critical",
+        "high": "High",
+        "medium": "Medium",
+        "moderate": "Medium",
+        "low": "Low",
+    }
+
+    @staticmethod
+    def _is_code_scanning_security(alert: dict) -> bool:
+        """
+        A code-scanning alert is a SECURITY finding iff GitHub assigned it a
+        security_severity_level (critical/high/medium/low). Quality rules
+        (maintainability, correctness, style) carry no security_severity_level
+        — GitHub's security-severity views never count them, so SaltMiner must
+        not place them in the Critical/High/Medium/Low buckets either. Null,
+        empty, and absent are all treated as "non-security" (quality).
+        """
+        ssl = (alert.get("rule") or {}).get("security_severity_level")
+        return bool(ssl) and str(ssl).strip().lower() in GHASAdapter._SECURITY_SEVERITY_MAP
+
     @staticmethod
     def _normalize_severity(alert: dict, engine: str) -> str:
-        """Normalise GitHub severity to SaltMiner title-cased five-value scale."""
+        """
+        Normalise GitHub severity to the SaltMiner title-cased five-value scale.
+
+        Code-scanning classification (security vs quality):
+          - security_severity_level present  -> map that bucket faithfully
+            (this is a SECURITY finding; matches GitHub's security-severity view).
+          - security_severity_level absent/null -> "Info" (this is a QUALITY
+            finding; the legacy error/warning/note fallback is NOT used for the
+            security bucket, so quality findings no longer inflate High/Medium).
+        The original error/warning/note level is preserved separately as the
+        ghas_codeql_level attribute (see _issue_attributes).
+        """
         if engine == "secret_scanning":
             return "High"  # Secret Scanning has no severity field — default High
 
-        # Code Scanning uses alert['rule']['severity'] or alert['rule']['security_severity_level']
         if engine == "code_scanning":
-            sev = (
-                (alert.get("rule") or {}).get("security_severity_level")
-                or (alert.get("rule") or {}).get("severity")
-                or ""
-            ).lower()
+            ssl = ((alert.get("rule") or {}).get("security_severity_level") or "").strip().lower()
+            if ssl in GHASAdapter._SECURITY_SEVERITY_MAP:
+                return GHASAdapter._SECURITY_SEVERITY_MAP[ssl]
+            # No security severity -> quality finding -> Info (not error->High).
+            return "Info"
 
-        # Dependabot uses alert['security_advisory']['severity']
-        elif engine == "dependabot":
+        if engine == "dependabot":
             sev = ((alert.get("security_advisory") or {}).get("severity") or "").lower()
-        else:
-            sev = ""
+            return {
+                "critical": "Critical", "high": "High", "medium": "Medium",
+                "moderate": "Medium", "low": "Low",
+            }.get(sev, "Medium")
 
-        mapping = {
-            "critical": "Critical",
-            "high": "High",
-            "medium": "Medium",
-            "moderate": "Medium",
-            "low": "Low",
-            "note": "Info",
-            "warning": "Medium",
-            "info": "Info",
-            "error": "High",
-        }
-        return mapping.get(sev, "Medium")
+        return "Medium"
 
     @staticmethod
     def _sarif_level_to_severity(level: str) -> str:
@@ -1354,6 +1401,32 @@ class GHASAdapter:
             "warning": "Medium",
             "note": "Info",
         }.get((level or "").lower(), "Medium")
+
+    @staticmethod
+    def _sarif_security_severity_to_bucket(score: Optional[str]) -> Optional[str]:
+        """
+        Map a SARIF rule's numeric `security-severity` (0.0–10.0) to the
+        SaltMiner bucket using GitHub's own documented cutoffs:
+            >= 9.0  Critical
+            7.0–8.9 High
+            4.0–6.9 Medium
+            < 4.0   Low
+        Returns None when the score is absent or unparseable, signalling the
+        caller to treat the finding as quality (level-based) instead.
+        """
+        if score is None or str(score).strip() == "":
+            return None
+        try:
+            v = float(score)
+        except (ValueError, TypeError):
+            return None
+        if v >= 9.0:
+            return "Critical"
+        if v >= 7.0:
+            return "High"
+        if v >= 4.0:
+            return "Medium"
+        return "Low"
 
     @staticmethod
     def _alert_name(alert: dict, engine: str) -> str:
@@ -1410,6 +1483,18 @@ class GHASAdapter:
             attrs["ghas_tool_name"] = (alert.get("tool") or {}).get("name") or ""
             if alert.get("dismissed_reason"):
                 attrs["ghas_dismissed_reason"] = alert["dismissed_reason"]
+            # Security-vs-quality classification (Option C). security_severity_level
+            # present => security finding (mapped to its bucket); absent => quality
+            # finding (severity forced to Info). Preserve the raw error/warning/note
+            # level so no signal is lost. Filterable once the index template maps
+            # these ghas_* attributes.
+            attrs["ghas_finding_class"] = (
+                "security" if self._is_code_scanning_security(alert) else "quality"
+            )
+            attrs["ghas_codeql_level"] = ((alert.get("rule") or {}).get("severity") or "").lower()
+            _ssl = (alert.get("rule") or {}).get("security_severity_level")
+            if _ssl:
+                attrs["ghas_security_severity_level"] = str(_ssl).lower()
 
         elif engine == "secret_scanning":
             attrs["ghas_rule_id"] = alert.get("secret_type") or ""
