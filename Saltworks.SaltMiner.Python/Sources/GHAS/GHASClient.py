@@ -534,21 +534,51 @@ class GHASClient:
             self._pace_last[engine] = now
 
     @staticmethod
-    def _is_secondary_rate_limit(status: int, body: str) -> bool:
+    def _is_secondary_rate_limit(status: int, body: str, resp_headers=None) -> bool:
         """
-        Identify a GitHub SECONDARY rate-limit response. GitHub returns 403 or
-        429 with a body that mentions a secondary rate limit. We match on the
-        body text (case-insensitive) rather than status alone, because a plain
-        403 is a permission error and must NOT be treated as rate limiting.
+        Identify a GitHub SECONDARY rate-limit (throttle) response.
+
+        GitHub signals a throttle as 403 or 429. The signal can appear in EITHER
+        the body OR the headers, and the two do not always co-occur:
+
+          - BODY signal: a message mentioning a secondary rate limit / abuse
+            detection (the classic, documented case).
+          - HEADER signal: a `Retry-After` header, or `x-ratelimit-remaining: 0`.
+            GitHub does NOT send Retry-After on permission 403s — its presence
+            on a 403 is therefore a throttle signal, not a permission signal.
+            Likewise, remaining==0 means the budget is exhausted (throttling by
+            definition), regardless of body text.
+
+        Matching on headers as well as body is the fix for the under-reporting
+        bug: code-scanning throttle 403s frequently arrive with throttle headers
+        but a body that lacks the magic phrase (or an empty/HTML body). Body-only
+        matching mis-filed those as GHASEngineInaccessibleError, masking
+        systematic data loss as a permissions problem.
+
+        A genuine permission 403 ("Resource not accessible by personal access
+        token") carries NONE of these signals and so still returns False,
+        preserving correct GHASEngineInaccessibleError classification.
         """
         if status not in (403, 429):
             return False
+
         b = (body or "").lower()
-        return (
+        if (
             "secondary rate limit" in b
             or "exceeded a secondary rate limit" in b
             or "you have triggered an abuse detection" in b   # legacy phrasing
-        )
+        ):
+            return True
+
+        # Header-based throttle signals (body did not match or was empty).
+        if resp_headers is not None:
+            if resp_headers.get("Retry-After") is not None:
+                return True
+            remaining = resp_headers.get("x-ratelimit-remaining")
+            if remaining is not None and str(remaining).isdigit() and int(remaining) == 0:
+                return True
+
+        return False
 
     @staticmethod
     def _compute_rate_limit_wait(resp_headers, attempt: int) -> float:
@@ -662,10 +692,10 @@ class GHASClient:
                     h = headers or await self._headers()
                     continue
 
-                # Secondary rate limit: 403/429 with a secondary-limit body.
+                # Secondary rate limit: 403/429 identified by body OR headers.
                 if resp.status in (403, 429):
                     body = await resp.text()
-                    if self._is_secondary_rate_limit(resp.status, body):
+                    if self._is_secondary_rate_limit(resp.status, body, resp.headers):
                         if secondary_attempts >= self._secondary_max_attempts:
                             await resp.release()
                             raise GHASRateLimitError(
@@ -685,10 +715,27 @@ class GHASClient:
                         await asyncio.sleep(wait)
                         h = headers or await self._headers()
                         continue
-                    # Not a secondary-limit 403/429 → genuine error (e.g.
-                    # permission 403). Fall through to _raise_for_status, which
-                    # raises ClientResponseError preserving the status so the
-                    # caller can classify 403/404 → GHASEngineInaccessibleError.
+                    # Not a throttle 403/429 → treated as a genuine error
+                    # (e.g. permission 403) and raised so the caller can
+                    # classify 403/404 → GHASEngineInaccessibleError.
+                    #
+                    # Log the full 403 fingerprint BEFORE classifying so an
+                    # inaccessible verdict can never again be silent. If these
+                    # lines show throttle headers (Retry-After / remaining==0),
+                    # the request was throttled and _is_secondary_rate_limit
+                    # should have caught it — investigate before trusting the
+                    # INACCESSIBLE count.
+                    logger.warning(
+                        "Classifying HTTP %d as INACCESSIBLE for %s — "
+                        "no throttle signal found. Retry-After=%s "
+                        "x-ratelimit-remaining=%s x-ratelimit-reset=%s "
+                        "body[:120]=%r",
+                        resp.status, scope or url,
+                        resp.headers.get("Retry-After"),
+                        resp.headers.get("x-ratelimit-remaining"),
+                        resp.headers.get("x-ratelimit-reset"),
+                        (body or "")[:120],
+                    )
                     raise aiohttp.ClientResponseError(
                         resp.request_info, resp.history,
                         status=resp.status, message=body[:200],
