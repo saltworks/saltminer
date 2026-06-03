@@ -13,6 +13,13 @@ ENV GID=10001
 
 WORKDIR ${APP_ROOT}/app/jobmanager
 
+# Native deps for Syncfusion DocIORenderer -> SkiaSharp (DOCX->PDF rendering).
+# The alpine base ships no font libraries; without these libSkiaSharp.so fails to
+# load (libfontconfig.so.1 missing), surfacing as a SkiaSharp.SKImageInfo
+# TypeInitializationException during PDF report generation. ttf-dejavu provides
+# fallback fonts for substitution.
+RUN apk add --no-cache fontconfig freetype ttf-dejavu
+
 ARG ARTIFACT_PATH=.
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
 COPY $ARTIFACT_PATH .
