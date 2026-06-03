@@ -135,7 +135,10 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             {
                 var msg = "Engagement Report failed to create.";
                 UpdateJobStatus(ex.Message, Job.JobStatus.Error);
-                Logger.LogError(ex, "{Msg} [{Type}] {ExMsg}", msg, ex.GetType().Name, ex.Message);
+                // Inline the full exception (type, message, stack trace, inner exceptions) into the message
+                // text. Passing the exception as the structured first arg alone is not being persisted to
+                // the configured Serilog sinks in this environment, leaving only the bare message.
+                Logger.LogError(ex, "{Msg} [{Type}] {ExMsg}. Full exception: {Detail}", msg, ex.GetType().Name, ex.Message, ex.ToString());
                 throw new JobManagerException(msg, ex);
             }
         }
@@ -190,8 +193,25 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             foreach (var asset in engagementAssets)
             {
                 Logger.LogInformation("Getting Issue Data For Asset '{AssetId}'", asset.AssetId);
-                engagementIssues.AddRange(GetAllEngagementAssetIssues(asset.Engagement.Id, asset.AssetId, "IsActive"));
-                engagementIssuesRemoved.AddRange(GetAllEngagementAssetIssues(asset.Engagement.Id, asset.AssetId, "IsRemoved"));
+                try
+                {
+                    // Asset returned without its Engagement reference would NRE on asset.Engagement.Id below.
+                    if (asset.Engagement == null)
+                    {
+                        throw new JobManagerException($"Asset '{asset.AssetId}' has no Engagement reference; cannot retrieve issues.");
+                    }
+
+                    engagementIssues.AddRange(GetAllEngagementAssetIssues(asset.Engagement.Id, asset.AssetId, "IsActive"));
+                    engagementIssuesRemoved.AddRange(GetAllEngagementAssetIssues(asset.Engagement.Id, asset.AssetId, "IsRemoved"));
+                }
+                catch (Exception ex)
+                {
+                    // Inline the full exception detail into the message; the structured exception arg is
+                    // not being persisted to the configured Serilog sinks in this environment.
+                    Logger.LogError(ex, "Failed retrieving issue data for Asset '{AssetId}' (Engagement '{EngagementId}'): [{Type}] {Msg}. Full exception: {Detail}",
+                        asset.AssetId, asset.Engagement?.Id, ex.GetType().FullName, ex.Message, ex.ToString());
+                    throw;
+                }
             }
 
             var reportName = $"Report-{engagementSummary.Id}-{DateTime.UtcNow:MM_dd_yyyy_HH_mm_ss}";
@@ -525,15 +545,37 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
             var result = new List<IssueFull>();
 
-            var response = UiApiClient.EngagementIssueSearch(request);
-
-            while (response.Success && response.Data != null && response.Data.Any())
+            try
             {
-                result.AddRange(response.Data.ToList());
+                var response = UiApiClient.EngagementIssueSearch(request);
+                // Null response (not just an unsuccessful one) would NRE on response.Success below.
+                if (response == null)
+                {
+                    Logger.LogError("EngagementIssueSearch returned null (Asset '{AssetId}', Engagement '{EngagementId}', State '{State}'); returning no issues.",
+                        assetId, engagementId, stateFilter);
+                    return result;
+                }
 
-                request.Pager.Page = request.Pager.Page + 1;
+                while (response.Success && response.Data != null && response.Data.Any())
+                {
+                    result.AddRange(response.Data.ToList());
 
-                response = UiApiClient.EngagementIssueSearch(request);
+                    request.Pager.Page = request.Pager.Page + 1;
+
+                    response = UiApiClient.EngagementIssueSearch(request);
+                    if (response == null)
+                    {
+                        Logger.LogError("EngagementIssueSearch returned null on page {Page} (Asset '{AssetId}', Engagement '{EngagementId}', State '{State}'); stopping pagination.",
+                            request.Pager.Page, assetId, engagementId, stateFilter);
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "EngagementIssueSearch failed (Asset '{AssetId}', Engagement '{EngagementId}', State '{State}', Page {Page}): [{Type}] {Msg}. Full exception: {Detail}",
+                    assetId, engagementId, stateFilter, request.Pager.Page, ex.GetType().FullName, ex.Message, ex.ToString());
+                throw;
             }
 
             return result;

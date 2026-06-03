@@ -18,97 +18,96 @@
 * ----
 */
 
-﻿using Saltworks.SaltMiner.UiApiClient.ViewModels;
+using Saltworks.SaltMiner.UiApiClient.ViewModels;
 using System.Text.RegularExpressions;
 
-namespace Saltworks.SaltMiner.JobManager.Helpers
+namespace Saltworks.SaltMiner.JobManager.Helpers;
+
+public static class ReportFileName
 {
-    public static class ReportFileName
+    public static string GetReportName(string template, EngagementSummary engagement)
     {
-        public static string GetReportName(string template, EngagementSummary engagement)
+        var fileName = template;
+        var regex = new Regex(@"\{[^}]*\}");
+        var results = regex.Matches(template).Cast<Match>().Select(c => c.Value).ToList();
+
+        foreach(var field in results)
         {
-            var fileName = template;
-            var regex = new Regex(@"\{[^}]*\}");
-            var results = regex.Matches(template).Cast<Match>().Select(c => c.Value).ToList();
+            var fieldValue = field.Replace("{","").Replace("}","");
+            string newField = string.Empty;
 
-            foreach(var field in results)
+            if (fieldValue.StartsWith("Attributes"))
             {
-                var fieldValue = field.Replace("{","").Replace("}","");
-                string newField = string.Empty;
-
-                if (fieldValue.StartsWith("Attributes"))
+                var property = fieldValue.Replace("Attributes.", "");
+                newField = engagement.Attributes != null && engagement.Attributes.Count > 0
+                    ? (engagement.Attributes.FirstOrDefault(a => string.Equals(a.Name, property, StringComparison.OrdinalIgnoreCase))?.Value ?? "?") : "?";
+            }
+            else if (fieldValue.StartsWith("dt|"))
+            {
+                var format = fieldValue.Split("|");
+                newField = DateTime.Now.ToString("yyyy-MM-dd");
+                if (format.Length > 1)
                 {
-                    var property = fieldValue.Replace("Attributes.", "");
-                    newField = engagement.Attributes != null && engagement.Attributes.Count > 0
-                        ? (engagement.Attributes.FirstOrDefault(a => a.Name.Equals(property, StringComparison.OrdinalIgnoreCase)).Value ?? string.Empty) : string.Empty;
+                    newField = DateTime.Now.ToString(format[1]);
                 }
-                else if (fieldValue.StartsWith("dt|"))
-                {
-                    var format = fieldValue.Split("|");
-                    newField = DateTime.Now.ToString("yyyy-MM-dd");
-                    if (format.Length > 1)
-                    {
-                        newField = DateTime.Now.ToString(format[1]);
-                    }
-                }
-                else
-                {
-                    var type = engagement.GetType();
-                    var property = type.GetProperty(fieldValue);
-                    newField = property.GetValue(engagement, null).ToString();
-                }
-
-                fileName = fileName.Replace(field, SanitizeFilename(newField));
+            }
+            else
+            {
+                var type = engagement.GetType();
+                var property = type.GetProperty(fieldValue);
+                newField = property?.GetValue(engagement, null)?.ToString() ?? string.Empty;
             }
 
-            return fileName;
+            fileName = fileName.Replace(field, SanitizeFilename(newField));
         }
 
-        public static string GetReportName(string template, EngagementFull engagement)
+        return fileName;
+    }
+
+    public static string GetReportName(string template, EngagementFull engagement)
+    {
+        var fileName = template;
+        var regex = new Regex(@"\{[^}]*\}");
+        var results = regex.Matches(template).Cast<Match>().Select(c => c.Value).ToList();
+
+        foreach (var field in results)
         {
-            var fileName = template;
-            var regex = new Regex(@"\{[^}]*\}");
-            var results = regex.Matches(template).Cast<Match>().Select(c => c.Value).ToList();
+            var fieldValue = field.Replace("{", "").Replace("}", "");
+            string newField = null;
 
-            foreach (var field in results)
+            if (fieldValue.StartsWith("Attributes"))
             {
-                var fieldValue = field.Replace("{", "").Replace("}", "");
-                string newField = null;
-
-                if (fieldValue.StartsWith("Attributes"))
-                {
-                    var property = fieldValue.Replace("Attributes.", "");
-                    newField = engagement.Attributes != null && engagement.Attributes.Count > 0
-                        ? (engagement.Attributes.FirstOrDefault(a => a.Name.Equals(property, StringComparison.OrdinalIgnoreCase)).Value ?? string.Empty) : string.Empty;
-                }
-                else
-                {
-                    var type = engagement.GetType();
-                    var property = type.GetProperty(fieldValue);
-                    newField = property.GetValue(engagement, null).ToString();
-                }
-
-                fileName = fileName.Replace(field, newField);
+                var property = fieldValue.Replace("Attributes.", "");
+                newField = engagement.Attributes != null && engagement.Attributes.Count > 0
+                    ? (engagement.Attributes.FirstOrDefault(a => string.Equals(a.Name, property, StringComparison.OrdinalIgnoreCase))?.Value ?? string.Empty) : string.Empty;
+            }
+            else
+            {
+                var type = engagement.GetType();
+                var property = type.GetProperty(fieldValue);
+                newField = property?.GetValue(engagement, null)?.ToString() ?? string.Empty;
             }
 
-            return fileName;
+            fileName = fileName.Replace(field, SanitizeFilename(newField));
         }
 
-        private static string SanitizeFilename(string filename)
+        return fileName;
+    }
+
+    private static string SanitizeFilename(string filename)
+    {
+        // Invalid file name characters
+        string pattern = "[<>:\"/\\\\|?*\\x00-\\x1F]";
+
+        // Replace invalid
+        string sanitizedFilename = Regex.Replace(filename, pattern, "-");
+
+        // Replace characters at the end if they are a space or period
+        if (sanitizedFilename.EndsWith(' ') || sanitizedFilename.EndsWith('.'))
         {
-            // Invalid file name characters
-            string pattern = "[<>:\"/\\\\|?*\\x00-\\x1F]";
-
-            // Replace invalid
-            string sanitizedFilename = Regex.Replace(filename, pattern, "-");
-
-            // Replace characters at the end if they are a space or period
-            if (sanitizedFilename.EndsWith(' ') || sanitizedFilename.EndsWith('.'))
-            {
-                sanitizedFilename = Regex.Replace(sanitizedFilename, "[ .]$", "-");
-            }
-
-            return sanitizedFilename;
+            sanitizedFilename = Regex.Replace(sanitizedFilename, "[ .]$", "-");
         }
+
+        return sanitizedFilename;
     }
 }
