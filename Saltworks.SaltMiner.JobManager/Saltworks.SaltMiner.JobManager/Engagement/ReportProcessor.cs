@@ -26,6 +26,7 @@ using Saltworks.SaltMiner.DataClient;
 using Microsoft.Extensions.Logging;
 using System.Text;
 using System.Data;
+using System.Runtime.InteropServices;
 using Syncfusion.DocIO.DLS;
 using Syncfusion.DocIO;
 using Syncfusion.DocIORenderer;
@@ -329,35 +330,57 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
                     document.FontSettings.SubstituteFont += FontSettings_SubstituteFont;
 
-                    using var render = new DocIORenderer();
-                    using var pdfDoc = render.ConvertToPDF(document);
-                    document.FontSettings.SubstituteFont -= FontSettings_SubstituteFont;
-
-                    // Log the fonts that are not available but used in Word document.
-                    if (FontsNotAvailableDict.Count > 0)
+                    // DOCX -> PDF goes through Syncfusion DocIORenderer -> SkiaSharp, which depends on
+                    // native libraries (libSkiaSharp + libfontconfig/freetype) and installed fonts being
+                    // present in the runtime environment. These are frequently missing on minimal/Alpine
+                    // containers and fail here as a generic TypeInitializationException whose real cause is
+                    // buried in the inner exception chain. Capture detailed diagnostics before rethrowing.
+                    DocIORenderer render;
+                    Syncfusion.Pdf.PdfDocument pdfDoc;
+                    try
                     {
-                        foreach (string font in FontsNotAvailableDict.Keys)
-                            Logger.LogWarning("The font {Font} used in the source document is not available. Replaced with {Replace}", font, FontsNotAvailableDict[font]);
+                        render = new DocIORenderer();
+                        pdfDoc = render.ConvertToPDF(document);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogPdfRenderDiagnostics(ex);
+                        throw;
+                    }
+                    finally
+                    {
+                        document.FontSettings.SubstituteFont -= FontSettings_SubstituteFont;
                     }
 
-                    FileStream pdfFs = null;
-                    // Save the PDF physical file from Word doc stream
-                    using (pdfFs = new FileStream(outputPdfFilePath, FileMode.Create, FileAccess.ReadWrite))
+                    using (render)
+                    using (pdfDoc)
                     {
-                        pdfDoc.Save(pdfFs);
-                    }
-
-                    // Open the newly created PDF file and upload for attachment
-                    using (pdfFs = new FileStream(outputPdfFilePath, FileMode.Open))
-                    {
-                        UiApiClient.UploadFile(pdfFs, outputPdfFileName);
-                        var pdfAttachment = UiApiClient.GetEngagementAttachment(outputPdfFileName);
-                        if (pdfAttachment?.Data == null)
+                        // Log the fonts that are not available but used in Word document.
+                        if (FontsNotAvailableDict.Count > 0)
                         {
-                            throw new JobManagerException($"Report PDF Attachment was not created for '{outputPdfFileName}'");
+                            foreach (string font in FontsNotAvailableDict.Keys)
+                                Logger.LogWarning("The font {Font} used in the source document is not available. Replaced with {Replace}", font, FontsNotAvailableDict[font]);
                         }
-                        Logger.LogInformation($"Attaching PDF report to Engagement");
-                        UiApiClient.AddEngagementAttachment(JobQueue.TargetId, pdfAttachment.Data);
+
+                        FileStream pdfFs = null;
+                        // Save the PDF physical file from Word doc stream
+                        using (pdfFs = new FileStream(outputPdfFilePath, FileMode.Create, FileAccess.ReadWrite))
+                        {
+                            pdfDoc.Save(pdfFs);
+                        }
+
+                        // Open the newly created PDF file and upload for attachment
+                        using (pdfFs = new FileStream(outputPdfFilePath, FileMode.Open))
+                        {
+                            UiApiClient.UploadFile(pdfFs, outputPdfFileName);
+                            var pdfAttachment = UiApiClient.GetEngagementAttachment(outputPdfFileName);
+                            if (pdfAttachment?.Data == null)
+                            {
+                                throw new JobManagerException($"Report PDF Attachment was not created for '{outputPdfFileName}'");
+                            }
+                            Logger.LogInformation($"Attaching PDF report to Engagement");
+                            UiApiClient.AddEngagementAttachment(JobQueue.TargetId, pdfAttachment.Data);
+                        }
                     }
                 }
             }
@@ -383,6 +406,53 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
             Logger.LogInformation("Cleaning Up Temp Files");
             Directory.Delete(template.TmpDirectory, true);
+        }
+
+        /// <summary>
+        /// Logs detailed diagnostics for failures in the Syncfusion DocIORenderer -> SkiaSharp PDF
+        /// rendering path. The top-level handler only logs ex.Message, which for native dependency
+        /// problems is a generic TypeInitializationException; the actionable detail (missing
+        /// libfontconfig/freetype, wrong RID native asset, no installed fonts) lives in the inner
+        /// exception chain and the runtime environment, captured here.
+        /// </summary>
+        private void LogPdfRenderDiagnostics(Exception ex)
+        {
+            // Full chain (ex.ToString() includes nested inner exceptions + stack traces).
+            Logger.LogError(ex, "PDF rendering failed (Syncfusion DocIORenderer/SkiaSharp). Full exception chain: {Detail}", ex.ToString());
+
+            // The native load/relocation failure is typically the innermost exception, so unwind explicitly.
+            var depth = 0;
+            for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
+            {
+                Logger.LogError("PDF render inner exception [{Depth}]: [{Type}] {Msg}", ++depth, inner.GetType().FullName, inner.Message);
+            }
+
+            // OS/arch/RID tells us which native asset should be selected (e.g. linux-musl-x64 on Alpine).
+            Logger.LogError("PDF render environment: OS='{Os}', Framework='{Fw}', ProcArch='{Arch}', RID='{Rid}'",
+                RuntimeInformation.OSDescription,
+                RuntimeInformation.FrameworkDescription,
+                RuntimeInformation.ProcessArchitecture,
+                RuntimeInformation.RuntimeIdentifier);
+
+            // Confirm the SkiaSharp native assets are actually deployed alongside the app.
+            try
+            {
+                var runtimesDir = Path.Combine(AppContext.BaseDirectory, "runtimes");
+                if (Directory.Exists(runtimesDir))
+                {
+                    var skiaLibs = Directory.GetFiles(runtimesDir, "libSkiaSharp.*", SearchOption.AllDirectories);
+                    Logger.LogError("PDF render native assets under '{Dir}': {Libs}", runtimesDir,
+                        skiaLibs.Length > 0 ? string.Join("; ", skiaLibs) : "NONE FOUND");
+                }
+                else
+                {
+                    Logger.LogError("PDF render native assets directory not found: '{Dir}'", runtimesDir);
+                }
+            }
+            catch (Exception probeEx)
+            {
+                Logger.LogError(probeEx, "PDF render native asset probe failed: [{Type}] {Msg}", probeEx.GetType().Name, probeEx.Message);
+            }
         }
 
         static readonly Dictionary<string, string> FontsNotAvailableDict = [];
