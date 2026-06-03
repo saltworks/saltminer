@@ -225,15 +225,22 @@ class GHASClient:
         # gets its own pacing and concurrency knobs distinct from the other
         # engines. All keys are optional; absent → conservative defaults, so
         # existing configs run unchanged.
-        cs_interval_ms = settings.GetSource(source_name, "CodeScanningMinIntervalMs")
-        if cs_interval_ms is None:
-            cs_interval_ms = DEFAULT_CODE_SCANNING_MIN_INTERVAL_MS
-        other_interval_ms = settings.GetSource(source_name, "OtherEngineMinIntervalMs")
-        if other_interval_ms is None:
-            other_interval_ms = DEFAULT_OTHER_ENGINE_MIN_INTERVAL_MS
-        cs_concurrency = settings.GetSource(source_name, "CodeScanningConcurrencyLimit")
-        if cs_concurrency is None:
-            cs_concurrency = DEFAULT_CODE_SCANNING_CONCURRENCY
+        #
+        # IMPORTANT: settings.GetSource() RAISES ApplicationConfigurationException
+        # when a key is entirely absent from the config (it does NOT return
+        # None). So every optional key must be read through _opt_setting(), which
+        # catches that and falls back to the default. Using a bare GetSource()
+        # for a key the operator hasn't added would crash the whole instance —
+        # which is exactly what happened on first deploy.
+        cs_interval_ms = self._opt_setting(
+            settings, source_name, "CodeScanningMinIntervalMs",
+            DEFAULT_CODE_SCANNING_MIN_INTERVAL_MS)
+        other_interval_ms = self._opt_setting(
+            settings, source_name, "OtherEngineMinIntervalMs",
+            DEFAULT_OTHER_ENGINE_MIN_INTERVAL_MS)
+        cs_concurrency = self._opt_setting(
+            settings, source_name, "CodeScanningConcurrencyLimit",
+            DEFAULT_CODE_SCANNING_CONCURRENCY)
 
         # Per-engine minimum interval between requests (seconds). Enforced by a
         # simple monotonic-clock pacer guarded by a lock per engine, so it works
@@ -269,21 +276,15 @@ class GHASClient:
         # incremental runs keep the faster everyday values above.
         #
         # All overridable per-instance via config; absent → defaults below.
-        self._rebaseline_cs_interval_ms = settings.GetSource(
-            source_name, "RebaselineCodeScanningMinIntervalMs"
-        )
-        if self._rebaseline_cs_interval_ms is None:
-            self._rebaseline_cs_interval_ms = DEFAULT_REBASELINE_CS_MIN_INTERVAL_MS
-        self._rebaseline_cs_concurrency = settings.GetSource(
-            source_name, "RebaselineCodeScanningConcurrencyLimit"
-        )
-        if self._rebaseline_cs_concurrency is None:
-            self._rebaseline_cs_concurrency = DEFAULT_REBASELINE_CS_CONCURRENCY
-        self._rebaseline_max_attempts = settings.GetSource(
-            source_name, "RebaselineSecondaryMaxAttempts"
-        )
-        if self._rebaseline_max_attempts is None:
-            self._rebaseline_max_attempts = DEFAULT_REBASELINE_SECONDARY_MAX_ATTEMPTS
+        self._rebaseline_cs_interval_ms = self._opt_setting(
+            settings, source_name, "RebaselineCodeScanningMinIntervalMs",
+            DEFAULT_REBASELINE_CS_MIN_INTERVAL_MS)
+        self._rebaseline_cs_concurrency = self._opt_setting(
+            settings, source_name, "RebaselineCodeScanningConcurrencyLimit",
+            DEFAULT_REBASELINE_CS_CONCURRENCY)
+        self._rebaseline_max_attempts = self._opt_setting(
+            settings, source_name, "RebaselineSecondaryMaxAttempts",
+            DEFAULT_REBASELINE_SECONDARY_MAX_ATTEMPTS)
 
         logger.info(
             "[%s] Rate-limit config: code_scanning pacing=%.0fms concurrency=%d; "
@@ -314,6 +315,34 @@ class GHASClient:
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
+
+    @staticmethod
+    def _opt_setting(settings, source_name: str, key: str, default):
+        """
+        Read an OPTIONAL source config key, returning `default` if the key is
+        absent OR present-but-empty.
+
+        Necessary because ApplicationSettings.GetSource() RAISES
+        ApplicationConfigurationException for a key that does not exist in the
+        config file (it does not return None). A bare GetSource() on a new
+        optional key therefore crashes any instance whose config predates that
+        key — which is not acceptable for backward-compatible optional tuning
+        knobs. This wrapper makes "absent" behave as "use the default".
+
+        We catch broadly (any exception from the lookup) because the specific
+        exception type lives in Core.ApplicationExceptions and we don't want a
+        hard import dependency just to read an optional setting; the only
+        outcomes here are "got a value" or "fall back to default", and a
+        malformed-but-present value is handled by the caller's int()/float()
+        coercion.
+        """
+        try:
+            val = settings.GetSource(source_name, key)
+        except Exception:
+            return default
+        if val is None or val == "":
+            return default
+        return val
 
     async def _ensure_session(self):
         if self._session is None or self._session.closed:
