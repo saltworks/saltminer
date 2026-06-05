@@ -524,25 +524,49 @@ class GHASAdapter:
         full_name = repo["full_name"]
 
         try:
-            # ── Phase 1: Change detection ──────────────────────────────────
+            # ── Phase 1: Change detection (ALWAYS run) ─────────────────────
+            # Phase 1 queries GitHub across ALL alert states and returns the
+            # max updated_at, or None when the scope has NO alerts in any state.
+            # Crucially it RAISES (GHASEngineInaccessibleError / ClientResponse-
+            # Error) on 403/404/5xx — it never returns None to mask an error.
+            # Therefore a completed Phase 1 is an AUTHORITATIVE read of GitHub's
+            # state for this scope, and we run it unconditionally (not only when
+            # a local watermark exists).
+            #
+            # This is the Option-1 correctness fix. Previously, replacement was
+            # gated on the presence of a LOCAL watermark, which is unreliable
+            # (most scopes had none). That made an empty Phase 2 result
+            # ambiguous: "all alerts closed" vs "we just have no watermark yet".
+            # The old code resolved it by always replacing (destroyed data on a
+            # transient/flicker) or, in the interim fix, never replacing without
+            # a watermark (left legitimately-closed alerts stale). Neither is
+            # correct. Gating on Phase 1 SUCCESS instead removes the ambiguity:
+            # if Phase 1 completed, GitHub's state is known, so an empty Phase 2
+            # set authoritatively means "no open alerts exist" and replacing
+            # (closing stale issues) is correct and safe. An ERROR can't reach
+            # the empty-replacement path because it raises out of this try.
             watermark = self._state.get_watermark(full_name, engine)
-            latest_ts_from_phase1: Optional[str] = None
+            latest_ts_from_phase1 = await self.client.get_latest_alert_timestamp_async(
+                full_name, engine
+            )
 
-            if watermark:
-                latest_ts_from_phase1 = await self.client.get_latest_alert_timestamp_async(
-                    full_name, engine
+            if watermark and (latest_ts_from_phase1 is None or latest_ts_from_phase1 <= watermark):
+                logger.debug("No alert changes for %s/%s (latest=%s, watermark=%s).",
+                             full_name, engine, latest_ts_from_phase1, watermark)
+                # Alerts unchanged since last sync — do NOT touch issues. Only
+                # refresh clean-scan visibility if execution evidence advanced
+                # (gate=True, replace=False -> non-destructive).
+                await self._maybe_queue_clean_scan_async(
+                    repo, engine, gate=True, replace=False
                 )
-                if latest_ts_from_phase1 and latest_ts_from_phase1 <= watermark:
-                    logger.debug("No alert changes for %s/%s (latest=%s, watermark=%s).",
-                                 full_name, engine, latest_ts_from_phase1, watermark)
-                    # Alerts unchanged — but clean-scan may need re-queuing if
-                    # engine-execution evidence has advanced.
-                    await self._maybe_queue_clean_scan_async(repo, engine)
-                    return
+                return
+
+            if not watermark:
+                logger.info("First authoritative sync for %s/%s (Phase 1 latest=%s).",
+                            full_name, engine, latest_ts_from_phase1)
+            else:
                 logger.debug("Alert changes detected for %s/%s (latest=%s > watermark=%s).",
                              full_name, engine, latest_ts_from_phase1, watermark)
-            else:
-                logger.info("No watermark for %s/%s — first sync, fetching all alerts.", full_name, engine)
 
             # ── Phase 2: Full fetch (open-only per FIX-001) ────────────────
             alerts = []
@@ -555,32 +579,41 @@ class GHASAdapter:
                 sarif_issues = await self._collect_sarif_issues_async(full_name)
 
             if not alerts and not sarif_issues:
-                if watermark is not None:
-                    # FIX-001 replacement event: previously-queued open alerts
-                    # have all transitioned to closed states. Phase 1 detected
-                    # the state change. Queue an unconditional empty Scan+Asset
-                    # so SaltMiner removes the prior alerts by absence.
-                    logger.info(
-                        "Open alerts have all closed for %s/%s — queueing empty replacement.",
-                        full_name, engine,
-                    )
-                    # latest_ts_from_phase1 may be None if Phase 1 returned no
-                    # alerts in any state (alerts physically gone from GHAS,
-                    # e.g. analysis retention). Fall back to now() so we don't
-                    # re-trigger on the same event.
-                    watermark_target = latest_ts_from_phase1 or self._now()
+                # Phase 1 completed (did not raise), so this empty result is
+                # AUTHORITATIVE: GitHub confirms the scope has no OPEN alerts.
+                # Either there are no alerts at all (Phase 1 latest is None) or
+                # every alert is in a closed state (Phase 1 latest is a
+                # timestamp). In BOTH cases the correct reflection in SaltMiner
+                # is an empty REPLACEMENT (unconditional=True ->
+                # ReplaceIssues=True) so any stale open issues are closed by
+                # absence. This is safe precisely because Phase 1 succeeded — a
+                # transient/error can't reach here (it raises out of this try),
+                # which is what made the old unconditional replace destructive.
+                logger.info(
+                    "No open alerts for %s/%s (Phase 1 latest=%s) — authoritative empty replacement.",
+                    full_name, engine, latest_ts_from_phase1,
+                )
+                if latest_ts_from_phase1 is not None:
+                    # Real close event: alerts exist in some state but none are
+                    # open. Replace immediately (gate=False) and advance the
+                    # watermark so the event does not re-trigger next run.
                     await self._maybe_queue_clean_scan_async(
                         repo, engine,
-                        unconditional=True,
-                        watermark_advance=watermark_target,
+                        gate=False, replace=True,
+                        watermark_advance=latest_ts_from_phase1,
                     )
                 else:
-                    # Heartbeat: first sync of a scope that was always clean.
-                    logger.info(
-                        "No alerts on first sync for %s/%s — evaluating clean-scan heartbeat.",
-                        full_name, engine,
+                    # Truly-empty scope: GitHub has zero alerts in ANY state.
+                    # Replace to close any stale issues (replace=True) but gate
+                    # on scan_date (gate=True) so this fires once, not every run
+                    # (Phase 1 returns None forever for a truly-empty scope).
+                    # Floor the watermark at now() so the no-change skip path can
+                    # engage on subsequent runs.
+                    await self._maybe_queue_clean_scan_async(
+                        repo, engine,
+                        gate=True, replace=True,
+                        watermark_advance=self._now(),
                     )
-                    await self._maybe_queue_clean_scan_async(repo, engine)
                 return
 
             # Resolve Code Scanning analyses metadata up front for Asset
@@ -716,31 +749,45 @@ class GHASAdapter:
         repo: dict,
         engine: str,
         *,
-        unconditional: bool = False,
+        gate: bool = True,
+        replace: bool = False,
         watermark_advance: Optional[str] = None,
     ):
         """
-        Consider queueing an empty Scan+Asset for a repo with no alerts.
+        Consider queueing an empty Scan+Asset for a repo with no OPEN alerts.
 
-        Two callers:
+        Two orthogonal flags (decoupled from the old `unconditional` flag so the
+        three real cases can each be expressed correctly):
 
-        Heartbeat (default — unconditional=False, watermark_advance=None):
-          ENH-004 Option B. Alerts unchanged on Phase 1, or first-time sync
-          of a scope that was always clean. Strict-newer gate applies — only
-          re-queues when execution evidence has actually advanced past the
-          prior last_scan_date.
+          gate    — if True, apply the ENH-004 strict-newer scan_date gate:
+                    only queue when execution evidence (analysis date / repo
+                    pushed_at) has advanced past the recorded last_scan_date.
+                    Prevents re-queuing the same clean state every run.
+          replace — if True, the Scan carries ReplaceIssues=True, so SaltMiner
+                    removes any prior issues for this scope by absence. If
+                    False, the queue is a NON-destructive visibility heartbeat
+                    that cannot delete existing issues.
 
-        Replacement (FIX-001 — unconditional=True, watermark_advance set):
-          Phase 1 detected an alert state transition, Phase 2 returned zero
-          alerts, watermark was non-None on entry. All previously-queued
-          open alerts have transitioned to closed states. Bypasses the
-          strict-newer gate because the trigger is a state-transition event,
-          not a heartbeat tick — ReplaceIssues=True is the right tool to
-          remove the prior alerts by absence. Also advances the watermark
-          (in addition to last_scan_date) to the supplied target so the
-          same dismissal event does not re-trigger on the next sync.
+        The three callers:
 
-        Skips entirely (both modes) when there's no honest scan-execution
+          No-change refresh   (gate=True,  replace=False):
+            Phase 1 says alerts are unchanged. Only refresh visibility if
+            execution evidence advanced. Never deletes issues.
+
+          Real close event    (gate=False, replace=True, watermark_advance set):
+            Phase 1 returned a timestamp (alerts exist in some state) but
+            Phase 2 returned zero OPEN alerts — every alert has transitioned to
+            a closed state. Replace now (bypass the gate, it's a state-change
+            event, not a heartbeat tick) and advance the watermark so the same
+            event does not re-trigger.
+
+          Truly-empty scope   (gate=True,  replace=True, watermark_advance set):
+            Phase 1 returned None — GitHub has zero alerts in ANY state. Any
+            issues in SaltMiner are stale and must be closed, so replace=True —
+            but gate=True so this happens ONCE (when scan_date advances) rather
+            than every run, since a truly-empty scope returns None forever.
+
+        Skips entirely (all modes) when there's no honest scan-execution
         evidence (engine appears unrun: for code_scanning, no analyses
         records; for the others, null pushed_at).
 
@@ -765,7 +812,7 @@ class GHASAdapter:
             )
             return
 
-        if not unconditional:
+        if gate:
             last_queued = self._state.get_last_scan_date(full_name, engine)
             if last_queued and not self._is_strictly_newer(scan_date, last_queued):
                 logger.debug(
@@ -777,7 +824,7 @@ class GHASAdapter:
         run_id = str(uuid.uuid4())
         report_id = f"{full_name}/{engine}/{run_id}"  # full_name already includes the org (org/repo)
 
-        kind = "empty replacement" if unconditional else "clean Scan+Asset (heartbeat)"
+        kind = "empty replacement" if replace else "clean Scan+Asset (heartbeat)"
         logger.info(
             "Queueing %s for %s/%s (zero alerts, ScanDate=%s).",
             kind, full_name, engine, scan_date,
@@ -785,7 +832,11 @@ class GHASAdapter:
 
         async with self._queue_lock:
             # ── 1: Scan ───────────────────────────────────────────────────
-            mapped_scan = self.map_scan(repo, engine, report_id, scan_date)
+            # ReplaceIssues is driven by the `replace` flag: False for a
+            # non-destructive visibility heartbeat, True for a confirmed
+            # close/empty-replacement event (see this method's docstring).
+            mapped_scan = self.map_scan(repo, engine, report_id, scan_date,
+                                        replace=replace)
             queue_scan = await asyncio.to_thread(
                 self._data_client.AddQueueScan,
                 json.loads(mapped_scan.model_dump_json())
@@ -1041,7 +1092,8 @@ class GHASAdapter:
 
     # ── DTO Mapping ────────────────────────────────────────────────────────
 
-    def map_scan(self, repo: dict, engine: str, report_id: str, scan_date: str) -> MapScanDocDTO:
+    def map_scan(self, repo: dict, engine: str, report_id: str, scan_date: str,
+                 replace: bool = True) -> MapScanDocDTO:
         """
         Map repo + engine metadata to a SaltMiner scan document.
 
@@ -1054,7 +1106,18 @@ class GHASAdapter:
 
         doc["Timestamp"] = now
         doc["Saltminer"]["Internal"]["IssueCount"] = -1
-        doc["Saltminer"]["Internal"]["ReplaceIssues"] = True
+        # ReplaceIssues drives whether SaltMiner DELETES all existing issues for
+        # this scope and replaces them with the queued set. It MUST be True only
+        # when we have an authoritative, complete picture to replace with:
+        #   - alerts-present Phase 2 (full open set fetched), or
+        #   - a CONFIRMED removal (FIX-001 open->closed transition detected via a
+        #     prior watermark, or an archived-repo tombstone).
+        # It MUST be False for a plain clean-scan heartbeat: a heartbeat is a
+        # visibility tick, not proof the scope is empty. Setting it True on a
+        # heartbeat caused progressive data loss — any scope momentarily showing
+        # zero OPEN alerts (open-only Phase 2 per FIX-001) had its real issues
+        # deleted by the empty replacement, run after run.
+        doc["Saltminer"]["Internal"]["ReplaceIssues"] = replace
         # QueueStatus is set by SmDataClient.AddQueueScan itself (to "Loading"
         # when immediate=False, the default). FinalizeQueue() flips it to
         # "Pending" at the end of the queueing sequence. The adapter does not
