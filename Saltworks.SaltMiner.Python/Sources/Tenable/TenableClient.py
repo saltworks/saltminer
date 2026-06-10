@@ -80,7 +80,10 @@ class TenableClient:
             offset += page_size
 
     def get_was_export_generator(self, scan_uuid=None):
-        kwargs = {"state": ["OPEN", "REOPENED", "FIXED"]}
+        kwargs = {
+            "state": ["OPEN", "REOPENED", "FIXED"],
+            "since": 0000000000
+        }
         if scan_uuid:
             kwargs["scan_uuid"] = scan_uuid
         yield from self.tio.exports.was(**kwargs)
