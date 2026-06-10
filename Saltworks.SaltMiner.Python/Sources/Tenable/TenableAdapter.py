@@ -24,14 +24,13 @@ from datetime import datetime, timezone, timedelta
 from Sources.Tenable.TenableClient import TenableClient
 from Core.SmDocsAndDTOs import SnykDocs
 from Core.DataClient import DataClient, QueueStatus
-from Core.ElasticClient import ElasticClient
 
 
 class TenableAdapter:
     def __init__(self, app):
         settings = app.Settings
         self.tenable_client = TenableClient(settings)
-        self._es = ElasticClient(settings)
+        #self._es = ElasticClient(settings)
         self.data_client = DataClient(app)
         self.sm_docs = SnykDocs()
         self.vuln_management = settings.GetSource("Tenable", "VulnManagement")
@@ -45,22 +44,22 @@ class TenableAdapter:
             vm = TenableVulnManagementAdapter(self)
             vm.run_process(first_load)
 
-    def sm_scans_generator(self, index, agg_query):
-        if self._es.IndexExists(index):
-            search = self._es.Search(
-                index=index,
-                queryBody=agg_query,
-                navToData=False,
-                size=1
-            )
-            yield from search['aggregations']['2']['buckets']
+    # def sm_scans_generator(self, index, agg_query):
+    #     if self._es.IndexExists(index):
+    #         search = self._es.Search(
+    #             index=index,
+    #             queryBody=agg_query,
+    #             navToData=False,
+    #             size=1
+    #         )
+    #         yield from search['aggregations']['2']['buckets']
 
-    def get_sm_scans(self, index, agg_query):
-        sm_scan_data_dict = {}
-        for agg in self.sm_scans_generator(index, agg_query):
-            if agg['key'] not in sm_scan_data_dict:
-                sm_scan_data_dict[agg['key']] = agg['4']['value']
-        return sm_scan_data_dict
+    # def get_sm_scans(self, index, agg_query):
+    #     sm_scan_data_dict = {}
+    #     for agg in self.sm_scans_generator(index, agg_query):
+    #         if agg['key'] not in sm_scan_data_dict:
+    #             sm_scan_data_dict[agg['key']] = agg['4']['value']
+    #     return sm_scan_data_dict
 
 
 class TenableVulnManagementAdapter:
@@ -74,11 +73,11 @@ class TenableVulnManagementAdapter:
     def run_process(self, first_load=False):
         self.first_load = first_load
         self.get_asset_attributes()
-        if not self.first_load:
-            self.sm_scan_data_dict = self.base.get_sm_scans(
-                index="issues_app_saltworks.tenable_tenable1",
-                agg_query=self.schedule_uuid_agg_query()
-            )
+        # if not self.first_load:
+        #     self.sm_scan_data_dict = self.base.get_sm_scans(
+        #         index="issues_app_saltworks.tenable_tenable1",
+        #         agg_query=self.schedule_uuid_agg_query()
+        #     )
         self.compare_tenable_scans()
 
     def compare_tenable_scans(self, scan_id_key='schedule_uuid', date_field='last_modification_date'):
@@ -92,9 +91,9 @@ class TenableVulnManagementAdapter:
             for scan_record in self.base.tenable_client.get_vm_scans_generator():
                 if not self.first_load:
                     if self.sm_scan_data_dict.get(scan_record[scan_id_key]):
-                        last_modification_date = scan_record[date_field]
+                        last_modification_date = self.sm_scan_data_dict[scan_record[scan_id_key]]
                         sm_last_modification_date = self.sm_scan_data_dict[scan_record[scan_id_key]]
-                        if last_modification_date <= sm_last_modification_date:
+                        if last_modification_date >= sm_last_modification_date:
                             continue
                 self.sync_scan(scan_record)
 
