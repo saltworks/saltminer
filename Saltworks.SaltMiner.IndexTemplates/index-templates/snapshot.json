@@ -44,6 +44,15 @@
 			      "noscan": {
               "type": "integer"
             },
+            "opened": {
+              "type": "long"
+            },
+            "removed": {
+              "type": "long"
+            },
+            "total": {
+              "type": "long"
+            },
             "is_historical": {
               "type": "boolean"
             },
@@ -207,70 +216,67 @@
                   }
                 }
               }
+            }
+          }
+        },
+        "vulnerability": {
+          "properties": {
+            "category": {
+              "type": "keyword",
+              "fields": {
+                "text": { "type": "text" }
+              }
             },
-            "vulnerability": {
+            "classification": {
+              "type": "keyword",
+              "fields": {
+                "text": { "type": "text" }
+              }
+            },
+            "name": {
+              "type": "keyword",
+              "fields": {
+                "text": { "type": "text" }
+              }
+            },
+            "severity": {
+              "type": "keyword",
+              "fields": {
+                "text": { "type": "text" }
+              }
+            },
+            "scanner": {
               "properties": {
-                "source_severity": {
+                "assessment_type": {
                   "type": "keyword"
                 },
-                "category": {
+                "product": {
                   "type": "keyword",
                   "fields": {
                     "text": { "type": "text" }
                   }
                 },
-                "classification": {
+                "vendor": {
                   "type": "keyword",
                   "fields": {
                     "text": { "type": "text" }
                   }
+                }
+              }
+            },
+            "score": {
+              "properties": {
+                "base": {
+                  "type": "float"
                 },
-                "name": {
-                  "type": "keyword",
-                  "fields": {
-                    "text": { "type": "text" }
-                  }
+                "environmental": {
+                  "type": "float"
                 },
-                "severity": {
+                "temporal": {
+                  "type": "float"
+                },
+                "version": {
                   "type": "keyword"
-                },
-                "severity_level": {
-                  "type": "integer"
-                },
-                "scanner": {
-                  "properties": {
-                    "assessment_type": {
-                      "type": "keyword"
-                    },
-                    "product": {
-                      "type": "keyword",
-                      "fields": {
-                        "text": { "type": "text" }
-                      }
-                    },
-                    "vendor": {
-                      "type": "keyword",
-                      "fields": {
-                        "text": { "type": "text" }
-                      }
-                    }
-                  }
-                },
-                "score": {
-                  "properties": {
-                    "base": {
-                      "type": "float"
-                    },
-                    "environmental": {
-                      "type": "float"
-                    },
-                    "temporal": {
-                      "type": "float"
-                    },
-                    "version": {
-                      "type": "keyword"
-                    }
-                  }
                 }
               }
             }

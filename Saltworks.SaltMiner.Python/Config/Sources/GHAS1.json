@@ -1,0 +1,26 @@
+{
+  "Source": "GHAS",
+  "SourceName": "ghas1",
+  "Enabled": false,
+  "BaseUrl": "https://api.github.com/",
+  "Org": "my-github-org",
+  "ApiKey": "",
+  "AppId": 0,
+  "Engines": [
+    "code_scanning",
+    "secret_scanning",
+    "dependabot"
+  ],
+  "IncludeSarif": false,
+  "ConcurrencyLimit": 10,
+  "StateFile": "./ghas-state-ghas1.json",
+  "ExcludeRepos": [],
+  "ExcludeTopics": [],
+  "ExcludePattern": "",
+  "CodeScanningConcurrencyLimit": 3,
+  "CodeScanningMinIntervalMs": 200,
+  "OtherEngineMinIntervalMs": 0,
+  "RebaselineCodeScanningConcurrencyLimit": 2,
+  "RebaselineCodeScanningMinIntervalMs": 330,
+  "RebaselineSecondaryMaxAttempts": 10
+}

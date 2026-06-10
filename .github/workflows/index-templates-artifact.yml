@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-    - '3.*'
+    - '3.4'
     paths:
     - 'Saltworks.SaltMiner.IndexTemplates/**'
     - '.github/workflows/index-templates-artifact.yml'

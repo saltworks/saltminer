@@ -5,3 +5,6 @@ Instructions for installing SaltMiner can be found here:
 [https://github.com/saltworks/saltminer/wiki](https://github.com/saltworks/saltminer/wiki)
 
 
+
+
+Repo Structure can be seen here [repo_structure.md](repostructure.md)

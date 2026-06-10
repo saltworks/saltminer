@@ -115,7 +115,7 @@ class Application(object):
             self._Log(logging.WARNING, f"Error writing sm-run-config-location.json: {e}")
         self.LogInfo(f"Configuration location: {configPath if ok else 'Unknown'}")
         if not ok:
-            raise ApplicationConfigurationException(f"Unable to locate configuration path.  Please do one of the following:\n1. Make sure it can be found in a local Config folder\n2. Set the {envVar} environment variable to the correct config directory path (ex. export {envVar}=/etc/saltworks/saltminer-2.5.0).\n3. Create a ConfigPath.txt file and put the config directory path in it (straight text, no json).")
+            raise ApplicationConfigurationException(f"Unable to locate configuration path.  Please do one of the following:\n1. Make sure it can be found in a local Config folder\n2. Set the {envVar} environment variable to the correct config directory path (ex. export {envVar}=/opt/saltworks/saltminer/config).\n3. Create a ConfigPath.txt file and put the config directory path in it (straight text, no json).")
         if os.path.isfile(os.path.join(configPath, "settings.json")): 
             raise ApplicationConfigurationException(f"settings.json is no longer supported.  Config files have been separated by function and should now be placed into the Config folder.  Config folder location also can be specified using the {envVar} environment variable.")
         if not os.path.isdir(os.path.join(configPath, "Sources")):

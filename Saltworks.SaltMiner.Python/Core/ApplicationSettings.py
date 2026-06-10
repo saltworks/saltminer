@@ -24,11 +24,11 @@ import os
 import datetime
 import ntpath
 
-_MISSING = object()  # sentinel: distinguishes "no default provided" from default=None
-
 from .EncryptionHelper import EncryptionHelper
-from .ElasticClient import ElasticClient
-from .ApplicationExceptions import *
+from .Constants import ElasticConstants
+from .ApplicationExceptions import ApplicationConfigurationException
+
+_MISSING = object()  # sentinel: distinguishes "no default provided" from default=None
 
 class ApplicationSettings(object):
     """Settings class - automatic handling of encryption/decryption for settings ending in 'Secret' or 'Password'"""
@@ -42,16 +42,15 @@ class ApplicationSettings(object):
         self.__Sources = {}
         self.__SourceConfigFiles = {}
         self.Load(configFiles, sourceConfigFiles)
-        cs_env = os.environ.get(ElasticClient.ELASTIC_CONNECT_STR_ENV, "")
-        if cs_env:
-            self.__Log("info", f"Found {ElasticClient.ELASTIC_CONNECT_STR_ENV} environment variable, overriding Elastic connection string")
-            self.SetToConfig("Elastic", "Blah", ElasticClient.ELASTIC_CONNECT_STR_CONFIG, save=False)
-        self.__EncryptSuffixes = self.Get("Main", "EncryptedPropertySuffixes", [ "password", "secret", "apikey", "token" ])
-        
+        self.__EncryptSuffixes = self.Get("Main", "EncryptedPropertySuffixes", [ "password", "secret", "apikey", "token" ])       
         self.__Eh = EncryptionHelper(keyFile)
         self.Application = None
         if autoEncryptCreds:
             self.EncryptCredentials()
+        cs_env = os.environ.get(ElasticConstants.ELASTIC_CONNECT_STR_ENV, "")
+        if cs_env and len(cs_env) > 0:
+            self.__Log("info", f"Found {ElasticConstants.ELASTIC_CONNECT_STR_ENV} environment variable, overriding Elastic connection string")
+            self.__SetToConfig(self.__Config, "Elastic", ElasticConstants.ELASTIC_CONNECT_STR_CONFIG, cs_env, save=False)
         self.__Log("debug", "Settings class initialization complete")
 
     @staticmethod
@@ -102,7 +101,7 @@ class ApplicationSettings(object):
 
     def __GetFromConfig(self, config, section, key, default, isSource):
         template = (f"source '{section}' and key '{key}'." if isSource else f"config '{section}' and key '{key}'.")
-        if not section in config.keys() or not key in config[section].keys():
+        if section not in config.keys() or key not in config[section].keys():
             if default is not _MISSING:
                 return default
             msg = f"Settings incorrect or missing value for {template}"
@@ -126,14 +125,14 @@ class ApplicationSettings(object):
             raise ApplicationConfigurationException(errMsg) from e
 
     def __SetToConfig(self, config, section, key, value, isSource=False, save=True):
-        template = (f"source '{section}' and key '{key}'." if isSource else f"config '{section} and key '{key}'.")
+        template = (f"source '{section}' and key '{key}'." if isSource else f"config '{section}' and key '{key}'.")
 
         config[key] = value
         self.__MakeItDirty(section, isSource)
 
         # Encrypt if needed
         try:
-            if value and self.__ShouldBeEncrypted(key, value):
+            if save and value and self.__ShouldBeEncrypted(key, value):
                 self.__Log("debug", f"Encrypting {template}")
                 config[key] = self.__Eh.Encrypt(value)
         except Exception as e:
@@ -207,7 +206,7 @@ class ApplicationSettings(object):
 
     def GetSourceDict(self, sourceName):
         ''' Returns an entire source config as a Dict '''
-        if not sourceName in self.__Sources.keys():
+        if sourceName not in self.__Sources.keys():
             msg = f"Source '{sourceName}' not found in configuration."
             self.__Log("error", msg)
             raise ApplicationConfigurationException(msg)
@@ -223,7 +222,7 @@ class ApplicationSettings(object):
 
     def GetDict(self, section):
         ''' Gets an entire config file as a Dict '''
-        if not section in self.__Config.keys():
+        if section not in self.__Config.keys():
             msg = f"Configuration section '{section}' not found - check to make sure '{section}.json' exists."
             self.__Log("error", msg)
             raise ApplicationConfigurationException(msg)

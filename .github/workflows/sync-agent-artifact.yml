@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-    - '3.*'
+    - '3.4'
     paths:
     - 'Saltworks.SaltMiner.SyncAgent/**'
     - '.github/workflows/sync-agent-artifact.yml'

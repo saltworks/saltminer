@@ -11,6 +11,7 @@ on:
     - 'Saltworks.SaltMiner.ConfigurationWizard/**'
     - 'Saltworks.SaltMiner.ConsoleApp.Core/**'
     - 'Saltworks.SaltMiner.Core/**'
+    - 'Saltworks.SaltMiner.JobManager/**'
     - 'Saltworks.Common.Data/**'
     - 'Saltworks.Utility.ApiHelper/**'
     - '.github/workflows/saltworks-saltminer-jobmanager.yml'
@@ -43,8 +44,8 @@ jobs:
         working-directory: ./Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager
     env:
       CONFIGURATION: release
-      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == 'true' && 'true' || 'false' }}
-      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == 'true' && 'true' || 'false' }}
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == true && 'true' || 'false' }}
+      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == true && 'true' || 'false' }}
 
     steps:
     - uses: actions/checkout@v4
@@ -54,6 +55,8 @@ jobs:
       run: dotnet restore --disable-build-servers
     - name: Build
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
+    - name: Publish
+      run: dotnet publish --no-build --configuration $CONFIGURATION --property WarningLevel=$WARNING_LEVEL
 
     - name: Store paths
       id: paths

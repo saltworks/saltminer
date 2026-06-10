@@ -255,6 +255,69 @@
             }
           }
         }
+      },
+      "vulnerability": {
+        "properties": {
+          "name": {
+            "type": "keyword",
+            "fields": {
+              "text": { "type": "text" }
+            }
+          },
+          "severity": {
+            "type": "keyword",
+            "fields": {
+              "text": { "type": "text" }
+            }
+          },
+          "category": {
+            "type": "keyword",
+            "fields": {
+              "text": { "type": "text" }
+            }
+          },
+          "classification": {
+            "type": "keyword",
+            "fields": {
+              "text": { "type": "text" }
+            }
+          },
+          "scanner": {
+            "properties": {
+              "assessment_type": {
+                "type": "keyword"
+              },
+              "product": {
+                "type": "keyword",
+                "fields": {
+                  "text": { "type": "text" }
+                }
+              },
+              "vendor": {
+                "type": "keyword",
+                "fields": {
+                  "text": { "type": "text" }
+                }
+              }
+            }
+          },
+          "score": {
+            "properties": {
+              "base": {
+                "type": "float"
+              },
+              "environmental": {
+                "type": "float"
+              },
+              "temporal": {
+                "type": "float"
+              },
+              "version": {
+                "type": "keyword"
+              }
+            }
+          }
+        }
       }
     }
   }

@@ -36,12 +36,13 @@ from elasticsearch.helpers.errors import BulkIndexError
 from .ApplicationSettings import ApplicationSettings
 from .StringUtils import StringUtils
 from .DictUtils import DictUtils
+from .Constants import ElasticConstants
+
+RETRY_LIMIT_ERROR = "Elastic client operation failed after maximum retry attempts due to connection errors."
+IDX_NOT_EXIST_ERR_TEMPLATE = "Index '%s' does not exist."
 
 class ElasticClient(object):
     """ Elasticsearch client class """
-    RETRY_LIMIT_ERROR = "Elastic client operation failed after maximum retry attempts due to connection errors."
-    ELASTIC_CONNECT_STR_ENV = "ELASTICSEARCH_CONNECTION_STRING"
-    ELASTIC_CONNECT_STR_CONFIG = "ConnectionString"
 
     def __init__(self, appSettings, configName="Elastic"):
         '''
@@ -50,7 +51,7 @@ class ElasticClient(object):
         appSettings: Settings instance containing application settings
         configName: Config section for this class (usually "Elastic")
         '''
-        if type(appSettings).__name__ != "ApplicationSettings":
+        if not isinstance(appSettings, ApplicationSettings):
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
         if not configName or configName not in appSettings.GetConfigNames():
             raise ElasticClientException(f"Invalid or missing configuration for name '{configName}'")
@@ -70,8 +71,9 @@ class ElasticClient(object):
         self.__MappingsPath = appSettings.Get(configName, "MappingsPath", "Mappings/")
         self.__MappingsTemplatePath = appSettings.Get(configName, "MappingsTemplatePath", "Template/Mappings/")
         self.__App = appSettings.Application
-        self.__BulkBatch = []
-        self.__BulkBatchSize = 10000
+        self.__BulkBatches = {}
+        self.__BulkBatchSizes = {}
+        self.__DefaultBulkBatchSize = 500
         self.es = None
         self._Connect(appSettings, configName)
 
@@ -92,7 +94,7 @@ class ElasticClient(object):
 
         Returns a dict with the decoded values.
         '''
-        connectionString = appSettings.Get(configName, self.ELASTIC_CONNECT_STR_CONFIG, "")
+        connectionString = appSettings.Get(configName, ElasticConstants.ELASTIC_CONNECT_STR_CONFIG, "")
         if len(connectionString) == 0:
             return None
         known_parts = ['host', 'port', 'scheme', 'username', 'password', 'sslverify', 'cloudid', 'apikeyid', 'apikeyvalue', 'useauth']
@@ -160,6 +162,8 @@ class ElasticClient(object):
     def _ConnectBasic(self, connectionParms:dict, sslVerify:bool|str, headers:dict):
         sslWarn = True if sslVerify else False
         auth = (connectionParms.get('username'), connectionParms.get('password'))
+        if not auth[0] or not auth[1]:
+            raise ElasticClientConnectionException("Basic connection must include username and password")
         useAuth = connectionParms.get('useauth', True)
         if isinstance(useAuth, str):
             useAuth = useAuth.lower() == 'true'  # Convert string to bool
@@ -191,7 +195,7 @@ class ElasticClient(object):
         configName: Config section for this class (usually "Elastic")
         '''
         # pull config str from config and decode (if present)
-        connectionParms = self._DecodeConnectionString(appSettings, configName)
+        connectionParms = self._DecodeConnectionString(appSettings, configName) or {}
 
         # setup SSL verification and default headers
         sslVerify = self._SslVerify(appSettings.Get(configName, 'SslVerify', True))
@@ -314,13 +318,14 @@ class ElasticClient(object):
 
     def BulkSendBatch(self, index=None, doc=None, docId=None, action="index", batchSize=None):
         '''
-        Batches document updates/additions to send via the bulk API.
-        
-        :index: index upon which to operate (or None to flush remaining)
-        :doc: document to send, not including "doc" node for updates (or None to flush remaining)
+        Batches document updates/additions to send via the bulk API.  Tracks separate batches per
+        index, each with its own batch size.
+
+        :index: index upon which to operate (or None to flush all tracked indices)
+        :doc: document to send, not including "doc" node for updates (or None to flush remaining for the given index, or all if index is also None)
         :docId: document ID for updates (or index, but not required for additions)
         :action: update or index ('index' upserts, 'update' is a partial doc update that requires the doc ID to be included, None defaults to 'index')
-        :batchSize: number of documents to batch before sending (overrides default if included)
+        :batchSize: number of documents to batch before sending for this index (overrides default; remembered per index)
         '''
         if action not in ['index', 'update'] and doc:
             raise ElasticClientArgumentException(f"Invalid action '{action}', must be index or update")
@@ -328,18 +333,31 @@ class ElasticClient(object):
             docId = doc['_id']
         if not docId and action == "update":
             raise ElasticClientArgumentException("Update action requires docId parameter, but docId parameter was empty/None")
-        if batchSize:
-            self.__BulkBatchSize = batchSize
         doc = doc['_source'] if doc and '_source' in doc.keys() else doc
-        finishIt = True if not (doc and index) else False
-        if doc and index:
-            self.__BulkBatch.append(self.BulkInsertDocument(index, doc, docId, action))
-        if len(self.__BulkBatch) >= self.__BulkBatchSize or (finishIt and len(self.__BulkBatch) > 0):
-            logging.info("Bulk batch send %s items", len(self.__BulkBatch))
-            self.BulkInsert(self.__BulkBatch)
-            self.__BulkBatch = []
 
-    def BulkInsertDocument(self, index, source, id=None, action=None):
+        if doc is None:
+            # flush signal: flush specified index, or all tracked indices if index is None
+            indicesToFlush = [index] if index else list(self.__BulkBatches.keys())
+            for idx in indicesToFlush:
+                batch = self.__BulkBatches.get(idx)
+                if batch:
+                    logging.info("Bulk batch send %s items to '%s'", len(batch), idx)
+                    self.BulkInsert(batch)
+                    self.__BulkBatches[idx] = []
+            return
+
+        if batchSize:
+            self.__BulkBatchSizes[index] = batchSize
+        if index not in self.__BulkBatches:
+            self.__BulkBatches[index] = []
+        self.__BulkBatches[index].append(self.BulkInsertDocument(index, doc, docId, action))
+        effectiveSize = self.__BulkBatchSizes.get(index, self.__DefaultBulkBatchSize)
+        if len(self.__BulkBatches[index]) >= effectiveSize:
+            logging.info("Bulk batch send %s items to '%s'", len(self.__BulkBatches[index]), index)
+            self.BulkInsert(self.__BulkBatches[index])
+            self.__BulkBatches[index] = []
+
+    def BulkInsertDocument(self, index, source, doc_id=None, action=None):
         '''
         Generates a document suitable for bulk insert operations
 
@@ -351,13 +369,13 @@ class ElasticClient(object):
         '''
         if action and action not in ['create','delete','index','update']:
             raise ElasticClientValidationException(f"Bulk action '{action}' invalid/unknown.")
-        if action in ['delete', 'update'] and not id:
+        if action in ['delete', 'update'] and not doc_id:
             raise ElasticClientValidationException(f"Bulk action '{action}' requires parameter id to be included.")
-        if not id:
-            id = uuid.uuid4()
+        if not doc_id:
+            doc_id = uuid.uuid4()
         doc = {
         '_index': index,
-        '_id': id
+        '_id': doc_id
         }
         if not action or action != 'delete':
             doc['_source'] = source
@@ -411,13 +429,13 @@ class ElasticClient(object):
             if 'error' in rsp.keys() and rsp['error']:
                 try:
                     logging.error("%s:%s", rsp['error'], rsp['error']['failed_shards'][0]['reason']['reason'])
-                except:
+                except Exception:
                     pass
                 raise ElasticClientSearchFailureException(rsp['error']['reason'])
             if conflictsAreBad and 'task' in rsp.keys() and rsp['task'] and 'status' in rsp['task'].keys() and rsp['task']['status'] and rsp['task']['status']['version_conflicts'] > 0:
                 raise exceptions.ConflictError()
                 # we should also attempt to cancel the task if still running
-            if rsp['completed'] == True:
+            if rsp['completed']:
                 return rsp
             total = "?"
             curr = "?"
@@ -449,7 +467,6 @@ class ElasticClient(object):
         return count
 
     def UpdateByQuery(self, index, queryBody, noWait=False, ignoreConflicts=False, retryConflicts=False, slices=None):
-        #TODO:TEST
         '''
         Calls ES update_by_query, trapping and then retrying for connection exceptions
 
@@ -505,11 +522,11 @@ class ElasticClient(object):
 
         except exceptions.ConflictError as e:
             wait = self.__RetryConflictDelaySecs
-            if ignoreConflicts == True:
+            if ignoreConflicts:
                 if not rsp:
                     rsp = True
                 return rsp
-            if retryConflicts == True:
+            if retryConflicts:
                 logging.debug("[%s] %s", type(e).__name__, e.__str__())
                 logging.error(f"API conflict error during update by query operation, retrying in {wait} secs...")
             else:
@@ -592,10 +609,10 @@ class ElasticClient(object):
         
         Exact matches (==) only.
         '''
-        if not type(filters) is dict:
+        if not isinstance(filters, dict):
             raise TypeError("Parameter filters should be a dict")
-        if not len(filters) > 0:
-            raise Exception("Parameter filters must include at least one filter")
+        if len(filters) < 1:
+            raise ElasticClientException("Parameter filters must include at least one filter")
         body = { "query": { "bool": { "must": [] } } }
         for f in filters:
             DictUtils.GetValue(body, 'query.bool.must').append({ "match": { f: filters[f] } })
@@ -813,7 +830,7 @@ class ElasticClient(object):
             return rsp
 
         except exceptions.NotFoundError as e:
-            if raiseNotFoundError == False:
+            if not raiseNotFoundError:
                 return e.info
             raise
             
@@ -840,11 +857,12 @@ class ElasticClient(object):
         :pitKeepAlive: How long to extend the PIT on each call, e.g. "5m".  Only used when pitId is provided.
         '''
         response = self.ResilientSearch(index, queryBody, size, includeLockingInfo=includeLockingInfo, requestTimeout=requestTimeout, pitId=pitId, pitKeepAlive=pitKeepAlive)
+        rsp_pit_id = response.get("pit_id") if response else None
         if navToData:
             if not response or 'hits' not in response or 'hits' not in response['hits'] or not response['hits']['hits']:
-                return (None, response.get("pit_id") if response else None) if pitId else None
+                return (None, rsp_pit_id) if pitId else None
             hits = response['hits']['hits']
-            return (hits, response.get("pit_id", pitId)) if pitId else hits
+            return (hits, rsp_pit_id) if pitId else hits
         else:
             return response
     
@@ -1001,7 +1019,7 @@ class ElasticClient(object):
             if ignoreMissingIndex:
                 return
             else:
-                raise ElasticClientException("Index '%s' does not exist.", index)
+                raise ElasticClientException(IDX_NOT_EXIST_ERR_TEMPLATE, index)
 
         try:
             logging.debug("Running delete by id for index '%s', id %s", index, idToRemove)
@@ -1017,7 +1035,7 @@ class ElasticClient(object):
 
         except (exceptions.ConnectionError, exceptions.ConnectionTimeout, exceptions.TransportError, ReadTimeoutError) as e:
             wait = self.__RetryDelaySecs
-            msg = "[no message]" if not 'keys' in dir(e) or "message" not in e.keys() else e.message
+            msg = "[no message]" if 'keys' not in dir(e) or "message" not in e.keys() else e.message
             self.__RetryCount += 1
             logging.error(f"API connection error during delete by id operation - [{type(e).__name__}] {msg}, retrying in {wait} secs...")
             time.sleep(wait)
@@ -1026,15 +1044,15 @@ class ElasticClient(object):
 
     def DeleteByMatchQuery(self, index, filters, ignoreMissingIndex=False):
         ''' Deletes from index based on one or more match conditions.  Filters parameter should be dict of field:value. '''
-        if not type(filters) is dict:
+        if not isinstance(filters, dict):
             raise TypeError("Parameter filters should be a dict")
-        if not len(filters) > 0:
-            raise Exception("Parameter filters must include at least one filter")
+        if len(filters) < 1:
+            raise ElasticClientException("Parameter filters must include at least one filter")
         if not self.IndexExists(index):
             if ignoreMissingIndex:
                 return
             else:
-                raise ElasticClientException("Index '%s' does not exist.", index)
+                raise ElasticClientException(IDX_NOT_EXIST_ERR_TEMPLATE, index)
         filt = []
         for f in filters.keys():
             filt.append({ "match": { f: filters[f] } })
@@ -1080,7 +1098,7 @@ class ElasticClient(object):
             if ignoreMissingIndex:
                 return None
             else:
-                raise ElasticClientException("Index '%s' does not exist.", index)
+                raise ElasticClientException(IDX_NOT_EXIST_ERR_TEMPLATE, index)
         if not timeout:
             timeout = self.__DeleteRequestTimeout
         timeout = int(timeout)
@@ -1216,6 +1234,13 @@ class ElasticClient(object):
         mapping = self.es.indices.get_mapping(index=index)
         return mapping
         
+    def GetIndexSettings(self, index):
+        '''
+        Gets settings for one or more indices.  Pass "*" to retrieve all indices.
+        Returns a dict keyed by index name, each value being its "settings" block.
+        '''
+        return dict(self.es.indices.get_settings(index=index))
+
     def MapIndex(self, indexToMap, force):
         if type(force) is dict:
             raise ElasticClientMappingException("MapIndex no longer accepts mapping body.  See ElasticClient.py.")
@@ -1223,7 +1248,7 @@ class ElasticClient(object):
         self.MapIndexWithMapping(indexToMap, mapping, force)
 
     def MapIndexWithMapping(self, indexToMap, mapping, force):
-        if not type(mapping) is dict:
+        if not isinstance(mapping, dict):
             raise ElasticClientMappingException("Invalid mapping body.  Requires dict.")
 
         exists = self.es.indices.exists(index=indexToMap)
@@ -1282,7 +1307,7 @@ class ElasticClient(object):
         except exceptions.NotFoundError:
             forceNeededToCreate = False
 
-        if force == False and forceNeededToCreate == True:
+        if not force and forceNeededToCreate:
             #It exists and we were not asked to force the update.  Just exit.
             return
         if aliasBody == '':
@@ -1335,17 +1360,26 @@ class ElasticClient(object):
             body['dest']['pipeline'] = destPipeline
         return self.es.reindex(body=body, wait_for_completion=block) # pylint: disable=unexpected-keyword-arg,  missing-kwoa
     
+
     def GetPipeline(self, pipelineName = None, error_trace=None, filter_path=None, human=None, master_timeout=None, pretty=None, summary=None):
         '''
         https://elasticsearch-py.readthedocs.io/en/latest/api/ingest-pipelines.html
-        Returns a pipeline by the name also known as the id. If you omit the id parameter it returns all pipelines
-        example on how to get pipeline by Name: 
-        _Es = ElasticClient(app.Settings)
-        data = helper.GetPipeline(pipelineName = "saltminer-issues-risk-roller-pipeline")
-
-        too easy
+        Returns a single pipeline by name, or all pipelines if pipelineName is None.
+        Returns a dict keyed by pipeline name.
         '''
         return self.ingestClient.get_pipeline(id=pipelineName, error_trace=error_trace, filter_path=filter_path, human=human, master_timeout=master_timeout, pretty= pretty, summary = summary)
+
+
+    def GetPipelines(self, nameStartsWith=None):
+        '''
+        Returns all ingest pipelines as a dict keyed by pipeline name.
+        Optionally filters to only pipelines whose name starts with nameStartsWith.
+        '''
+        result = dict(self.GetPipeline())
+        if nameStartsWith:
+            result = {k: v for k, v in result.items() if k.startswith(nameStartsWith)}
+        return result
+    
 
     def PutPipeline(self, id, body):
         '''
@@ -1356,6 +1390,20 @@ class ElasticClient(object):
         this within the processor itself. 
         '''
         self.ingestClient.put_pipeline(id=id, body=body) # pylint: disable=unexpected-keyword-arg #, on_failure= on_failure, version=version)
+
+    def PerformRequest(self, method: str, path: str, body: dict = None):
+        '''
+        Sends a raw HTTP request to Elasticsearch, bypassing all ElasticClient abstractions.
+        Equivalent to using Kibana Dev Tools directly.
+
+        :method: HTTP method (GET, POST, PUT, DELETE, etc.)
+        :path: Request path including leading slash, e.g. "/queue_assets/_mapping"
+        :body: Optional request body as a dict
+        '''
+        kwargs = {}
+        if body is not None:
+            kwargs['body'] = body
+        return self.es.perform_request(method, path, **kwargs)
 
 class ElasticSearchUtilsScroller(object):
     def __init__(self, elasticClient, index, scrollSize, scrollTimeout, queryBody=None):

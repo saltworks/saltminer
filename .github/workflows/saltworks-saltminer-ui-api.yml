@@ -50,35 +50,18 @@ jobs:
       DATA_API_BASE_URL: http://api:5000
       KESTREL_ALLOW_REMOTE: true
       EXEC_TRANSFORM: true
-      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == 'true' && 'true' || 'false' }}
-      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == 'true' && 'true' || 'false' }}
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == true && 'true' || 'false' }}
+      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == true && 'true' || 'false' }}
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Configuration File Transformation
-      if: env.EXEC_TRANSFORM == 'true'
-      run: |
-        echo 'Transforming configuration file'
-        echo 'UiApiConfig.DataApiBaseUrl Before'
-        jq '.UiApiConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}
-        jq --arg dapi "${{ env.DATA_API_BASE_URL }}" \
-          --argjson kar ${{ env.KESTREL_ALLOW_REMOTE }} \
-          --arg kbu "${{ env.KIBANA_BASE_URL }}" \
-          '.UiApiConfig.DataApiBaseUrl = $dapi | .UiApiConfig += {"KestrelAllowRemote": $kar} | .UiApiConfig += {"KibanaBaseUrl": $kbu}' \
-          ${{ env.CONFIG_FILE }} \
-          > ${{ env.CONFIG_FILE }}.new
-        echo 'UiApiConfig.DataApiBaseUrl After'
-        jq '.UiApiConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}.new
-        mv ${{ env.CONFIG_FILE }} ${{ env.CONFIG_FILE }}.old
-        mv ${{ env.CONFIG_FILE }}.new ${{ env.CONFIG_FILE }}
-    - name: Store paths
+    - name: Store artifact path
       id: paths
       run: |
-        echo "working-dir=$(pwd)" >> $GITHUB_OUTPUT
-        echo "artifact-path=./artifacts/bin/Saltworks.SaltMiner.Ui.Api/${{ env.CONFIGURATION}}" >> $GITHUB_OUTPUT
-        echo "docker-artifact-path=Saltworks.SaltMiner.Ui.Api/Saltworks.SaltMiner.Ui.Api/artifacts/bin/Saltworks.SaltMiner.Ui.Api/${{ env.CONFIGURATION}}" >> $GITHUB_OUTPUT
-    
+        echo "artifact-path=./artifacts/bin/Saltworks.SaltMiner.Ui.Api/${{ env.CONFIGURATION }}" >> $GITHUB_OUTPUT
+        echo "docker-artifact-path=Saltworks.SaltMiner.Ui.Api/Saltworks.SaltMiner.Ui.Api/artifacts/bin/Saltworks.SaltMiner.Ui.Api/${{ env.CONFIGURATION }}" >> $GITHUB_OUTPUT
+
     - name: Determine registry image
       id: registry
       run: |
@@ -94,8 +77,8 @@ jobs:
       run: dotnet restore --disable-build-servers
     - name: Build
       run: dotnet build --no-restore --configuration $CONFIGURATION --property WarningLevel=0
-
-    - run: cp ${{ github.workspace }}/.dockerfiles/config-ui-api.sh ${{ steps.paths.outputs.artifact-path }}
+    - name: Publish
+      run: dotnet publish --no-build --configuration $CONFIGURATION --property WarningLevel=0
 
     - name: Show output
       run: |
