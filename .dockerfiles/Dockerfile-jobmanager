@@ -4,45 +4,16 @@ LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
 ENV APP_ROOT=/opt/saltworks/saltminer
-ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
-ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config/jobmanager/
-ENV USER=saltminer
-ENV GROUPNAME=$USER
-ENV UID=10000
-ENV GID=10001
-
 WORKDIR ${APP_ROOT}/app/jobmanager
-
-# Native deps for Syncfusion DocIORenderer -> SkiaSharp (DOCX->PDF rendering).
-# The alpine base ships no font libraries; without these libSkiaSharp.so fails to
-# load (libfontconfig.so.1 missing), surfacing as a SkiaSharp.SKImageInfo
-# TypeInitializationException during PDF report generation. ttf-dejavu provides
-# fallback fonts for substitution.
-RUN apk add --no-cache fontconfig freetype ttf-dejavu
 
 ARG ARTIFACT_PATH=.
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
 COPY $ARTIFACT_PATH .
 
-RUN addgroup \
-    --gid "$GID" \
-    "$GROUPNAME" \
-  && adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "$(pwd)" \
-    --ingroup "$GROUPNAME" \
-    --no-create-home \
-    --uid "$UID" \
-    $USER \
-  && mkdir -p ${APP_ROOT}/config/jobmanager \
-  && mkdir -p ${APP_ROOT}/logs \
-  && chown -R $USER:$GROUPNAME . \
-  && chown -R $USER:$GROUPNAME ${APP_ROOT}/config \
-  && chown -R $USER:$GROUPNAME ${APP_ROOT}/logs
+RUN mkdir -p ${APP_ROOT}/config \
+  && mkdir -p ${APP_ROOT}/logs
 
-EXPOSE 5002
+ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
+ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config/jobmanager/
 
-USER $USER
-
-ENTRYPOINT ["/usr/bin/dotnet", "/opt/saltworks/saltminer/app/jobmanager/Saltworks.SaltMiner.JobManager.dll"]
+ENTRYPOINT ["/usr/bin/dotnet", "${APP_ROOT}/app/jobmanager/Saltworks.SaltMiner.JobManager.dll"]

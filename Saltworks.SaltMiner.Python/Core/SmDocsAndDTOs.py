@@ -189,7 +189,6 @@ class Asset(BaseModel):
     Instance: Optional[str] = None
     Attributes: Dict[str, Any] = {}
     LastScanDaysPolicy: str = "30"
-    Port: int = 0 
 
 class SaltminerAsset(BaseModel):
     Asset: Asset

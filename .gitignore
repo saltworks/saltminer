@@ -43,10 +43,5 @@ sm-run-config-location.json
 ai-*.ps1
 *.http
 
-.claude/settings.local.json
-
-# AI scratch - connection files contain credentials
-ai/scratch/*-connection.md
+.claude
 .DS_Store
-Scratch/
-.ruff_cache/

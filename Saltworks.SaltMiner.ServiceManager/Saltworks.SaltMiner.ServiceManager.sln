@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 18
-VisualStudioVersion = 18.5.11723.231 stable
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.32112.339
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Saltworks.SaltMiner.ServiceManager", "Saltworks.SaltMiner.ServiceManager\Saltworks.SaltMiner.ServiceManager.csproj", "{CCE30B45-3279-4DC8-8E88-783E516CABD3}"
 EndProject
@@ -14,8 +14,6 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Saltworks.Utility.ApiHelper", "..\Saltworks.ApiClient\Saltworks.Utility.ApiHelper\Saltworks.Utility.ApiHelper.csproj", "{CD4B09AA-7740-4141-AFF2-77760E8F2ACA}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Saltworks.SaltMiner.Core", "..\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core.csproj", "{CB00A543-1508-4F1E-8A02-A3B9C7E84234}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Saltworks.SaltMiner.ConsoleApp.Core", "..\Saltworks.SaltMiner.ConsoleApp.Core\Saltworks.SaltMiner.ConsoleApp.Core\Saltworks.SaltMiner.ConsoleApp.Core.csproj", "{EB7475DE-1F27-8B4B-52DF-116DC3041AB1}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -47,10 +45,6 @@ Global
 		{CB00A543-1508-4F1E-8A02-A3B9C7E84234}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CB00A543-1508-4F1E-8A02-A3B9C7E84234}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CB00A543-1508-4F1E-8A02-A3B9C7E84234}.Release|Any CPU.Build.0 = Release|Any CPU
-		{EB7475DE-1F27-8B4B-52DF-116DC3041AB1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{EB7475DE-1F27-8B4B-52DF-116DC3041AB1}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{EB7475DE-1F27-8B4B-52DF-116DC3041AB1}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{EB7475DE-1F27-8B4B-52DF-116DC3041AB1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

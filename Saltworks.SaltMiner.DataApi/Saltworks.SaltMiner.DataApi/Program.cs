@@ -47,6 +47,7 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.OpenApi;
 using Elastic.Transport;
+using System.Text;
 
 namespace Saltworks.SaltMiner.DataApi
 {
@@ -58,7 +59,6 @@ namespace Saltworks.SaltMiner.DataApi
         private const string CONFIG_SECTION = "ApiConfig";
         private const string SEED_INDICATOR_FILE = "seeded.txt";
         private const string ELASTIC_CONNECT_STRING = "ELASTICSEARCH_CONNECTION_STRING";
-        private const string KIBANA_URL_STRING = "KIBANA_URL";
         private const string JE = ".json";
         private static bool KestrelAllowRemote = false;
         private static int KestrelPort = 5000;
@@ -96,60 +96,6 @@ namespace Saltworks.SaltMiner.DataApi
 
         #region Helpers
 
-        private static void DecodeElasticConnectionString(ApiConfig config)
-        {
-            if (string.IsNullOrEmpty(config.ElasticConnectionString))
-                return;
-
-            var knownParts = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { "host", "port", "scheme", "username", "password", "sslverify", "cloudid", "apikeyid", "apikeyvalue", "useauth" };
-
-            foreach (var part in config.ElasticConnectionString.Split(';', StringSplitOptions.RemoveEmptyEntries))
-            {
-                var eq = part.IndexOf('=');
-                if (eq <= 0) continue;
-                var key = part[..eq].Trim();
-                var value = part[(eq + 1)..].Trim();
-                if (!knownParts.Contains(key))
-                {
-                    Log.Warning("Unknown key '{Key}' in ElasticConnectionString, ignoring...", key);
-                    continue;
-                }
-                switch (key.ToLowerInvariant())
-                {
-                    case "host":
-                        config.ElasticHost = [.. value.Split(',').Select(h => h.Trim())];
-                        break;
-                    case "port":
-                        if (int.TryParse(value, out var port))
-                            config.ElasticPort = port;
-                        break;
-                    case "scheme":
-                        config.ElasticHttpScheme = value;
-                        break;
-                    case "username":
-                        config.ElasticUsername = value;
-                        break;
-                    case "password":
-                        config.ElasticPassword = value;
-                        break;
-                    case "sslverify":
-                        if (bool.TryParse(value, out var sslVerify))
-                            config.VerifySsl = sslVerify;
-                        break;
-                    case "apikeyid":
-                        config.ElasticApiKeyId = value;
-                        break;
-                    case "apikeyvalue":
-                        config.ElasticApiKeySecret = value;
-                        break;
-                    case "cloudid":
-                        Log.Warning("CloudID in ElasticConnectionString is not supported by this client, ignoring.");
-                        break;
-                }
-            }
-        }
-
         private static void ConfigureServices(IServiceCollection services, ApiConfig config)
         {
             services.AddControllers();
@@ -182,11 +128,10 @@ namespace Saltworks.SaltMiner.DataApi
             services.AddSingleton(typeof(ILogger<>), typeof(CustomLogger<>));
 
             ConfigureSwaggerServices(services, config);
-            DecodeElasticConnectionString(config);
             services.AddEsClient(configureOptions =>
             {
                 configureOptions.HttpScheme = config.ElasticHttpScheme;
-                configureOptions.ElasticSearchHost = config.ElasticHost;
+                configureOptions.ElasticSearchHost = [config.ElasticHost];
                 configureOptions.Port = config.ElasticPort;
                 configureOptions.Username = config.ElasticUsername;
                 configureOptions.Password = config.ElasticPassword;
@@ -316,19 +261,8 @@ namespace Saltworks.SaltMiner.DataApi
                 // Check for initial datatore seed indicator - if not present, copy default datastore seed files
                 if (!File.Exists(Path.Join(config.DatastoreSeedPath, SEED_INDICATOR_FILE)))
                 {
-                    Log.Warning("Initial datastore setup incomplete, setting default data seed items.");
-                    Directory.CreateDirectory(config.DatastoreSeedPath);
-                    foreach (var file in Directory.GetFiles(config.DefaultDatastoreSeedPath, "*", SearchOption.AllDirectories))
-                    {
-                        var relative = Path.GetRelativePath(config.DefaultDatastoreSeedPath, file);
-                        var dest = Path.Join(config.DatastoreSeedPath, relative);
-                        Directory.CreateDirectory(Path.GetDirectoryName(dest));
-                        if (!File.Exists(Path.Join(dest, file)))
-                        {
-                            File.Copy(file, dest);
-                            Log.Information("Copying default datastore seed file '{File}' to '{Dest}'", file, dest);
-                        }
-                    }
+                    Log.Information("Initial datastore setup incomplete, setting default data seed items.");
+                    File.Copy(config.DefaultDatastoreSeedPath, config.DatastoreSeedPath);
                 }
 
                 // Check for datastore seed items to process
@@ -483,6 +417,80 @@ namespace Saltworks.SaltMiner.DataApi
                 Log.Debug(ex, "Error in GetDirectory() helper, will be ignored");
             }
             return string.Empty;
+        }
+
+        private static void ProcessKibanaImport(ApiConfig config, KibanaContext kibanaContext)
+        {
+            var failMsg = "";
+            try
+            {
+                failMsg = "Failed to list Kibana path files";
+                
+                var dir = GetDirectory(config.DataKibanaSpacePath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    var kibanaImports = Directory.GetFiles(dir).Where(t => t.ToLower().EndsWith(".ndjson")).ToList();
+                    Log.Debug("Found {Counts} Kibana import file(s).", kibanaImports.Count);
+
+                    foreach (var kibanaImport in kibanaImports)
+                    {
+                        failMsg = $"Failed processing Kibana import '{kibanaImport}'";
+
+                        using (var fs = new FileStream(kibanaImport, FileMode.Open, FileAccess.Read))
+                        {
+                            var spaceName = Path.GetFileName(kibanaImport).Replace(".ndjson", "");
+
+                            var kibanaDto = new KibanaSpaceDto
+                            {
+                                Id = spaceName.ToLower().Replace(" ", "-"),
+                                Name = spaceName
+                            };
+
+                            var space = kibanaContext.GetSpace(kibanaDto.Id);
+                            if (!space.IsSuccessStatusCode)
+                            {
+                                var createResults = kibanaContext.CreateSpace(kibanaDto);
+
+                                if (!createResults.IsSuccessStatusCode)
+                                {
+                                    throw new ApiException($"Kibana space '{spaceName}' was not created. Reason: {createResults.RawContent}");
+                                }
+                            }
+                            else
+                            {
+                                Log.Warning("Kibana space '{SpaceName}' already exists, will not import file {FileName}.", spaceName, kibanaImport);
+                                continue;
+                            }
+
+                            var task = kibanaContext.ImportSpaceData(kibanaDto.Id, fs);
+                            task.Wait();
+                            var importResults = task.Result;
+
+                            if (!importResults.IsSuccessStatusCode)
+                            {
+                                throw new NonCriticalStartupException($"Failed to import data to the Space '{spaceName}'. Reason: {importResults.RawContent}");
+                            }
+                        }
+                        try
+                        {
+                            File.Delete(kibanaImport);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Error(ex, "Failed to remove kibana space import file '{Path}' after use.", kibanaImport);
+                        }
+                    }
+                    Log.Information("Processed {Counts} Kibana import file(s).", kibanaImports.Count);
+                }
+                else
+                {
+                    Log.Information("No Kibana import files found in '{Path}' (or invalid/doesn't exist)", config.DataKibanaSpacePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "{FMsg}: {ExMsg}", failMsg, ex.Message);
+            }
         }
 
         #region One-time stuff
@@ -797,86 +805,13 @@ namespace Saltworks.SaltMiner.DataApi
             ProcessPipelines(config, client);
         }
 
-        private static void ProcessKibanaImport(ApiConfig config, KibanaContext kibanaContext)
-        {
-            var failMsg = "";
-            try
-            {
-                failMsg = "Failed to list Kibana path files";
-
-                var dir = GetDirectory(config.DataKibanaSpacePath);
-                if (!string.IsNullOrEmpty(dir))
-                {
-                    var kibanaImports = Directory.GetFiles(dir).Where(t => t.ToLower().EndsWith(".ndjson")).ToList();
-                    Log.Debug("Found {Counts} Kibana import file(s).", kibanaImports.Count);
-
-                    foreach (var kibanaImport in kibanaImports)
-                    {
-                        failMsg = $"Failed processing Kibana import '{kibanaImport}'";
-
-                        using (var fs = new FileStream(kibanaImport, FileMode.Open, FileAccess.Read))
-                        {
-                            var spaceName = Path.GetFileName(kibanaImport).Replace(".ndjson", "");
-
-                            var kibanaDto = new KibanaSpaceDto
-                            {
-                                Id = spaceName.ToLower().Replace(" ", "-"),
-                                Name = spaceName
-                            };
-
-                            var space = kibanaContext.GetSpace(kibanaDto.Id);
-                            if (!space.IsSuccessStatusCode)
-                            {
-                                var createResults = kibanaContext.CreateSpace(kibanaDto);
-
-                                if (!createResults.IsSuccessStatusCode)
-                                {
-                                    throw new ApiException($"Kibana space '{spaceName}' was not created. Reason: {createResults.RawContent}");
-                                }
-                            }
-                            else
-                            {
-                                Log.Warning("Kibana space '{SpaceName}' already exists, will not import file {FileName}.", spaceName, kibanaImport);
-                                continue;
-                            }
-
-                            var task = kibanaContext.ImportSpaceData(kibanaDto.Id, fs);
-                            task.Wait();
-                            var importResults = task.Result;
-
-                            if (!importResults.IsSuccessStatusCode)
-                            {
-                                throw new NonCriticalStartupException($"Failed to import data to the Space '{spaceName}'. Reason: {importResults.RawContent}");
-                            }
-                        }
-                        try
-                        {
-                            File.Delete(kibanaImport);
-                        }
-                        catch (Exception ex)
-                        {
-                            Log.Error(ex, "Failed to remove kibana space import file '{Path}' after use.", kibanaImport);
-                        }
-                    }
-                    Log.Information("Processed {Counts} Kibana import file(s).", kibanaImports.Count);
-                }
-                else
-                {
-                    Log.Information("No Kibana import files found in '{Path}' (or invalid/doesn't exist)", config.DataKibanaSpacePath);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "{FMsg}: {ExMsg}", failMsg, ex.Message);
-            }
-        }
-
         #endregion
 
         private static ApiConfig InitConfigAndLogging()
         {
             // default datastore seed occurs in method ConfigureWebApp() 
             var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, DEFAULT_SETTINGS_FILE, APP_FOLDER);
+            var configPath = Path.GetDirectoryName(configFilePath);
 
             // Create IConfiguration to use temporarily for logging and kestrel config
             var configuration = new ConfigurationBuilder()
@@ -903,19 +838,13 @@ namespace Saltworks.SaltMiner.DataApi
                 .CreateLogger();
 
             Log.Debug("Current directory: {Dir}", Directory.GetCurrentDirectory());
-            configuration.Providers.First().Set("FullPathSettingsFile", configFilePath);
+            configuration.Providers.First().Set("FullPathSettingsFile", configPath);
             var config =new ApiConfig(configuration, configuration.GetValue<string>("FullPathSettingsFile"));
             var configString = Environment.GetEnvironmentVariable(ELASTIC_CONNECT_STRING);
             if (!string.IsNullOrEmpty(configString))
             {
                 Log.Information("Overriding Elastic connection settings from environment variable '{VarName}'", ELASTIC_CONNECT_STRING);
                 config.ElasticConnectionString = configString;
-            }
-            var kibanaUrl = Environment.GetEnvironmentVariable(KIBANA_URL_STRING);
-            if (!string.IsNullOrEmpty(kibanaUrl))
-            {
-                Log.Information("Overriding Kibana URL from environment variable '{VarName}'", KIBANA_URL_STRING);
-                config.KibanaBaseUrl = kibanaUrl;
             }
             return config;
         }

@@ -81,7 +81,7 @@ class Worker(ABC):
     @property
     def error_count(self) -> int:
         return self._err_count
-    @error_count.setter
+    error_count.setter
     def error_count(self, value:int):
         self._err_count = value
 

@@ -18,7 +18,7 @@
 * ----
 */
 
-using Saltworks.SaltMiner.Core.Entities;
+﻿using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.UiApiClient;
 using Saltworks.SaltMiner.JobManager.Helpers;
 using Saltworks.SaltMiner.Core.Util;
@@ -26,7 +26,6 @@ using Saltworks.SaltMiner.DataClient;
 using Microsoft.Extensions.Logging;
 using System.Text;
 using System.Data;
-using System.Runtime.InteropServices;
 using Syncfusion.DocIO.DLS;
 using Syncfusion.DocIO;
 using Syncfusion.DocIORenderer;
@@ -135,10 +134,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             {
                 var msg = "Engagement Report failed to create.";
                 UpdateJobStatus(ex.Message, Job.JobStatus.Error);
-                // Inline the full exception (type, message, stack trace, inner exceptions) into the message
-                // text. Passing the exception as the structured first arg alone is not being persisted to
-                // the configured Serilog sinks in this environment, leaving only the bare message.
-                Logger.LogError(ex, "{Msg} [{Type}] {ExMsg}. Full exception: {Detail}", msg, ex.GetType().Name, ex.Message, ex.ToString());
+                Logger.LogError(ex, "{Msg} [{Type}] {ExMsg}", msg, ex.GetType().Name, ex.Message);
                 throw new JobManagerException(msg, ex);
             }
         }
@@ -212,26 +208,9 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             foreach (var asset in engagementAssets)
             {
                 Logger.LogInformation("Getting Issue Data For Asset '{AssetId}'", asset.AssetId);
-                try
-                {
-                    // Asset returned without its Engagement reference would NRE on asset.Engagement.Id below.
-                    if (asset.Engagement == null)
-                    {
-                        throw new JobManagerException($"Asset '{asset.AssetId}' has no Engagement reference; cannot retrieve issues.");
-                    }
-
-                    engagementIssues.AddRange(GetAllEngagementAssetIssues(asset.Engagement.Id, asset.AssetId, "IsActive"));
-                    engagementIssuesRemoved.AddRange(GetAllEngagementAssetIssues(asset.Engagement.Id, asset.AssetId, "IsRemoved"));
-                    Logger.LogDebug("[Report Prep] Found {ICount} issues, {RCount} removed issues for asset '{Asset}' with search", engagementIssues.Count, engagementIssuesRemoved.Count, asset.Name);
-                }
-                catch (Exception ex)
-                {
-                    // Inline the full exception detail into the message; the structured exception arg is
-                    // not being persisted to the configured Serilog sinks in this environment.
-                    Logger.LogError(ex, "Failed retrieving issue data for Asset '{AssetId}' (Engagement '{EngagementId}'): [{Type}] {Msg}. Full exception: {Detail}",
-                        asset.AssetId, asset.Engagement?.Id, ex.GetType().FullName, ex.Message, ex.ToString());
-                    throw;
-                }
+                engagementIssues.AddRange(GetAllEngagementAssetIssues(asset.Engagement.Id, asset.AssetId, "IsActive"));
+                engagementIssuesRemoved.AddRange(GetAllEngagementAssetIssues(asset.Engagement.Id, asset.AssetId, "IsRemoved"));
+                Logger.LogDebug("[Report Prep] Found {ICount} issues, {RCount} removed issues for asset '{Asset}' with search", engagementIssues.Count, engagementIssuesRemoved.Count, asset.Name);
             }
 
             var reportName = $"Report-{engagementSummary.Id}-{DateTime.UtcNow:MM_dd_yyyy_HH_mm_ss}";
@@ -370,57 +349,35 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
                     document.FontSettings.SubstituteFont += FontSettings_SubstituteFont;
 
-                    // DOCX -> PDF goes through Syncfusion DocIORenderer -> SkiaSharp, which depends on
-                    // native libraries (libSkiaSharp + libfontconfig/freetype) and installed fonts being
-                    // present in the runtime environment. These are frequently missing on minimal/Alpine
-                    // containers and fail here as a generic TypeInitializationException whose real cause is
-                    // buried in the inner exception chain. Capture detailed diagnostics before rethrowing.
-                    DocIORenderer render;
-                    Syncfusion.Pdf.PdfDocument pdfDoc;
-                    try
+                    using var render = new DocIORenderer();
+                    using var pdfDoc = render.ConvertToPDF(document);
+                    document.FontSettings.SubstituteFont -= FontSettings_SubstituteFont;
+
+                    // Log the fonts that are not available but used in Word document.
+                    if (FontsNotAvailableDict.Count > 0)
                     {
-                        render = new DocIORenderer();
-                        pdfDoc = render.ConvertToPDF(document);
-                    }
-                    catch (Exception ex)
-                    {
-                        LogPdfRenderDiagnostics(ex);
-                        throw;
-                    }
-                    finally
-                    {
-                        document.FontSettings.SubstituteFont -= FontSettings_SubstituteFont;
+                        foreach (string font in FontsNotAvailableDict.Keys)
+                            Logger.LogWarning("The font {Font} used in the source document is not available. Replaced with {Replace}", font, FontsNotAvailableDict[font]);
                     }
 
-                    using (render)
-                    using (pdfDoc)
+                    FileStream pdfFs = null;
+                    // Save the PDF physical file from Word doc stream
+                    using (pdfFs = new FileStream(outputPdfFilePath, FileMode.Create, FileAccess.ReadWrite))
                     {
-                        // Log the fonts that are not available but used in Word document.
-                        if (FontsNotAvailableDict.Count > 0)
-                        {
-                            foreach (string font in FontsNotAvailableDict.Keys)
-                                Logger.LogWarning("The font {Font} used in the source document is not available. Replaced with {Replace}", font, FontsNotAvailableDict[font]);
-                        }
+                        pdfDoc.Save(pdfFs);
+                    }
 
-                        FileStream pdfFs = null;
-                        // Save the PDF physical file from Word doc stream
-                        using (pdfFs = new FileStream(outputPdfFilePath, FileMode.Create, FileAccess.ReadWrite))
+                    // Open the newly created PDF file and upload for attachment
+                    using (pdfFs = new FileStream(outputPdfFilePath, FileMode.Open))
+                    {
+                        UiApiClient.UploadFile(pdfFs, outputPdfFileName);
+                        var pdfAttachment = UiApiClient.GetEngagementAttachment(outputPdfFileName);
+                        if (pdfAttachment?.Data == null)
                         {
-                            pdfDoc.Save(pdfFs);
+                            throw new JobManagerException($"Report PDF Attachment was not created for '{outputPdfFileName}'");
                         }
-
-                        // Open the newly created PDF file and upload for attachment
-                        using (pdfFs = new FileStream(outputPdfFilePath, FileMode.Open))
-                        {
-                            UiApiClient.UploadFile(pdfFs, outputPdfFileName);
-                            var pdfAttachment = UiApiClient.GetEngagementAttachment(outputPdfFileName);
-                            if (pdfAttachment?.Data == null)
-                            {
-                                throw new JobManagerException($"Report PDF Attachment was not created for '{outputPdfFileName}'");
-                            }
-                            Logger.LogInformation($"Attaching PDF report to Engagement");
-                            UiApiClient.AddEngagementAttachment(JobQueue.TargetId, pdfAttachment.Data);
-                        }
+                        Logger.LogInformation($"Attaching PDF report to Engagement");
+                        UiApiClient.AddEngagementAttachment(JobQueue.TargetId, pdfAttachment.Data);
                     }
                 }
             }
@@ -446,53 +403,6 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
             Logger.LogInformation("Cleaning Up Temp Files");
             Directory.Delete(template.TmpDirectory, true);
-        }
-
-        /// <summary>
-        /// Logs detailed diagnostics for failures in the Syncfusion DocIORenderer -> SkiaSharp PDF
-        /// rendering path. The top-level handler only logs ex.Message, which for native dependency
-        /// problems is a generic TypeInitializationException; the actionable detail (missing
-        /// libfontconfig/freetype, wrong RID native asset, no installed fonts) lives in the inner
-        /// exception chain and the runtime environment, captured here.
-        /// </summary>
-        private void LogPdfRenderDiagnostics(Exception ex)
-        {
-            // Full chain (ex.ToString() includes nested inner exceptions + stack traces).
-            Logger.LogError(ex, "PDF rendering failed (Syncfusion DocIORenderer/SkiaSharp). Full exception chain: {Detail}", ex.ToString());
-
-            // The native load/relocation failure is typically the innermost exception, so unwind explicitly.
-            var depth = 0;
-            for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
-            {
-                Logger.LogError("PDF render inner exception [{Depth}]: [{Type}] {Msg}", ++depth, inner.GetType().FullName, inner.Message);
-            }
-
-            // OS/arch/RID tells us which native asset should be selected (e.g. linux-musl-x64 on Alpine).
-            Logger.LogError("PDF render environment: OS='{Os}', Framework='{Fw}', ProcArch='{Arch}', RID='{Rid}'",
-                RuntimeInformation.OSDescription,
-                RuntimeInformation.FrameworkDescription,
-                RuntimeInformation.ProcessArchitecture,
-                RuntimeInformation.RuntimeIdentifier);
-
-            // Confirm the SkiaSharp native assets are actually deployed alongside the app.
-            try
-            {
-                var runtimesDir = Path.Combine(AppContext.BaseDirectory, "runtimes");
-                if (Directory.Exists(runtimesDir))
-                {
-                    var skiaLibs = Directory.GetFiles(runtimesDir, "libSkiaSharp.*", SearchOption.AllDirectories);
-                    Logger.LogError("PDF render native assets under '{Dir}': {Libs}", runtimesDir,
-                        skiaLibs.Length > 0 ? string.Join("; ", skiaLibs) : "NONE FOUND");
-                }
-                else
-                {
-                    Logger.LogError("PDF render native assets directory not found: '{Dir}'", runtimesDir);
-                }
-            }
-            catch (Exception probeEx)
-            {
-                Logger.LogError(probeEx, "PDF render native asset probe failed: [{Type}] {Msg}", probeEx.GetType().Name, probeEx.Message);
-            }
         }
 
         static readonly Dictionary<string, string> FontsNotAvailableDict = [];
@@ -565,37 +475,15 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
             var result = new List<IssueFull>();
 
-            try
+            var response = UiApiClient.EngagementIssueSearch(request);
+
+            while (response.Success && response.Data != null && response.Data.Any())
             {
-                var response = UiApiClient.EngagementIssueSearch(request);
-                // Null response (not just an unsuccessful one) would NRE on response.Success below.
-                if (response == null)
-                {
-                    Logger.LogError("EngagementIssueSearch returned null (Asset '{AssetId}', Engagement '{EngagementId}', State '{State}'); returning no issues.",
-                        assetId, engagementId, stateFilter);
-                    return result;
-                }
+                result.AddRange(response.Data.ToList());
 
-                while (response.Success && response.Data != null && response.Data.Any())
-                {
-                    result.AddRange(response.Data.ToList());
+                request.Pager.Page = request.Pager.Page + 1;
 
-                    request.Pager.Page = request.Pager.Page + 1;
-
-                    response = UiApiClient.EngagementIssueSearch(request);
-                    if (response == null)
-                    {
-                        Logger.LogError("EngagementIssueSearch returned null on page {Page} (Asset '{AssetId}', Engagement '{EngagementId}', State '{State}'); stopping pagination.",
-                            request.Pager.Page, assetId, engagementId, stateFilter);
-                        break;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "EngagementIssueSearch failed (Asset '{AssetId}', Engagement '{EngagementId}', State '{State}', Page {Page}): [{Type}] {Msg}. Full exception: {Detail}",
-                    assetId, engagementId, stateFilter, request.Pager.Page, ex.GetType().FullName, ex.Message, ex.ToString());
-                throw;
+                response = UiApiClient.EngagementIssueSearch(request);
             }
 
             return result;

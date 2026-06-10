@@ -50,7 +50,7 @@ public class ApiConfig: ConfigBase
     public string KibanaBaseUrl { get; set; } = "http://localhost:5601";
     public string ElasticConnectionString { get; set; }
     public string ElasticHttpScheme { get; set; } = "http";
-    public string[] ElasticHost { get; set; } = [];
+    public string ElasticHost { get; set; }
     public int ElasticPort { get; set; } = 9200;
     public int ElasticDefaultResultSize { get; set; } = 300;
     public string ElasticDefaultPagingTimeout { get; set; } = "10s";

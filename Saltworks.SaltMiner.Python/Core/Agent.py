@@ -137,7 +137,7 @@ class Agent():
     @property
     def queue_client(self) -> QueueClient:
         if self._queue_client is None:
-            self._queue_client = QueueClient(self.app, self.args.queue_index_pattern_tag, batch_size=self.args.queue_batch_size)
+            self._queue_client = QueueClient(self.es, self.args.queue_index_pattern_tag, batch_size=self.args.queue_batch_size)
         return self._queue_client
     
     @property

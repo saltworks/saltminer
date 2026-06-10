@@ -2,9 +2,11 @@ name: Package Deploy Artifact (Legacy)
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 */12 * * *"
   push:
     branches:
-    - '3.4'
+    - '3.*'
     paths:
     - '.github/workflows/package-artifact.yml'
 

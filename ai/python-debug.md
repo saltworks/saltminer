@@ -2,7 +2,7 @@
 
 ## The Required Environment Variable
 
-All Python test runs need `SALTMINER_CONFIG_PATH` set to the external config directory. Without it, `Application()` loads `Config/` from the repo which has Docker hostnames (`http://api`) that don't resolve on the host. The correct config is at:
+All Python test runs need `SALTMINER_2_CONFIG_PATH` set to the external config directory. Without it, `Application()` loads `Config/` from the repo which has Docker hostnames (`http://api`) that don't resolve on the host. The correct config is at:
 
 ```
 C:\Source\saltminer-internal\config\python
@@ -18,13 +18,13 @@ Always run from `Saltworks.SaltMiner.Python/` as the working directory:
 cd C:/Source/saltminer/Saltworks.SaltMiner.Python
 
 # Run a specific test module
-SALTMINER_CONFIG_PATH="C:/Source/saltminer-internal/config" python -m unittest UnitTests.DataClientTests -v
+SALTMINER_2_CONFIG_PATH="C:/Source/saltminer-internal/config/python" python -m unittest UnitTests.DataClientTests -v
 
 # Run a specific test class
-SALTMINER_CONFIG_PATH="C:/Source/saltminer-internal/config" python -m unittest UnitTests.DataClientTests.DataClientTests -v
+SALTMINER_2_CONFIG_PATH="C:/Source/saltminer-internal/config/python" python -m unittest UnitTests.DataClientTests.DataClientTests -v
 
 # Run a specific test method
-SALTMINER_CONFIG_PATH="C:/Source/saltminer-internal/config" python -m unittest UnitTests.DataClientTests.DataClientTests.test_queue_scan_add_update -v
+SALTMINER_2_CONFIG_PATH="C:/Source/saltminer-internal/config/python" python -m unittest UnitTests.DataClientTests.DataClientTests.test_queue_scan_add_update -v
 ```
 
 ## Available Test Modules
@@ -57,7 +57,7 @@ ApplicationConfigurationException: Settings incorrect or missing value for confi
 The env var is missing or wrong. Verify:
 
 ```bash
-echo $SALTMINER_CONFIG_PATH
+echo $SALTMINER_2_CONFIG_PATH
 ls "C:/Source/saltminer-internal/config/python/Logging.json"
 ```
 
