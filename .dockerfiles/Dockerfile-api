@@ -10,20 +10,15 @@ ENV APP_ROOT=/opt/saltworks/saltminer
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
 ENV DATASTORE_SEED_PATH=$DATASTORE_SEED_PATH
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
-ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config/api
+ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config
 
 WORKDIR ${APP_ROOT}/app/api
 
 COPY . .
 
 # curl is used for healthcheck.
-# jq is used for configuration file manipulation
-# RUN apk add --no-cache curl jq bash \
-#   && mkdir -p ${APP_ROOT}/config/api \
-#   && mkdir -p ${APP_ROOT}/logs \
-#   && chmod u+x config-api.sh \
-#   && mv ${APP_ROOT}/app/api/appsettings.json ${APP_ROOT}/config/api/
-RUN mkdir -p ${APP_ROOT}/logs
+RUN apk add --no-cache curl \
+  && mkdir -p ${APP_ROOT}/logs
 COPY $DATASTORE_SEED_PATH/* ./default-datastore-seed/
 
 EXPOSE 5000
