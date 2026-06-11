@@ -56,22 +56,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Configuration File Transformation
-      if: env.EXEC_TRANSFORM == 'true'
-      run: |
-        echo 'Transforming configuration file'
-        echo 'UiApiConfig.DataApiBaseUrl Before'
-        jq '.UiApiConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}
-        jq --arg dapi "${{ env.DATA_API_BASE_URL }}" \
-          --argjson kar ${{ env.KESTREL_ALLOW_REMOTE }} \
-          --arg kbu "${{ env.KIBANA_BASE_URL }}" \
-          '.UiApiConfig.DataApiBaseUrl = $dapi | .UiApiConfig += {"KestrelAllowRemote": $kar} | .UiApiConfig += {"KibanaBaseUrl": $kbu}' \
-          ${{ env.CONFIG_FILE }} \
-          > ${{ env.CONFIG_FILE }}.new
-        echo 'UiApiConfig.DataApiBaseUrl After'
-        jq '.UiApiConfig.DataApiBaseUrl' ${{ env.CONFIG_FILE }}.new
-        mv ${{ env.CONFIG_FILE }} ${{ env.CONFIG_FILE }}.old
-        mv ${{ env.CONFIG_FILE }}.new ${{ env.CONFIG_FILE }}
     - name: Store paths
       id: paths
       run: |

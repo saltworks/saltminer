@@ -47,4 +47,4 @@ EXPOSE 5001
 
 USER $USER
 
-ENTRYPOINT ["/usr/bin/dotnet", "/usr/share/saltworks/saltminer-3.0.0/ui-api/Saltworks.SaltMiner.Ui.Api.dll"]
+ENTRYPOINT ["/usr/bin/dotnet", "${APP_ROOT}/app/ui-api/Saltworks.SaltMiner.Ui.Api.dll"]
