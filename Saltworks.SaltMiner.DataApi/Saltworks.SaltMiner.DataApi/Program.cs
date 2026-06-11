@@ -811,7 +811,6 @@ namespace Saltworks.SaltMiner.DataApi
         {
             // default datastore seed occurs in method ConfigureWebApp() 
             var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, DEFAULT_SETTINGS_FILE, APP_FOLDER);
-            var configPath = Path.GetDirectoryName(configFilePath);
 
             // Create IConfiguration to use temporarily for logging and kestrel config
             var configuration = new ConfigurationBuilder()
@@ -838,8 +837,8 @@ namespace Saltworks.SaltMiner.DataApi
                 .CreateLogger();
 
             Log.Debug("Current directory: {Dir}", Directory.GetCurrentDirectory());
-            configuration.Providers.First().Set("FullPathSettingsFile", configPath);
-            var config =new ApiConfig(configuration, configuration.GetValue<string>("FullPathSettingsFile"));
+            configuration.Providers.First().Set("FullPathSettingsFile", configFilePath);
+            var config = new ApiConfig(configuration, configuration.GetValue<string>("FullPathSettingsFile"));
             var configString = Environment.GetEnvironmentVariable(ELASTIC_CONNECT_STRING);
             if (!string.IsNullOrEmpty(configString))
             {
