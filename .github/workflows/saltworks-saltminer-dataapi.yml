@@ -38,7 +38,7 @@ jobs:
         working-directory: ./Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi
     env:
       CONFIGURATION: release
-      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == 'true' && 'true' || 'false' }}
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode }}
       PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == 'true' && 'true' || 'false' }}
 
     steps:
@@ -105,20 +105,25 @@ jobs:
           org.opencontainers.image.description=SaltMiner API
           org.opencontainers.image.vendor=Saltworks Security, LLC
 
+    - name: Stage datastore seed files for Docker
+      working-directory: ${{ github.workspace }}
+      run: |
+        cp -r ${{ steps.paths.outputs.docker-datastore-seed-path }} ${{ steps.paths.outputs.docker-artifact-path }}/default-datastore-seed
+
     - name: Build and push Docker images
       id: push
       uses: docker/build-push-action@v6
       with:
         file: .dockerfiles/Dockerfile-api
-        context: ${{ github.workspace }}
+        context: ${{ github.workspace }}/${{ steps.paths.outputs.docker-artifact-path }}
         push: true
         provenance: mode=max
         sbom: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          ARTIFACT_PATH=${{ steps.paths.outputs.docker-artifact-path }}
-          DATASTORE_SEED_PATH=${{ steps.paths.outputs.docker-datastore-seed-path }}
+          ARTIFACT_PATH=.
+          DATASTORE_SEED_PATH=./default-datastore-seed
 
     - name: Show complete docker tag
       run: echo "${{ steps.meta.outputs.tags }}"
