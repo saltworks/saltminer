@@ -7,6 +7,11 @@ on:
     - "4.*"
     paths:
     - 'Saltworks.SaltMiner.DataApi/**'
+    - 'Saltworks.SaltMiner.ElasticClient/**'
+    - 'Saltworks.SaltMiner.ConfigurationWizard/**'
+    - 'Saltworks.SaltMiner.ConsoleApp.Core/**'
+    - 'Saltworks.SaltMiner.Core/**'
+    - 'Saltworks.Utility.ApiHelper/**'
     - 'Saltworks.SaltMiner.IndexTemplates/**'
     - '.github/workflows/saltworks-saltminer-dataapi.yml'
     - '.dockerfiles/Dockerfile-api'
