@@ -55,6 +55,9 @@ public class EsClient : IElasticClient
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
     private const string UNKNOWN_ERROR = "Unknown error";
 
+    public string[] Hosts { get; private set; } = [];
+    public int Port { get; private set; }
+
     public EsClient(ClientConfiguration configuration, ILogger<IElasticClient> logger)
     {
         ClientConfig = configuration ?? throw new ArgumentNullException(nameof(configuration));
@@ -146,7 +149,9 @@ public class EsClient : IElasticClient
             auth = new BasicAuthentication(username, password);
         }
 
-        Logger?.LogInformation("Using cloud ID '{Name}'", cloudId[..cloudId.IndexOf(':')]);
+        Hosts = [cloudId[..cloudId.IndexOf(':')]];
+        Port = 443;
+        Logger?.LogInformation("Using cloud ID '{Name}'", Hosts[0]);
         var settings = new ElasticsearchClientSettings(new CloudNodePool(cloudId, auth),
             sourceSerializer: (_, _) => new SnakeCaseSerializer());
 
@@ -164,6 +169,9 @@ public class EsClient : IElasticClient
         var useAuth = !connParms.TryGetValue("useauth", out var ua) || !ua.Equals("false", StringComparison.OrdinalIgnoreCase);
         var sslVerify = ParseSslVerify(connParms);
         var isHttp = scheme.Equals("http", StringComparison.OrdinalIgnoreCase);
+
+        Hosts = hosts.Select(h => h.Trim()).ToArray();
+        Port = port;
 
         if (isHttp)
             Logger?.LogWarning("Insecure connection scheme (http), should not be used in production.");

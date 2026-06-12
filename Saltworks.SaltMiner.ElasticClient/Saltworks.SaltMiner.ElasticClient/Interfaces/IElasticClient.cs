@@ -29,6 +29,11 @@ using System.Threading.Tasks;
 namespace Saltworks.SaltMiner.ElasticClient;
 public interface IElasticClient
 {
+    /// <summary>Final resolved host(s) after connection string interpolation.</summary>
+    string[] Hosts { get; }
+    /// <summary>Final resolved port after connection string interpolation.</summary>
+    int Port { get; }
+
     /// <summary>
     /// Get count of running tasks on cluster.  Useful for when you are about to add a bunch of "nowait" tasks.
     /// </summary>

@@ -1,15 +1,6 @@
 name: Saltworks.SaltMiner.Python
 
 on:
-  push:
-    branches:
-    - main
-    - '3.*'
-    paths:
-    - 'Saltworks.SaltMiner.Python/**'
-    - '.github/workflows/saltworks-saltminer-python.yml'
-    - '.dockerfiles/Dockerfile-python'
-    - '.dockerfiles/config-services.sh'
   workflow_dispatch:
     inputs:
       push_to_docker_hub:

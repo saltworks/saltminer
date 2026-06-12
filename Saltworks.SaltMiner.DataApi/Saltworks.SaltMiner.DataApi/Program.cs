@@ -141,6 +141,7 @@ namespace Saltworks.SaltMiner.DataApi
                 configureOptions.EnableBulkAddErrorDiagnostics = config.ElasticEnableBulkAddDiagnosticInfo;
                 configureOptions.VerifySsl = config.VerifySsl;
                 configureOptions.SingleNodeCluster = config.ElasticSingleNodeCluster;
+                configureOptions.ElasticConnectionString = config.ElasticConnectionString;
             });
             services.AddApiClient<KibanaContext>(options =>
             {
@@ -253,7 +254,7 @@ namespace Saltworks.SaltMiner.DataApi
                 var ci = client.GetClusterInfo();
                 if (!ci.IsSuccessful)
                 {
-                    Log.Error("Unable to connect to Elasticsearch server '{ElasticHost}:{ElasticPort}' - [Status] {Msg}", config.ElasticHost, config.ElasticPort, ci.HttpStatus, ci.Message);
+                    Log.Error("Unable to connect to Elasticsearch server '{ElasticHost}:{ElasticPort}' - [Status] {Msg}", string.Join(",", client.Hosts), client.Port, ci.HttpStatus, ci.Message);
                     throw new ApiConfigurationException("Unable to connect to Elasticsearch - check configuration.");
                 }
                 var licenseContext = app.Services.GetRequiredService<LicenseContext>();
@@ -283,12 +284,12 @@ namespace Saltworks.SaltMiner.DataApi
                 var templateCheck = client.IndexTemplateExists(config.TemplateToVerify);
                 if (!templateCheck.IsSuccessful || templateCheck.CountAffected == 0)
                 {
-                    Log.Error("Index templates not found on ElasticSearch server '{ElasticHost}', checked for {TemplateToVerify}", config.ElasticHost, config.TemplateToVerify);
-                    throw new ApiConfigurationException($"Index templates not found on ElasticSearch server '{config.ElasticHost}', checked for {config.TemplateToVerify}");
+                    Log.Error("Index templates not found on ElasticSearch server '{ElasticHost}:{ElasticPort}', checked for {TemplateToVerify}", string.Join(",", client.Hosts), client.Port, config.TemplateToVerify);
+                    throw new ApiConfigurationException($"Index templates not found on ElasticSearch server '{string.Join(",", client.Hosts)}:{client.Port}', checked for {config.TemplateToVerify}");
                 }
                 else
                 {
-                    Log.Information("Index templates found on ElasticSearch server '{ElasticHost}', checked for {TemplateToVerify}", config.ElasticHost, config.TemplateToVerify);
+                    Log.Information("Index templates found on ElasticSearch server '{ElasticHost}:{ElasticPort}', checked for {TemplateToVerify}", string.Join(",", client.Hosts), client.Port, config.TemplateToVerify);
                 }
 
                 // Check for new license
