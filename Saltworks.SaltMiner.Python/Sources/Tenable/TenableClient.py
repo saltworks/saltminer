@@ -34,7 +34,7 @@ class TenableClient:
     def get_vm_scans_generator(self):
         yield from self.tio.scans.list()
 
-    def get_vm_assets_generator(self):
+    def get_assets_generator(self):
         yield from self.tio.exports.assets()
 
     def get_vm_vuln_export_generator(self, scan_uuid):
@@ -80,7 +80,7 @@ class TenableClient:
             offset += page_size
 
     def get_was_export_generator(self, scan_uuid=None):
-        kwargs = {"state": ["OPEN", "REOPENED", "FIXED"]}
+        kwargs = {"state": ["OPEN", "REOPENED", "FIXED"], "since": 946684800, "include_unlicensed": True}
         if scan_uuid:
             kwargs["scan_uuid"] = scan_uuid
         yield from self.tio.exports.was(**kwargs)
