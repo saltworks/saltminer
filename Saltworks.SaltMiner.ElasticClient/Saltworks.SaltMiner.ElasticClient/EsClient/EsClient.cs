@@ -151,7 +151,7 @@ public class EsClient : IElasticClient
 
         Hosts = [cloudId[..cloudId.IndexOf(':')]];
         Port = 443;
-        Logger?.LogInformation("Using cloud ID '{Name}'", Hosts[0]);
+        Logger?.LogInformation("[Cloud Settings] Using cloud ID '{Name}'", Hosts[0]);
         var settings = new ElasticsearchClientSettings(new CloudNodePool(cloudId, auth),
             sourceSerializer: (_, _) => new SnakeCaseSerializer());
 
@@ -179,7 +179,7 @@ public class EsClient : IElasticClient
             Logger?.LogWarning("Anonymous connection, no credentials specified.");
 
         var uris = hosts.Select(h => new Uri($"{scheme}://{h.Trim()}:{port}")).ToList();
-        Logger?.LogInformation("Using host(s): {Hosts}", string.Join(", ", uris));
+        Logger?.LogInformation("[Basic Settings] Using host(s): {Hosts}", string.Join(", ", uris));
 
         var nodePool = new StaticNodePool(uris);
         var settings = new ElasticsearchClientSettings(nodePool, sourceSerializer: (_, _) => new SnakeCaseSerializer());

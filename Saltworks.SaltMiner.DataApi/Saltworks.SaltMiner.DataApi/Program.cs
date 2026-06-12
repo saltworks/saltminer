@@ -263,7 +263,8 @@ namespace Saltworks.SaltMiner.DataApi
                 if (!File.Exists(Path.Join(config.DatastoreSeedPath, SEED_INDICATOR_FILE)))
                 {
                     Log.Information("Initial datastore setup incomplete, setting default data seed items.");
-                    File.Copy(config.DefaultDatastoreSeedPath, config.DatastoreSeedPath);
+                    foreach (var srcFile in Directory.GetFiles(config.DefaultDatastoreSeedPath))
+                        File.Copy(srcFile, Path.Join(config.DatastoreSeedPath, Path.GetFileName(srcFile)), overwrite: true);
                 }
 
                 // Check for datastore seed items to process
