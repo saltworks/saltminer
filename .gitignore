@@ -45,3 +45,5 @@ ai-*.ps1
 
 .claude
 .DS_Store
+ai/scratch/
+.env
