@@ -47,13 +47,147 @@ using System.Threading.Tasks;
 using static Saltworks.SaltMiner.ElasticClient.EsClient.EsClientRequestAggregation;
 
 namespace Saltworks.SaltMiner.ElasticClient.EsClient;
-public class EsClient(ClientConfiguration configuration, ElasticsearchClientSettings connectionSettings, ILogger<IElasticClient> logger) : IElasticClient
+public class EsClient : IElasticClient
 {
-    private readonly ElasticsearchClient ElasticClient = new(connectionSettings);
-    private readonly ILogger Logger = logger;
-    private readonly ClientConfiguration ClientConfig = configuration;
-    private static readonly JsonSerializerOptions JsonOptions = new() {  PropertyNameCaseInsensitive = true};
+    private ElasticsearchClient ElasticClient;
+    private readonly ILogger Logger;
+    private readonly ClientConfiguration ClientConfig;
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
     private const string UNKNOWN_ERROR = "Unknown error";
+
+    public EsClient(ClientConfiguration configuration, ILogger<IElasticClient> logger)
+    {
+        ClientConfig = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        Logger = logger;
+        Initialize();
+    }
+
+    private void Initialize()
+    {
+        var connParms = ParseConnectionString(ClientConfig.ElasticConnectionString);
+
+        // Apply config fallbacks; connection string values take precedence
+        if (!connParms.ContainsKey("hosts") && ClientConfig.ElasticSearchHost?.Length > 0)
+            connParms["hosts"] = string.Join(",", ClientConfig.ElasticSearchHost);
+        connParms.TryAdd("scheme", ClientConfig.HttpScheme ?? "https");
+        connParms.TryAdd("port", ClientConfig.Port.ToString());
+        connParms.TryAdd("username", ClientConfig.Username ?? "");
+        connParms.TryAdd("password", ClientConfig.Password ?? "");
+        connParms.TryAdd("sslverify", ClientConfig.VerifySsl.ToString().ToLower());
+        connParms.TryAdd("useauth", ClientConfig.UseAuth.ToString().ToLower());
+        if (!string.IsNullOrEmpty(ClientConfig.CloudId))
+            connParms.TryAdd("cloudid", ClientConfig.CloudId);
+        if (!string.IsNullOrEmpty(ClientConfig.ApiKeyId))
+            connParms.TryAdd("apikeyid", ClientConfig.ApiKeyId);
+        if (!string.IsNullOrEmpty(ClientConfig.ApiKeyValue))
+            connParms.TryAdd("apikeyvalue", ClientConfig.ApiKeyValue);
+
+        ElasticsearchClientSettings settings;
+        if (connParms.ContainsKey("cloudid"))
+            settings = BuildCloudSettings(connParms);
+        else
+            settings = BuildBasicSettings(connParms);
+
+        settings
+            .DefaultFieldNameInferrer(p => p.ToSnakeCase())
+            .RequestTimeout(TimeSpan.FromSeconds(ClientConfig.RequestTimeout));
+
+        if (ClientConfig.EnableDebugInfoInElasticsearchResponse)
+            settings.EnableDebugMode();
+
+        ElasticClient = new ElasticsearchClient(settings);
+    }
+
+    private static Dictionary<string, string> ParseConnectionString(string connectionString)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(connectionString)) return result;
+
+        var knownKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "host", "port", "scheme", "username", "password", "sslverify", "cloudid", "apikeyid", "apikeyvalue", "useauth" };
+
+        foreach (var part in connectionString.Split(';'))
+        {
+            var eqIdx = part.IndexOf('=');
+            if (eqIdx < 1) continue;
+            var key = part[..eqIdx].Trim().ToLower();
+            var value = part[(eqIdx + 1)..].Trim();
+            if (!knownKeys.Contains(key)) continue;
+            result[key == "host" ? "hosts" : key] = value; // normalize "host" → "hosts" to allow comma-separated list
+        }
+        return result;
+    }
+
+    private static bool ParseSslVerify(Dictionary<string, string> connParms) =>
+        !connParms.TryGetValue("sslverify", out var sv) || !sv.Equals("false", StringComparison.OrdinalIgnoreCase);
+
+    private ElasticsearchClientSettings BuildCloudSettings(Dictionary<string, string> connParms)
+    {
+        var cloudId = connParms["cloudid"];
+        if (!cloudId.Contains(':'))
+            throw new EsClientException("Invalid cloud ID format, expected 'name:encoded_string'");
+
+        var sslVerify = ParseSslVerify(connParms);
+        AuthorizationHeader auth;
+
+        if (connParms.TryGetValue("apikeyid", out var apiKeyId))
+        {
+            if (!connParms.TryGetValue("apikeyvalue", out var apiKeyValue))
+                throw new EsClientException("Connection with ApiKeyId requires ApiKeyValue");
+            Logger?.LogDebug("Using API key authentication for cloud connection");
+            var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{apiKeyId}:{apiKeyValue}"));
+            auth = new Elastic.Transport.ApiKey(encoded);
+        }
+        else
+        {
+            if (!connParms.TryGetValue("username", out var username) || !connParms.TryGetValue("password", out var password))
+                throw new EsClientException("Cloud connection requires Username/Password or ApiKeyId/ApiKeyValue");
+            Logger?.LogDebug("Using username/password authentication for cloud connection");
+            auth = new BasicAuthentication(username, password);
+        }
+
+        Logger?.LogInformation("Using cloud ID '{Name}'", cloudId[..cloudId.IndexOf(':')]);
+        var settings = new ElasticsearchClientSettings(new CloudNodePool(cloudId, auth),
+            sourceSerializer: (_, _) => new SnakeCaseSerializer());
+
+        if (!sslVerify)
+            settings.ServerCertificateValidationCallback(CertificateValidations.AllowAll);
+
+        return settings;
+    }
+
+    private ElasticsearchClientSettings BuildBasicSettings(Dictionary<string, string> connParms)
+    {
+        var scheme = connParms.GetValueOrDefault("scheme", "https");
+        var port = int.TryParse(connParms.GetValueOrDefault("port", "9200"), out var p) ? p : 9200;
+        var hosts = connParms.GetValueOrDefault("hosts", "localhost").Split(',');
+        var useAuth = !connParms.TryGetValue("useauth", out var ua) || !ua.Equals("false", StringComparison.OrdinalIgnoreCase);
+        var sslVerify = ParseSslVerify(connParms);
+        var isHttp = scheme.Equals("http", StringComparison.OrdinalIgnoreCase);
+
+        if (isHttp)
+            Logger?.LogWarning("Insecure connection scheme (http), should not be used in production.");
+        if (!useAuth)
+            Logger?.LogWarning("Anonymous connection, no credentials specified.");
+
+        var uris = hosts.Select(h => new Uri($"{scheme}://{h.Trim()}:{port}")).ToList();
+        Logger?.LogInformation("Using host(s): {Hosts}", string.Join(", ", uris));
+
+        var nodePool = new StaticNodePool(uris);
+        var settings = new ElasticsearchClientSettings(nodePool, sourceSerializer: (_, _) => new SnakeCaseSerializer());
+
+        if (useAuth)
+        {
+            connParms.TryGetValue("username", out var username);
+            connParms.TryGetValue("password", out var password);
+            settings.Authentication(new BasicAuthentication(username ?? "", password ?? ""));
+        }
+
+        if (!isHttp && !sslVerify)
+            settings.ServerCertificateValidationCallback(CertificateValidations.AllowAll);
+
+        return settings;
+    }
 
     public IElasticClientResponse AddActiveIssueAlias(string indexName, string alias)
     {

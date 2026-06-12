@@ -28,6 +28,30 @@ public class ClientConfiguration
     
     private int _DefaultPageSize = 1000;
     /// <summary>
+    /// Connection string, if supplied, overrides other properties.
+    /// Format: "Key=Value;Key=Value;..." with keys: Host, Port, Scheme, Username, Password, SslVerify, CloudID, ApiKeyId, ApiKeyValue, UseAuth
+    /// Examples: "Host=localhost;Port=9200;Scheme=https;Username=elastic;Password=changeme"
+    ///           "CloudID=my-deployment:hexcode;Username=elastic;Password=changeme"
+    ///           "CloudID=my-deployment:hexcode;ApiKeyId=key-id;ApiKeyValue=key-value"
+    /// </summary>
+    public string ElasticConnectionString { get; set; } = "";
+    /// <summary>
+    /// Cloud ID for Elastic Cloud connections; if set, overrides host-based configuration
+    /// </summary>
+    public string CloudId { get; set; } = "";
+    /// <summary>
+    /// API key ID for API key authentication (use with ApiKeyValue)
+    /// </summary>
+    public string ApiKeyId { get; set; } = "";
+    /// <summary>
+    /// API key value/secret for API key authentication (use with ApiKeyId)
+    /// </summary>
+    public string ApiKeyValue { get; set; } = "";
+    /// <summary>
+    /// Set to false to connect without authentication (anonymous). Defaults to true.
+    /// </summary>
+    public bool UseAuth { get; set; } = true;
+    /// <summary>
     /// Host for ElasticSearch server (just the host, not a URL / URI)
     /// </summary>
     public string[] ElasticSearchHost { get; set; } = [ "localhost" ];
