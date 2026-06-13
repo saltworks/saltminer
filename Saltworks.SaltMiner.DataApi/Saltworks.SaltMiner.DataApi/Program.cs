@@ -262,9 +262,18 @@ namespace Saltworks.SaltMiner.DataApi
                 // Check for initial datatore seed indicator - if not present, copy default datastore seed files
                 if (!File.Exists(Path.Join(config.DatastoreSeedPath, SEED_INDICATOR_FILE)))
                 {
-                    Log.Information("Initial datastore setup incomplete, setting default data seed items.");
-                    foreach (var srcFile in Directory.GetFiles(config.DefaultDatastoreSeedPath))
-                        File.Copy(srcFile, Path.Join(config.DatastoreSeedPath, Path.GetFileName(srcFile)), overwrite: true);
+                    string[] seedIndicatorIndices = ["sys_lookups", "sys_service_jobs", "sys_search_filters"];
+                    var allIndicesPresent = seedIndicatorIndices.All(idx => client.IndexExists(idx).CountAffected > 0);
+                    if (allIndicesPresent)
+                    {
+                        Log.Warning("Seed indicator file missing but all seed indices present — indicator was likely removed erroneously. Restoring indicator without reseeding.");
+                    }
+                    else
+                    {
+                        Log.Information("Initial datastore setup incomplete, setting default data seed items.");
+                        foreach (var srcFile in Directory.GetFiles(config.DefaultDatastoreSeedPath))
+                            File.Copy(srcFile, Path.Join(config.DatastoreSeedPath, Path.GetFileName(srcFile)), overwrite: true);
+                    }
                 }
 
                 // Check for datastore seed items to process
