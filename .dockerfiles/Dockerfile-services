@@ -37,4 +37,4 @@ RUN mkdir -p ./python/Defaults/ && \
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config
 
-ENTRYPOINT ["/usr/bin/dotnet", "${APP_ROOT}/app/servicemanager/Saltworks.SaltMiner.ServiceManager.dll"]
+ENTRYPOINT /usr/bin/dotnet ${APP_ROOT}/app/servicemanager/Saltworks.SaltMiner.ServiceManager.dll

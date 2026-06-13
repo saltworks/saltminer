@@ -23,4 +23,4 @@ COPY $DATASTORE_SEED_PATH/* ./default-datastore-seed/
 
 EXPOSE 5000
 
-ENTRYPOINT ["/usr/bin/dotnet", "${APP_ROOT}/app/api/Saltworks.SaltMiner.DataApi.dll"]
+ENTRYPOINT /usr/bin/dotnet ${APP_ROOT}/app/api/Saltworks.SaltMiner.DataApi.dll
