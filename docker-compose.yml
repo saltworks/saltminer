@@ -27,7 +27,7 @@ services:
     - "80:80"
     - "443:443"
     volumes:
-    - ${APP_ROOT}/config/nginx:/etc/nginx
+#    - ${APP_ROOT}/config/nginx:/etc/nginx
     - ${APP_ROOT}/logs/nginx:/var/log/nginx
     - smpgui-assets:${CONTAINER_APP_ROOT}/app/ui-web
     environment:
@@ -39,6 +39,10 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
+      api:
+        condition: service_started
+      ui-api:
+        condition: service_started
     deploy:
       resources:
         limits:

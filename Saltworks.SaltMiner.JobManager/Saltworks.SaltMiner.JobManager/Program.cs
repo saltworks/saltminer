@@ -178,32 +178,12 @@ namespace Saltworks.SaltMiner.JobManager
 
         private static string GetConfigFilePath()
         {
-            // Determine config location
-            var configPath = ConsoleAppUtils.DetermineConfigPath();
-            var configFilePath = Path.Join(configPath, APP_FOLDER, SETTINGS_FILE);
             var defaultConfigFilePath = Path.Join(AppDomain.CurrentDomain.BaseDirectory, DEFAULT_SETTINGS_FILE);
+            var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, defaultConfigFilePath, APP_FOLDER);
+
+            var configFolder = Path.GetDirectoryName(configFilePath);
             var defaultTemplateFolderPath = Path.Join(AppDomain.CurrentDomain.BaseDirectory, DEFAULT_TEMPLATE_FOLDER);
-            var templateFolderPath = Path.Join(configPath, APP_FOLDER, TEMPLATE_FOLDER);
-
-            // Default config if needed
-            if (!File.Exists(configFilePath))
-            {
-                Console.WriteLine($"Configuration file not found at path '{configFilePath}', attempting to create using default settings.");
-                try
-                {
-                    if (File.Exists(defaultConfigFilePath))
-                        File.Copy(defaultConfigFilePath, configFilePath);
-                    else
-                        Console.WriteLine($"Default configuration file '{Path.GetFileName(defaultConfigFilePath)}' not found in application directory '{Path.GetDirectoryName(defaultConfigFilePath)}'.");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Failed to create default configuration file at '{configFilePath}'. {ex.Message}");
-                }
-
-            }
-            if (!File.Exists(configFilePath))
-                throw new ConfigurationException($"Configuration file not found ('{configFilePath}').");
+            var templateFolderPath = Path.Join(configFolder, TEMPLATE_FOLDER);
 
             // Copy default template folder if needed
             try

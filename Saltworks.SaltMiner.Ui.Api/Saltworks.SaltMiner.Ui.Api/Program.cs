@@ -351,32 +351,8 @@ public static class Program
 
     private static string GetConfigFilePath()
     {
-        // Determine config location
-        var configPath = ConsoleAppUtils.DetermineConfigPath();
-        var configFilePath = Path.Join(configPath, APP_FOLDER, SETTINGS_FILE);
-
-        // Default config if needed
-        if (!File.Exists(configFilePath))
-        {
-            Console.WriteLine($"Configuration file not found at path '{configFilePath}', attempting to create using default settings.");
-            var defaultConfigFilePath = Path.Join(Directory.GetCurrentDirectory(), DEFAULT_SETTINGS_FILE);
-            try
-            {
-                if (File.Exists(defaultConfigFilePath))
-                    File.Copy(defaultConfigFilePath, configFilePath);
-                else
-                    Console.WriteLine($"Default configuration file '{DEFAULT_SETTINGS_FILE}' not found in application directory '{Directory.GetCurrentDirectory()}'.");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Failed to create default configuration file at '{configFilePath}'. {ex.Message}");
-            }
-        }
-        if (!File.Exists(configFilePath))
-        {
-            throw new ConfigurationException($"Configuration file not found ('{configFilePath}').");
-        }
-        return configFilePath;
+        var defaultConfigFilePath = Path.Join(Directory.GetCurrentDirectory(), DEFAULT_SETTINGS_FILE);
+        return ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, defaultConfigFilePath, APP_FOLDER);
     }
 
     private static void ConfigureConsoleApp(IConsoleAppHostArgs args)
