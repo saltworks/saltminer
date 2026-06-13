@@ -62,8 +62,12 @@ namespace Saltworks.SaltMiner.ConsoleApp.Core
         {
             // Determine config location
             var configPath = DetermineConfigPath(envVariable, locatorFile);
-            // Expected path will NOT include app folder, i.e. "/opt/saltworks/saltminer/config"
-            var configFilePath = Path.Join(configPath, appFolder, configFileName);
+            // If the resolved path already ends with appFolder (e.g. env var was set to the app-specific
+            // subdir rather than the base config dir), don't append it again.
+            var normalizedPath = configPath.TrimEnd('/', '\\', Path.DirectorySeparatorChar);
+            var configFilePath = normalizedPath.EndsWith(appFolder, StringComparison.OrdinalIgnoreCase)
+                ? Path.Join(configPath, configFileName)
+                : Path.Join(configPath, appFolder, configFileName);
 
             // Default config if needed
             if (!File.Exists(configFilePath))
