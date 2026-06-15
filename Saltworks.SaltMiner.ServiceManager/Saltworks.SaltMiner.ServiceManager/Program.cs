@@ -157,7 +157,7 @@ namespace Saltworks.SaltMiner.ServiceManager
                             throw new InitializationException(msg, ex);
                         }
                     },
-                    configFilePath,
+                    SETTINGS_FILE,
                     SETTINGS_APP_SECTION,
                     SETTINGS_LOG_SECTION
                 ).Run(args);

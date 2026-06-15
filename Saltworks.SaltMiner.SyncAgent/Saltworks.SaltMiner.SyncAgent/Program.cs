@@ -18,7 +18,7 @@
 * ----
 */
 
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Saltworks.SaltMiner.DataClient;
 using System;
 using System.CommandLine;
@@ -26,173 +26,170 @@ using System.Threading;
 using System.Threading.Tasks;
 using Saltworks.Utility.ApiHelper;
 using Saltworks.SaltMiner.SourceAdapters.Core;
-using Crypto = Saltworks.SaltMiner.Core.Util.Crypto;
 using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.ConsoleApp.Core;
 using System.IO;
 using Saltworks.SaltMiner.SourceAdapters.Core.Helpers;
 using Saltworks.SaltMiner.Core.Common;
 
-namespace Saltworks.SaltMiner.SyncAgent
+namespace Saltworks.SaltMiner.SyncAgent;
+/*
+    * Step 1. Fill out the Main CLI definition in Main below, including your commands, subcommands, argument, and options.
+    * Step 2. Create Handler methods to handle the commands.  These will be passed the whole argument set as shown below.
+    * CommandLine Parser Reference: https://dotnetdevaddict.co.za/2020/09/25/getting-started-with-system-commandline/
+    * Step 3. In your Handler methods, you will instantiate resources needed to carry out the command.  There are two types supported by this template project:
+    *   (1) Regular classes or static methods - basically, how you would do it without help
+    *   (2) ConsoleAppHostBuilder method - see HandleConsoleMain for an example and then look at ConsoleMain for more details of features available
+    * Step 4. To run, open a Developer Console and type 'dotnet run' to see the help.  Use 'dotnet run --' plus the commands you want to test 
+    *   (-- tells dotnet that all remaining args go to the app)
+    */
+public static class Program
 {
-    /*
-     * Step 1. Fill out the Main CLI definition in Main below, including your commands, subcommands, argument, and options.
-     * Step 2. Create Handler methods to handle the commands.  These will be passed the whole argument set as shown below.
-     * CommandLine Parser Reference: https://dotnetdevaddict.co.za/2020/09/25/getting-started-with-system-commandline/
-     * Step 3. In your Handler methods, you will instantiate resources needed to carry out the command.  There are two types supported by this template project:
-     *   (1) Regular classes or static methods - basically, how you would do it without help
-     *   (2) ConsoleAppHostBuilder method - see HandleConsoleMain for an example and then look at ConsoleMain for more details of features available
-     * Step 4. To run, open a Developer Console and type 'dotnet run' to see the help.  Use 'dotnet run --' plus the commands you want to test 
-     *   (-- tells dotnet that all remaining args go to the app)
-     */
-    public static class Program
+    private const string SETTINGS_FILE = "appsettings.json";
+    private const string DEFAULT_SETTINGS_FILE = "appsettings-default.json";
+    private const string SETTINGS_APP_SECTION = "AgentConfig";
+    private const string SETTINGS_LOG_SECTION = "LogConfig";
+    private const string APP_FOLDER = "agent";
+    private static readonly CancellationTokenSource CancelTokenSource = new();
+    
+    // Main CLI definition and invocation
+    public static async Task<int> Main(string[] args)
     {
-        private const string SETTINGS_FILE = "appsettings.json";
-        private const string DEFAULT_SETTINGS_FILE = "appsettings-default.json";
-        private const string SETTINGS_APP_SECTION = "AgentConfig";
-        private const string SETTINGS_LOG_SECTION = "LogConfig";
-        private const string APP_FOLDER = "agent";
-        private static readonly CancellationTokenSource CancelTokenSource = new();
-        
-        // Main CLI definition and invocation
-        public static async Task<int> Main(string[] args)
+        Console.CancelKeyPress += delegate (object sender, ConsoleCancelEventArgs e)
         {
-            Console.CancelKeyPress += delegate (object sender, ConsoleCancelEventArgs e)
-            {
-                e.Cancel = true;
-                CancelTokenSource.Cancel();
-            };
+            e.Cancel = true;
+            CancelTokenSource.Cancel();
+        };
 
-            if (args.Length == 0)
-            {
-                args = ["sync"];
-            }
-
-            var cmd = new RootCommand();
-
-            //Sync CMD
-            var syncVerb = new Command("sync", "Run sync.  Default command if none specified.");
-            var syncConfigOption = new Option<string>(["--config", "-c"], description: "Sync a single source config by name ('all' for normal operation).", getDefaultValue: () => "all");
-            var syncForceOption = new Option<bool>(["--force", "-f"], "Update all, ignoring local metrics cache.");
-            var syncLimitOption = new Option<int>(["--limit", "-l"], "Set Config TestingAssetLimit, this will limit the assets pulled from source.");
-            var syncResetLocalOption = new Option<bool>(["--reset-local", "-r"], "Clear the local LiteDB DataStore.");
-
-            syncVerb.Add(syncConfigOption);
-            syncVerb.Add(syncForceOption);
-            syncVerb.Add(syncLimitOption);
-            syncVerb.Add(syncResetLocalOption);
-            syncVerb.SetHandler((string config, bool force, int limit, bool resetLocal) =>
-            {
-                HandleSync(config, force, limit, resetLocal);
-            }, syncConfigOption, syncForceOption, syncLimitOption, syncResetLocalOption);
-
-            cmd.Add(syncVerb);
-
-            var retval = await cmd.InvokeAsync(args);
-            CancelTokenSource.Dispose();
-            return retval;
+        if (args.Length == 0)
+        {
+            args = ["sync"];
         }
 
-        #region CLI Handlers
+        var cmd = new RootCommand();
 
-        private static void HandleSync(string config, bool force, int limit, bool resetLocal)
+        //Sync CMD
+        var syncVerb = new Command("sync", "Run sync.  Default command if none specified.");
+        var syncConfigOption = new Option<string>(["--config", "-c"], description: "Sync a single source config by name ('all' for normal operation).", getDefaultValue: () => "all");
+        var syncForceOption = new Option<bool>(["--force", "-f"], "Update all, ignoring local metrics cache.");
+        var syncLimitOption = new Option<int>(["--limit", "-l"], "Set Config TestingAssetLimit, this will limit the assets pulled from source.");
+        var syncResetLocalOption = new Option<bool>(["--reset-local", "-r"], "Clear the local LiteDB DataStore.");
+
+        syncVerb.Add(syncConfigOption);
+        syncVerb.Add(syncForceOption);
+        syncVerb.Add(syncLimitOption);
+        syncVerb.Add(syncResetLocalOption);
+        syncVerb.SetHandler((string config, bool force, int limit, bool resetLocal) =>
         {
-            var defaultSettingsPath = Path.Join(Directory.GetCurrentDirectory(), DEFAULT_SETTINGS_FILE);
-            var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, APP_FOLDER, defaultSettingsPath);
-            var configPath = Directory.GetParent(configFilePath).FullName;
-            ILogger startLogger = null;
-            var proxy = "";
-            try
-            {
-                var args = ConsoleAppHostArgs.Create([ config, configPath, force.ToString(), limit.ToString(), resetLocal.ToString() ], CancelTokenSource.Token);
-                // Call the builder to setup a host and run your class.  Host provides dependency injection with default logging and configuration support.
-                // Add your own dependencies as shown here
-                // Make sure to include Microsoft.Extensions.DependencyInjection in your usings to support the extensions
-                ConsoleAppHostBuilder.CreateDefaultConsoleAppHost<SyncAgent>((services, config) =>
-                {
-                    try { 
-                        // DI here, i.e. c.AddTransient<Dependency>()
-                        var agentConfig = new SyncAgentConfig(config, configFilePath);
-                        services.AddSingleton(agentConfig);
-                        
-                        services.AddSqliteLocalData();
+            HandleSync(config, force, limit, resetLocal);
+        }, syncConfigOption, syncForceOption, syncLimitOption, syncResetLocalOption);
 
-                        services.AddApiClient<SourceAdapter>(options =>
-                        {
-                            options.BaseAddress = "http://localhost";
-                            options.LogExtendedErrorInfo = agentConfig.LogSrcApiErrorInfo;
-                            options.LogApiCallsAsInfo = agentConfig.LogSrcApiCallsAsInfo;
-                            if (!string.IsNullOrEmpty(agentConfig.ApiProxyUri))
-                            {
-                                proxy = agentConfig.ApiProxyUri;
-                                options.Proxy.Uri = proxy;
-                                if (!string.IsNullOrEmpty(agentConfig.ApiProxyUser))
-                                {
-                                    options.Proxy.Username = agentConfig.ApiProxyUser;
-                                    options.Proxy.Password = agentConfig.ApiProxyPassword;
-                                    options.Proxy.BypassOnLocal = agentConfig.ApiProxyBypassOnLocal;
-                                }
-                            }
-                        });
-                       
-                        services.AddDataClient<DataClient.DataClient>(configureOptions =>
-                        {
-                            configureOptions.ApiBaseAddress = agentConfig.DataApiBaseUrl;
-                            configureOptions.ApiKeyHeader = agentConfig.DataApiKeyHeader;
-                            configureOptions.ApiKey = agentConfig.DataApiKey;
-                            configureOptions.Timeout = TimeSpan.FromSeconds(agentConfig.DataApiTimeoutSec);
-                            configureOptions.VerifySsl = agentConfig.DataApiVerifySsl;
-                        });
-                    }
-                    catch (ConfigBaseEncryptionException ex)
-                    {
-                        throw new SyncAgentConfigurationEncryptionException($"Invalid encryption keys or values in configuration.", ex);
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new InitializationException($"Error in service configuration: {ex.Message}", ex);
-                    }
-                },
-                configure =>
-                {
-                    var logger = configure.GetRequiredService<ILogger<SyncAgent>>();
-                    startLogger = logger; 
-                    
-                    try
-                    {
-                        configure.UseDataClient<DataClient.DataClient>();
-                        configure.UseApiClient<SourceAdapter>();
-                        if (!string.IsNullOrEmpty(proxy))
-                            logger.LogInformation("Using proxy '{Proxy}' for outbound connections.", proxy);
-                    }
-                    catch (Exception ex)
-                    {
-                        var msg = $"Error in service initialization: {ex.Message}";
-                        
-                        logger.LogCritical(ex, "{Msg}", msg);
-                       
-                        throw new InitializationException(msg, ex);
-                    }
-                },
-                configFilePath,
-                SETTINGS_APP_SECTION,
-                SETTINGS_LOG_SECTION
-                ).Run(args);
-            }
-            catch (Exception ex)
-            {
-                if(startLogger == null)
-                {
-                    Console.WriteLine($"SyncAgent initialization error: {ex.Message}");
-                    Console.WriteLine($"SyncAgent Logger initialization error");
-                }
-                else
-                {
-                    startLogger.LogCritical(ex, "SyncAgent initialization error: {Msg}", ex.Message);
-                }
-            }
-        }
+        cmd.Add(syncVerb);
 
-        #endregion
+        var retval = await cmd.InvokeAsync(args);
+        CancelTokenSource.Dispose();
+        return retval;
     }
+
+    #region CLI Handlers
+
+    private static void HandleSync(string config, bool force, int limit, bool resetLocal)
+    {
+        var defaultSettingsPath = Path.Join(Directory.GetCurrentDirectory(), DEFAULT_SETTINGS_FILE);
+        var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, APP_FOLDER, defaultSettingsPath);
+        var configPath = Directory.GetParent(configFilePath).FullName;
+        ILogger startLogger = null;
+        var proxy = "";
+        try
+        {
+            var args = ConsoleAppHostArgs.Create([ config, configPath, force.ToString(), limit.ToString(), resetLocal.ToString() ], CancelTokenSource.Token);
+            // Call the builder to setup a host and run your class.  Host provides dependency injection with default logging and configuration support.
+            // Add your own dependencies as shown here
+            // Make sure to include Microsoft.Extensions.DependencyInjection in your usings to support the extensions
+            ConsoleAppHostBuilder.CreateDefaultConsoleAppHost<SyncAgent>((services, config) =>
+            {
+                try { 
+                    // DI here, i.e. c.AddTransient<Dependency>()
+                    var agentConfig = new SyncAgentConfig(config, configFilePath);
+                    services.AddSingleton(agentConfig);
+                    
+                    services.AddSqliteLocalData();
+
+                    services.AddApiClient<SourceAdapter>(options =>
+                    {
+                        options.BaseAddress = "http://localhost";
+                        options.LogExtendedErrorInfo = agentConfig.LogSrcApiErrorInfo;
+                        options.LogApiCallsAsInfo = agentConfig.LogSrcApiCallsAsInfo;
+                        if (!string.IsNullOrEmpty(agentConfig.ApiProxyUri))
+                        {
+                            proxy = agentConfig.ApiProxyUri;
+                            options.Proxy.Uri = proxy;
+                            if (!string.IsNullOrEmpty(agentConfig.ApiProxyUser))
+                            {
+                                options.Proxy.Username = agentConfig.ApiProxyUser;
+                                options.Proxy.Password = agentConfig.ApiProxyPassword;
+                                options.Proxy.BypassOnLocal = agentConfig.ApiProxyBypassOnLocal;
+                            }
+                        }
+                    });
+                    
+                    services.AddDataClient<DataClient.DataClient>(configureOptions =>
+                    {
+                        configureOptions.ApiBaseAddress = agentConfig.DataApiBaseUrl;
+                        configureOptions.ApiKeyHeader = agentConfig.DataApiKeyHeader;
+                        configureOptions.ApiKey = agentConfig.DataApiKey;
+                        configureOptions.Timeout = TimeSpan.FromSeconds(agentConfig.DataApiTimeoutSec);
+                        configureOptions.VerifySsl = agentConfig.DataApiVerifySsl;
+                    });
+                }
+                catch (ConfigBaseEncryptionException ex)
+                {
+                    throw new SyncAgentConfigurationEncryptionException($"Invalid encryption keys or values in configuration.", ex);
+                }
+                catch (Exception ex)
+                {
+                    throw new InitializationException($"Error in service configuration: {ex.Message}", ex);
+                }
+            },
+            configure =>
+            {
+                var logger = configure.GetRequiredService<ILogger<SyncAgent>>();
+                startLogger = logger; 
+                
+                try
+                {
+                    configure.UseDataClient<DataClient.DataClient>();
+                    configure.UseApiClient<SourceAdapter>();
+                    if (!string.IsNullOrEmpty(proxy))
+                        logger.LogInformation("Using proxy '{Proxy}' for outbound connections.", proxy);
+                }
+                catch (Exception ex)
+                {
+                    var msg = $"Error in service initialization: {ex.Message}";
+                    
+                    logger.LogCritical(ex, "{Msg}", msg);
+                    
+                    throw new InitializationException(msg, ex);
+                }
+            },
+            SETTINGS_FILE,
+            SETTINGS_APP_SECTION,
+            SETTINGS_LOG_SECTION
+            ).Run(args);
+        }
+        catch (Exception ex)
+        {
+            if(startLogger == null)
+            {
+                Console.WriteLine($"SyncAgent initialization error: {ex.Message}");
+                Console.WriteLine($"SyncAgent Logger initialization error");
+            }
+            else
+            {
+                startLogger.LogCritical(ex, "SyncAgent initialization error: {Msg}", ex.Message);
+            }
+        }
+    }
+
+    #endregion
 }
