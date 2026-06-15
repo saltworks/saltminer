@@ -27,7 +27,7 @@ services:
     - "80:80"
     - "443:443"
     volumes:
-#    - ${APP_ROOT}/config/nginx:/etc/nginx
+    - ${APP_ROOT}/config/nginx:/etc/nginx
     - ${APP_ROOT}/logs/nginx:/var/log/nginx
     - smpgui-assets:${CONTAINER_APP_ROOT}/app/ui-web
     environment:

@@ -148,7 +148,8 @@ if grep -q '\${KIBANA_URL}\|\${KIBANA_HOST}' "$CONF"; then
     : "${KIBANA_HOST:?KIBANA_HOST environment variable is required}"
 
     envsubst '${KIBANA_URL} ${KIBANA_HOST}' < "$CONF" > "$CONF.tmp"
-    mv "$CONF.tmp" "$CONF"
+    cp "$CONF.tmp" "$CONF"
+    rm "$CONF.tmp"
     log "Substitution complete."
 else
     log "nginx.conf has no placeholders, skipping substitution."
