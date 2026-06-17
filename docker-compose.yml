@@ -27,8 +27,9 @@ services:
     - "80:80"
     - "443:443"
     volumes:
-    - ${APP_ROOT}/config/nginx:/etc/nginx
-    - ${APP_ROOT}/logs/nginx:/var/log/nginx
+    - ${APP_ROOT}/config/nginx/:/opt/saltworks/saltminer/config/nginx
+#   Enable if you need logs to go to a file; by default they are aliased to STDOUT and can be seen via docker logs sm-nginx
+#    - ${APP_ROOT}/logs/nginx:/var/log/nginx
     - smpgui-assets:${CONTAINER_APP_ROOT}/app/ui-web
     environment:
     - KIBANA_URL=${KIBANA_URL}
