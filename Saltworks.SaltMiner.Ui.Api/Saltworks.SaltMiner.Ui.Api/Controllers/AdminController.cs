@@ -18,7 +18,8 @@
 * ----
 */
 
-﻿using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
+using Microsoft.AspNetCore.Mvc;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Ui.Api.Authentication;
@@ -462,6 +463,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Controllers
         public ActionResult<UiDataResponse<ServiceJob>> SearchServiceJobs(GenericSearch request)
         {
             Logger.LogInformation("Search service jobs action called");
+            Logger.LogDebug("Search request: {Search}", JsonSerializer.Serialize(request));
             return Ok(Context.SearchServiceJobs(request));
         }
 
