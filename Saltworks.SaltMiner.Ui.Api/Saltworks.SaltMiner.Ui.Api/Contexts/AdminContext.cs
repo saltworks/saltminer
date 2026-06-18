@@ -674,6 +674,7 @@ public class AdminContext : ContextBase
             }
         };
 
+        Logger.LogDebug("Service job search request: {Search}", request);
         var response = DataClient.ServiceJobSearch(request);
         return new UiDataResponse<ServiceJob>(response.Data, response.PagingInfo, SortFilterValues?.Select(x => new FieldFilter(x)));
     }
