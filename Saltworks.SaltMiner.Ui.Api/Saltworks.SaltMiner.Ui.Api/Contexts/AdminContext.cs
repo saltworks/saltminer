@@ -29,6 +29,7 @@ using Saltworks.SaltMiner.UiApiClient.Import;
 using Saltworks.SaltMiner.UiApiClient.Requests;
 using Saltworks.SaltMiner.UiApiClient.Responses;
 using Saltworks.SaltMiner.UiApiClient.ViewModels;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace Saltworks.SaltMiner.Ui.Api.Contexts;
@@ -674,7 +675,7 @@ public class AdminContext : ContextBase
             }
         };
 
-        Logger.LogDebug("Service job search request: {Search}", request);
+        Logger.LogDebug("Service job search request: {Search}", JsonSerializer.Serialize(request));
         var response = DataClient.ServiceJobSearch(request);
         return new UiDataResponse<ServiceJob>(response.Data, response.PagingInfo, SortFilterValues?.Select(x => new FieldFilter(x)));
     }
