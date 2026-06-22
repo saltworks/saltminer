@@ -73,7 +73,7 @@ public class ApiConfig: ConfigBase
     public string LicenseFileName { get; set; } = "license.txt";
     public string LicenseProcessedFileName{ get; set; } = "License.processed";
     public int Timeout { get; set; } = 10;
-    public bool KestrelAllowRemote { get; set; } = false; // referenced from file directly, so no property references
+    public bool KestrelAllowRemote { get; set; } = true; // referenced from file directly, so no property references
     public int KestrelPort { get; set; } = 5000; // referenced from file directly, so no property references
     public int KestrelMaxRequestBodySizeMb { get; set; } = 100;
     public string KeyPath { get; set; } = "license.lnf";
