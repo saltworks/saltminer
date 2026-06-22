@@ -274,9 +274,10 @@ namespace Saltworks.SaltMiner.DataApi
                         Log.Information("Initial datastore setup incomplete, setting default data seed items.");
                         foreach (var srcDir in Directory.GetDirectories(config.DefaultDatastoreSeedPath))
                         {
-                            Directory.CreateDirectory(Path.Join(config.DatastoreSeedPath, Path.GetDirectoryName(srcDir)));
+                            var destDir = Path.Join(config.DatastoreSeedPath, Path.GetFileName(srcDir));
+                            Directory.CreateDirectory(destDir);
                             foreach (var srcFile in Directory.GetFiles(srcDir))
-                                File.Copy(srcFile, Path.Join(config.DatastoreSeedPath, Path.GetFileName(srcFile)), overwrite: true);
+                                File.Copy(srcFile, Path.Join(destDir, Path.GetFileName(srcFile)), overwrite: true);
                         }
                     }
                 }

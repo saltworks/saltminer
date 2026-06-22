@@ -19,7 +19,7 @@ COPY . .
 # curl is used for healthcheck.
 RUN apk add --no-cache curl \
   && mkdir -p ${APP_ROOT}/logs
-COPY $DATASTORE_SEED_PATH/* ./default-datastore-seed/
+COPY $DATASTORE_SEED_PATH ./default-datastore-seed/
 
 EXPOSE 5000
 
