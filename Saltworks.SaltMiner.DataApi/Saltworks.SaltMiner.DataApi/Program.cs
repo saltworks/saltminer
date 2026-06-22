@@ -853,6 +853,7 @@ namespace Saltworks.SaltMiner.DataApi
 
             Log.Debug("Current directory: {Dir}", Directory.GetCurrentDirectory());
             configuration.Providers.First().Set("FullPathSettingsFile", configFilePath);
+            Log.Debug("FullPathSettingsFile: {File}", configuration.GetValue<string>("FullPathSettingsFile"));
             var config = new ApiConfig(configuration, configuration.GetValue<string>("FullPathSettingsFile"));
             var configString = Environment.GetEnvironmentVariable(ELASTIC_CONNECT_STRING);
             if (!string.IsNullOrEmpty(configString))
