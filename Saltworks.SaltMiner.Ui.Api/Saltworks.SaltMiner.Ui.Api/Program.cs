@@ -273,7 +273,7 @@ public static class Program
             .Build();
 
         // Get kestrel options from config
-        var kar = false;
+        var kar = true;
         var kp = 5001;
         if (configuration.GetSection(SETTINGS_APP_SECTION).Exists())
         {

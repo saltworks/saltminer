@@ -47,8 +47,6 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.OpenApi;
 using Elastic.Transport;
-using System.Text;
-using Microsoft.AspNetCore.Mvc;
 
 namespace Saltworks.SaltMiner.DataApi
 {
@@ -61,7 +59,7 @@ namespace Saltworks.SaltMiner.DataApi
         private const string SEED_INDICATOR_FILE = "seeded.txt";
         private const string ELASTIC_CONNECT_STRING = "ELASTICSEARCH_CONNECTION_STRING";
         private const string JE = ".json";
-        private static bool KestrelAllowRemote = false;
+        private static bool KestrelAllowRemote = true;
         private static int KestrelPort = 5000;
 
 
