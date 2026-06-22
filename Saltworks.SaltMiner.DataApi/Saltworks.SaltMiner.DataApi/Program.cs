@@ -48,6 +48,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.OpenApi;
 using Elastic.Transport;
 using System.Text;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Saltworks.SaltMiner.DataApi
 {
@@ -271,8 +272,12 @@ namespace Saltworks.SaltMiner.DataApi
                     else
                     {
                         Log.Information("Initial datastore setup incomplete, setting default data seed items.");
-                        foreach (var srcFile in Directory.GetFiles(config.DefaultDatastoreSeedPath))
-                            File.Copy(srcFile, Path.Join(config.DatastoreSeedPath, Path.GetFileName(srcFile)), overwrite: true);
+                        foreach (var srcDir in Directory.GetDirectories(config.DefaultDatastoreSeedPath))
+                        {
+                            Directory.CreateDirectory(Path.Join(config.DatastoreSeedPath, Path.GetDirectoryName(srcDir)));
+                            foreach (var srcFile in Directory.GetFiles(srcDir))
+                                File.Copy(srcFile, Path.Join(config.DatastoreSeedPath, Path.GetFileName(srcFile)), overwrite: true);
+                        }
                     }
                 }
 
