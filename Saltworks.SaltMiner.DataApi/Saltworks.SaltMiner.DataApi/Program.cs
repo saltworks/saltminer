@@ -836,7 +836,7 @@ namespace Saltworks.SaltMiner.DataApi
             // Get kestrel options from config
             if (configuration.GetSection(CONFIG_SECTION).Exists())
             {
-                KestrelAllowRemote = configuration.GetSection(CONFIG_SECTION).GetValue<bool>("KestrelAllowRemote");
+                KestrelAllowRemote = configuration.GetSection(CONFIG_SECTION).GetValue("KestrelAllowRemote", KestrelAllowRemote);
                 KestrelPort = configuration.GetSection(CONFIG_SECTION).GetValue<int>("KestrelPort");
                 if (KestrelPort <= 0)
                     KestrelPort = 5000;

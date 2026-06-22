@@ -277,7 +277,7 @@ public static class Program
         var kp = 5001;
         if (configuration.GetSection(SETTINGS_APP_SECTION).Exists())
         {
-            kar = configuration.GetSection(SETTINGS_APP_SECTION).GetValue<bool>("KestrelAllowRemote");
+            kar = configuration.GetSection(SETTINGS_APP_SECTION).GetValue("KestrelAllowRemote", kar);
             kp = configuration.GetSection(SETTINGS_APP_SECTION).GetValue<int>("KestrelPort");
             if (kp <= 0)
                 kp = 5001;
