@@ -64,7 +64,7 @@ public class UiApiConfig : ConfigBase
     public string[] TestingCorsAllowedOrigins { get; set; } = null;
     public string VersionFileName { get; set; } = "version.txt";
     public static string AppVersion => "3.2.0";
-    public bool KestrelAllowRemote { get; set; } = false; // file loaded and referenced manually not referenced by model
+    public bool KestrelAllowRemote { get; set; } = true; // file loaded and referenced manually not referenced by model
     public int KestrelPort { get; set; } = 5001; // file loaded and referenced manually not referenced by model
     public int KestrelMaxRequestSizeMb { get; set; } = 100;
     /// <summary>
