@@ -80,7 +80,7 @@ public abstract class ConfigBase(ILogger logger=null)
         // if encryption info missing, generate it
         if (string.IsNullOrEmpty(EncryptionIv) || string.IsNullOrEmpty(EncryptionKey))
         {
-            Logger.LogInformation("Configuration encryption keys missing, generating new");
+            Logger?.LogInformation("Configuration encryption keys missing, generating new");
             var key = Crypto.GenerateKeyIv();
             EncryptionKey = key.Item1;
             EncryptionIv = key.Item2;
@@ -134,6 +134,8 @@ public abstract class ConfigBase(ILogger logger=null)
             if (dirty)
             {
                 Logger?.LogDebug("Writing updates to '{File}'", configFilePath);
+                if (Logger == null)
+                    Console.WriteLine($"Writing updates to '{configFilePath}'");
                 File.WriteAllText(configFilePath, root.AsObject().ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             }
         }
