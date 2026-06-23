@@ -442,6 +442,13 @@ public interface IElasticClient
     /// </summary>
     IElasticClientResponse GetClusterInfo();
     /// <summary>
+    /// Gets the HTTP authentication header (name and value) this client uses to authenticate to Elasticsearch.
+    /// Useful for authenticating to companion services such as Kibana using the same credentials, regardless of
+    /// whether those credentials came from discrete settings, a connection string, or an API key.
+    /// </summary>
+    /// <returns>A tuple of the header name and value (e.g. "Authorization" / "Basic ..." or "ApiKey ..."), or null when configured for anonymous access.</returns>
+    (string Name, string Value)? GetAuthHeader();
+    /// <summary>
     /// Closes a Point-in-Time (PIT) search context to free up resources.
     /// </summary>
     /// <param name="pitId">The PIT ID to close</param>

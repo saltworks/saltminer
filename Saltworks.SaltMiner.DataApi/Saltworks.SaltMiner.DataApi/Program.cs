@@ -127,7 +127,10 @@ namespace Saltworks.SaltMiner.DataApi
             services.AddSingleton(typeof(ILogger<>), typeof(CustomLogger<>));
 
             ConfigureSwaggerServices(services, config);
-            services.AddEsClient(configureOptions =>
+
+            // Shared Elasticsearch client configuration, applied both to the registered client and to a throwaway
+            // client below used to derive the auth header for Kibana (which shares Elasticsearch's credentials).
+            void ConfigureEsClient(ClientConfiguration configureOptions)
             {
                 configureOptions.HttpScheme = config.ElasticHttpScheme;
                 configureOptions.ElasticSearchHost = [config.ElasticHost];
@@ -141,13 +144,22 @@ namespace Saltworks.SaltMiner.DataApi
                 configureOptions.VerifySsl = config.VerifySsl;
                 configureOptions.SingleNodeCluster = config.ElasticSingleNodeCluster;
                 configureOptions.ElasticConnectionString = config.ElasticConnectionString;
-            });
+            }
+            services.AddEsClient(ConfigureEsClient);
+
+            // Resolve the authentication header the EsClient actually uses (basic creds or API key, whether sourced
+            // from discrete settings or an ElasticConnectionString) so Kibana authenticates the same way.
+            var esConfig = new ClientConfiguration();
+            ConfigureEsClient(esConfig);
+            var esAuthHeader = new ElasticClient.EsClient.EsClient(esConfig, null).GetAuthHeader();
+
             services.AddApiClient<KibanaContext>(options =>
             {
                 options.BaseAddress = config.KibanaBaseUrl;
                 options.VerifySsl = config.VerifySsl;
                 options.Timeout = TimeSpan.FromSeconds(config.Timeout);
-                options.DefaultHeaders.Add(ApiClientHeaders.AuthorizationBasicHeader(config.ElasticUsername, config.ElasticPassword));
+                if (esAuthHeader is { } hdr)
+                    options.DefaultHeaders.Add(ApiClientHeaders.OneHeader(hdr.Name, hdr.Value));
                 options.DefaultHeaders.Add(ApiClientHeaders.OneHeader("kbn-xsrf", "true"));
                 options.CamelCaseJsonOutput = true;
             });

@@ -58,6 +58,9 @@ public class EsClient : IElasticClient
     public string[] Hosts { get; private set; } = [];
     public int Port { get; private set; }
 
+    // HTTP auth header (name/value) resolved while building client settings; null when configured for anonymous access.
+    private (string Name, string Value)? AuthHeader;
+
     public EsClient(ClientConfiguration configuration, ILogger<IElasticClient> logger)
     {
         ClientConfig = configuration ?? throw new ArgumentNullException(nameof(configuration));
@@ -140,6 +143,7 @@ public class EsClient : IElasticClient
             Logger?.LogDebug("Using API key authentication for cloud connection");
             var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{apiKeyId}:{apiKeyValue}"));
             auth = new Elastic.Transport.ApiKey(encoded);
+            AuthHeader = ("Authorization", $"ApiKey {encoded}");
         }
         else
         {
@@ -147,6 +151,7 @@ public class EsClient : IElasticClient
                 throw new EsClientException("Cloud connection requires Username/Password or ApiKeyId/ApiKeyValue");
             Logger?.LogDebug("Using username/password authentication for cloud connection");
             auth = new BasicAuthentication(username, password);
+            AuthHeader = ("Authorization", BasicAuthHeaderValue(username, password));
         }
 
         Hosts = [cloudId[..cloudId.IndexOf(':')]];
@@ -189,6 +194,7 @@ public class EsClient : IElasticClient
             connParms.TryGetValue("username", out var username);
             connParms.TryGetValue("password", out var password);
             settings.Authentication(new BasicAuthentication(username ?? "", password ?? ""));
+            AuthHeader = ("Authorization", BasicAuthHeaderValue(username ?? "", password ?? ""));
         }
 
         if (!isHttp && !sslVerify)
@@ -196,6 +202,11 @@ public class EsClient : IElasticClient
 
         return settings;
     }
+
+    private static string BasicAuthHeaderValue(string username, string password) =>
+        "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
+
+    public (string Name, string Value)? GetAuthHeader() => AuthHeader;
 
     public IElasticClientResponse AddActiveIssueAlias(string indexName, string alias)
     {
