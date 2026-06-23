@@ -47,7 +47,7 @@ public class ApiConfig: ConfigBase
     }
 
     public string TemplateToVerify { get; set; } = "queue_asset";
-    public string KibanaBaseUrl { get; set; } = "http://localhost:5601";
+    public string KibanaBaseUrl { get; set; } = "http://kibana:5601";
     public string ElasticConnectionString { get; set; }
     public string ElasticHttpScheme { get; set; } = "http";
     public string ElasticHost { get; set; }
