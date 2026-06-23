@@ -18,7 +18,8 @@
 * ----
 */
 
-﻿using Saltworks.SaltMiner.Core.Email;
+using Microsoft.Extensions.FileProviders.Physical;
+using Saltworks.SaltMiner.Core.Email;
 using Saltworks.SaltMiner.Ui.Api.Authentication;
 using Saltworks.SaltMiner.Ui.Api.Extensions;
 using Saltworks.SaltMiner.Ui.Api.Models;
@@ -103,7 +104,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
         public UiDataItemResponse<KibanaUser> GetMe(string cookie, HttpContext context = null)
         {
-            Logger.LogInformation("Get Me for cookie '{Cookie}' initiated", cookie);
+            Logger.LogInformation("Get Me for cookie '{Cookie}' initiated", cookie[^8..]);
             
             if (string.IsNullOrEmpty(cookie))
             {
@@ -140,11 +141,17 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             }
             catch (AggregateException ex)
             {
-                var inex = ex.InnerException?.InnerException;
+                var inex = ex.InnerException?.InnerException ?? ex.InnerExceptions.FirstOrDefault() ?? ex;
+                Logger.LogError("Kibana auth request error: [{Type}] {Msg}", inex.GetBaseException().GetType().Name, inex.GetBaseException().Message);
                 if (inex is System.Security.Authentication.AuthenticationException && ex.InnerException.Source == "System.Net.Http" && ex.InnerException.Message.Contains("SSL"))
-                {
-                    throw new UiApiSslException($"SSL error when attempting to call Kibana: {inex.Message}", ex.InnerException);
-                }
+                    throw new UiApiSslException($"SSL error when attempting to call Kibana: {inex.Message}", inex);
+                else 
+                    throw new UiApiAuthException("Failure to authenticate to Kibana (agg ex).", inex);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Kibana auth request error: [{Type}] {Msg}", ex.GetBaseException().GetType().Name, ex.GetBaseException().Message);
+                throw new UiApiAuthException("Failure to authenticate to Kibana.", ex);
             }
             if (result == null)
             {
