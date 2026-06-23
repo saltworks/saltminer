@@ -68,6 +68,7 @@ public abstract class ConfigBase(ILogger logger=null)
     protected void CheckEncryption(object configObj, string configFilePath, string configPath = "")
     {
         var dirty = false;
+        var keysGenerated = false;
         if (EncryptedPropertySuffixes == null || EncryptedPropertySuffixes.Length == 0)
             EncryptedPropertySuffixes = [ "password", "secret", "apikey", "token" ];
 
@@ -85,6 +86,7 @@ public abstract class ConfigBase(ILogger logger=null)
             EncryptionKey = key.Item1;
             EncryptionIv = key.Item2;
             dirty = true;
+            keysGenerated = true;
         }
 
         using (var c = new Crypto(EncryptionKey, EncryptionIv))
@@ -129,6 +131,13 @@ public abstract class ConfigBase(ILogger logger=null)
                 {
                     throw new ConfigBaseException($"Expected decrypted value for property '{p.Name}', but failed to encrypt ('{ex.Message}').");
                 }
+            }
+
+            // persist generated key/iv into the config section so they survive a restart
+            if (keysGenerated)
+            {
+                doc[nameof(EncryptionKey)] = EncryptionKey;
+                doc[nameof(EncryptionIv)] = EncryptionIv;
             }
 
             if (dirty)
