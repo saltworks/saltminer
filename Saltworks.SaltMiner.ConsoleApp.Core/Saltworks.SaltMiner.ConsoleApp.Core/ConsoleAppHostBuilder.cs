@@ -18,7 +18,8 @@
 * ----
 */
 
-﻿using Microsoft.Extensions.Configuration;
+using System.Linq.Expressions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -57,11 +58,14 @@ namespace Saltworks.SaltMiner.ConsoleApp.Core
 
         private void DumpPreLog()
         {
-            if (PreLogs.Count == 0 || BuiltLogger == null)
+            if (PreLogs.Count == 0)
                 return;
             foreach (var t in PreLogs)
             {
-                BuiltLogger.Log(t.Item1, "{Msg}", t.Item2);
+                if (BuiltLogger == null)
+                    Console.WriteLine($"[{DateTime.Now:G} {t.Item1}] {t.Item2}");
+                else
+                    BuiltLogger.Log(t.Item1, "{Msg}", t.Item2);
             }
         }
 
@@ -141,6 +145,7 @@ namespace Saltworks.SaltMiner.ConsoleApp.Core
         /// <returns></returns>
         public IConsoleAppHostBuilder BuildConfiguration()
         {
+            Exception fex = null;
             try
             {
                 if (!ConfigurationOptions.SettingsFile.ToLower().EndsWith(".json"))
@@ -169,22 +174,26 @@ namespace Saltworks.SaltMiner.ConsoleApp.Core
             }
             catch (FormatException ex)
             {
-                if (ex.Message.ToLower().Contains("parse") && ex.Message.ToUpper().Contains("JSON"))
+                if (ex.Message.Contains("parse", StringComparison.OrdinalIgnoreCase) && ex.Message.Contains("JSON", StringComparison.OrdinalIgnoreCase))
                 {
-                    Log(LogLevel.Error, "Error building configuration. Invalid JSON");
-                    throw new ConfigurationSerializationException("Unable to parse configuration file, invalid JSON.", ex);
+                    Log(LogLevel.Error, $"Error building configuration. Invalid JSON ({ex.Message})");
+                    fex = new ConfigurationSerializationException("Unable to parse configuration file, invalid JSON.", ex);
                 }
                 else
                 {
                     Log(LogLevel.Error, $"Error building configuration: {ex.Message}");
-                    throw;
+                    fex = ex;
                 }
             }
             catch (Exception ex)
             {
-                Log(LogLevel.Error, $"Error building configuration: {ex.Message}");
-                throw new ConfigurationException("Error building configuration.", ex);
+                var inex = ex.GetBaseException();
+                Log(LogLevel.Error, $"Error building configuration: [{inex.GetType().Name}] {inex.Message}");
+                fex = new ConfigurationException($"Error building configuration.", ex);
             }
+            // Won't get here unless there's an exception
+            DumpPreLog();
+            throw fex ?? new ConfigurationException("Unknown configuration exception.");
         }
 
         public IConsoleAppHostBuilder ConfigureServices(Action<IServiceCollection, IConfiguration> serviceConfiguration)

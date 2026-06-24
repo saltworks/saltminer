@@ -99,7 +99,8 @@ public static class Program
 
     private static void RunAppBuilder(IConsoleAppHostArgs args)
     {
-        var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, DEFAULT_SETTINGS_FILE, APP_FOLDER);
+        var defaultConfigFilePath = Path.Join(AppDomain.CurrentDomain.BaseDirectory, DEFAULT_SETTINGS_FILE);
+        var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, defaultConfigFilePath, APP_FOLDER);
         ILogger startLogger = null;
         try
         {
