@@ -99,19 +99,26 @@ public static class Program
 
     private static void RunAppBuilder(IConsoleAppHostArgs args)
     {
-        var defaultConfigFilePath = Path.Join(AppDomain.CurrentDomain.BaseDirectory, DEFAULT_SETTINGS_FILE);
-        var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, defaultConfigFilePath, APP_FOLDER);
         ILogger startLogger = null;
         try
         {
-            ConsoleAppHostBuilder.CreateDefaultConsoleAppHost<ServiceManager>
+            ConsoleAppHostBuilder.CreateDefaultConsoleAppHost<ServiceManager, ServiceManagerConfig>
             (
-                (services, config) =>
+                (config, configFilePath, configFolder) =>
                 {
                     try
                     {
-                        var serviceManagerConfig = new ServiceManagerConfig(config, configFilePath);
-                        services.AddSingleton(serviceManagerConfig);
+                        return new ServiceManagerConfig(config, configFilePath);
+                    }
+                    catch (ConfigBaseEncryptionException ex)
+                    {
+                        throw new ConfigurationEncryptionException($"Invalid encryption keys or values in configuration.", ex);
+                    }
+                },
+                (services, serviceManagerConfig) =>
+                {
+                    try
+                    {
                         services.AddTransient<ScheduleData>();
                         services.AddTransient<EventLogger>();
                         services.AddSingleton<IJobStatusService, JobStatusService>();
@@ -130,10 +137,6 @@ public static class Program
                             configureOptions.RunConfig.DisableInitialConnection = true;
 
                         });
-                    }
-                    catch (ConfigBaseEncryptionException ex)
-                    {
-                        throw new ConfigurationEncryptionException($"Invalid encryption keys or values in configuration.", ex);
                     }
                     catch (Exception ex)
                     {
@@ -156,9 +159,14 @@ public static class Program
                         throw new InitializationException(msg, ex);
                     }
                 },
-                SETTINGS_FILE,
-                SETTINGS_APP_SECTION,
-                SETTINGS_LOG_SECTION
+                co =>
+                {
+                    co.SettingsFile = SETTINGS_FILE;
+                    co.AppSettingsSection = SETTINGS_APP_SECTION;
+                    co.LogSettingsSection = SETTINGS_LOG_SECTION;
+                    co.AppFolder = APP_FOLDER;
+                    co.DefaultSettingsFile = DEFAULT_SETTINGS_FILE;
+                }
             ).Run(args);
         }
         catch (Exception ex)

@@ -25,6 +25,9 @@
         public string SettingsFile { get; set; }
         public string AppSettingsSection { get; set; }
         public string LogSettingsSection { get; set; }
+        public string AppFolder { get; set; }
+        public string DefaultSettingsFile { get; set; }
+        public string ResolvedConfigFile { get; set; }
         public string ConfigFilePath { get; set; }
         public string ConfigFilePathEnvVariable { get; set; }
         public string ConfigFilePathLocatorFile { get; set; }

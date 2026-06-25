@@ -175,16 +175,12 @@ public static class Program
         }
     }
 
-    private static string GetConfigFilePath()
+    // Copies the default report-template folder into the (builder-resolved) config folder if needed.
+    private static void EnsureReportTemplates(string configFolder)
     {
-        var defaultConfigFilePath = Path.Join(AppDomain.CurrentDomain.BaseDirectory, DEFAULT_SETTINGS_FILE);
-        var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, defaultConfigFilePath, APP_FOLDER);
-
-        var configFolder = Path.GetDirectoryName(configFilePath);
         var defaultTemplateFolderPath = Path.Join(AppDomain.CurrentDomain.BaseDirectory, DEFAULT_TEMPLATE_FOLDER);
         var templateFolderPath = Path.Join(configFolder, TEMPLATE_FOLDER);
 
-        // Copy default template folder if needed
         try
         {
             if (Directory.Exists(defaultTemplateFolderPath))
@@ -199,25 +195,31 @@ public static class Program
         {
             Console.WriteLine($"Failed to copy default template folder to '{templateFolderPath}'. {ex.Message}");
         }
-
-        return configFilePath;
     }
 
     private static void RunJobManager(IConsoleAppHostArgs args)
     {
-        var configFilePath = GetConfigFilePath();
-        var configFolder = Path.GetDirectoryName(configFilePath);
         ILogger startLogger = null;
         try
         {
-            ConsoleAppHostBuilder.CreateDefaultConsoleAppHost<JobManager>
+            ConsoleAppHostBuilder.CreateDefaultConsoleAppHost<JobManager, JobManagerConfig>
             (
-                (services, config) =>
+                (config, configFilePath, configFolder) =>
                 {
                     try
                     {
-                        var jobManagerConfig = new JobManagerConfig(config, configFilePath, configFolder);
-                        services.AddSingleton(jobManagerConfig);
+                        EnsureReportTemplates(configFolder);
+                        return new JobManagerConfig(config, configFilePath, configFolder);
+                    }
+                    catch (ConfigBaseEncryptionException ex)
+                    {
+                        throw new ConfigurationEncryptionException($"Invalid encryption keys or values in configuration.", ex);
+                    }
+                },
+                (services, jobManagerConfig) =>
+                {
+                    try
+                    {
                         services.AddSingleton<JobService>();
                         services.AddSingleton<Processor.Issue.ImportProcessor>();
                         services.AddSingleton<Processor.Issue.TemplateImportProcessor>();
@@ -244,10 +246,6 @@ public static class Program
                             options.VerifySsl = jobManagerConfig.DataApiVerifySsl;
                         });
                     }
-                    catch (ConfigBaseEncryptionException ex)
-                    {
-                        throw new ConfigurationEncryptionException($"Invalid encryption keys or values in configuration.", ex);
-                    }
                     catch (Exception ex)
                     {
                         throw new InitializationException($"Error in service configuration: {ex.Message}", ex);
@@ -269,9 +267,14 @@ public static class Program
                         throw new InitializationException(msg, ex);
                     }
                 },
-                SETTINGS_FILE,
-                SETTINGS_APP_SECTION,
-                SETTINGS_LOG_SECTION
+                co =>
+                {
+                    co.SettingsFile = SETTINGS_FILE;
+                    co.AppSettingsSection = SETTINGS_APP_SECTION;
+                    co.LogSettingsSection = SETTINGS_LOG_SECTION;
+                    co.AppFolder = APP_FOLDER;
+                    co.DefaultSettingsFile = DEFAULT_SETTINGS_FILE;
+                }
             ).Run(args);
         }
         catch (Exception ex)

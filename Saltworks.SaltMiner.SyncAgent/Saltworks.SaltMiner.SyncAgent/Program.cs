@@ -95,24 +95,31 @@ public static class Program
 
     private static void HandleSync(string config, bool force, int limit, bool resetLocal)
     {
-        var defaultSettingsPath = Path.Join(Directory.GetCurrentDirectory(), DEFAULT_SETTINGS_FILE);
-        var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, APP_FOLDER, defaultSettingsPath);
-        var configPath = Directory.GetParent(configFilePath).FullName;
         ILogger startLogger = null;
         var proxy = "";
         try
         {
-            var args = ConsoleAppHostArgs.Create([ config, configPath, force.ToString(), limit.ToString(), resetLocal.ToString() ], CancelTokenSource.Token);
+            // configPath (the resolved config folder) is now exposed to SyncAgent.Run via the injected SyncAgentConfig.ConfigFolder.
+            var args = ConsoleAppHostArgs.Create([ config, force.ToString(), limit.ToString(), resetLocal.ToString() ], CancelTokenSource.Token);
             // Call the builder to setup a host and run your class.  Host provides dependency injection with default logging and configuration support.
             // Add your own dependencies as shown here
             // Make sure to include Microsoft.Extensions.DependencyInjection in your usings to support the extensions
-            ConsoleAppHostBuilder.CreateDefaultConsoleAppHost<SyncAgent>((services, config) =>
+            ConsoleAppHostBuilder.CreateDefaultConsoleAppHost<SyncAgent, SyncAgentConfig>(
+            (config, configFilePath, configFolder) =>
             {
-                try { 
+                try
+                {
+                    return new SyncAgentConfig(config, configFilePath);
+                }
+                catch (ConfigBaseEncryptionException ex)
+                {
+                    throw new SyncAgentConfigurationEncryptionException($"Invalid encryption keys or values in configuration.", ex);
+                }
+            },
+            (services, agentConfig) =>
+            {
+                try {
                     // DI here, i.e. c.AddTransient<Dependency>()
-                    var agentConfig = new SyncAgentConfig(config, configFilePath);
-                    services.AddSingleton(agentConfig);
-                    
                     services.AddSqliteLocalData();
 
                     services.AddApiClient<SourceAdapter>(options =>
@@ -142,10 +149,6 @@ public static class Program
                         configureOptions.VerifySsl = agentConfig.DataApiVerifySsl;
                     });
                 }
-                catch (ConfigBaseEncryptionException ex)
-                {
-                    throw new SyncAgentConfigurationEncryptionException($"Invalid encryption keys or values in configuration.", ex);
-                }
                 catch (Exception ex)
                 {
                     throw new InitializationException($"Error in service configuration: {ex.Message}", ex);
@@ -172,9 +175,14 @@ public static class Program
                     throw new InitializationException(msg, ex);
                 }
             },
-            SETTINGS_FILE,
-            SETTINGS_APP_SECTION,
-            SETTINGS_LOG_SECTION
+            co =>
+            {
+                co.SettingsFile = SETTINGS_FILE;
+                co.AppSettingsSection = SETTINGS_APP_SECTION;
+                co.LogSettingsSection = SETTINGS_LOG_SECTION;
+                co.AppFolder = APP_FOLDER;
+                co.DefaultSettingsFile = DEFAULT_SETTINGS_FILE;
+            }
             ).Run(args);
         }
         catch (Exception ex)

@@ -19,4 +19,8 @@
 		<PackageReference Include="System.Text.Json" Version="10.0.5" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<ProjectReference Include="..\..\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core\Saltworks.SaltMiner.Core.csproj" />
+	</ItemGroup>
+
 </Project>

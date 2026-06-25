@@ -154,20 +154,26 @@ public static class Program
 
     private static void RunManager(IConsoleAppHostArgs args)
     {
-        var defaultSettingsPath = Path.Join(Directory.GetCurrentDirectory(), DEFAULT_SETTINGS_FILE);
-        var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, APP_FOLDER, defaultSettingsPath);
         ILogger startLogger = null;
         try
         {
-            ConsoleAppHostBuilder.CreateDefaultConsoleAppHost<Manager>
+            ConsoleAppHostBuilder.CreateDefaultConsoleAppHost<Manager, ManagerConfig>
             (
-                (services, config) =>
+                (config, configFilePath, configFolder) =>
                 {
                     try
                     {
-                        var managerConfig = new ManagerConfig(config, configFilePath);
-                        services.AddSingleton(managerConfig); 
-
+                        return new ManagerConfig(config, configFilePath);
+                    }
+                    catch (ConfigBaseEncryptionException ex)
+                    {
+                        throw new ConfigurationEncryptionException($"Invalid encryption keys or values in configuration.", ex);
+                    }
+                },
+                (services, managerConfig) =>
+                {
+                    try
+                    {
                         if (args.Args[0] == OperationType.Queue.ToString("g"))
                             services.AddTransient<QueueProcessor>();
 
@@ -188,10 +194,6 @@ public static class Program
                                 options.VerifySsl = managerConfig.DataApiVerifySsl;
                             }
                         );
-                    }
-                    catch (ConfigBaseEncryptionException ex)
-                    {
-                        throw new ConfigurationEncryptionException($"Invalid encryption keys or values in configuration.", ex);
                     }
                     catch (Exception ex)
                     {
@@ -214,9 +216,14 @@ public static class Program
                         throw new InitializationException(msg, ex);
                     }
                 },
-                SETTINGS_FILE,
-                SETTINGS_APP_SECTION,
-                SETTINGS_LOG_SECTION
+                co =>
+                {
+                    co.SettingsFile = SETTINGS_FILE;
+                    co.AppSettingsSection = SETTINGS_APP_SECTION;
+                    co.LogSettingsSection = SETTINGS_LOG_SECTION;
+                    co.AppFolder = APP_FOLDER;
+                    co.DefaultSettingsFile = DEFAULT_SETTINGS_FILE;
+                }
             ).Run(args);
         }
         catch (Exception ex)

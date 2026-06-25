@@ -34,6 +34,9 @@ public abstract class ConfigBase(ILogger logger=null)
     public string EncryptionIv { get; set; }
     public string EncryptionTag { get; set; } = "ENC";
     public string[] EncryptedPropertySuffixes { get; set; } = Array.Empty<string>();
+    // Resolved config folder (e.g. '<configpath>/servicemanager').  Set by ConsoleAppHostBuilder after construction;
+    // not bound from the settings file and not subject to encryption.
+    public string ConfigFolder { get; set; }
     protected virtual string[] NoEncryptProperties { get; set; } = [nameof(EncryptionKey), nameof(EncryptionIv), nameof(EncryptionTag), nameof(EncryptedPropertySuffixes)];
     private bool DecryptedStuffAlready = false;
     private readonly ILogger Logger = logger;

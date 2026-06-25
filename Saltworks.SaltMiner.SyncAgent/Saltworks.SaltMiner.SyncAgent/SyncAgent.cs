@@ -65,10 +65,10 @@ public class SyncAgent : IConsoleAppHost
             }
 
             var sourceConfig = args.Args[0];
-            var configDirectory = args.Args[1];
-            var forceUpdate = args.Args[2] == true.ToString();
-            var testingAssetLimit = Convert.ToInt32(args.Args[3]);
-            var resetLocal = Convert.ToBoolean(args.Args[4]);
+            var configDirectory = Config.ConfigFolder;  // resolved config folder, set by the host builder
+            var forceUpdate = args.Args[1] == true.ToString();
+            var testingAssetLimit = Convert.ToInt32(args.Args[2]);
+            var resetLocal = Convert.ToBoolean(args.Args[3]);
             FileStream lockFile;
 
             LoadSourceConfigs(sourceConfig, configDirectory);

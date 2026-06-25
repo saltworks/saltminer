@@ -23,6 +23,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Saltworks.SaltMiner.Core.Common;
 using Serilog;
 
 namespace Saltworks.SaltMiner.ConsoleApp.Core
@@ -140,6 +141,43 @@ namespace Saltworks.SaltMiner.ConsoleApp.Core
         }
 
         /// <summary>
+        /// Creates a console app host where the builder owns config file resolution + creation and constructs the
+        /// app's config object via the supplied factory.  This is the single, standardized entry point for SaltMiner
+        /// console services: the config file path is resolved (env var / locator file + app sub-folder) and created
+        /// from the default template if missing, the config object is built and registered as a singleton, and its
+        /// <see cref="ConfigBase.ConfigFolder"/> is set to the resolved folder.
+        /// </summary>
+        /// <param name="createConfig">Factory invoked with (config section, resolved config file path, resolved config folder).</param>
+        public static IConsoleAppHost CreateDefaultConsoleAppHost<TService, TConfig>(
+                Func<IConfiguration, string, string, TConfig> createConfig,
+                Action<IServiceCollection, TConfig> configureServices,
+                Action<IServiceProvider> configure,
+                Action<IConsoleAppHostBuilderOptions> configurationOptions
+            ) where TService : IConsoleAppHost where TConfig : ConfigBase
+        {
+            // Resolve options up front to determine the config file path using the single shared resolver.
+            var options = new ConsoleAppHostBuilderOptions();
+            configurationOptions?.Invoke(options);
+
+            var defaultTemplate = Path.Join(AppDomain.CurrentDomain.BaseDirectory, options.DefaultSettingsFile);
+            var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(options.SettingsFile, defaultTemplate, options.AppFolder);
+            var configFolder = Path.GetDirectoryName(configFilePath);
+
+            return new ConsoleAppHostBuilder(typeof(TService), co => { configurationOptions?.Invoke(co); co.ResolvedConfigFile = configFilePath; })
+                .BuildConfiguration()
+                .ConfigureServices((services, section) =>
+                {
+                    var cfg = createConfig(section, configFilePath, configFolder);
+                    cfg.ConfigFolder = configFolder;
+                    services.AddSingleton(cfg);
+                    configureServices?.Invoke(services, cfg);
+                })
+                .ConfigureLogging(null)
+                .Configure(configure)
+                .Build();
+        }
+
+        /// <summary>
         /// Builds configuration for the console application host
         /// </summary>
         /// <returns></returns>
@@ -153,7 +191,11 @@ namespace Saltworks.SaltMiner.ConsoleApp.Core
                     throw new ConsoleAppHostBuilderException($"Invalid file extension in settings file '{ConfigurationOptions.SettingsFile}'.  Expected '.json'");
                 }
 
-                var fullPathSettingsFile = FilePathHierarchy(ConfigurationOptions.SettingsFile);
+                // When the generic overload has already resolved + created the config file, load it directly;
+                // otherwise fall back to re-resolving from the options (used by the older string-based overloads).
+                var fullPathSettingsFile = !string.IsNullOrEmpty(ConfigurationOptions.ResolvedConfigFile)
+                    ? ConfigurationOptions.ResolvedConfigFile
+                    : FilePathHierarchy(ConfigurationOptions.SettingsFile);
 
                 // assume SettingsFile ends with .json - lop that off in a variable that doesn't change the case of the filename
                 var sf = fullPathSettingsFile.Substring(0, fullPathSettingsFile.Length - 5);
