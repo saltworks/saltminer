@@ -574,7 +574,8 @@ namespace Saltworks.SaltMiner.DataApi
                     var templates = Directory.GetFiles(dir).ToList();
                     Log.Debug("Found {Count} index template(s).", templates.Count);
 
-                    foreach (var template in templates.Where(t => t.ToLower().EndsWith(JE)))
+                    // Process in reverse order so that queue_sync is processed before queue_sync_*
+                    foreach (var template in templates.Where(t => t.ToLower().EndsWith(JE)).OrderByDescending(x => x))
                     {
                         failMsg = $"Failed processing index template '{template}'";
                         using (var r = new StreamReader(template))
