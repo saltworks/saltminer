@@ -2,6 +2,7 @@
     "index_patterns": [
         "sm_queue*"
     ],
+    "priority": 0,
     "template": {
         "settings": {
             "number_of_shards": 1,
