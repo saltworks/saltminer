@@ -8,14 +8,14 @@ ARG ARTIFACT_PATH=invalid
 ARG MGR_ARTIFACT_PATH=invalid
 ARG AGENT_ARTIFACT_PATH=invalid
 ARG PY_ARTIFACT_PATH=invalid
-ARG JOB_ARTIFACT_PATH=invalid
+ARG DEPLOY_PATH=invalid
 
 ENV APP_ROOT=/opt/saltworks/saltminer
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
 ENV MGR_ARTIFACT_PATH=$MGR_ARTIFACT_PATH
 ENV AGENT_ARTIFACT_PATH=$AGENT_ARTIFACT_PATH
 ENV PY_ARTIFACT_PATH=$PY_ARTIFACT_PATH
-ENV JOB_ARTIFACT_PATH=$JOB_ARTIFACT_PATH
+ENV DEPLOY_PATH=$DEPLOY_PATH
 
 WORKDIR ${APP_ROOT}/app
 
@@ -27,6 +27,8 @@ COPY $AGENT_ARTIFACT_PATH ./agent/
 COPY $MGR_ARTIFACT_PATH ./manager/
 COPY $ARTIFACT_PATH ./servicemanager/
 COPY $PY_ARTIFACT_PATH ./python/
+COPY $DEPLOY_PATH/scripts ./default-scripts
+RUN chmod +x ./default-scripts/*.sh
 
 RUN mkdir -p ./python/Defaults/ && \
     for dir in Config Custom AppVulsCustom Mappings AuthHelperCustom; do \
@@ -37,4 +39,7 @@ RUN mkdir -p ./python/Defaults/ && \
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config
 
-ENTRYPOINT /usr/bin/dotnet ${APP_ROOT}/app/servicemanager/Saltworks.SaltMiner.ServiceManager.dll
+COPY $DEPLOY_PATH/services-entrypoint.sh ${APP_ROOT}/services-entrypoint.sh
+RUN chmod +x ${APP_ROOT}/services-entrypoint.sh
+
+ENTRYPOINT ${APP_ROOT}/services-entrypoint.sh

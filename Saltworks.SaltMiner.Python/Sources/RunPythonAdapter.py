@@ -44,7 +44,7 @@ prm_logging_instance = None
 if len(sys.argv) > 3:
     prm_logging_instance = sys.argv[3]
 
-hlp_msg = f"Usage: {sys.argv[0]} [source] [first_load] [logging_instance]\n\n:source: Required. Source name to run (Tenable, SNYK, Seeker, etc.)\n:first_load: Optional. Set to 'true' if this is the first load of the adapter (default: true)\n:logging_instance: Optional. Custom logging instance name for this run (default: None)"
+hlp_msg = f"Usage: {sys.argv[0]} [source] [first_load] [logging_instance]\n\n:source: Required. Source name to run (Tenable, Snyk, Seeker, etc.)\n:first_load: Optional. Set to 'true' if this is the first load of the adapter (default: true)\n:logging_instance: Optional. Custom logging instance name for this run (default: None)"
 if prm_source is None:
     print(hlp_msg)
     sys.exit(1)

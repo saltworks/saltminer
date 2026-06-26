@@ -17,6 +17,7 @@ services:
       /app_root/config/python/Mappings
       /app_root/config/python/AppVulsCustom
       /app_root/config/python/AuthSyncCustom
+      /app_root/scripts
       && chown -R ${CONTAINER_UID_GID} /app_root"
     restart: "no"
 
@@ -128,7 +129,7 @@ services:
     volumes:
     - ${APP_ROOT}/config:${CONTAINER_APP_ROOT}/config
     - ${APP_ROOT}/logs:${CONTAINER_APP_ROOT}/logs
-    - ${APP_ROOT}/config/python/scripts:${CONTAINER_APP_ROOT}/app/python/scripts
+    - ${APP_ROOT}/scripts:${CONTAINER_APP_ROOT}/scripts
     - ${APP_ROOT}/config/python/Custom:${CONTAINER_APP_ROOT}/app/python/Custom
     - ${APP_ROOT}/config/python/Mappings:${CONTAINER_APP_ROOT}/app/python/Mappings
     - ${APP_ROOT}/config/python/AppVulsCustom:${CONTAINER_APP_ROOT}/app/python/AppVulsCustom
