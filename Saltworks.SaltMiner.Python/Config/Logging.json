@@ -1,6 +1,6 @@
 {
   "LogLevel": "INFO",
   "StackTraceLimit": 3,
-  "Folder": "/var/log/saltworks/saltminer-2.5.0/",
+  "Folder": "/opt/saltworks/saltminer/logs",
   "LogFileRemoveAfterDays": 7
 }

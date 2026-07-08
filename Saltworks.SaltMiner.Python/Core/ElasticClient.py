@@ -18,12 +18,15 @@
 * ----
 '''
 
+from __future__ import annotations
+
 import time
 import logging
 import json
 import os
 import uuid
 from importlib.metadata import version as vertest
+from typing import TYPE_CHECKING
 
 import urllib3
 from urllib3.exceptions import ReadTimeoutError
@@ -33,9 +36,14 @@ from elasticsearch.client import SecurityClient, IndicesClient, IngestClient
 from elasticsearch import logger as es_logger
 from elasticsearch.helpers.errors import BulkIndexError
 
-from .ApplicationSettings import ApplicationSettings
 from .StringUtils import StringUtils
 from .DictUtils import DictUtils
+
+if TYPE_CHECKING:
+    # Import for type hints only - importing at runtime creates a circular
+    # dependency because ApplicationSettings imports ElasticClient for its
+    # connection-string constants.
+    from .ApplicationSettings import ApplicationSettings
 
 class ElasticClient(object):
     """ Elasticsearch client class """
@@ -77,6 +85,8 @@ class ElasticClient(object):
 
 
     def _AddIfNotPresent(self, parms:dict, key:str, value):
+        if parms is None:
+            raise ValueError("[_AddIfNotPresent] Parameter 'parms' cannot be None")
         if value and len(str(value)) > 0 and key not in parms:
             parms[key] = value
 
@@ -192,6 +202,7 @@ class ElasticClient(object):
         '''
         # pull config str from config and decode (if present)
         connectionParms = self._DecodeConnectionString(appSettings, configName)
+        connectionParms = {} if not connectionParms else connectionParms
 
         # setup SSL verification and default headers
         sslVerify = self._SslVerify(appSettings.Get(configName, 'SslVerify', True))
@@ -258,7 +269,7 @@ class ElasticClient(object):
         '''
         if self.__RetryCount == self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException(RETRY_LIMIT_ERROR)
+            raise ElasticClientException(self.RETRY_LIMIT_ERROR)
 
         try:
             if not body:
@@ -371,7 +382,7 @@ class ElasticClient(object):
         '''
         if self.__RetryCount == self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException(RETRY_LIMIT_ERROR)
+            raise ElasticClientException(self.RETRY_LIMIT_ERROR)
         
         try:
             rsp = helpers.bulk(self.es, bulkActions, request_timeout=self.__BulkRequestTimeout, raise_on_error=raiseErrors, stats_only=statsOnly)
@@ -489,7 +500,7 @@ class ElasticClient(object):
         rsp = None
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException(RETRY_LIMIT_ERROR)
+            raise ElasticClientException(self.RETRY_LIMIT_ERROR)
         
         conflicts = "proceed" if ignoreConflicts else "abort"
         
@@ -530,7 +541,7 @@ class ElasticClient(object):
         '''
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException(RETRY_LIMIT_ERROR)
+            raise ElasticClientException(self.RETRY_LIMIT_ERROR)
         
         try:
             rsp = self.es.update(index=index, id=docId, doc=doc, if_seq_no=seq, if_primary_term=pri, detect_noop=True)
@@ -634,7 +645,7 @@ class ElasticClient(object):
         '''
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException(RETRY_LIMIT_ERROR)
+            raise ElasticClientException(self.RETRY_LIMIT_ERROR)
         
         try:
             self.es.clear_scroll(scroll_id = scrollId)
@@ -653,7 +664,7 @@ class ElasticClient(object):
         '''
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException(RETRY_LIMIT_ERROR)
+            raise ElasticClientException(self.RETRY_LIMIT_ERROR)
         
         try:
             rsp = self.es.scroll(scroll_id = scrollId, scroll = scrollTimeout)
@@ -805,7 +816,7 @@ class ElasticClient(object):
         '''
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException(RETRY_LIMIT_ERROR)
+            raise ElasticClientException(self.RETRY_LIMIT_ERROR)
         
         try:
             rsp = self.es.get(index=index, id=docId)
@@ -996,7 +1007,7 @@ class ElasticClient(object):
             timeout = str(self.__DeleteRequestTimeout) + "s"
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException(RETRY_LIMIT_ERROR)
+            raise ElasticClientException(self.RETRY_LIMIT_ERROR)
         if not self.IndexExists(index):
             if ignoreMissingIndex:
                 return
@@ -1086,7 +1097,7 @@ class ElasticClient(object):
         timeout = int(timeout)
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException(RETRY_LIMIT_ERROR)
+            raise ElasticClientException(self.RETRY_LIMIT_ERROR)
 
         try:
             logging.debug("Running delete by query for index '%s' with timeout '%s'", index, timeout)
@@ -1125,7 +1136,7 @@ class ElasticClient(object):
             timeout = str(self.__IndexRequestTimeout) + "s"
         if self.__RetryCount >= 3:
             self.__RetryCount = 0
-            raise ElasticClientException(RETRY_LIMIT_ERROR)
+            raise ElasticClientException(self.RETRY_LIMIT_ERROR)
 
         try:
             logging.debug("Updating document in index '%s'", index)
@@ -1148,7 +1159,7 @@ class ElasticClient(object):
             timeout = str(self.__IndexRequestTimeout) + "s"
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
-            raise ElasticClientException(RETRY_LIMIT_ERROR)
+            raise ElasticClientException(self.RETRY_LIMIT_ERROR)
 
         try:
             logging.debug("Inserting document into index '%s'", index)

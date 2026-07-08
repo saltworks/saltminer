@@ -24,11 +24,11 @@ import os
 import datetime
 import ntpath
 
-_MISSING = object()  # sentinel: distinguishes "no default provided" from default=None
-
 from .EncryptionHelper import EncryptionHelper
 from .ElasticClient import ElasticClient
-from .ApplicationExceptions import *
+from .ApplicationExceptions import ApplicationConfigurationException
+
+_MISSING = object()  # sentinel: distinguishes "no default provided" from default=None
 
 class ApplicationSettings(object):
     """Settings class - automatic handling of encryption/decryption for settings ending in 'Secret' or 'Password'"""
@@ -45,7 +45,7 @@ class ApplicationSettings(object):
         cs_env = os.environ.get(ElasticClient.ELASTIC_CONNECT_STR_ENV, "")
         if cs_env:
             self.__Log("info", f"Found {ElasticClient.ELASTIC_CONNECT_STR_ENV} environment variable, overriding Elastic connection string")
-            self.SetToConfig("Elastic", "Blah", ElasticClient.ELASTIC_CONNECT_STR_CONFIG, save=False)
+            self.Set("Elastic", ElasticClient.ELASTIC_CONNECT_STR_CONFIG, cs_env, save=False)
         self.__EncryptSuffixes = self.Get("Main", "EncryptedPropertySuffixes", [ "password", "secret", "apikey", "token" ])
         
         self.__Eh = EncryptionHelper(keyFile)
@@ -187,12 +187,14 @@ class ApplicationSettings(object):
                 self.__Log("debug", f"Saving config '{cf}' to file '{key['file']}'")
                 with open(key['file'], "w") as file:
                     json.dump(self.__Config[cf], file, indent=2)
+                key['dirty'] = False
         for cf in self.__SourceConfigFiles.keys():
             key = self.__SourceConfigFiles[cf]
             if key['dirty']:
                 self.__Log("debug", f"Saving source config '{cf}' to file '{key['file']}'")
                 with open(key['file'], "w") as file:
                     json.dump(self.__Sources[cf], file, indent=2)
+                key['dirty'] = False
 
     def FlagSet(self, key):
         ''' Returns True if requested flag is present in settings, False if not '''

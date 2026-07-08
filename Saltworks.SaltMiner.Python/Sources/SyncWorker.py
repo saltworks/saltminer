@@ -17,18 +17,15 @@
 *
 '''
 
-'''
-SyncWorker class - used to run sync processing in multi-threaded environment.
-'''
-import logging
+# SyncWorker class - used to run sync processing in multi-threaded environment.
 
+from Core.Agent import Agent
+from Core.Worker import WorkerFactory, Worker, WorkerException
+from Core.QueueClient import QueueClientDto
 from .SSC.SyncExtractor import SyncExtractor as SscSync
 from .SSC.AppVulsProcessor import AppVulsProcessor as SscRefresh
 from .FOD.SyncExtractor import SyncExtractor as FodSync
 from .FOD.AppVulsProcessor import AppVulsProcessor as FodRefresh
-from Core.Agent import Agent
-from Core.Worker import WorkerFactory, Worker, WorkerException
-from Core.QueueClient import QueueClientDto
 
 
 class SyncQueueType():
@@ -40,8 +37,8 @@ class SyncQueueType():
 
 
 class SyncQueueStage():
-    REFRESH = "Refresh",
-    SYNC = "Sync",
+    REFRESH = "Refresh"
+    SYNC = "Sync"
     MANAGER = "Manager"
 
 
@@ -113,12 +110,12 @@ class SyncWorkerFactory(WorkerFactory):
     """Factory class for creating SyncWorker instances."""
     def create_worker(self, id:int, agent:Agent, **kwargs) -> Worker:
         """Create and return a new SyncWorker instance."""
-        return SyncWorker(id, agent, kwargs)
+        return SyncWorker(id, agent, **kwargs)
 
 class SyncWorker(Worker):
     """Worker class for multi-threaded processing of sync/refresh."""
     def __init__(self, id:int, agent:Agent, **kwargs):
-        super().__init__(id, agent, kwargs)
+        super().__init__(id, agent, **kwargs)
         self._ssc_sync = None
         self._ssc_refresh = None
         self._fod_sync = None
@@ -169,11 +166,11 @@ class SyncWorker(Worker):
             self.agent.update(item, SyncQueueStage.REFRESH, item._sync_data.to_dto())
             refresh = self._get_ssc_refresh(item._sync_data.target_instance)
             refresh.PopulateVulsOne(item._sync_data.target_id)
-            self.agent.complete(item, success=True)
+            self.agent.complete(item, is_error=False)
         except Exception as ex:
             self.logger.error("Error processing SSC ID '%s' ('%s'), stage %s: %s", item._sync_data.target_id, item._sync_data.target_instance, item.doc.stage, str(ex))
             try:
-                self.agent.complete(item, success=False, reason=str(ex))
+                self.agent.complete(item, is_error=True, reason=str(ex))
             except Exception as ex2:
                 self.logger.error("Error setting error for SSC ID '%s' ('%s'), stage %s: %s", item._sync_data.target_id, item._sync_data.target_instance, item.doc.stage, str(ex2))
             raise WorkerException(f"Error processing SSC ID '{item._sync_data.target_id}' ('{item._sync_data.target_instance}'), stage {item.doc.stage}") from ex
@@ -186,11 +183,11 @@ class SyncWorker(Worker):
             self.agent.update(item, SyncQueueStage.REFRESH, item._sync_data.to_dto())
             refresh = self._get_fod_refresh(item._sync_data.target_instance)
             refresh.PopulateVulsOne(item._sync_data.target_id)
-            self.agent.complete(item, success=True)
+            self.agent.complete(item, is_error=False)
         except Exception as ex:
             self.logger.error("Error processing FOD ID '%s' ('%s'), stage %s: %s", item._sync_data.target_id, item._sync_data.target_instance, item.doc.stage, str(ex))
             try:
-                self.agent.complete(item, success=False, reason=str(ex))
+                self.agent.complete(item, is_error=True, reason=str(ex))
             except Exception as ex2:
                 self.logger.error("Error setting error for FOD ID '%s' ('%s'), stage %s: %s", item._sync_data.target_id, item._sync_data.target_instance, item.doc.stage, str(ex2))
             raise WorkerException(f"Error processing FOD ID '{item._sync_data.target_id}' ('{item._sync_data.target_instance}'), stage {item.doc.stage}") from ex

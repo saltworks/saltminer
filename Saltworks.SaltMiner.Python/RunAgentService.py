@@ -29,7 +29,7 @@ def main():
         worker_error_threshold=app.Settings.Get("SyncAgent", "WorkerErrorThreshold", 3)
     )
     agent = Agent(app, agent_args, SyncWorkerFactory())
-    logging.info("Starting Sync Agent with %d workers", agent.worker_count)
+    logging.info("Starting Sync Agent with %d workers", agent.args.worker_count)
     agent.run(stop_when_empty=not prm_service)
     logging.info("Sync Agent stopped")
 

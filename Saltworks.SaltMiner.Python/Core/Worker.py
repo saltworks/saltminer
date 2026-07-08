@@ -17,9 +17,8 @@
 *
 '''
 
-'''
-Worker class - used to run processing in multi-threaded environment.
-'''
+# Worker class - used to run processing in multi-threaded environment.
+
 import logging
 from abc import ABC, abstractmethod
 
@@ -81,13 +80,16 @@ class Worker(ABC):
     @property
     def error_count(self) -> int:
         return self._err_count
-    error_count.setter
+    @error_count.setter
     def error_count(self, value:int):
         self._err_count = value
 
     @property
     def error_threshold(self) -> int:
         return self._err_threshold
+    @error_threshold.setter
+    def error_threshold(self, value:int):
+        self._err_threshold = value
     
     def run(self):
         '''Processes items from the agent queue until a sentinel (None) is received.'''

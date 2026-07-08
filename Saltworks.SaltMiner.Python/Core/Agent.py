@@ -14,18 +14,24 @@
 * ----
 '''
 
-'''
-SyncAgent class - used to run multi-threaded processing of sync/refresh.
-'''
+# SyncAgent class - used to run multi-threaded processing of sync/refresh.
+
+from __future__ import annotations
+
 import logging
 import queue
 import threading
 import time
+from typing import TYPE_CHECKING
 
 from .Application import Application
 from .ElasticClient import ElasticClient
-from .Worker import WorkerFactory
 from .QueueClient import QueueClient, QueueClientDto
+
+if TYPE_CHECKING:
+    # Import for type hints only - importing at runtime creates a circular
+    # dependency because Worker imports Agent for its isinstance() check.
+    from .Worker import WorkerFactory
 
 class AgentArgs():
     """Arguments for Agent."""
@@ -137,7 +143,7 @@ class Agent():
     @property
     def queue_client(self) -> QueueClient:
         if self._queue_client is None:
-            self._queue_client = QueueClient(self.es, self.args.queue_index_pattern_tag, batch_size=self.args.queue_batch_size)
+            self._queue_client = QueueClient(self.app, self.args.queue_index_pattern_tag, batch_size=self.args.queue_batch_size)
         return self._queue_client
     
     @property
