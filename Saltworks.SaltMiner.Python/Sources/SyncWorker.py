@@ -58,6 +58,8 @@ class SyncQueueData():
     
     @property
     def target_id(self) -> str:
+        if not hasattr(self, "_target_id"):
+            self._target_id = None
         return self._target_id
     @target_id.setter
     def target_id(self, value:str):
@@ -65,6 +67,8 @@ class SyncQueueData():
 
     @property
     def target_type(self) -> str:
+        if not hasattr(self, "_target_type"):
+            self._target_type = None
         return self._target_type
     @target_type.setter
     def target_type(self, value:str):
@@ -72,6 +76,8 @@ class SyncQueueData():
 
     @property
     def target_instance(self) -> str:
+        if not hasattr(self, "_target_instance"):
+            self._target_instance = None
         return self._target_instance
     @target_instance.setter
     def target_instance(self, value:str):
@@ -79,6 +85,8 @@ class SyncQueueData():
 
     @property
     def force(self) -> bool:
+        if not hasattr(self, "_force"):
+            self._force = False
         return self._force
     @force.setter
     def force(self, value:bool):
@@ -103,7 +111,7 @@ class SyncQueueDto(QueueClientDto):
         :dto: required dictionary containing the data for the sync queue item, including the base QueueClientDto fields and the SyncQueueData fields
         """
         super().__init__(dto)
-        self._sync_data = None if not dto else SyncQueueData(dto.get("data"))
+        self._sync_data = None if not dto else SyncQueueData(self.doc.data)
 
 
 class SyncWorkerFactory(WorkerFactory):
