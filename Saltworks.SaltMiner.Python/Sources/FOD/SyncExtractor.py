@@ -222,6 +222,8 @@ class SyncExtractor(object):
         '''
         Enables sync of a single release (by id), bypassing the queue entirely
         '''
+        # Check mappings - ensures indices are created from templates rather than dynamically mapped by first doc write
+        self.MapESIndices(False)
         releases = []
         release = self.__GetRelease(avid, releases)
         if not release:

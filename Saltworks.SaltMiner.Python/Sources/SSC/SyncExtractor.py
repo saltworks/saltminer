@@ -560,6 +560,8 @@ class SyncExtractor(object):
         '''
         Enables sync of a single project version (by id), bypassing the queue entirely
         '''
+        # Check mappings - ensures indices are created from templates rather than dynamically mapped by first doc write
+        self.MapESIndices(False)
         projectAttrDefs = self.__SscUtils.SscClient.GetProjectVersionAttributeDefinitions()
         seenIdList = []
         projectVersions = []
