@@ -31,16 +31,29 @@ public class EsClientFactory : IElasticClientFactory
     public ILogger<IElasticClient> Logger { get; set; } = null;
     public ClientConfiguration Configuration { get; private set; } = null;
 
+    private readonly object ClientLock = new();
+    private IElasticClient Client = null;
+
     public EsClientFactory(ClientConfiguration configuration)
     {
         Configuration = configuration;
     }
 
     /// <summary>
-    /// Creates an EsClient from DI configuration
+    /// Returns a shared EsClient created from DI configuration.  EsClient is immutable once
+    /// constructed and the underlying Elasticsearch client is thread-safe with its own
+    /// connection pool, so a single cached instance is shared by all callers - creating a
+    /// new client (and connection pool) per call exhausts sockets/memory under load.
+    /// Created lazily so the Logger (set by UseEsClient() after construction) is available.
     /// </summary>
     public IElasticClient CreateClient()
     {
-        return new EsClient(Configuration, Logger);
+        if (Client != null)
+            return Client;
+        lock (ClientLock)
+        {
+            Client ??= new EsClient(Configuration, Logger);
+            return Client;
+        }
     }
 }

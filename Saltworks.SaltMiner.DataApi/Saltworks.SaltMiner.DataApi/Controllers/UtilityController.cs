@@ -64,7 +64,7 @@ public class UtilityController(UtilityContext context, ILogger<UtilityController
     public ActionResult<NoDataResponse> Tasks()
     {
         Logger.LogInformation("Tasks action called");
-        return Ok(Context.Version());
+        return Ok(Context.GetElasticTaskCount());
     }
 
     /// <summary>

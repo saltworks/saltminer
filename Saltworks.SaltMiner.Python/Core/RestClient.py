@@ -258,7 +258,7 @@ class RestClient:
         else:
             _url = url
         if self.__OverrideProtocol != None:
-            url = url.replace("https://", self.__OverrideProtocol).replace("http://", self.__OverrideProtocol)
+            _url = _url.replace("https://", self.__OverrideProtocol).replace("http://", self.__OverrideProtocol)
         if headers is not None:
             _headers = headers
         else:

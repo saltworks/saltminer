@@ -39,12 +39,11 @@ def _now():
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
-def _make_q_scan(agent_id=None):
+def _make_q_scan():
     return {
         'Timestamp': _now(),
         'Saltminer': {
             'Internal': {
-                'AgentId': agent_id,
                 'IssueCount': -1,
                 'CurrentQueueScanId': None,
                 'ReplaceIssues': True,

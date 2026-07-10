@@ -6,7 +6,7 @@ When debugging integration tests, directly accessing Elasticsearch verifies data
 
 ## AiHelper Class Pattern
 
-Create an `AiHelper` class for all Elasticsearch direct-access methods in your test project (i.e. `Saltworks.SaltMiner.DataClient.IntegrationTests/AiHelper.cs`).  Template for this class is located in the workspace root, named TemplateAiHelper.cs.  Ask user for connection information for the connection (do not record connection information in TemplateAiHelper.cs).  Once connection info is established in any test project, it can be assumed it should be copied for other test projects in the same workspace.
+Create an `AiHelper` class for all Elasticsearch direct-access methods in your test project (i.e. `Saltworks.SaltMiner.DataClient.IntegrationTests/AiHelper.cs`).  Template for this class should be located in ai/templates, named TemplateAiHelper.cs (recreate if missing).  Ask user for connection information for the connection (do not record connection information in TemplateAiHelper.cs).  Once connection info is established in any test project, it can be assumed it should be copied for other test projects in the same workspace.  Connection information should be placed into ai/scratch, which is .gitignored to prevent credentials from entering source control.
 
 ### Purpose
 - Direct HTTP access to Elasticsearch for debugging

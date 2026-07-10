@@ -214,16 +214,6 @@ class DataClient:
         self._verify_response('Error retrieving role', r)
         return json.loads(r.text).get('message', '')
 
-    def register_get_agent_id(self):
-        '''Returns the agent ID for the configured API key.'''
-        return self._run_async(self.register_get_agent_id_async())
-
-    async def register_get_agent_id_async(self):
-        '''Async version of register_get_agent_id.'''
-        r = await self._client.Get('register/agent')
-        self._verify_response('Error retrieving agent ID', r)
-        return json.loads(r.text).get('message', '')
-
     # ------------------------------------------------------------------
     # Utility endpoints
     # ------------------------------------------------------------------
@@ -234,7 +224,7 @@ class DataClient:
 
     async def get_version_async(self):
         '''Async version of get_version.'''
-        r = await self._client.Get('admin/version')
+        r = await self._client.Get('utility/version')
         self._verify_response('Error retrieving API version', r)
         return json.loads(r.text)
 

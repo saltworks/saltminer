@@ -59,7 +59,15 @@ class SscClient(object):
         self.__FiltersetId = appSettings.GetSource(sourceName, 'FiltersetId')
         self.__OverrideProtocol = appSettings.GetSource(sourceName, 'OverrideProtocol', "")
         if self.__OverrideProtocol == "":
-            self.__OverrideProtocol = None
+            # Default to the BaseUrl scheme so SSC's self-reported (proxy-downgraded) absolute
+            # links can't downgrade the connection - BaseUrl is authoritative for the protocol.
+            base = appSettings.GetSource(sourceName, 'BaseUrl', "") or ""
+            if base.startswith("https://"):
+                self.__OverrideProtocol = "https://"
+            elif base.startswith("http://"):
+                self.__OverrideProtocol = "http://"
+            else:
+                self.__OverrideProtocol = None
         self.__CacheKeys = []
         self.__Id = uuid.uuid4()
         self.__DateForFile = datetime.datetime.now().strftime('%Y.%m.%d')

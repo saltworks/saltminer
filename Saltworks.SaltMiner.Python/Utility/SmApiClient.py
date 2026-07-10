@@ -51,6 +51,7 @@ class SmApiClient(object):
         self._issue_batch = {"Documents": []}
         self.batch_size = appSettings.Get(configName, 'BatchSize', 100)
         self._key_map = {}
+        self._history_done = set()
         self._source_name = sourceName
         self._es = appSettings.Application.GetElasticClient()
         self._assessment_type_map = appSettings.Get(configName, 'AssessmentTypeMap', {})
@@ -71,9 +72,6 @@ class SmApiClient(object):
         try:
             self._data_client = DataClient(appSettings.Application, configName, validate_on_init=False)
             self.role = self._data_client.register_get_role()
-            self.agent_id = None
-            if self.role.lower() == "agent":
-                self.agent_id = self._data_client.register_get_agent_id()
             self._data_client.get_version()
         except DataClientException as e:
             logging.exception("SM API initialization error")
@@ -82,7 +80,7 @@ class SmApiClient(object):
             logging.exception("Error when first connecting to SM API")
             raise SmApiClientConfigurationException(f"Error when attempting to connect to SM API: [{type(e).__name__}] {e}") from e
 
-        logging.debug("[SMAPI] SmApiClient initialization complete. Role: %s, agentID: %s", self.role, self.agent_id)
+        logging.debug("[SMAPI] SmApiClient initialization complete. Role: %s", self.role)
 
     # ------------------------------------------------------------------
     # API Calls
@@ -96,16 +94,21 @@ class SmApiClient(object):
             q_scan['Saltminer']['Internal']['QueueStatus'] = "Pending"
         else:
             q_scan['Saltminer']['Internal']['QueueStatus'] = "Loading"
-        q_scan['Saltminer']['Internal']['AgentId'] = self.agent_id
         q_scan['Id'] = None
-        return self._data_client.queue_scan_add_update(q_scan)
+        rsp = self._data_client.queue_scan_add_update(q_scan)
+        if not rsp:
+            raise SmApiClientException("Queue scan add/update returned no data from API.")
+        return rsp
 
     def add_queue_asset(self, q_asset):
         '''
         Adds queue asset.  Make sure QueueScanId is set to the id of a valid QueueScan document.
         '''
         q_asset['Id'] = None
-        return self._data_client.queue_asset_add_update(q_asset)
+        rsp = self._data_client.queue_asset_add_update(q_asset)
+        if not rsp:
+            raise SmApiClientException("Queue asset add/update returned no data from API.")
+        return rsp
 
     def add_queue_issue(self, q_issue):
         '''
@@ -384,6 +387,7 @@ class SmApiClient(object):
         if err_count > 0:
             logging.error("[SMAPI] %s errors encountered while finalizing queue scans - some data will be missing.", err_count)
         self._key_map = {}
+        self._history_done = set()
 
     def map_scanless_asset(self, avid, scanner_vendor, name, version, description, attributes, is_prod=True, assessment_types=[]):
         if len(self._expected_assessment_types) == 0:
@@ -405,7 +409,6 @@ class SmApiClient(object):
                     "Timestamp": dt_now,
                     "Saltminer": {
                         "Internal": {
-                            "AgentId": self.agent_id,
                             "IssueCount": -1,
                             "CurrentQueueScanId": None,
                             "ReplaceIssues": True
@@ -515,7 +518,6 @@ class SmApiClient(object):
             "Timestamp": timestamp,
             "Saltminer": {
                 "Internal": {
-                    "AgentId": self.agent_id,
                     "IssueCount": 0 if ssc_v3_scan_id else -1,
                     "CurrentQueueScanId": ssc_v3_scan_id or ("NULL" if self._enable_stupid_null else None),
                     "ReplaceIssues": True
@@ -571,8 +573,9 @@ class SmApiClient(object):
             q_scan = self.map_scan(source, atype, product, sid, SmApiClient.clean_date_string(issue['timestamp']), issue, v2_ssc_scan)
             qsid = q_scan['id']
             is_prod = True
-            if 'SSC' in source.upper():
+            if 'SSC' in source.upper() and key not in self._history_done:
                 self._map_and_add_ssc_scan_history(avid, atype, issue['engine_type'], product, q_scan, ssc_all_history_enable)
+                self._history_done.add(key)  # don't re-send history if a later mapping step fails and this key is retried
             else:
                 if 'sdlc_status' in issue.keys() and issue['sdlc_status'] != 'Production':
                     is_prod = False

@@ -63,7 +63,6 @@ class SnykDocs:
         return {
             "Saltminer": {
                 "Internal": {
-                    "AgentId": None,
                     "IssueCount": None,
                     "CurrentQueueScanId": None,
                     "ReplaceIssues": False

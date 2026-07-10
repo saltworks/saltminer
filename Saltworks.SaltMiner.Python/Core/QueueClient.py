@@ -314,6 +314,7 @@ class QueueClientDto(object):
     def dto(self):
         return {
             '_source': self.doc.dto(),
+            '_id': self.id,
             '_seq_no': self.sequence_number,
             '_primary_term': self.primary_term,
             '_index': self.index
