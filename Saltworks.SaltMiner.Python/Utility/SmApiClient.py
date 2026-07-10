@@ -513,6 +513,11 @@ class SmApiClient(object):
             logging.error("Failed to map queue resource", exc_info=True)
 
     def map_scan(self, source, atype, ptype, scan_id, timestamp, issue=None, ssc_v2_scan=None, ssc_v3_scan_id=None):
+        q_scan = self._build_scan_doc(source, atype, ptype, scan_id, timestamp, issue, ssc_v2_scan, ssc_v3_scan_id)
+        return self.add_queue_scan(q_scan, ssc_v3_scan_id)
+
+    def _build_scan_doc(self, source, atype, ptype, scan_id, timestamp, issue=None, ssc_v2_scan=None, ssc_v3_scan_id=None):
+        '''Builds a queue scan document without submitting it to the API.'''
         scan_date = self._get_scan_date(issue, source, ssc_v2_scan)
         q_scan = {
             "Timestamp": timestamp,
@@ -548,7 +553,7 @@ class SmApiClient(object):
                     'Version': rp['version'] if 'version' in rp else '',
                     'Language': rp['language'] if 'language' in rp else ''
                 })
-        return self.add_queue_scan(q_scan, ssc_v3_scan_id)
+        return q_scan
 
     def map_and_add_scan_and_asset(self, issue, issue_asset_keys, ssc_all_history_enable=False):
         avid = str(issue['application_version_id'])
@@ -778,6 +783,7 @@ class SmApiClient(object):
         v3_last_scan = self.search_last_scan(avid, atype, source)
         v3_last_scan_date = datetime.datetime.fromisoformat('1900-01-01') if not v3_last_scan else v3_last_scan['saltminer']['scan']['scanDate']
         count = 0
+        history_batch = []
         while scan_scroller.Results:
             for scan_cont in scan_scroller.Results:
                 scan = scan_cont['_source']
@@ -795,12 +801,22 @@ class SmApiClient(object):
                 v3_scan_id_new = SmApiClient._format_scan_id(scan['artifactUploadDate'], scan['id'])
                 if v3_scan_id_new == v3_scan_id_current or etype != scan['type']:
                     continue
-                self.map_scan(source, atype, product, v3_scan_id_new, timestamp, None, scan, ssc_v3_queue_scan['id'])
+                # Build the doc and send in bulk batches - history scans don't need finalization
+                # (QueueStatus goes straight to Pending) or the response ids, so 1x1 POSTs aren't needed.
+                doc = self._build_scan_doc(source, atype, product, v3_scan_id_new, timestamp, None, scan, ssc_v3_queue_scan['id'])
+                doc['Saltminer']['Internal']['QueueStatus'] = "Pending"
+                doc['Id'] = None
+                history_batch.append(doc)
                 count += 1
+                if len(history_batch) >= self.batch_size:
+                    self._data_client.queue_scans_add_update_bulk(history_batch)
+                    history_batch = []
             try:
                 scan_scroller.GetNext()
             except NotFoundErr:
                 logging.warning("[SMAPI] History query failed due to scroll expiration.  History may be truncated for app version %s", avid)
+        if history_batch:
+            self._data_client.queue_scans_add_update_bulk(history_batch)
         logging.info("[SMAPI] Processed v3 scan history for app version %s and assessment type %s - %s history scan(s).", avid, atype, count)
         try:
             scan_scroller.Clear()

@@ -163,7 +163,7 @@ class SyncWorker(Worker):
         elif sync_item._sync_data.target_type == SyncQueueType.FOD:
             self._process_fod(sync_item)
         else:
-            self.error_count += 1
+            # Worker.run() increments error_count for any raised exception - don't double count here
             raise WorkerException(f"Invalid sync queue item target type: {sync_item._sync_data.target_type}")
 
 

@@ -106,7 +106,8 @@ class Worker(ABC):
                 self._process(item)
                 self.error_count = 0
             except Exception:
-                self.logger.exception("Worker %d failed processing item with ID: %s", self.id, item.id)
+                # getattr: item may not be a QueueClientDto (that's one of the exceptions handled here)
+                self.logger.exception("Worker %d failed processing item with ID: %s", self.id, getattr(item, 'id', '[unknown]'))
                 self.error_count += 1
                 if self.error_count >= self.error_threshold:
                     self.logger.error("Worker %d has reached error threshold with %d consecutive errors, stopping worker", self.id, self.error_count)

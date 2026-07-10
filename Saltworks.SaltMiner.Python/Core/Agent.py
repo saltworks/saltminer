@@ -152,12 +152,16 @@ class Agent():
 
 
     def _feed_queue(self) -> int:
-        """Fetch a batch of pending items from ES for each source and enqueue them. Returns total enqueued."""
-        batch_size = self.args.worker_count * 2
-        work_items, _ = self.queue_client.get_next_queue_batch(self.args.new_queue_item_stage, batch_size)
-        for item in work_items:
-            self.queue.put(item)
-        return len(work_items)
+        """Fetch a batch of pending items from ES for each source and enqueue them. Returns total enqueued, or -1 on error."""
+        try:
+            batch_size = self.args.worker_count * 2
+            work_items, _ = self.queue_client.get_next_queue_batch(self.args.new_queue_item_stage, batch_size)
+            for item in work_items:
+                self.queue.put(item)
+            return len(work_items)
+        except Exception:
+            logging.exception("Error feeding queue from elasticsearch")
+            return -1
 
 
     def _start_workers(self):
@@ -172,7 +176,16 @@ class Agent():
 
     def _shutdown_workers(self):
         """Block until all queued items are processed, then stop workers."""
-        self._queue.join()
+        if any(t.is_alive() for t in self._workers):
+            self._queue.join()
+        else:
+            # All workers died (e.g. error threshold) - drain unprocessed items so join() can't block forever
+            while True:
+                try:
+                    self._queue.get_nowait()
+                    self._queue.task_done()
+                except queue.Empty:
+                    break
         for _ in self._workers:
             self._queue.put(None)
         for t in self._workers:
@@ -195,10 +208,18 @@ class Agent():
     def run(self, stop_when_empty:bool=False):
         """Main orchestration loop: start workers, feed ES items into the queue, drain on exit."""
         self._start_workers()
+        feed_error_count = 0
         try:
             while True:
                 if self._queue.qsize() < self.args.low_threshold_count:
                     fetched = self._feed_queue()
+                    if fetched == -1:
+                        feed_error_count += 1
+                        if feed_error_count >= 3:
+                            logging.error("Queue feed failed %d times in a row, shutting down.", feed_error_count)
+                            break
+                    else:
+                        feed_error_count = 0
                     if fetched == 0 and self._queue.empty() and stop_when_empty:
                         logging.info("No more items to process and stop_when_empty is True, shutting down.")
                         break

@@ -254,6 +254,18 @@ class DataClient:
         self._verify_response('Error submitting queue scan', r)
         return json.loads(r.text).get('data')
 
+    def queue_scans_add_update_bulk(self, batch:list):
+        '''
+        Submits a list of queue scan documents in bulk.
+        :param batch: list of queue scan docs
+        '''
+        return self._run_async(self.queue_scans_add_update_bulk_async(batch))
+
+    async def queue_scans_add_update_bulk_async(self, batch:list):
+        '''Async version of queue_scans_add_update_bulk.'''
+        r = await self._client.Post('queuescan/bulk', {'Documents': batch})
+        self._verify_response('Error submitting queue scans (bulk)', r)
+
     def queue_scan_update_status(self, scan_id, status):
         '''Updates the status of a queue scan (e.g. "Pending").'''
         return self._run_async(self.queue_scan_update_status_async(scan_id, status))
