@@ -129,6 +129,11 @@ class ApplicationSettings(object):
         template = (f"source '{section}' and key '{key}'." if isSource else f"config '{section} and key '{key}'.")
 
         config[key] = value
+        
+        # if save == False then it's ephemeral and doesn't need to be saved to file, encrypted, etc.
+        if not save:
+            return
+        
         self.__MakeItDirty(section, isSource)
 
         # Encrypt if needed
@@ -142,8 +147,7 @@ class ApplicationSettings(object):
             raise ApplicationConfigurationException(errMsg) from e
 
         try:
-            if save:
-                self.Save()
+            self.Save()
         except Exception as e:
             errMsg = f"Failed to save {template}"
             self.__Log("error", errMsg)
