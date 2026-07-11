@@ -31,7 +31,7 @@ COPY $DEPLOY_PATH/scripts ./default-scripts
 RUN chmod +x ./default-scripts/*.sh
 
 RUN mkdir -p ./python/Defaults/ && \
-    for dir in Config Custom AppVulsCustom Mappings AuthHelperCustom AuthSyncCustom; do \
+    for dir in Config Custom AppVulsCustom Mappings AuthHelperCustom; do \
       mv ./python/$dir ./python/Defaults/$dir; \
     done && \
     pip install -r ./python/requirements.txt --break-system-packages

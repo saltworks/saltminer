@@ -15,7 +15,7 @@ services:
       /app_root/python/Custom
       /app_root/python/Mappings
       /app_root/python/AppVulsCustom
-      /app_root/python/AuthSyncCustom
+      /app_root/python/AuthHelperCustom
       /app_root/scripts
       && chown -R ${CONTAINER_UID_GID} /app_root"
     restart: "no"
@@ -132,7 +132,7 @@ services:
     - ${APP_ROOT}/python/Custom:${CONTAINER_APP_ROOT}/app/python/Custom
     - ${APP_ROOT}/python/Mappings:${CONTAINER_APP_ROOT}/app/python/Mappings
     - ${APP_ROOT}/python/AppVulsCustom:${CONTAINER_APP_ROOT}/app/python/AppVulsCustom
-    - ${APP_ROOT}/python/AuthSyncCustom:${CONTAINER_APP_ROOT}/app/python/AuthSyncCustom
+    - ${APP_ROOT}/python/AuthHelperCustom:${CONTAINER_APP_ROOT}/app/python/AuthHelperCustom
     environment:
     - ELASTICSEARCH_CONNECTION_STRING=${ELASTICSEARCH_CONNECTION_STRING}
     networks:
