@@ -235,13 +235,14 @@ class AppVulsProcessor(object):
 
     def PopulateVulsOne(self, avid, cleanupAfter=True):
         '''
-        Process one project version (doesn't have to be in the update queue)
+        Process one project version (doesn't have to be in the update queue).
+        Returns the list of queue scan IDs created (empty when SM API integration is disabled or nothing processed).
         '''
-        
+
         fodRelease = self._GetFodRelease(avid)
         if not fodRelease:
             self.__Logger.error("Couldn't retrieve release %s from FOD", avid)
-            return
+            return []
 
         # Ensure the mappings exist and create them if they don't
         self.__Logger.info('Mapping indices if needed')
@@ -254,12 +255,14 @@ class AppVulsProcessor(object):
         # SM API Integration
         # Finalize batch items for issues and complete queue scans
         #
+        queue_scan_ids = []
         if self.__SmApiClientEnabled:
-            self.__SmApiClient.finalize_everything()
+            queue_scan_ids = self.__SmApiClient.finalize_everything()
 
         self.__Logger.info("Complete")
         if cleanupAfter:
             self.Cleanup()
+        return queue_scan_ids
 
     def Cleanup(self):
         pass

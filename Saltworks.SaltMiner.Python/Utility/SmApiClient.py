@@ -21,6 +21,7 @@
 import time
 import logging
 import datetime
+import uuid
 from xml.dom import NotFoundErr
 
 from dateutil.parser import parse as dtparse
@@ -52,6 +53,7 @@ class SmApiClient(object):
         self.batch_size = appSettings.Get(configName, 'BatchSize', 100)
         self._key_map = {}
         self._history_done = set()
+        self._queue_scan_ids = []
         self._source_name = sourceName
         self._es = appSettings.Application.GetElasticClient()
         self._assessment_type_map = appSettings.Get(configName, 'AssessmentTypeMap', {})
@@ -98,6 +100,7 @@ class SmApiClient(object):
         rsp = self._data_client.queue_scan_add_update(q_scan)
         if not rsp:
             raise SmApiClientException("Queue scan add/update returned no data from API.")
+        self._queue_scan_ids.append(rsp['id'])
         return rsp
 
     def add_queue_asset(self, q_asset):
@@ -359,6 +362,8 @@ class SmApiClient(object):
 
     def finalize_everything(self):
         '''
+        Finalizes queues in progress and returns the list of queue scan IDs created (resetting the list)
+
         NOTE: This clears self._key_map, so don't call it until after using that data.
         '''
         cid = None
@@ -388,6 +393,9 @@ class SmApiClient(object):
             logging.error("[SMAPI] %s errors encountered while finalizing queue scans - some data will be missing.", err_count)
         self._key_map = {}
         self._history_done = set()
+        created_ids = self._queue_scan_ids
+        self._queue_scan_ids = []
+        return created_ids
 
     def map_scanless_asset(self, avid, scanner_vendor, name, version, description, attributes, is_prod=True, assessment_types=[]):
         if len(self._expected_assessment_types) == 0:
@@ -802,14 +810,16 @@ class SmApiClient(object):
                 if v3_scan_id_new == v3_scan_id_current or etype != scan['type']:
                     continue
                 # Build the doc and send in bulk batches - history scans don't need finalization
-                # (QueueStatus goes straight to Pending) or the response ids, so 1x1 POSTs aren't needed.
+                # (QueueStatus goes straight to Pending), so 1x1 POSTs aren't needed.  Pre-assign the
+                # doc ID so it can be tracked - the API uses a provided ID as-is (generates one only if empty).
                 doc = self._build_scan_doc(source, atype, product, v3_scan_id_new, timestamp, None, scan, ssc_v3_queue_scan['id'])
                 doc['Saltminer']['Internal']['QueueStatus'] = "Pending"
-                doc['Id'] = None
+                doc['Id'] = str(uuid.uuid4())
                 history_batch.append(doc)
                 count += 1
                 if len(history_batch) >= self.batch_size:
                     self._data_client.queue_scans_add_update_bulk(history_batch)
+                    self._queue_scan_ids.extend(d['Id'] for d in history_batch)
                     history_batch = []
             try:
                 scan_scroller.GetNext()
@@ -817,6 +827,7 @@ class SmApiClient(object):
                 logging.warning("[SMAPI] History query failed due to scroll expiration.  History may be truncated for app version %s", avid)
         if history_batch:
             self._data_client.queue_scans_add_update_bulk(history_batch)
+            self._queue_scan_ids.extend(d['Id'] for d in history_batch)
         logging.info("[SMAPI] Processed v3 scan history for app version %s and assessment type %s - %s history scan(s).", avid, atype, count)
         try:
             scan_scroller.Clear()
