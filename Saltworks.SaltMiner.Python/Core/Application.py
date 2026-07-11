@@ -27,7 +27,7 @@ import glob
 import json
 
 from .ApplicationSettings import ApplicationSettings
-from .ApplicationExceptions import *
+from .ApplicationExceptions import ApplicationConfigurationException
 from .ElasticClient import ElasticClient
 from .LoggingProvider import LoggingProvider
 
@@ -100,7 +100,7 @@ class Application(object):
                 with open(self.DEFAULT_CONFIG_PATH_FILE) as fs:
                     configPath = fs.read()
             except Exception as e:
-                self._Log(logging.ERROR, f"Error reading {self.DEFAULT_CONFIG_PATH_FILE}: {e}")
+                self.__Log(logging.ERROR, f"Error reading {self.DEFAULT_CONFIG_PATH_FILE}: {e}")
             ok = configPath and os.path.isdir(configPath)
             pathSource = self.DEFAULT_CONFIG_PATH_FILE if ok else pathSource
         # 4. Default - look for local Config dir
@@ -112,7 +112,7 @@ class Application(object):
             with open("sm-run-config-location.json", "w") as f:
                 f.write(json.dumps({ "Method": pathSource, "Path": configPath if ok else "Unknown" }))
         except Exception as e:
-            self._Log(logging.WARNING, f"Error writing sm-run-config-location.json: {e}")
+            self.__Log(logging.WARNING, f"Error writing sm-run-config-location.json: {e}")
         self.LogInfo(f"Configuration location: {configPath if ok else 'Unknown'}")
         if not ok:
             raise ApplicationConfigurationException(f"Unable to locate configuration path.  Please do one of the following:\n1. Make sure it can be found in a local Config folder\n2. Set the {envVar} environment variable to the correct config directory path (ex. export {envVar}=/etc/saltworks/saltminer-2.5.0).\n3. Create a ConfigPath.txt file and put the config directory path in it (straight text, no json).")
@@ -196,7 +196,7 @@ class Application(object):
         msg = f"{message + ': ' if message is not None else ''}[type(exception).__name__] {exception}"
         try:
             self.__Log(severity, msg)
-        except:
+        except Exception:
             # eat logging exception and just print info about exception
             print(f"{datetime.datetime.now():%Y-%m-%d %H:%M} [{severity.upper()}] {msg}")
         # if debug mode, raise the exception so can see the stack
