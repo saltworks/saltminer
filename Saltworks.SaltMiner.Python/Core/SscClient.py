@@ -31,10 +31,11 @@ import requests
 from requests.exceptions import ConnectionError as RequestsConnectionError, ReadTimeout as RequestsReadTimeout
 
 from .RestClient import RestClient
+from .ApplicationSettings import ApplicationSettings
 
 class SscClient(object):
 
-    def __init__(self, appSettings, sourceName, logger=None):
+    def __init__(self, appSettings:ApplicationSettings, sourceName:str, logger=None):
         '''
         Initializes the class.
 
@@ -42,9 +43,9 @@ class SscClient(object):
         sourceName: SourceName appearing in a config file in Config\\Sources
         logger: optional Logger instance; if None, uses logging.getLogger(__name__)
         '''
-        if type(appSettings).__name__ != "ApplicationSettings":
-            raise SscClientConfigurationException("Type of appSettings must be 'ApplicationSettings'")
-        if not sourceName or not sourceName in appSettings.GetSourceNames():
+        if not isinstance(appSettings, ApplicationSettings):
+            raise ValueError("Type of appSettings must be 'ApplicationSettings'")
+        if not sourceName or sourceName not in appSettings.GetSourceNames():
             raise SscClientConfigurationException(f"Invalid or missing source configuration for source name '{sourceName}'")
         sourceType = appSettings.GetSource(sourceName, "Source", "")
         if not sourceType == "SSC":
@@ -58,6 +59,7 @@ class SscClient(object):
         self.__GroupingTypeId = appSettings.GetSource(sourceName, 'GroupingTypeId')
         self.__FiltersetId = appSettings.GetSource(sourceName, 'FiltersetId')
         self.__OverrideProtocol = appSettings.GetSource(sourceName, 'OverrideProtocol', "")
+        self.__TempPath = appSettings.Get("Main", "TempFolder", "/tmp")
         if self.__OverrideProtocol == "":
             # Default to the BaseUrl scheme so SSC's self-reported (proxy-downgraded) absolute
             # links can't downgrade the connection - BaseUrl is authoritative for the protocol.
@@ -301,21 +303,24 @@ class SscClient(object):
             return None
 
     def __SetCache(self, key, data):
+        file = os.path.join(self.__TempPath, f"{key}-{self.__Id}.tmp")
         self.__Logger.info(f"Writing cache data for key '{key}'")
-        with open(f"{key}-{self.__Id}.tmp", "w") as f:
+        with open(file, "w") as f:
             f.write(json.dumps(data))
         self.__CacheKeys.append(key)
 
     def __GetCache(self, key):
-        if os.path.exists(f"{key}-{self.__Id}.tmp"):
+        file = os.path.join(self.__TempPath, f"{key}-{self.__Id}.tmp")
+        if os.path.exists(file):
             self.__Logger.info(f"Cache hit for key '{key}'")
-            with open(f"{key}-{self.__Id}.tmp", "r") as f:
+            with open(file, "r") as f:
                 return json.loads(f.read())
 
     def __DeleteCache(self, key):
+        file = os.path.join(self.__TempPath, f"{key}-{self.__Id}.tmp")
         self.__Logger.info(f"Clearing cache data for key '{key}'")
-        if os.path.exists(f"{key}-{self.__Id}.tmp"):
-            os.remove(f"{key}-{self.__Id}.tmp")
+        if os.path.exists(file):
+            os.remove(file)
        
     @staticmethod
     def TestConnection(appSettings, sourceName):

@@ -74,6 +74,10 @@ class Application(object):
         self.__Log(logging.DEBUG, "Application class initialization complete")
 
     def __InitConfig(self, configPath, keyFileName, autoEncrypt):
+        # NOTE: This method only locates existing configuration - it does not create a default config
+        # on first run.  In containerized deployments, default config and custom dirs are seeded into
+        # their expected paths by Saltworks.SaltMiner.Deploy/services-entrypoint.sh (from the image's
+        # baked-in python/Defaults folder - see .dockerfiles/Dockerfile-services).
         # Config rework - now looking for Env variable or local "Config" folder to contain config
         # All config files in config folder will be loaded automatically (they should have unique keys to avoid one stepping on another)
         # Source configs will be expected to be in a "Source" folder within the config folder
@@ -107,12 +111,12 @@ class Application(object):
         if not ok and os.path.isdir("Config"):
             ok = True
             configPath = "Config"
-        # Dump resulting config path to help with troubleshooting
+        # Dump resulting config path to help with troubleshooting - usually this will fail
         try:
             with open("sm-run-config-location.json", "w") as f:
                 f.write(json.dumps({ "Method": pathSource, "Path": configPath if ok else "Unknown" }))
         except Exception as e:
-            self.__Log(logging.WARNING, f"Error writing sm-run-config-location.json: {e}")
+            self.__Log(logging.DEBUG, f"Error writing sm-run-config-location.json: {e}")
         self.LogInfo(f"Configuration location: {configPath if ok else 'Unknown'}")
         if not ok:
             raise ApplicationConfigurationException(f"Unable to locate configuration path.  Please do one of the following:\n1. Make sure it can be found in a local Config folder\n2. Set the {envVar} environment variable to the correct config directory path (ex. export {envVar}=/etc/saltworks/saltminer-2.5.0).\n3. Create a ConfigPath.txt file and put the config directory path in it (straight text, no json).")

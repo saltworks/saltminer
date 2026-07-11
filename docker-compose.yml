@@ -12,11 +12,10 @@ services:
       /app_root/app/ui-files
       /app_root/config/nginx
       /app_root/config/api/data
-      /app_root/config/python/scripts
-      /app_root/config/python/Custom
-      /app_root/config/python/Mappings
-      /app_root/config/python/AppVulsCustom
-      /app_root/config/python/AuthSyncCustom
+      /app_root/python/Custom
+      /app_root/python/Mappings
+      /app_root/python/AppVulsCustom
+      /app_root/python/AuthSyncCustom
       /app_root/scripts
       && chown -R ${CONTAINER_UID_GID} /app_root"
     restart: "no"
@@ -130,10 +129,10 @@ services:
     - ${APP_ROOT}/config:${CONTAINER_APP_ROOT}/config
     - ${APP_ROOT}/logs:${CONTAINER_APP_ROOT}/logs
     - ${APP_ROOT}/scripts:${CONTAINER_APP_ROOT}/scripts
-    - ${APP_ROOT}/config/python/Custom:${CONTAINER_APP_ROOT}/app/python/Custom
-    - ${APP_ROOT}/config/python/Mappings:${CONTAINER_APP_ROOT}/app/python/Mappings
-    - ${APP_ROOT}/config/python/AppVulsCustom:${CONTAINER_APP_ROOT}/app/python/AppVulsCustom
-    - ${APP_ROOT}/config/python/AuthSyncCustom:${CONTAINER_APP_ROOT}/app/python/AuthSyncCustom
+    - ${APP_ROOT}/python/Custom:${CONTAINER_APP_ROOT}/app/python/Custom
+    - ${APP_ROOT}/python/Mappings:${CONTAINER_APP_ROOT}/app/python/Mappings
+    - ${APP_ROOT}/python/AppVulsCustom:${CONTAINER_APP_ROOT}/app/python/AppVulsCustom
+    - ${APP_ROOT}/python/AuthSyncCustom:${CONTAINER_APP_ROOT}/app/python/AuthSyncCustom
     environment:
     - ELASTICSEARCH_CONNECTION_STRING=${ELASTICSEARCH_CONNECTION_STRING}
     networks:

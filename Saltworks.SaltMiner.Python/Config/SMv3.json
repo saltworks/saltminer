@@ -1,7 +1,8 @@
 {
   "_Comment": "The following settings are used to configure the connection to SaltMiner v3 API",
-  "ApiUrl": "http://localhost:5000",
+  "ApiUrl": "http://api:5000",
   "ApiKey": "agentsecret",
+  "ManagerApiKey": "managersecret",
   "SslVerify": true,
   "SslVerifyCert": "",
   "BatchSize": 500,
@@ -12,6 +13,6 @@
     "Dynamic": "DAST",
     "Pentest": "Pen",
     "Mobile": "Mobile",
-	"SCA": "SAST"
+	  "SCA": "SAST"
   }
 }
