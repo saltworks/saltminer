@@ -28,6 +28,9 @@ import ecs_logging
 
 _CONSOLE_FORMAT = '%(asctime)s [%(levelname)s] %(funcName)s in %(filename)s: %(message)s'
 _CONSOLE_DATE_FORMAT = '%Y-%m-%d %H:%M'
+# Third party loggers that log a line per request/connection at INFO.  Held to WARNING unless
+# we're running at DEBUG, where the request traffic is worth having.
+_NOISY_LOGGERS = ('httpx', 'httpcore')
 
 
 class LoggingProviderException(Exception):
@@ -80,6 +83,9 @@ class LoggingProvider:
         root.setLevel(self._level)
         root.addHandler(self._make_console_handler())
         root.addHandler(self._make_file_handler(log_path))
+        if self._level > logging.DEBUG:
+            for name in _NOISY_LOGGERS:
+                logging.getLogger(name).setLevel(logging.WARNING)
 
     def get_thread_logger(self, thread_id: int) -> logging.Logger:
         """Return a named logger for a thread with its own dedicated file handler."""
