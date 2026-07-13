@@ -334,41 +334,40 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         {
             ValidateStatus(queueScan.Saltminer.Internal.QueueStatus);
 
-            // Update
-            if (!string.IsNullOrEmpty(queueScan.Id))
+            // Add, ID assigned on write
+            if (string.IsNullOrEmpty(queueScan.Id))
             {
-                var existing = ElasticClient.Get<QueueScan>(queueScan.Id, QueueScanIndex).ToDataItemResponse().Data;
-
-                if (existing == null && !isBulk)
-                {
-                    throw new ApiResourceNotFoundException($"Could not add queue scan with {queueScan.Id}");
-                }
-
-                if (IsInRole(Role.Agent) || IsInRole(Role.Pentester))
-                {
-                    if (existing != null)
-                    {
-                        if (!IsOkToEditStatus(existing.Saltminer.Internal.QueueStatus))
-                        {
-                            throw new ApiValidationQueueStateException($"Cannot update queue scan in '{existing.Saltminer.Internal.QueueStatus}' state");
-                        }
-
-                        if (existing.Saltminer.Internal.QueueStatus != queueScan.Saltminer.Internal.QueueStatus && !IsOkToEditStatus(existing.Saltminer.Internal.QueueStatus, queueScan.Saltminer.Internal.QueueStatus))
-                        {
-                            throw new ApiValidationQueueStateException($"Agent cannot update queue scan status from '{existing.Saltminer.Internal.QueueStatus}' to '{queueScan.Saltminer.Internal.QueueStatus}'");
-                        }
-
-                        ValidatePendingStatus(queueScan.Saltminer.Internal.QueueStatus.ToQueueScanStatus(), existing);
-                    }
-                    else
-                    {
-                        if (queueScan.Saltminer.Internal.QueueStatus != QueueScanStatus.Loading.ToString("g"))
-                        {
-                            throw new ApiValidationException($"QueueStatus should be {QueueScanStatus.Loading:g}.");
-                        }
-                    }
-                }
+                return queueScan;
             }
+
+            var existing = ElasticClient.Get<QueueScan>(queueScan.Id, QueueScanIndex).ToDataItemResponse().Data;
+
+            // Nothing to update means this is an add with a caller-supplied ID (bulk callers pre-assign
+            // IDs so they can track the documents they sent), which follows the same rules as an add with
+            // no ID.  A single-doc caller supplying an ID always means to update, so that stays a 404.
+            if (existing == null)
+            {
+                if (!isBulk)
+                    throw new ApiResourceNotFoundException($"Could not update queue scan with ID {queueScan.Id}");
+                return queueScan;
+            }
+
+            // Update
+            if (IsInRole(Role.Agent) || IsInRole(Role.Pentester))
+            {
+                if (!IsOkToEditStatus(existing.Saltminer.Internal.QueueStatus))
+                {
+                    throw new ApiValidationQueueStateException($"Cannot update queue scan in '{existing.Saltminer.Internal.QueueStatus}' state");
+                }
+
+                if (existing.Saltminer.Internal.QueueStatus != queueScan.Saltminer.Internal.QueueStatus && !IsOkToEditStatus(existing.Saltminer.Internal.QueueStatus, queueScan.Saltminer.Internal.QueueStatus))
+                {
+                    throw new ApiValidationQueueStateException($"Agent cannot update queue scan status from '{existing.Saltminer.Internal.QueueStatus}' to '{queueScan.Saltminer.Internal.QueueStatus}'");
+                }
+
+                ValidatePendingStatus(queueScan.Saltminer.Internal.QueueStatus.ToQueueScanStatus(), existing);
+            }
+
             return queueScan;
         }
 
