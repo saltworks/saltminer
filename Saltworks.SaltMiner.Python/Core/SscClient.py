@@ -305,22 +305,31 @@ class SscClient(object):
     def __SetCache(self, key, data):
         file = os.path.join(self.__TempPath, f"{key}-{self.__Id}.tmp")
         self.__Logger.info(f"Writing cache data for key '{key}'")
-        with open(file, "w") as f:
-            f.write(json.dumps(data))
-        self.__CacheKeys.append(key)
+        try:
+            with open(file, "w") as f:
+                f.write(json.dumps(data))
+            self.__CacheKeys.append(key)
+        except PermissionError:
+            logging.warning("Unable to write cache data to configured tmp path '%s'", self.__TempPath)
 
     def __GetCache(self, key):
         file = os.path.join(self.__TempPath, f"{key}-{self.__Id}.tmp")
         if os.path.exists(file):
             self.__Logger.info(f"Cache hit for key '{key}'")
-            with open(file, "r") as f:
-                return json.loads(f.read())
+            try:
+                with open(file, "r") as f:
+                    return json.loads(f.read())
+            except PermissionError:
+                logging.warning("Unable to read cache data to configured tmp path '%s'", self.__TempPath)
 
     def __DeleteCache(self, key):
         file = os.path.join(self.__TempPath, f"{key}-{self.__Id}.tmp")
         self.__Logger.info(f"Clearing cache data for key '{key}'")
-        if os.path.exists(file):
-            os.remove(file)
+        try:
+            if os.path.exists(file):
+                os.remove(file)
+        except PermissionError:
+            logging.warning("Unable to remove cache data filer '%s'", file)
        
     @staticmethod
     def TestConnection(appSettings, sourceName):
