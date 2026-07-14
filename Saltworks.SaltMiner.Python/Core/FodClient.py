@@ -22,22 +22,26 @@ import json
 import sys
 import time
 import logging
+import weakref
 
 from urllib3.exceptions import ReadTimeoutError
 import urllib3
 import urllib.parse
 import requests
 
+from .ApplicationSettings import ApplicationSettings
+from .RateLimiter import ApiThrottle
+
 class FodClient(object):
 
-    def __init__(self, appSettings, sourceName, logger=None):
+    def __init__(self, appSettings:ApplicationSettings, sourceName:str, logger=None):
         '''
         Initializes the class.
 
         inSettings: Settings instance containing application settings
         logger: optional Logger instance; if None, uses logging.getLogger(__name__)
         '''
-        if type(appSettings).__name__ != "ApplicationSettings":
+        if not isinstance(appSettings, ApplicationSettings):
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
         if not sourceName or sourceName not in appSettings.GetSourceNames():
             raise FodClientConfigurationException(f"Invalid or missing source configuration for source name '{sourceName}'")
@@ -65,6 +69,20 @@ class FodClient(object):
         self.__BaseAddress = appSettings.GetSource(sourceName, 'BaseUrl')
         clientId = appSettings.GetSource(sourceName, 'ClientId')
         clientSecret = appSettings.GetSource(sourceName, 'ClientSecret')
+
+        # FOD rate limits per endpoint and per user/key, so every worker's client shares one
+        # server-side budget - the throttle is keyed on the credential, not the source name, and
+        # is shared by all FodClient instances in this process.  Default of 10/sec is FOD's
+        # documented limit for endpoints without a specific (lower) one.
+        self.__RateLimitMaxRetries = appSettings.GetSource(sourceName, 'RateLimitMaxRetries', 5)
+        self.__Throttle = ApiThrottle.for_key(
+            clientId or sourceName,
+            max_per_second = appSettings.GetSource(sourceName, 'RateLimitMaxPerSecond', 10),
+            buffer_secs = appSettings.GetSource(sourceName, 'RateLimitBufferSeconds', 2),
+            logger = self.__Logger)
+        self.__Throttle.register()
+        weakref.finalize(self, self.__Throttle.unregister)
+
         if self.__VerifySsl == "False":
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             self.__Logger.warning("SSL verification has been disabled in config.  This is insecure and should be enabled in production systems.")
@@ -123,30 +141,45 @@ class FodClient(object):
             verify = False
         if headers is None:
             headers = self.__DefaultHeaders
-        retryCount = 0
         if not timeout:
             timeout = self.__DefaultTimeout
-        ok = False
+        endpoint = ApiThrottle.endpoint_key(_url)
+        retryCount = 0
+        rateLimitCount = 0
 
-        while not ok and retryCount < self.__MaxRetries:
+        while True:
+            # Waits out any cooldown this endpoint is in (set by this thread or another worker's
+            # client) and keeps the aggregate call rate for this credential within limits.
+            self.__Throttle.acquire(endpoint)
             try:
                 if (self.__ProxyDict):
                     resp = requests.request(method, _url, json=json, data=data, headers=headers, timeout=timeout, verify=verify, proxies=self.__ProxyDict)
                 else:
                     resp = requests.request(method, _url, json=json, data=data, headers=headers, timeout=timeout, verify=verify)
-                ok = True
 
             except (ConnectionError, ReadTimeoutError) as e:
+                retryCount += 1
                 if retryCount >= self.__MaxRetries:
-                    self.__Logger.error("Max retry count reached, api call '%s' failed.", url)
-                    retryCount = None
+                    self.__Logger.error("Max retry count (%s) reached, api call '%s' failed.", self.__MaxRetries, url)
                     raise
-                else:
-                    retryCount += 1
-                    self.__Logger.warning("Server error attempting api call ('%s'), attempt %s/%s, will retry after %s sec delay...", e.__str__(), retryCount, self.__MaxRetries + 1, self.__RetrySec)
-                    time.sleep(self.__RetrySec)
+                self.__Logger.warning("Server error attempting api call ('%s'), attempt %s/%s, will retry after %s sec delay...", e.__str__(), retryCount, self.__MaxRetries, self.__RetrySec)
+                time.sleep(self.__RetrySec)
+                continue
 
-        retryCount = None
+            # Records the rate limit headers; returns a wait if the call was throttled (429).
+            # The wait itself happens in acquire() on the next pass, so all clients sharing this
+            # credential hold off on the endpoint, not just this one.
+            wait = self.__Throttle.observe(endpoint, resp.status_code, resp.headers)
+            # Unless the response was throttled (429) observe() will return None.
+            # This means we have a valid response, so we can break out of the retry loop
+            # and pass the response to the caller.
+            if wait is None:
+                break
+            rateLimitCount += 1
+            if rateLimitCount > self.__RateLimitMaxRetries:
+                self.__Logger.error("Rate limit retry count (%s) reached for api call '%s' - returning throttled response.", self.__RateLimitMaxRetries, url)
+                break
+
         msg = f"FodClient {method} called. Url: '{_url}', Headers: {headers}.  Response: ({resp.status_code}) {resp.reason}"
         self.__Logger.debug(msg)
         return FodClientResponse(resp)
@@ -159,7 +192,7 @@ class FodClient(object):
         json: json body content.
         headers: optional override headers.  Don't use this unless you know what you're doing (and include auth)
         '''
-        return self.__Request("get", url, json, headers)
+        return self.__Request("get", url, json=json, headers=headers)
 
     def __GetStream(self, url, headers=None):
         '''
@@ -194,7 +227,7 @@ class FodClient(object):
         json: json body content.
         headers: optional override headers.  Don't use this unless you know what you're doing (and include auth)
         '''
-        return self.__Request("put", url, json, headers)
+        return self.__Request("put", url, json=json, headers=headers)
 
     def __Delete(self, url, json=None, headers=None):
         ''' 
@@ -204,7 +237,7 @@ class FodClient(object):
         json: json body content.
         headers: optional override headers.  Don't use this unless you know what you're doing (and include auth)
         '''
-        return self.__Request("delete", url, json, headers)
+        return self.__Request("delete", url, json=json, headers=headers)
 
     #endregion
 
