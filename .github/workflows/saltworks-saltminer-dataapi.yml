@@ -52,7 +52,6 @@ jobs:
       run:
         working-directory: ./Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi
     env:
-      APP: api
       CONFIGURATION: release
       # On a push event the `inputs` context is empty, so every value falls back
       # to its dev-build default: no pre-release channel, GHCR only.
@@ -70,27 +69,6 @@ jobs:
         echo "docker-artifact-path=Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi/artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_OUTPUT
         echo "docker-datastore-seed-path=Saltworks.SaltMiner.IndexTemplates" >> $GITHUB_OUTPUT
     
-    # Version is the major.minor of the branch: 3.5.0 -> 3.5, 4.0 -> 4.0.
-    # A release is the one build class with no distinguishing input of its own:
-    # it is "pushed to Docker Hub, on no pre-release channel".
-    - name: Determine version and build class
-      id: registry
-      run: |
-        VERSION=$(cut -d. -f1,2 <<< '${{ github.ref_name }}')
-        # Handles both branch schemes: 3.5.0 -> 3.5, and the newer 3.6 -> 3.6.
-        # workflow_dispatch can be fired from any branch, so reject anything that
-        # is not a release line before it becomes a tag like api-main-release.
-        if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
-          echo "::error::Branch '${{ github.ref_name }}' is not a release line (expected e.g. 3.5.0, 3.6, 4.0)."
-          exit 1
-        fi
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        if [ "${{ env.PUSH_TO_DOCKER_HUB }}" == "true" ] && [ "${{ env.PRERELEASE }}" == "none" ]; then
-          echo "is-release=true" >> $GITHUB_OUTPUT
-        else
-          echo "is-release=false" >> $GITHUB_OUTPUT
-        fi
-
     - name: Inspect datastore seed path
       run: |
         ls -lah ${{ github.workspace }}/Saltworks.SaltMiner.IndexTemplates --group-directories-first
@@ -108,101 +86,29 @@ jobs:
         ls -lah ${{ steps.paths.outputs.artifact-path }} --group-directories-first
       if: env.DIAGNOSTIC_MODE == 'true'
 
-    - name: Login to GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Login to Docker Hub
-      if: env.PUSH_TO_DOCKER_HUB == 'true'
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-
-    # Every build gets an immutable tag plus its channel tag:
-    #
-    #   dev          api-3.5.101          (no channel tag — dev is not a channel)
-    #   alpha        api-3.5-alpha.102  + api-3.5-alpha
-    #   release      api-3.5.105        + api-3.5-release
-    #
-    # ...plus the floating api-3.5, which means "newest build on this line".
-    # In GHCR every build takes it, so a dev env pulling api-3.5 always gets the
-    # tip — including an alpha cut after a release. Docker Hub is the exception:
-    # a pre-release must not take api-3.5 there, or customers pulling it would
-    # be silently upgraded onto a beta. Hence two metadata steps — metadata-action
-    # cross-products images x tags, so registry-asymmetric tagging needs two.
-    # Both feed one build-push-action: one build, one digest, two registries.
-    - name: Extract metadata for GHCR
-      id: meta-ghcr
-      uses: docker/metadata-action@v6
-      with:
-        images: ghcr.io/saltworks/saltminer
-        tags: |
-          type=raw,value=${{ env.APP }}-${{ steps.registry.outputs.version }}-${{ env.PRERELEASE }}.${{ github.run_number }},enable=${{ env.PRERELEASE != 'none' }}
-          type=raw,value=${{ env.APP }}-${{ steps.registry.outputs.version }}-${{ env.PRERELEASE }},enable=${{ env.PRERELEASE != 'none' }}
-          type=raw,value=${{ env.APP }}-${{ steps.registry.outputs.version }}.${{ github.run_number }},enable=${{ env.PRERELEASE == 'none' }}
-          type=raw,value=${{ env.APP }}-${{ steps.registry.outputs.version }}-release,enable=${{ steps.registry.outputs.is-release == 'true' }}
-          type=raw,value=${{ env.APP }}-${{ steps.registry.outputs.version }}
-        labels: |
-          org.opencontainers.image.title=saltminer-api
-          org.opencontainers.image.description=SaltMiner API
-          org.opencontainers.image.vendor=Saltworks Security, LLC
-          org.opencontainers.image.version=${{ steps.registry.outputs.version }}.${{ github.run_number }}
-
-    - name: Extract metadata for Docker Hub
-      id: meta-dockerhub
-      if: env.PUSH_TO_DOCKER_HUB == 'true'
-      uses: docker/metadata-action@v6
-      with:
-        images: saltworks/saltminer
-        tags: |
-          type=raw,value=${{ env.APP }}-${{ steps.registry.outputs.version }}-${{ env.PRERELEASE }}.${{ github.run_number }},enable=${{ env.PRERELEASE != 'none' }}
-          type=raw,value=${{ env.APP }}-${{ steps.registry.outputs.version }}-${{ env.PRERELEASE }},enable=${{ env.PRERELEASE != 'none' }}
-          type=raw,value=${{ env.APP }}-${{ steps.registry.outputs.version }}.${{ github.run_number }},enable=${{ steps.registry.outputs.is-release == 'true' }}
-          type=raw,value=${{ env.APP }}-${{ steps.registry.outputs.version }}-release,enable=${{ steps.registry.outputs.is-release == 'true' }}
-          type=raw,value=${{ env.APP }}-${{ steps.registry.outputs.version }},enable=${{ steps.registry.outputs.is-release == 'true' }}
-
     - name: Stage datastore seed files for Docker
       working-directory: ${{ github.workspace }}
       run: |
         cp -r ${{ steps.paths.outputs.docker-datastore-seed-path }} ${{ steps.paths.outputs.docker-artifact-path }}/default-datastore-seed
 
-    - name: Build and push Docker images
-      id: push
-      uses: docker/build-push-action@v6
+    - name: Tag, build and publish
+      id: publish
+      uses: ./.github/actions/docker-publish
       with:
-        file: .dockerfiles/Dockerfile-api
+        app: api
+        title: saltminer-api
+        description: SaltMiner API
+        dockerfile: .dockerfiles/Dockerfile-api
         context: ${{ github.workspace }}/${{ steps.paths.outputs.docker-artifact-path }}
-        push: true
-        provenance: mode=max
-        sbom: true
-        tags: |
-          ${{ steps.meta-ghcr.outputs.tags }}
-          ${{ steps.meta-dockerhub.outputs.tags }}
-        labels: ${{ steps.meta-ghcr.outputs.labels }}
         build-args: |
           ARTIFACT_PATH=.
           DATASTORE_SEED_PATH=./default-datastore-seed
-
-    - name: Show complete docker tags
-      run: |
-        echo "${{ steps.meta-ghcr.outputs.tags }}"
-        echo "${{ steps.meta-dockerhub.outputs.tags }}"
-      if: env.DIAGNOSTIC_MODE == 'true'
-
-    # The build-number tag, e.g. api-3.5.105 or api-3.5-rc.102 — always the
-    # first tag metadata-action emits, and the only one that identifies this
-    # build uniquely.
-    - name: Extract tag component
-      id: extract_tag
-      run: echo "tag=`echo '${{ steps.meta-ghcr.outputs.tags }}' | head -1 | cut -d ':' -f2`" >> $GITHUB_OUTPUT
-
-    - name: Show new tag
-      run: echo "Tag ${{ steps.extract_tag.outputs.tag }}"
-      if: env.DIAGNOSTIC_MODE == 'true'
+        prerelease: ${{ env.PRERELEASE }}
+        push-to-docker-hub: ${{ env.PUSH_TO_DOCKER_HUB }}
+        diagnostic-mode: ${{ env.DIAGNOSTIC_MODE }}
+        ghcr-token: ${{ secrets.GITHUB_TOKEN }}
+        dockerhub-username: ${{ secrets.DOCKER_USERNAME }}
+        dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}
 
     outputs:
-      tag: ${{ steps.extract_tag.outputs.tag }}
+      tag: ${{ steps.publish.outputs.tag }}

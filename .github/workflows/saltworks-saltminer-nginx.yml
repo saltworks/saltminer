@@ -1,20 +1,16 @@
-# .github/workflows/docker-publish.yml
-#
 # Builds and publishes the SaltMiner nginx image.
 #
 # Triggers:
-#   - Any push to the main or 3.* branches that touches relevant paths
-#   - Manual workflow dispatch (optionally push to Docker Hub via checkbox)
-#   - Any published GitHub Release (semver tag v*.*.*)
+#   - Any push to a 3.* / 4.* release branch that touches relevant paths
+#   - Manual workflow dispatch (pre-release channel and Docker Hub via inputs)
 #
-# Publishing rules:
-#   - ALL builds                              → GitHub Container Registry (ghcr.io)
-#   - Release builds or manual with checkbox → Docker Hub
+# Publishing rules and the tagging scheme live in .github/actions/docker-publish.
+#   - ALL builds                            → GitHub Container Registry (ghcr.io)
+#   - Pre-release and release builds        → Docker Hub, when requested
 #
 # Required secrets:
 #   DOCKER_USERNAME      – Docker Hub account username
 #   DOCKER_PASSWORD      – Docker Hub access token (not password)
-#   SALTMINER_SETUP      – PAT with write access to saltminer-setup repo
 #
 # GITHUB_TOKEN is automatically provided by GitHub Actions for GHCR auth.
 
@@ -23,8 +19,8 @@ name: Saltworks.Saltminer.Nginx
 on:
   push:
     branches:
-      - main
       - '3.*'
+      - '4.*'
     paths:
       - "Saltworks.SaltMiner.Nginx/**"
       - "Saltworks.SaltMiner.Ui/**"
@@ -32,21 +28,24 @@ on:
 
   workflow_dispatch:
     inputs:
+      prerelease:
+        description: 'Pre-release channel (none = dev or release build)'
+        required: false
+        default: none
+        type: choice
+        options:
+        - none
+        - alpha
+        - beta
+        - rc
       push_to_docker_hub:
-        description: 'Push to Docker Hub'
+        description: 'Also push to Docker Hub'
         type: boolean
         default: false
       diagnostic_mode:
         description: 'Enable diagnostic output'
         type: boolean
         default: false
-
-  release:
-    types:
-      - published
-
-env:
-  IMAGE_NAME: saltminer-nginx
 
 jobs:
   # ── Job 1: Build the UI and upload artifact ──────────────────────────────────
@@ -61,10 +60,7 @@ jobs:
         node-version: [18.x]
 
     env:
-      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == 'true' && 'true' || 'false' }}
-
-    outputs:
-      tag: ${{ steps.set-tag.outputs.tag }}
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode && 'true' || 'false' }}
 
     steps:
       - name: Checkout repository
@@ -102,11 +98,6 @@ jobs:
         if: env.DIAGNOSTIC_MODE == 'true'
         run: ls -lah ./artifacts/dist/ui-web/smpgui --group-directories-first
 
-      # Derive the image tag so downstream jobs can consume it
-      - name: Set image tag output
-        id: set-tag
-        run: echo "tag=sm-nginx-${{ github.ref_name }}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
-
       # Upload so the Docker build job (different runner) can access it
       - name: Upload UI artifact
         uses: actions/upload-artifact@v4
@@ -126,12 +117,15 @@ jobs:
       packages: write   # required to push to ghcr.io
 
     env:
-      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == 'true' && 'true' || 'false' }}
-      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == 'true' && 'true' || 'false' }}
+      # On a push event the `inputs` context is empty, so every value falls back
+      # to its dev-build default: no pre-release channel, GHCR only.
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode && 'true' || 'false' }}
+      PRERELEASE: ${{ inputs.prerelease || 'none' }}
+      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub && 'true' || 'false' }}
 
     outputs:
-      digest: ${{ steps.build-push.outputs.digest }}
-      tags: ${{ steps.meta.outputs.tags }}
+      tag: ${{ steps.publish.outputs.tag }}
+      digest: ${{ steps.publish.outputs.digest }}
 
     steps:
       - name: Checkout repository
@@ -150,55 +144,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Authenticate to GHCR on every build
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Authenticate to Docker Hub on release builds or when manually requested
-      - name: Log in to Docker Hub
-        if: github.event_name == 'release' || env.PUSH_TO_DOCKER_HUB == 'true'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      # Resolves to 'saltworks/saltminer' on release or when manually requested,
-      # empty string otherwise. docker/metadata-action silently ignores blank
-      # entries in images:, preventing buildx from contacting Docker Hub.
-      - name: Set Docker Hub image name
-        id: dockerhub-image
-        run: |
-          if [ "${{ github.event_name }}" == "release" ] || [ "${{ env.PUSH_TO_DOCKER_HUB }}" == "true" ]; then
-            echo "name=saltworks/saltminer" >> $GITHUB_OUTPUT
-          else
-            echo "name=" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: |
-            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
-            ${{ steps.dockerhub-image.outputs.name }}
-          tags: |
-            type=raw,value=sm-nginx-${{ github.ref_name }}.${{ github.run_number }}
-            type=raw,value=sm-nginx-${{ github.ref_name }}
-          labels: |
-            org.opencontainers.image.title=saltminer-nginx
-            org.opencontainers.image.description=nginx reverse proxy for SaltMiner
-            org.opencontainers.image.vendor=Saltworks Security, LLC
-
-      # ── DIAGNOSTIC STEP ──────────────────────────────────────────────────────
-      # Verifies that the nginx source files and defaults are present in the
-      # build context before handing off to Docker. Runs when DIAGNOSTIC_MODE
-      # is 'true' OR when the build has previously failed with the defaults
-      # missing error. Safe to leave enabled until the cache issue is confirmed
-      # resolved — it adds only ~1s to the job.
       - name: Verify nginx source files in build context
         if: env.DIAGNOSTIC_MODE == 'true'
         run: |
@@ -207,34 +152,26 @@ jobs:
           echo "--- Dockerfile ---"
           cat .dockerfiles/Dockerfile-sm-nginx
 
-      - name: Build and push Docker image
-        id: build-push
-        uses: docker/build-push-action@v6
+      - name: Tag, build and publish
+        id: publish
+        uses: ./.github/actions/docker-publish
         with:
+          app: sm-nginx
+          title: saltminer-nginx
+          description: nginx reverse proxy for SaltMiner
+          dockerfile: .dockerfiles/Dockerfile-sm-nginx
           context: .
-          file: .dockerfiles/Dockerfile-sm-nginx
           platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # ── CACHE SCOPE FIX ────────────────────────────────────────────────
+          provenance: 'true'
           # Explicit scope name prevents BuildKit from serving stale cached
           # layers from before the /etc/nginx/defaults/ COPY instructions were
-          # added to the Dockerfile. Bumping the scope suffix (e.g. v2 → v3)
+          # added to the Dockerfile. Bumping the scope suffix (e.g. v2 -> v3)
           # in future will force another clean build if needed.
           cache-from: type=gha,scope=saltminer-nginx-v2
           cache-to: type=gha,mode=max,scope=saltminer-nginx-v2
-          provenance: true
-          sbom: true
-
-      - name: Write job summary
-        run: |
-          echo "### Docker Image Published :whale:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Trigger:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Digest:** \`${{ steps.build-push.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Tags pushed:**" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          prerelease: ${{ env.PRERELEASE }}
+          push-to-docker-hub: ${{ env.PUSH_TO_DOCKER_HUB }}
+          diagnostic-mode: ${{ env.DIAGNOSTIC_MODE }}
+          ghcr-token: ${{ secrets.GITHUB_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKER_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}

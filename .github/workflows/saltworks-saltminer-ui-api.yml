@@ -3,8 +3,8 @@ name: Saltworks.SaltMiner.Ui.Api
 on:
   push:
     branches:
-    - main
     - '3.*'
+    - '4.*'
     paths:
     - 'Saltworks.SaltMiner.Ui.Api/**'
     - 'Saltworks.SaltMiner.ConfigurationWizard/**'
@@ -19,8 +19,18 @@ on:
     - '.dockerfiles/config-ui-api.sh'
   workflow_dispatch:
     inputs:
+      prerelease:
+        description: 'Pre-release channel (none = dev or release build)'
+        required: false
+        default: none
+        type: choice
+        options:
+        - none
+        - alpha
+        - beta
+        - rc
       push_to_docker_hub:
-        description: 'Push to Docker Hub'
+        description: 'Also push to Docker Hub'
         required: false
         default: false
         type: boolean
@@ -50,8 +60,11 @@ jobs:
       DATA_API_BASE_URL: http://api:5000
       KESTREL_ALLOW_REMOTE: true
       EXEC_TRANSFORM: true
-      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode == 'true' && 'true' || 'false' }}
-      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub == 'true' && 'true' || 'false' }}
+      # On a push event the `inputs` context is empty, so every value falls back
+      # to its dev-build default: no pre-release channel, GHCR only.
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode && 'true' || 'false' }}
+      PRERELEASE: ${{ inputs.prerelease || 'none' }}
+      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub && 'true' || 'false' }}
 
     steps:
     - uses: actions/checkout@v4
@@ -63,15 +76,6 @@ jobs:
         echo "artifact-path=./artifacts/bin/Saltworks.SaltMiner.Ui.Api/${{ env.CONFIGURATION}}" >> $GITHUB_OUTPUT
         echo "docker-artifact-path=Saltworks.SaltMiner.Ui.Api/Saltworks.SaltMiner.Ui.Api/artifacts/bin/Saltworks.SaltMiner.Ui.Api/${{ env.CONFIGURATION}}" >> $GITHUB_OUTPUT
     
-    - name: Determine registry image
-      id: registry
-      run: |
-        if [ "${{ env.PUSH_TO_DOCKER_HUB }}" == "true" ]; then
-          echo "image=saltworks/saltminer" >> $GITHUB_OUTPUT
-        else
-          echo "image=ghcr.io/saltworks/saltminer" >> $GITHUB_OUTPUT
-        fi 
-
     - name: Use artifacts directory
       run: dotnet new buildprops --use-artifacts
     - name: Restore dependencies
@@ -84,60 +88,24 @@ jobs:
         ls -lah ${{ steps.paths.outputs.artifact-path }} --group-directories-first
       if: env.DIAGNOSTIC_MODE == 'true'
 
-    - name: Login to GitHub Container Registry
-      if: env.PUSH_TO_DOCKER_HUB != 'true'
-      uses: docker/login-action@v3
+    - name: Tag, build and publish
+      id: publish
+      uses: ./.github/actions/docker-publish
       with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Login to Docker Hub
-      if: env.PUSH_TO_DOCKER_HUB == 'true'
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-
-    - name: Extract metadata (tags, labels) for Docker
-      id: meta
-      uses: docker/metadata-action@v6
-      with:
-        images: ${{ steps.registry.outputs.image }}
-        tags: |
-          type=raw,value=ui-api-${{ github.ref_name }}.${{ github.run_number }}
-          type=raw,value=ui-api-${{ github.ref_name }}
-        labels: |
-          org.opencontainers.image.title=saltminer-ui-api
-          org.opencontainers.image.description=SaltMiner UI API
-          org.opencontainers.image.vendor=Saltworks Security, LLC
-
-          
-    - name: Build and push Docker images
-      uses: docker/build-push-action@v6
-      with:
-        file: .dockerfiles/Dockerfile-ui-api
+        app: ui-api
+        title: saltminer-ui-api
+        description: SaltMiner UI API
+        dockerfile: .dockerfiles/Dockerfile-ui-api
         context: ${{ github.workspace }}
-        push: true
-        provenance: mode=max
-        sbom: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
         build-args: |
           ARTIFACT_PATH=${{ steps.paths.outputs.docker-artifact-path }}
-
-    - name: Show complete docker tag
-      run: echo "${{ steps.meta.outputs.tags }}"
-      if: env.DIAGNOSTIC_MODE == 'true'
-
-    - name: Extract tag component
-      id: extract_tag
-      run: echo "tag=`echo '${{ steps.meta.outputs.tags }}' | head -1 | cut -d ':' -f2`" >> $GITHUB_OUTPUT
-
-    - name: Show new tag
-      run: echo "Tag ${{ steps.extract_tag.outputs.tag }}"
-      if: env.DIAGNOSTIC_MODE == 'true'
+        prerelease: ${{ env.PRERELEASE }}
+        push-to-docker-hub: ${{ env.PUSH_TO_DOCKER_HUB }}
+        diagnostic-mode: ${{ env.DIAGNOSTIC_MODE }}
+        ghcr-token: ${{ secrets.GITHUB_TOKEN }}
+        dockerhub-username: ${{ secrets.DOCKER_USERNAME }}
+        dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}
 
     outputs:
-      tag: ${{ steps.extract_tag.outputs.tag }}
+      tag: ${{ steps.publish.outputs.tag }}
         

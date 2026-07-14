@@ -1,0 +1,222 @@
+name: SaltMiner Docker Publish
+description: >
+  Tags, builds and publishes a SaltMiner container image to GHCR and, when
+  requested, to Docker Hub. Encapsulates the tagging scheme shared by every
+  SaltMiner component build.
+
+# Tagging scheme (VER is the major.minor of the branch: 3.5.0 -> 3.5, 3.6 -> 3.6)
+#
+#   dev        push to a release branch, no Docker Hub
+#              GHCR    <app>-<VER>.<build>, <app>-<VER>
+#              DH      (nothing — dev builds are never published)
+#
+#   pre-release  dispatch with prerelease=alpha|beta|rc
+#              GHCR    <app>-<VER>-<pre>.<build>, <app>-<VER>-<pre>, <app>-<VER>
+#              DH      <app>-<VER>-<pre>.<build>, <app>-<VER>-<pre>
+#
+#   release    dispatch with prerelease=none and push-to-docker-hub
+#              GHCR    <app>-<VER>.<build>, <app>-<VER>-release, <app>-<VER>
+#              DH      <app>-<VER>.<build>, <app>-<VER>-release, <app>-<VER>
+#
+# <app>-<VER> means "newest build on this line". In GHCR every build takes it,
+# so a dev environment pulling api-3.5 always gets the tip — including an alpha
+# cut after a release. Docker Hub is the exception: a pre-release must not take
+# it there, or consumers pulling api-3.5 would be silently upgraded onto a beta.
+# It is the only registry-asymmetric tag; <app>-<VER>-release means the same
+# thing in both registries and is the tag to pin for GA.
+
+inputs:
+  app:
+    description: 'Tag prefix identifying the component, e.g. api, ui, sm-nginx'
+    required: true
+  title:
+    description: 'OCI image title label'
+    required: true
+  description:
+    description: 'OCI image description label'
+    required: true
+
+  dockerfile:
+    description: 'Path to the Dockerfile'
+    required: true
+  context:
+    description: 'Docker build context'
+    required: true
+  build-args:
+    description: 'Newline-separated build args'
+    required: false
+    default: ''
+  platforms:
+    description: 'Target platforms, e.g. linux/amd64,linux/arm64'
+    required: false
+    default: ''
+  cache-from:
+    description: 'BuildKit cache source'
+    required: false
+    default: ''
+  cache-to:
+    description: 'BuildKit cache destination'
+    required: false
+    default: ''
+  provenance:
+    description: 'Provenance attestation mode'
+    required: false
+    default: 'mode=max'
+  sbom:
+    description: 'Generate an SBOM attestation'
+    required: false
+    default: 'true'
+
+  prerelease:
+    description: 'Pre-release channel: none, alpha, beta or rc'
+    required: false
+    default: 'none'
+  push-to-docker-hub:
+    description: 'Also push to Docker Hub'
+    required: false
+    default: 'false'
+  diagnostic-mode:
+    description: 'Enable diagnostic output'
+    required: false
+    default: 'false'
+
+  ghcr-image:
+    description: 'GHCR image name'
+    required: false
+    default: 'ghcr.io/saltworks/saltminer'
+  dockerhub-image:
+    description: 'Docker Hub image name'
+    required: false
+    default: 'saltworks/saltminer'
+  ghcr-token:
+    description: 'Token for ghcr.io — pass secrets.GITHUB_TOKEN'
+    required: true
+  dockerhub-username:
+    description: 'Docker Hub username — pass secrets.DOCKER_USERNAME'
+    required: false
+    default: ''
+  dockerhub-password:
+    description: 'Docker Hub access token — pass secrets.DOCKER_PASSWORD'
+    required: false
+    default: ''
+
+outputs:
+  tag:
+    description: 'The build-number tag, e.g. api-3.5.105 or api-3.5-rc.102'
+    value: ${{ steps.extract_tag.outputs.tag }}
+  version:
+    description: 'The major.minor version line, e.g. 3.5'
+    value: ${{ steps.vars.outputs.version }}
+  digest:
+    description: 'Digest of the published image'
+    value: ${{ steps.build-push.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+  # A release is the one build class with no input of its own: it is "pushed to
+  # Docker Hub, on no pre-release channel".
+  - name: Determine version and build class
+    id: vars
+    shell: bash
+    run: |
+      VERSION=$(cut -d. -f1,2 <<< '${{ github.ref_name }}')
+      # workflow_dispatch can be fired from any branch, so reject anything that
+      # is not a release line before it becomes a tag like api-main-release.
+      if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+        echo "::error::Branch '${{ github.ref_name }}' is not a release line (expected e.g. 3.5.0, 3.6, 4.0)."
+        exit 1
+      fi
+      echo "version=$VERSION" >> $GITHUB_OUTPUT
+      if [ "${{ inputs.push-to-docker-hub }}" == "true" ] && [ "${{ inputs.prerelease }}" == "none" ]; then
+        echo "is-release=true" >> $GITHUB_OUTPUT
+      else
+        echo "is-release=false" >> $GITHUB_OUTPUT
+      fi
+
+  - name: Login to GitHub Container Registry
+    uses: docker/login-action@v3
+    with:
+      registry: ghcr.io
+      username: ${{ github.actor }}
+      password: ${{ inputs.ghcr-token }}
+
+  - name: Login to Docker Hub
+    if: inputs.push-to-docker-hub == 'true'
+    uses: docker/login-action@v3
+    with:
+      username: ${{ inputs.dockerhub-username }}
+      password: ${{ inputs.dockerhub-password }}
+
+  # Two metadata steps because metadata-action cross-products images x tags, so
+  # tagging <app>-<VER> in GHCR but not in Docker Hub cannot be expressed in one.
+  # Both feed a single build-push-action: one build, one digest, two registries.
+  - name: Extract metadata for GHCR
+    id: meta-ghcr
+    uses: docker/metadata-action@v6
+    with:
+      images: ${{ inputs.ghcr-image }}
+      tags: |
+        type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}-${{ inputs.prerelease }}.${{ github.run_number }},enable=${{ inputs.prerelease != 'none' }}
+        type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}-${{ inputs.prerelease }},enable=${{ inputs.prerelease != 'none' }}
+        type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}.${{ github.run_number }},enable=${{ inputs.prerelease == 'none' }}
+        type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}-release,enable=${{ steps.vars.outputs.is-release == 'true' }}
+        type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}
+      labels: |
+        org.opencontainers.image.title=${{ inputs.title }}
+        org.opencontainers.image.description=${{ inputs.description }}
+        org.opencontainers.image.vendor=Saltworks Security, LLC
+        org.opencontainers.image.version=${{ steps.vars.outputs.version }}.${{ github.run_number }}
+
+  - name: Extract metadata for Docker Hub
+    id: meta-dockerhub
+    if: inputs.push-to-docker-hub == 'true'
+    uses: docker/metadata-action@v6
+    with:
+      images: ${{ inputs.dockerhub-image }}
+      tags: |
+        type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}-${{ inputs.prerelease }}.${{ github.run_number }},enable=${{ inputs.prerelease != 'none' }}
+        type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}-${{ inputs.prerelease }},enable=${{ inputs.prerelease != 'none' }}
+        type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}.${{ github.run_number }},enable=${{ steps.vars.outputs.is-release == 'true' }}
+        type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}-release,enable=${{ steps.vars.outputs.is-release == 'true' }}
+        type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }},enable=${{ steps.vars.outputs.is-release == 'true' }}
+
+  - name: Build and push Docker images
+    id: build-push
+    uses: docker/build-push-action@v6
+    with:
+      file: ${{ inputs.dockerfile }}
+      context: ${{ inputs.context }}
+      push: true
+      platforms: ${{ inputs.platforms }}
+      provenance: ${{ inputs.provenance }}
+      sbom: ${{ inputs.sbom }}
+      cache-from: ${{ inputs.cache-from }}
+      cache-to: ${{ inputs.cache-to }}
+      build-args: ${{ inputs.build-args }}
+      tags: |
+        ${{ steps.meta-ghcr.outputs.tags }}
+        ${{ steps.meta-dockerhub.outputs.tags }}
+      labels: ${{ steps.meta-ghcr.outputs.labels }}
+
+  # The build-number tag — always the first tag metadata-action emits, and the
+  # only one that identifies this build uniquely.
+  - name: Extract tag component
+    id: extract_tag
+    shell: bash
+    run: echo "tag=`echo '${{ steps.meta-ghcr.outputs.tags }}' | head -1 | cut -d ':' -f2`" >> $GITHUB_OUTPUT
+
+  - name: Write job summary
+    shell: bash
+    run: |
+      {
+        echo "### ${{ inputs.title }} published :whale:"
+        echo ""
+        echo "**Build:** \`${{ steps.extract_tag.outputs.tag }}\` &nbsp;&nbsp; **Digest:** \`${{ steps.build-push.outputs.digest }}\`"
+        echo ""
+        echo "**Tags pushed:**"
+        echo '```'
+        echo "${{ steps.meta-ghcr.outputs.tags }}"
+        echo "${{ steps.meta-dockerhub.outputs.tags }}"
+        echo '```'
+      } >> $GITHUB_STEP_SUMMARY
