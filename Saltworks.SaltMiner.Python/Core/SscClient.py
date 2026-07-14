@@ -129,7 +129,11 @@ class SscClient(object):
         try:
             url = appSettings.GetSource(sourceName, 'BaseUrl') + '/api/v1/tokens'
             rsp = requests.post(url, json=body, verify=verify, headers=headers, auth=auth, timeout=self.__DefaultTimeout)
-            r = json.loads(rsp.text)
+            try:
+                r = rsp.json()
+            except ValueError as e:
+                # SSC serves an HTML error page instead of JSON when it is unhealthy
+                raise SscClientServerErrorException(f"SSC login returned a non-JSON response: {self.__DescribeResponse(rsp)}") from e
             if not rsp.ok:
                 raise SscClientAuthenticationException(f"({rsp.status_code}) {r['message']}")
             exp = None
@@ -176,7 +180,7 @@ class SscClient(object):
             if r == 200:
                 self.__Logger.info("Token released successfully")
             else:
-                self.__Logger.warning("Failed to release SSC token (%s)", r.status_code)
+                self.__Logger.warning("Failed to release SSC token (%s)", r)
         except Exception:
             self.__Logger.warning("Unable to release token", exc_info=True)
 
@@ -203,6 +207,27 @@ class SscClient(object):
             f.write(json.dumps(self.__Client.RequestStatsReport()))
         self.__App.LogInfo(f"SSC client API session stats written to log file '{file}'")
     
+    @staticmethod
+    def __DescribeResponse(response, maxBodyChars = 500):
+        '''
+        Builds a one-line description of a failed response for logs and exception messages.
+
+        SSC leaves the HTTP reason phrase empty and puts the real cause in the body (ex.
+        '{"message":"Unable to execute batch."}'), so the body has to be included or the
+        failure is undiagnosable.
+        '''
+        body = (response.text or "").strip()
+        try:
+            # Prefer SSC's own error message when the body is its standard JSON error shape
+            body = json.loads(body).get('message') or body
+        except (ValueError, AttributeError):
+            pass
+        body = " ".join(body.split())  # collapse whitespace - SSC error pages are multi-line HTML
+        if len(body) > maxBodyChars:
+            body = body[:maxBodyChars] + "..."
+        reason = f" {response.reason}" if response.reason else ""
+        return f"({response.status_code}{reason}) {body or '<empty response body>'} [url: {response.url}]"
+
     def __Get(self, url, navToData = False, suppressError = False, statKey = None, errorOnEmptyResponse = True, retryDelaySec=None):
         '''
         Calls GET and loads the response into an object, raising an error if not a 2xx response.
@@ -234,7 +259,7 @@ class SscClient(object):
             ex = e
 
         except (SscClientServerErrorException, SscClientEmptyResponseException, ConnectionError, RequestsConnectionError, RequestsReadTimeout) as e:
-            self.__Logger.error("SSC API error encountered (%s), retrying in %s secs.", type(e).__name__, wait)
+            self.__Logger.error("SSC API error encountered (%s): %s. Retrying in %s secs.", type(e).__name__, e, wait)
             ex = e
 
         except SscClientException:
@@ -294,7 +319,7 @@ class SscClient(object):
             raise SscClient409ConflictException(f"{response.text}")
         elif sc > 499:
             # Separate 50x errors from the rest so can retry.
-            raise SscClientServerErrorException(response.reason)
+            raise SscClientServerErrorException(self.__DescribeResponse(response))
         else:
             msg = f"SSC API call failure: ({sc}) {response.text}"
             self.__Logger.error(msg)

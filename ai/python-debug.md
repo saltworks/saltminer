@@ -1,30 +1,47 @@
 # Running Python Tests
 
+## VS Code Launch Profiles
+
+`.vscode/launch.json` already has profiles that set the environment correctly — prefer these over hand-rolling a command line:
+
+| Profile | Runs |
+|---|---|
+| `Py:Current` | The currently open file (`${file}`) |
+| `Py: DebugStart` | `Saltworks.SaltMiner.Python/DebugStart.py` |
+
+Both set `cwd` to `Saltworks.SaltMiner.Python`, `justMyCode: false`, and the env below. To run something else from the terminal, copy the same env/cwd out of the profile.
+
 ## The Required Environment Variable
 
-All Python test runs need `SALTMINER_2_CONFIG_PATH` set to the external config directory. Without it, `Application()` loads `Config/` from the repo which has Docker hostnames (`http://api`) that don't resolve on the host. The correct config is at:
+All Python runs need `SALTMINER_CONFIG_PATH` set to the **parent** of the config directory. `Application.__InitConfig` appends the `python` app folder itself (`Core/Application.py`, `APP_FOLDER = "python"`), so point it at `config`, not `config/python`. Without it, `Application()` falls back to the repo's `Config/` folder, which has Docker hostnames (`http://api`) that don't resolve on the host and a log folder of `/opt/saltworks/saltminer/logs` that isn't writable by a normal user.
 
 ```
-C:\Source\saltminer-internal\config\python
+SALTMINER_ENVIRONMENT=Local
+SALTMINER_CONFIG_PATH=/mnt/g-drive/Source/Saltworks/saltminer-internal/config
 ```
 
-This is the same path set in `.vscode/launch.json` under `"Py Current File"`.
+Note the resolved config path is echoed at startup (`Configuration location: ...`) and written to `sm-run-config-location.json` — check that line first when a run picks up the wrong config.
 
 ## Running Tests from the Terminal
 
 Always run from `Saltworks.SaltMiner.Python/` as the working directory:
 
 ```bash
-cd C:/Source/saltminer/Saltworks.SaltMiner.Python
+cd /mnt/g-drive/Source/Saltworks/saltminer/Saltworks.SaltMiner.Python
+export SALTMINER_ENVIRONMENT=Local
+export SALTMINER_CONFIG_PATH=/mnt/g-drive/Source/Saltworks/saltminer-internal/config
+
+# Run the async agent debug harness
+python DebugStart.py
 
 # Run a specific test module
-SALTMINER_2_CONFIG_PATH="C:/Source/saltminer-internal/config/python" python -m unittest UnitTests.DataClientTests -v
+python -m unittest UnitTests.DataClientTests -v
 
 # Run a specific test class
-SALTMINER_2_CONFIG_PATH="C:/Source/saltminer-internal/config/python" python -m unittest UnitTests.DataClientTests.DataClientTests -v
+python -m unittest UnitTests.DataClientTests.DataClientTests -v
 
 # Run a specific test method
-SALTMINER_2_CONFIG_PATH="C:/Source/saltminer-internal/config/python" python -m unittest UnitTests.DataClientTests.DataClientTests.test_queue_scan_add_update -v
+python -m unittest UnitTests.DataClientTests.DataClientTests.test_queue_scan_add_update -v
 ```
 
 ## Available Test Modules
@@ -57,8 +74,8 @@ ApplicationConfigurationException: Settings incorrect or missing value for confi
 The env var is missing or wrong. Verify:
 
 ```bash
-echo $SALTMINER_2_CONFIG_PATH
-ls "C:/Source/saltminer-internal/config/python/Logging.json"
+echo $SALTMINER_CONFIG_PATH
+ls "$SALTMINER_CONFIG_PATH/python/Logging.json"
 ```
 
 If `Logging.json` exists but `FileFormat` is absent, that is fine — `Settings.Get('Logging', 'FileFormat', None)` returns `None` and `LoggingProvider` defaults to `'simple'` format. If the error still appears, check that `ApplicationSettings` has the sentinel fix (see `Core/ApplicationSettings.py` — `_MISSING` sentinel in `__GetFromConfig`).

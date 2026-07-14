@@ -21,7 +21,6 @@
 import json
 import sys
 import time
-import datetime
 import logging
 
 from urllib3.exceptions import ReadTimeoutError
@@ -40,7 +39,7 @@ class FodClient(object):
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
-        if not sourceName or not sourceName in appSettings.GetSourceNames():
+        if not sourceName or sourceName not in appSettings.GetSourceNames():
             raise FodClientConfigurationException(f"Invalid or missing source configuration for source name '{sourceName}'")
         sourceType = appSettings.GetSource(sourceName, "Source", "")
         if not sourceType == "FOD":
@@ -97,7 +96,7 @@ class FodClient(object):
             'Authorization': f"Bearer {self.__Token}",
             'Accept': 'application/json'
         }
-        self.__Logger.info(f"FodClient initialized. BaseAddress: '%s', ClientId: '%s', Proxy? %s", self.__BaseAddress, clientId, len(proxy) > 0)
+        self.__Logger.info("FodClient initialized. BaseAddress: '%s', ClientId: '%s', Proxy? %s", self.__BaseAddress, clientId, len(proxy) > 0)
 
     @property
     def ApiMaxLimit(self):
@@ -696,7 +695,7 @@ class FodClient(object):
         :lookupType: type of lookup items to retrieve
         '''
         url = '/api/v3/lookup-items'
-        if lookupType != None:
+        if lookupType is not None:
             url += '?type=' + lookupType
         return self.Get(url)
 
@@ -791,7 +790,7 @@ class FodScroller(object):
 
 class FodClientResponse(object):
     def __init__(self, response=None):
-        if response != None:
+        if response is not None:
             self.__Content = response.json() if response and callable(getattr(response, "json", None)) else None
             self.__Status = getattr(response, "status_code", 200)
             self.__Text = getattr(response, "text", None)
