@@ -16,7 +16,7 @@ ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config
 
 WORKDIR ${APP_ROOT}/app/api
 
-COPY . .
+COPY $ARTIFACT_PATH .
 
 # curl is used for healthcheck.
 RUN apk add --no-cache curl \

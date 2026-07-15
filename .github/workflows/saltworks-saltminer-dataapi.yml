@@ -87,11 +87,6 @@ jobs:
         ls -lah ${{ steps.paths.outputs.artifact-path }} --group-directories-first
       if: env.DIAGNOSTIC_MODE == 'true'
 
-    - name: Stage datastore seed files for Docker
-      working-directory: ${{ github.workspace }}
-      run: |
-        cp -r ${{ steps.paths.outputs.docker-datastore-seed-path }} ${{ steps.paths.outputs.docker-artifact-path }}/default-datastore-seed
-
     - name: Tag, build and publish
       id: publish
       uses: ./.github/actions/docker-publish
@@ -100,10 +95,10 @@ jobs:
         title: saltminer-api
         description: SaltMiner API
         dockerfile: .dockerfiles/Dockerfile-api
-        context: ${{ github.workspace }}/${{ steps.paths.outputs.docker-artifact-path }}
+        context: ${{ github.workspace }}
         build-args: |
-          ARTIFACT_PATH=.
-          DATASTORE_SEED_PATH=./default-datastore-seed
+          ARTIFACT_PATH=${{ steps.paths.outputs.docker-artifact-path }}
+          DATASTORE_SEED_PATH=${{ steps.paths.outputs.docker-datastore-seed-path }}
           DEPLOY_PATH=${{ env.DEPLOY_ARTIFACT_PATH }}
         prerelease: ${{ env.PRERELEASE }}
         push-to-docker-hub: ${{ env.PUSH_TO_DOCKER_HUB }}
