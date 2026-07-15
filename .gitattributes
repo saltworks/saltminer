@@ -1,0 +1,4 @@
+# Shell scripts must always check out with LF line endings, otherwise a CRLF
+# checkout on Windows bakes "#!/bin/sh\r" into container images and the kernel
+# fails to find the interpreter ("/docker-entrypoint.sh: not found", exit 127).
+*.sh text eol=lf
