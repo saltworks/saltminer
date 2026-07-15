@@ -58,6 +58,7 @@ jobs:
       DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode && 'true' || 'false' }}
       PRERELEASE: ${{ inputs.prerelease || 'none' }}
       PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub && 'true' || 'false' }}
+      DEPLOY_ARTIFACT_PATH: Saltworks.SaltMiner.Deploy
 
     steps:
     - uses: actions/checkout@v4
@@ -103,6 +104,7 @@ jobs:
         build-args: |
           ARTIFACT_PATH=.
           DATASTORE_SEED_PATH=./default-datastore-seed
+          DEPLOY_PATH=${{ env.DEPLOY_ARTIFACT_PATH }}
         prerelease: ${{ env.PRERELEASE }}
         push-to-docker-hub: ${{ env.PUSH_TO_DOCKER_HUB }}
         diagnostic-mode: ${{ env.DIAGNOSTIC_MODE }}

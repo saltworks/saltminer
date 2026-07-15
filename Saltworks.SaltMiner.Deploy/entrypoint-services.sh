@@ -8,6 +8,13 @@ PY_DIR="${APP_ROOT}/app/python"
 PY_DEFAULTS_DIR="${PY_DIR}/Defaults"
 PY_CONFIG_DIR="${SALTMINER_CONFIG_PATH:-${APP_ROOT}/config}/python"
 
+# Make sure required mapped subdirs are present
+mkdir -p "$APP_ROOT/python/Custom"
+mkdir -p "$APP_ROOT/python/Mappings"
+mkdir -p "$APP_ROOT/python/AppVulsCustom"
+mkdir -p "$APP_ROOT/python/AuthHelperCustom"
+
+
 # Seed a destination directory from a baked-in defaults directory.  On a fresh
 # deployment the (bind-mounted) destination will be missing or empty, so copy in
 # the defaults.  If it already has contents, leave host-customized files untouched.

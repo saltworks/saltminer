@@ -5,10 +5,12 @@ LABEL vendor="Saltworks Security, LLC"
 
 ARG ARTIFACT_PATH=.
 ARG DATASTORE_SEED_PATH=./invalid-index-templates-path
+ARG DEPLOY_PATH=invalid
 
 ENV APP_ROOT=/opt/saltworks/saltminer
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
 ENV DATASTORE_SEED_PATH=$DATASTORE_SEED_PATH
+ENV DEPLOY_PATH=$DEPLOY_PATH
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config
 
@@ -23,4 +25,7 @@ COPY $DATASTORE_SEED_PATH ./default-datastore-seed/
 
 EXPOSE 5000
 
-ENTRYPOINT /usr/bin/dotnet ${APP_ROOT}/app/api/Saltworks.SaltMiner.DataApi.dll
+COPY $DEPLOY_PATH/entrypoint-api.sh ${APP_ROOT}/entrypoint.sh
+RUN chmod +x ${APP_ROOT}/entrypoint.sh
+
+ENTRYPOINT ${APP_ROOT}/entrypoint.sh

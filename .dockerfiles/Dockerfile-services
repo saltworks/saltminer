@@ -39,7 +39,7 @@ RUN mkdir -p ./python/Defaults/ && \
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config
 
-COPY $DEPLOY_PATH/services-entrypoint.sh ${APP_ROOT}/services-entrypoint.sh
-RUN chmod +x ${APP_ROOT}/services-entrypoint.sh
+COPY $DEPLOY_PATH/entrypoint-services.sh ${APP_ROOT}/entrypoint.sh
+RUN chmod +x ${APP_ROOT}/entrypoint.sh
 
-ENTRYPOINT ${APP_ROOT}/services-entrypoint.sh
+ENTRYPOINT ${APP_ROOT}/entrypoint.sh
