@@ -5,31 +5,45 @@ services:
     image: docker.io/library/busybox
     container_name: sm-init
     volumes:
-    - ${APP_ROOT}:/app_root
+    # APP_ROOT (e.g. /opt/saltworks) must already exist on the host.
+    # :z applies a shared SELinux label so the container may write here on
+    # SELinux-enforcing hosts (RHEL/Fedora); it is a no-op elsewhere.
+    - ${APP_ROOT}:/app_root:z
+    environment:
+    # Docker running services as a non-root user needs the tree chowned
+    # to the container UID/GID.  Rootless Podman should not chown.
+    - INIT_CHOWN=${INIT_CHOWN}
     command: >-
-      sh -c "mkdir -p
-      /app_root/logs/nginx
-      /app_root/app/ui-files
-      /app_root/config/nginx
-      /app_root/config/api/data
-      /app_root/python/Custom
-      /app_root/python/Mappings
-      /app_root/python/AppVulsCustom
-      /app_root/python/AuthHelperCustom
-      /app_root/scripts
-      && chown -R ${CONTAINER_UID_GID} /app_root"
+      sh -c "[ -w /app_root ] ||
+      { echo 'ERROR: APP_ROOT is not writable. Create it on the host and make it owned/writable by the account running the container engine.'; exit 1; }
+      && mkdir -p
+      /app_root/saltminer/logs/nginx
+      /app_root/saltminer/app/ui-files
+      /app_root/saltminer/config/nginx
+      /app_root/saltminer/config/jobmanager
+      /app_root/saltminer/config/api/data
+      /app_root/saltminer/python/Custom
+      /app_root/saltminer/python/Mappings
+      /app_root/saltminer/python/AppVulsCustom
+      /app_root/saltminer/python/AuthHelperCustom
+      /app_root/saltminer/scripts
+      && if [ -n \"$$INIT_CHOWN\" ]; then echo \"Chowning saltminer tree to $$INIT_CHOWN\"; chown -R \"$$INIT_CHOWN\" /app_root/saltminer; else echo 'INIT_CHOWN empty, skipping chown (rootless mode)'; fi"
     restart: "no"
 
   sm-nginx:
     image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_NGINX_IMAGE_VERSION}
     container_name: sm-nginx
+    # Host ports are overridable for rootless Podman, which cannot bind <1024:
+    # Recommend setting NGINX_HTTP_PORT=8080 / NGINX_HTTPS_PORT=8443 in .env 
+    # and forward 80/443 with the host firewall (see PODMAN.MD). 
+    # Docker: leave unset.
     ports:
-    - "80:80"
-    - "443:443"
+    - "${NGINX_HTTP_PORT:-80}:80"
+    - "${NGINX_HTTPS_PORT:-443}:443"
     volumes:
-    - ${APP_ROOT}/config/nginx/:/opt/saltworks/saltminer/config/nginx
+    - ${APP_ROOT}/saltminer/config/nginx/:/opt/saltworks/saltminer/config/nginx:z
 #   Enable if you need logs to go to a file; by default they are aliased to STDOUT and can be seen via docker logs sm-nginx
-#    - ${APP_ROOT}/logs/nginx:/var/log/nginx
+#    - ${APP_ROOT}/saltminer/logs/nginx:/var/log/nginx
     - smpgui-assets:${CONTAINER_APP_ROOT}/app/ui-web
     environment:
     - KIBANA_URL=${KIBANA_URL}
@@ -44,12 +58,8 @@ services:
         condition: service_started
       ui-api:
         condition: service_started
-    deploy:
-      resources:
-        limits:
-          memory: 1gb
-        reservations:
-          memory: 100mb
+    mem_limit: 1gb
+    mem_reservation: 100mb
 
   api:
     image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_API_IMAGE_VERSION}
@@ -58,9 +68,9 @@ services:
     expose:
     - "5000"
     volumes:
-    - ${APP_ROOT}/config:${CONTAINER_APP_ROOT}/config
-    - ${APP_ROOT}/logs:${CONTAINER_APP_ROOT}/logs
-    - ${APP_ROOT}/config/api/data:${CONTAINER_APP_ROOT}/app/api/data
+    - ${APP_ROOT}/saltminer/config:${CONTAINER_APP_ROOT}/config:z
+    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/logs:z
+    - ${APP_ROOT}/saltminer/config/api/data:${CONTAINER_APP_ROOT}/app/api/data:z
     environment:
     - ELASTICSEARCH_CONNECTION_STRING=${ELASTICSEARCH_CONNECTION_STRING}
     - KIBANA_URL=${KIBANA_URL}
@@ -74,16 +84,11 @@ services:
           "curl -s http://localhost:5000/utility/version | grep -q '\"success\":true'",
         ]
       start_period: 300s
-    deploy:
-      resources:
-        limits:
-          memory: ${API_MEMORY_LIMIT}
-        reservations:
-          memory: 100mb
+    mem_limit: ${API_MEMORY_LIMIT}
+    mem_reservation: 100mb
     depends_on:
       init:
         condition: service_completed_successfully
-    entrypoint: ["/usr/bin/dotnet", "/opt/saltworks/saltminer/app/api/Saltworks.SaltMiner.DataApi.dll"]
 
   ui-api:
     image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_UI_API_IMAGE_VERSION}
@@ -93,9 +98,9 @@ services:
     expose:
     - "5001"
     volumes:
-    - ${APP_ROOT}/config:${CONTAINER_APP_ROOT}/config
-    - ${APP_ROOT}/logs:${CONTAINER_APP_ROOT}/logs
-    - ${APP_ROOT}/app/ui-files:${CONTAINER_APP_ROOT}/app/ui-files
+    - ${APP_ROOT}/saltminer/config:${CONTAINER_APP_ROOT}/config:z
+    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/logs:z
+    - ${APP_ROOT}/saltminer/app/ui-files:${CONTAINER_APP_ROOT}/app/ui-files:z
     environment:
     - KIBANA_URL=${KIBANA_URL}
     networks:
@@ -108,12 +113,8 @@ services:
           "curl -s http://localhost:5001/auth/cookie | grep -q '\"success\":true'",
         ]
       start_period: 300s
-    deploy:
-      resources:
-        limits:
-          memory: 1gb
-        reservations:
-          memory: 100mb
+    mem_limit: 1gb
+    mem_reservation: 100mb
     depends_on:
       init:
         condition: service_completed_successfully
@@ -126,13 +127,13 @@ services:
     user: "${CONTAINER_UID_GID}"
     hostname: services
     volumes:
-    - ${APP_ROOT}/config:${CONTAINER_APP_ROOT}/config
-    - ${APP_ROOT}/logs:${CONTAINER_APP_ROOT}/logs
-    - ${APP_ROOT}/scripts:${CONTAINER_APP_ROOT}/scripts
-    - ${APP_ROOT}/python/Custom:${CONTAINER_APP_ROOT}/app/python/Custom
-    - ${APP_ROOT}/python/Mappings:${CONTAINER_APP_ROOT}/app/python/Mappings
-    - ${APP_ROOT}/python/AppVulsCustom:${CONTAINER_APP_ROOT}/app/python/AppVulsCustom
-    - ${APP_ROOT}/python/AuthHelperCustom:${CONTAINER_APP_ROOT}/app/python/AuthHelperCustom
+    - ${APP_ROOT}/saltminer/config:${CONTAINER_APP_ROOT}/config:z
+    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/logs:z
+    - ${APP_ROOT}/saltminer/scripts:${CONTAINER_APP_ROOT}/scripts:z
+    - ${APP_ROOT}/saltminer/python/Custom:${CONTAINER_APP_ROOT}/app/python/Custom:z
+    - ${APP_ROOT}/saltminer/python/Mappings:${CONTAINER_APP_ROOT}/app/python/Mappings:z
+    - ${APP_ROOT}/saltminer/python/AppVulsCustom:${CONTAINER_APP_ROOT}/app/python/AppVulsCustom:z
+    - ${APP_ROOT}/saltminer/python/AuthHelperCustom:${CONTAINER_APP_ROOT}/app/python/AuthHelperCustom:z
     environment:
     - ELASTICSEARCH_CONNECTION_STRING=${ELASTICSEARCH_CONNECTION_STRING}
     networks:
@@ -143,13 +144,8 @@ services:
         condition: service_completed_successfully
       api:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: ${SERVICES_MEMORY_LIMIT}
-        reservations:
-          memory: 100mb
-    entrypoint: ["/usr/bin/dotnet", "/opt/saltworks/saltminer/app/servicemanager/Saltworks.SaltMiner.ServiceManager.dll"]
+    mem_limit: ${SERVICES_MEMORY_LIMIT}
+    mem_reservation: 100mb
 
   jobmanager:
     image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_JOBMANAGER_IMAGE_VERSION}
@@ -157,9 +153,9 @@ services:
     user: "${CONTAINER_UID_GID}"
     hostname: jobmanager
     volumes:
-    - ${APP_ROOT}/config/jobmanager:${CONTAINER_APP_ROOT}/config/jobmanager
-    - ${APP_ROOT}/app/ui-files:${CONTAINER_APP_ROOT}/app/ui-files
-    - ${APP_ROOT}/logs:${CONTAINER_APP_ROOT}/logs
+    - ${APP_ROOT}/saltminer/config/jobmanager:${CONTAINER_APP_ROOT}/config/jobmanager:z
+    - ${APP_ROOT}/saltminer/app/ui-files:${CONTAINER_APP_ROOT}/app/ui-files:z
+    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/logs:z
     networks:
     - ${CONTAINER_NETWORK}
     restart: "always"
@@ -168,12 +164,8 @@ services:
         condition: service_healthy
       ui-api:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 1gb
-        reservations:
-          memory: 50mb
+    mem_limit: 1gb
+    mem_reservation: 50mb
 
   # elastic-agent:
   #   image: docker.elastic.co/elastic-agent/elastic-agent:${STACK_VERSION}
@@ -194,12 +186,8 @@ services:
   #   - FLEET_INSECURE=1
   #   networks:
   #   - ${CONTAINER_NETWORK}
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 1gb
-  #       reservations:
-  #         memory: 500mb
+  #   mem_limit: 1gb
+  #   mem_reservation: 50mb
   #   depends_on:
   #     api:
   #       condition: service_healthy
