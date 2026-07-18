@@ -47,3 +47,7 @@ ai-*.ps1
 .DS_Store
 ai/scratch/
 .env
+
+# Private AI team repo-in-a-repo (never committed to the public repo)
+/ai-team/
+CLAUDE.local.md
