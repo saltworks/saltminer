@@ -211,6 +211,14 @@
                     }
                   }
                 },
+                "product_type": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": {
+                      "type": "text"
+                    }
+                  }
+                },
                 "vendor": {
                   "type": "keyword",
                   "fields": {

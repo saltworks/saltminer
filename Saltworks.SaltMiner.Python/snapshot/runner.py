@@ -353,9 +353,10 @@ def run_snapshot_history(
       - Always refresh _current for every selected pair.
 
     source_type_arg: optional source-type filter (e.g. 'FOD' or 'Saltworks.FOD').
-    rebuild: requires source_type_arg. Deletes the _historical issue and scan
-             indices for the matched pairs before running, so the normal flow
-             rebuilds from earliest data.
+    rebuild: requires source_type_arg. Deletes the issue _historical and _current
+             indices and the scan _historical index for the matched pairs before
+             running, so the normal flow rebuilds from earliest data and the issue
+             _current index auto-recreates from the corrected snapshot template.
     """
     if rebuild and not source_type_arg:
         raise ValueError("rebuild=True requires source_type_arg")
@@ -382,6 +383,11 @@ def run_snapshot_history(
         for source_type, asset_type in selected_pairs:
             for idx in (
                 historical_snapshot_index(asset_type, source_type),
+                # Drop the issue _current index too so it auto-recreates from the
+                # corrected `snapshot` composable template on first write; a
+                # month-scoped DeleteByQuery would not re-apply the new mapping.
+                # (Scan _current/_historical stay untouched — out of scope.)
+                current_snapshot_index(asset_type, source_type),
                 historical_scan_snapshot_index(asset_type, source_type),
             ):
                 if es.IndexExists(idx):
