@@ -114,7 +114,7 @@ while cur_loop < max_loops:
                 if ssc_id in ssc_inactives:
                     logging.info("[Webhook Pull] SSC projectVersion ID %s is inactive and will not be syned.", ssc_id)
                     continue
-                if ssc_id not in seen_ids:
+                if event not in ['APP_VERSION_DELETED'] and ssc_id not in seen_ids:
                     key, data = get_queue_item(ssc_id, prm_src_name)
                     ssc_data[key] = data
                     seen_ids.append(ssc_id)
