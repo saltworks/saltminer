@@ -7,19 +7,13 @@ from typing import Any
 from .index_names import (
     issue_index_pattern,
     historical_snapshot_index,
-    historical_scan_snapshot_index,
     current_snapshot_index,
-    current_scan_snapshot_index,
 )
 from .month_range import iter_months, month_start, next_month_start
 from .issue_snapshot_builder import (
     fetch_asset_descriptors,
     build_monthly_issue_snapshots,
     write_monthly_issue_snapshots,
-)
-from .scan_snapshot_builder import (
-    build_monthly_scan_snapshots,
-    write_monthly_scan_snapshots,
 )
 
 
@@ -279,8 +273,6 @@ def _process_partition(
     logging.debug("Earliest found-month known for %d/%d source IDs in partition",
                   len(earliest_by_id), len(partition_ids))
 
-    prev_avg_loc: dict[str, float] = {}
-
     skipped_months = 0
     for year, month in all_months:
         is_current = current_month == (year, month)
@@ -297,9 +289,6 @@ def _process_partition(
 
         issue_write_target = current_snapshot_index(asset_type, source_type) if is_current \
                              else historical_snapshot_index(asset_type, source_type)
-        scan_write_target  = current_scan_snapshot_index(asset_type, source_type) if is_current \
-                             else historical_scan_snapshot_index(asset_type, source_type)
-        snap_source_index  = issue_write_target  # scan builder reads from the same index issue snapshots were just written to
 
         issue_docs: list[dict] = []
         for chunk in active_chunks:
@@ -311,19 +300,6 @@ def _process_partition(
         write_monthly_issue_snapshots(
             es, asset_type, source_type, partition_ids, year, month, issue_docs,
             target_index=issue_write_target,
-        )
-
-        scan_docs: list[dict] = []
-        for chunk in active_chunks:
-            month_scan_docs, prev_avg_loc = build_monthly_scan_snapshots(
-                es, asset_type, source_type, chunk, year, month, prev_avg_loc,
-                snapshot_source_index=snap_source_index,
-                page_size=composite_page_size,
-            )
-            scan_docs.extend(month_scan_docs)
-        write_monthly_scan_snapshots(
-            es, asset_type, source_type, partition_ids, year, month, scan_docs,
-            target_index=scan_write_target,
         )
 
     if skipped_months:
@@ -354,9 +330,9 @@ def run_snapshot_history(
 
     source_type_arg: optional source-type filter (e.g. 'FOD' or 'Saltworks.FOD').
     rebuild: requires source_type_arg. Deletes the issue _historical and _current
-             indices and the scan _historical index for the matched pairs before
-             running, so the normal flow rebuilds from earliest data and the issue
-             _current index auto-recreates from the corrected snapshot template.
+             indices for the matched pairs before running, so the normal flow
+             rebuilds from earliest data and the issue _current index auto-recreates
+             from the corrected snapshot template.
     """
     if rebuild and not source_type_arg:
         raise ValueError("rebuild=True requires source_type_arg")
@@ -386,9 +362,7 @@ def run_snapshot_history(
                 # Drop the issue _current index too so it auto-recreates from the
                 # corrected `snapshot` composable template on first write; a
                 # month-scoped DeleteByQuery would not re-apply the new mapping.
-                # (Scan _current/_historical stay untouched — out of scope.)
                 current_snapshot_index(asset_type, source_type),
-                historical_scan_snapshot_index(asset_type, source_type),
             ):
                 if es.IndexExists(idx):
                     logging.info("Rebuild: deleting %s", idx)
