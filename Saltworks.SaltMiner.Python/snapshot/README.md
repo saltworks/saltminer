@@ -71,7 +71,6 @@ run/rebuild mode · **constant** = fixed value.
 | Snapshot field | Source | Description |
 |---|---|---|
 | `saltminer.snapshot_date` | run | Date the snapshot was captured (15th for completed months, now() for current). |
-| `saltminer.is_historical` | run | True for backfilled historical rows. |
 | `saltminer.critical/high/medium/low/info` | computed | Issue count at that severity for the group (`total` if the row's severity matches, else 0). |
 | `saltminer.opened` | computed | Issues newly opened in the group this period. |
 | `saltminer.removed` | computed | Issues newly removed (closed) in the group this period. |
