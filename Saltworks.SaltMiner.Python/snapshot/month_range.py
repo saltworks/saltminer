@@ -2,10 +2,6 @@ import calendar
 import datetime
 
 
-def _utc_now() -> datetime.datetime:
-    return datetime.datetime.now(tz=datetime.timezone.utc)
-
-
 def month_start(year: int, month: int) -> datetime.datetime:
     return datetime.datetime(year, month, 1, tzinfo=datetime.timezone.utc)
 
@@ -24,13 +20,7 @@ def month_end_inclusive(year: int, month: int) -> datetime.datetime:
 
 def snapshot_date_for_month(year: int, month: int) -> datetime.datetime:
     """Mid-month date for completed months; utcnow for the in-progress month."""
-    now = _utc_now()
-    end = month_end_inclusive(year, month)
-    if end >= now:
-        return now
-    days_in_month = calendar.monthrange(year, month)[1]
-    mid_day = days_in_month // 2
-    return datetime.datetime(year, month, mid_day, tzinfo=datetime.timezone.utc)
+    return datetime.datetime(year, month, 15, tzinfo=datetime.timezone.utc)
 
 
 def iter_months(start: datetime.datetime, end: datetime.datetime):

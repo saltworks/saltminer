@@ -111,7 +111,6 @@ def _build_snapshot_doc(
         "last_updated": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
         "saltminer": {
             "snapshot_date": snap_date.isoformat(),
-            "is_historical": True,
             "critical": balance if severity == "Critical" else 0,
             "high":     balance if severity == "High"     else 0,
             "medium":   balance if severity == "Medium"   else 0,
