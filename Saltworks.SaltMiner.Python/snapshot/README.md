@@ -7,6 +7,10 @@ indexed into `snapshots_<asset_type>_<source>_{historical,current}`. Snapshots l
 analysts track vulnerability posture over time and break it down by asset, vulnerability,
 severity, and scanner product.
 
+> **Scan snapshots retired.** An earlier scan-based snapshot path (`scan_snapshot_builder`,
+> `scan_snapshots_*` indices) was removed — it had no consumers. This package now generates
+> issue snapshots only.
+
 ## Methodology
 
 A snapshot **row summarizes one group of issues on one asset instance at one snapshot
