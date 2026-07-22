@@ -245,6 +245,12 @@
                 "text": { "type": "text" }
               }
             },
+            "severity_level": {
+              "type": "integer"
+            },
+            "source_severity": {
+              "type": "keyword"
+            },
             "scanner": {
               "properties": {
                 "assessment_type": {
@@ -257,6 +263,12 @@
                   }
                 },
                 "vendor": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
+                "product_type": {
                   "type": "keyword",
                   "fields": {
                     "text": { "type": "text" }
