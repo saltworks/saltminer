@@ -10,14 +10,9 @@ COPY ./artifacts/dist/ui-web/smpgui ${APP_ROOT}/app/ui-web/smpgui
 COPY Saltworks.SaltMiner.Nginx/nginx.conf    /etc/nginx-defaults/nginx.conf
 COPY Saltworks.SaltMiner.Nginx/saltminer.crt /etc/nginx-defaults/saltminer.crt
 COPY Saltworks.SaltMiner.Nginx/saltminer.key /etc/nginx-defaults/saltminer.key
-
-# Create the customer-facing directory so it exists even without a bind mount
-RUN mkdir -p ${APP_ROOT}/config/nginx
-
 COPY Saltworks.SaltMiner.Nginx/docker-entrypoint.sh /docker-entrypoint.sh
 
 RUN chmod +x /docker-entrypoint.sh \
     && chmod 600 /etc/nginx-defaults/saltminer.key
 
-EXPOSE 80 443
 ENTRYPOINT /docker-entrypoint.sh
