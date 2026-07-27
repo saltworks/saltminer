@@ -41,6 +41,7 @@ services:
     - "${NGINX_HTTP_PORT:-80}:80"
     - "${NGINX_HTTPS_PORT:-443}:443"
     volumes:
+    # SSL cert/key expected in this mount: saltminer.crt, saltminer.key (self-signed dropped there by default if missing)
     - ${APP_ROOT}/saltminer/config/nginx/:/opt/saltworks/saltminer/config/nginx:z
 #   Enable if you need logs to go to a file; by default they are aliased to STDOUT and can be seen via docker logs sm-nginx
 #    - ${APP_ROOT}/saltminer/logs/nginx:/var/log/nginx
