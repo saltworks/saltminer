@@ -8,43 +8,20 @@ WORKDIR ${APP_ROOT}/app/ui-api
 
 ARG ARTIFACT_PATH=.
 ENV ARTIFACT_PATH=$ARTIFACT_PATH
+ARG DEPLOY_PATH=invalid
+ENV DEPLOY_PATH=$DEPLOY_PATH
 COPY $ARTIFACT_PATH .
-
-RUN mkdir -p ${APP_ROOT}/config \
-  && mkdir -p ${APP_ROOT}/logs
 
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config/ui-api/
-ENV USER=saltminer
-ENV GROUPNAME=$USER
-ENV UID=10000
-ENV GID=10001
 
 # curl is used for healthcheck.
-RUN apk add --no-cache curl \
-  && mkdir -p ${APP_ROOT}/config \
-  && mkdir -p ${APP_ROOT}/logs \
-  && mkdir -p ${APP_ROOT}/ui-files
-
-RUN addgroup \
-    --gid "$GID" \
-    "$GROUPNAME" \
-  &&  adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "$(pwd)" \
-    --ingroup "$GROUPNAME" \
-    --no-create-home \
-    --uid "$UID" \
-    $USER
-
-RUN chown -R $USER:$GROUPNAME . \
-  && chown -R $USER:$GROUPNAME ${APP_ROOT}/config \
-  && chown -R $USER:$GROUPNAME ${APP_ROOT}/ui-files \
-  && chown -R $USER:$GROUPNAME ${APP_ROOT}/logs
+RUN apk add --no-cache curl
 
 EXPOSE 5001
 
-USER $USER
+COPY $DEPLOY_PATH/entrypoint-ui-api.sh ${APP_ROOT}/entrypoint.sh
+RUN chmod +x ${APP_ROOT}/entrypoint.sh
 
-ENTRYPOINT /usr/bin/dotnet ${APP_ROOT}/app/ui-api/Saltworks.SaltMiner.Ui.Api.dll
+ENTRYPOINT ${APP_ROOT}/entrypoint.sh
+

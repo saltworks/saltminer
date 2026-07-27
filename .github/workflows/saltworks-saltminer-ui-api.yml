@@ -55,6 +55,7 @@ jobs:
         working-directory: ./Saltworks.SaltMiner.Ui.Api/Saltworks.SaltMiner.Ui.Api
     env:
       CONFIGURATION: release
+      DEPLOY_ARTIFACT_PATH: Saltworks.SaltMiner.Deploy
       CONFIG_FILE: appsettings.json
       KIBANA_BASE_URL: http://kibana:5601
       DATA_API_BASE_URL: http://api:5000
@@ -99,6 +100,7 @@ jobs:
         context: ${{ github.workspace }}
         build-args: |
           ARTIFACT_PATH=${{ steps.paths.outputs.docker-artifact-path }}
+          DEPLOY_PATH=${{ env.DEPLOY_ARTIFACT_PATH }}
         prerelease: ${{ env.PRERELEASE }}
         push-to-docker-hub: ${{ env.PUSH_TO_DOCKER_HUB }}
         diagnostic-mode: ${{ env.DIAGNOSTIC_MODE }}

@@ -53,6 +53,7 @@ jobs:
         working-directory: ./Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager
     env:
       CONFIGURATION: release
+      DEPLOY_ARTIFACT_PATH: Saltworks.SaltMiner.Deploy
       # On a push event the `inputs` context is empty, so every value falls back
       # to its dev-build default: no pre-release channel, GHCR only.
       DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode && 'true' || 'false' }}
@@ -91,6 +92,7 @@ jobs:
         context: ${{ github.workspace }}
         build-args: |
           ARTIFACT_PATH=${{ steps.paths.outputs.docker-artifact-path }}
+          DEPLOY_PATH=${{ env.DEPLOY_ARTIFACT_PATH }}
         prerelease: ${{ env.PRERELEASE }}
         push-to-docker-hub: ${{ env.PUSH_TO_DOCKER_HUB }}
         diagnostic-mode: ${{ env.DIAGNOSTIC_MODE }}

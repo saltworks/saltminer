@@ -19,8 +19,7 @@ WORKDIR ${APP_ROOT}/app/api
 COPY $ARTIFACT_PATH .
 
 # curl is used for healthcheck.
-RUN apk add --no-cache curl \
-  && mkdir -p ${APP_ROOT}/logs
+RUN apk add --no-cache curl 
 COPY $DATASTORE_SEED_PATH ./default-datastore-seed/
 
 EXPOSE 5000
