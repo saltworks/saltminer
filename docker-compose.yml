@@ -45,7 +45,7 @@ services:
     - ${APP_ROOT}/saltminer/config/nginx/:/opt/saltworks/saltminer/config/nginx:z
 #   Enable if you need logs to go to a file; by default they are aliased to STDOUT and can be seen via docker logs sm-nginx
 #    - ${APP_ROOT}/saltminer/logs/nginx:/var/log/nginx
-    - smpgui-assets:${CONTAINER_APP_ROOT}/app/ui-web
+    - smpgui-assets:${CONTAINER_APP_ROOT}/saltminer/app/ui-web
     environment:
     - KIBANA_URL=${KIBANA_URL}
     - KIBANA_HOST=${KIBANA_HOST}
@@ -69,9 +69,9 @@ services:
     expose:
     - "5000"
     volumes:
-    - ${APP_ROOT}/saltminer/config:${CONTAINER_APP_ROOT}/config:z
-    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/logs:z
-    - ${APP_ROOT}/saltminer/config/api/data:${CONTAINER_APP_ROOT}/app/api/data:z
+    - ${APP_ROOT}/saltminer/config:${CONTAINER_APP_ROOT}/saltminer/config:z
+    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/saltminer/logs:z
+    - ${APP_ROOT}/saltminer/config/api/data:${CONTAINER_APP_ROOT}/saltminer/app/api/data:z
     environment:
     - ELASTICSEARCH_CONNECTION_STRING=${ELASTICSEARCH_CONNECTION_STRING}
     - KIBANA_URL=${KIBANA_URL}
@@ -99,9 +99,9 @@ services:
     expose:
     - "5001"
     volumes:
-    - ${APP_ROOT}/saltminer/config:${CONTAINER_APP_ROOT}/config:z
-    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/logs:z
-    - ${APP_ROOT}/saltminer/app/ui-files:${CONTAINER_APP_ROOT}/app/ui-files:z
+    - ${APP_ROOT}/saltminer/config:${CONTAINER_APP_ROOT}/saltminer/config:z
+    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/saltminer/logs:z
+    - ${APP_ROOT}/saltminer/app/ui-files:${CONTAINER_APP_ROOT}/saltminer/app/ui-files:z
     environment:
     - KIBANA_URL=${KIBANA_URL}
     networks:
@@ -128,13 +128,13 @@ services:
     user: "${CONTAINER_UID_GID}"
     hostname: services
     volumes:
-    - ${APP_ROOT}/saltminer/config:${CONTAINER_APP_ROOT}/config:z
-    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/logs:z
-    - ${APP_ROOT}/saltminer/scripts:${CONTAINER_APP_ROOT}/scripts:z
-    - ${APP_ROOT}/saltminer/python/Custom:${CONTAINER_APP_ROOT}/app/python/Custom:z
-    - ${APP_ROOT}/saltminer/python/Mappings:${CONTAINER_APP_ROOT}/app/python/Mappings:z
-    - ${APP_ROOT}/saltminer/python/AppVulsCustom:${CONTAINER_APP_ROOT}/app/python/AppVulsCustom:z
-    - ${APP_ROOT}/saltminer/python/AuthHelperCustom:${CONTAINER_APP_ROOT}/app/python/AuthHelperCustom:z
+    - ${APP_ROOT}/saltminer/config:${CONTAINER_APP_ROOT}/saltminer/config:z
+    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/saltminer/logs:z
+    - ${APP_ROOT}/saltminer/scripts:${CONTAINER_APP_ROOT}/saltminer/scripts:z
+    - ${APP_ROOT}/saltminer/python/Custom:${CONTAINER_APP_ROOT}/saltminer/app/python/Custom:z
+    - ${APP_ROOT}/saltminer/python/Mappings:${CONTAINER_APP_ROOT}/saltminer/app/python/Mappings:z
+    - ${APP_ROOT}/saltminer/python/AppVulsCustom:${CONTAINER_APP_ROOT}/saltminer/app/python/AppVulsCustom:z
+    - ${APP_ROOT}/saltminer/python/AuthHelperCustom:${CONTAINER_APP_ROOT}/saltminer/app/python/AuthHelperCustom:z
     environment:
     - ELASTICSEARCH_CONNECTION_STRING=${ELASTICSEARCH_CONNECTION_STRING}
     networks:
@@ -154,9 +154,9 @@ services:
     user: "${CONTAINER_UID_GID}"
     hostname: jobmanager
     volumes:
-    - ${APP_ROOT}/saltminer/config/jobmanager:${CONTAINER_APP_ROOT}/config/jobmanager:z
-    - ${APP_ROOT}/saltminer/app/ui-files:${CONTAINER_APP_ROOT}/app/ui-files:z
-    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/logs:z
+    - ${APP_ROOT}/saltminer/config/jobmanager:${CONTAINER_APP_ROOT}/saltminer/config/jobmanager:z
+    - ${APP_ROOT}/saltminer/app/ui-files:${CONTAINER_APP_ROOT}/saltminer/app/ui-files:z
+    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/saltminer/logs:z
     networks:
     - ${CONTAINER_NETWORK}
     restart: "always"
