@@ -15,4 +15,12 @@ COPY Saltworks.SaltMiner.Nginx/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh \
     && chmod 600 /etc/nginx-defaults/saltminer.key
 
-ENTRYPOINT /docker-entrypoint.sh
+# `podman stop` sends this to PID 1.  The nginx base image sets STOPSIGNAL SIGQUIT
+# (graceful shutdown) which waits for active proxy connections (Kibana keepalive/
+# websockets) to drain; with no worker_shutdown_timeout that hangs until the ~10s
+# stop timeout -> SIGKILL.  SIGTERM = nginx fast shutdown, so `stop` returns promptly.
+STOPSIGNAL SIGTERM
+
+# exec form: the entrypoint `exec`s nginx, so nginx is PID 1 and STOPSIGNAL reaches
+# it directly (shell form would interpose /bin/sh -c and can swallow the signal).
+ENTRYPOINT ["/docker-entrypoint.sh"]
