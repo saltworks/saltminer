@@ -156,6 +156,12 @@ public class CommandJob(ServiceManagerConfig config, ILogger<CommandJob> logger,
             if (!File.Exists(appExePath))
                 throw new ConfigurationException($"Couldn't find executable path '{appExePath}'");
 
+            // exePath is the interpreter/runtime we actually launch (e.g. /bin/bash) - validate it so a missing
+            // interpreter surfaces here instead of as an opaque Process.Start "No such file or directory".
+            // Only rooted paths can be file-checked; bare commands (e.g. "dotnet", "python3") are resolved via PATH.
+            if (exePath != appExePath && Path.IsPathRooted(exePath) && !File.Exists(exePath))
+                throw new ConfigurationException($"Couldn't find interpreter/executable '{exePath}' (required to run '{appExePath}')");
+
             var startInfo = new ProcessStartInfo()
             {
                 WorkingDirectory = wrkDir,

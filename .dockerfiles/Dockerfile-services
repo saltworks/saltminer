@@ -21,7 +21,7 @@ WORKDIR ${APP_ROOT}/app
 
 RUN mkdir -p ${APP_ROOT}/config \
   && mkdir -p ${APP_ROOT}/logs \
-  && apk add --no-cache py3-pip
+  && apk add --no-cache py3-pip bash
 
 COPY $AGENT_ARTIFACT_PATH ./agent/
 COPY $MGR_ARTIFACT_PATH ./manager/
