@@ -174,7 +174,7 @@ class SyncWorker(Worker):
             self.agent.update(item, SyncQueueStage.REFRESH, item._sync_data.to_dto())
             refresh = self._get_ssc_refresh(item._sync_data.target_instance)
             refresh.PopulateVulsOne(item._sync_data.target_id)
-            self.agent.complete(item, is_error=False)
+            self.agent.complete(item, stage="", is_error=False)
         except Exception as ex:
             self.logger.error("Error processing SSC ID '%s' ('%s'), stage %s: %s", item._sync_data.target_id, item._sync_data.target_instance, item.doc.stage, str(ex))
             try:
@@ -191,7 +191,7 @@ class SyncWorker(Worker):
             self.agent.update(item, SyncQueueStage.REFRESH, item._sync_data.to_dto())
             refresh = self._get_fod_refresh(item._sync_data.target_instance)
             refresh.PopulateVulsOne(item._sync_data.target_id)
-            self.agent.complete(item, is_error=False)
+            self.agent.complete(item, stage="", is_error=False)
         except Exception as ex:
             self.logger.error("Error processing FOD ID '%s' ('%s'), stage %s: %s", item._sync_data.target_id, item._sync_data.target_instance, item.doc.stage, str(ex))
             try:
