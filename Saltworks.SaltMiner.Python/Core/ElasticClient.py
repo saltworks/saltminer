@@ -1234,7 +1234,7 @@ class ElasticClient(object):
         self.MapIndexWithMapping(indexToMap, mapping, force)
 
     def MapIndexWithMapping(self, indexToMap, mapping, force):
-        if not type(mapping) is dict:
+        if type(mapping) is not dict:
             raise ElasticClientMappingException("Invalid mapping body.  Requires dict.")
 
         exists = self.es.indices.exists(index=indexToMap)
@@ -1245,9 +1245,18 @@ class ElasticClient(object):
             exists = False
 
         if not exists:
-            response = self.es.indices.create(index=indexToMap, body=mapping )
-            msg = 'Mapping {} - {}'.format(indexToMap, response)
-            logging.debug(msg)
+            try:
+                response = self.es.indices.create(index=indexToMap, body=mapping )
+                msg = 'Mapping {} - {}'.format(indexToMap, response)
+                logging.debug(msg)
+            except exceptions.BadRequestError as ex:
+                # Multiple workers can race between the exists() check above and this
+                # create() call; the losers get 'resource_already_exists_exception'.
+                # The index now exists (the desired end state), so treat as benign.
+                if 'resource_already_exists_exception' in str(ex) and not force:
+                    logging.debug("Mapping %s - created concurrently by another worker; continuing.", indexToMap)
+                else:
+                    raise
 
         if exists:
             msg = 'Mapping {} - already exists (use force=True to overwrite)'.format(indexToMap)
