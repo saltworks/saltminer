@@ -584,7 +584,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                             {
                                 {"org_assessment_type", issue.Type},
                                 {"cmx1_issue_status", issue.Status?? " " },
-                                {"cmx1_issue_state", issue.State?? " " }
+                                {"cmx1_issue_state", issue.State?? " " },
+                                {"compliances", issue.VulnerabilityDetails?.Compliances != null ? string.Join(", ", issue.VulnerabilityDetails.Compliances) : "N/A" }
+  
                             },
                             QueueScanId = queueScan.Entity.Id,
                             QueueAssetId = queueAsset.Entity.Id,
