@@ -31,15 +31,19 @@ from elasticsearch import Elasticsearch, NotFoundError, exceptions, ConflictErro
 class SyncExtractor(object):
     """Extraction of Open FOD Changes"""
 
-    def __init__(self, appSettings, sourceName, logger=None):
-
+    def __init__(self, appSettings, sourceName, logger=None, heartbeat=None):
+        '''
+        :heartbeat: optional zero-arg callable invoked as work progresses.  Supplied by SyncWorker
+        so the agent can tell a slow sync from a defunct worker; None (the default) for standalone runs.
+        '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
         if not sourceName or not sourceName in appSettings.GetSourceNames():
             raise SyncExtractorException(f"Invalid or missing source configuration for source name '{sourceName}'")
 
         self.__Logger = logger or logging.getLogger(__name__)
-        self.__Fod = FodClient(appSettings, sourceName)
+        self.__Heartbeat = heartbeat
+        self.__Fod = FodClient(appSettings, sourceName, heartbeat=heartbeat)
         self.__Es = appSettings.Application.GetElasticClient()
         self.__SyncQueue = SyncQueueHelper(appSettings, sourceName)
         self.__PreloadReleases = appSettings.GetSource(sourceName, 'SyncPreloadReleases', True)
@@ -53,6 +57,17 @@ class SyncExtractor(object):
     @property
     def SourceName(self):
         return self.__SourceName
+
+    def _Beat(self):
+        '''
+        Signal progress to the caller's heartbeat delegate, if one was supplied.  No-op for
+        standalone runs.  Never lets a heartbeat failure break the work in progress.
+        '''
+        if self.__Heartbeat is not None:
+            try:
+                self.__Heartbeat()
+            except Exception:
+                self.__Logger.debug("Heartbeat delegate raised; ignoring.", exc_info=True)
 
     def MapESIndices(self, Force):
         
@@ -335,6 +350,7 @@ class SyncExtractor(object):
         return self.__ApplicationCache[applicationId]
 
     def __ProcessOne(self, release, forceRefresh=False):
+        self._Beat()
         needsReset = False
         checkStaticDate = True
         checkDynamicDate = True
@@ -481,6 +497,7 @@ class SyncExtractor(object):
             holdApplicationId = release['applicationId']
 
             # Clear old data
+            self._Beat()
             self.__ClearRelease(holdApplicationId, holdReleaseId)
 
             # Update fodapplications
@@ -505,6 +522,7 @@ class SyncExtractor(object):
                    
             for relScan in releasescans['items']:
 
+                self._Beat()  # a scan summary call per scan
                 relScan[self.__SourceNameField] = self.__SourceName
                 scnCount = scnCount + 1
                 self.__Es.Index('fodscans', relScan)
@@ -548,6 +566,7 @@ class SyncExtractor(object):
         if rsp and rsp.Content:
             vuls = rsp.Content
         for vuln in vuls['items']:
+            self._Beat()
             vuln['lastUpdated'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
             vuln[self.__SourceNameField] = self.__SourceName
             self.__Es.BulkSendBatch('fodrelissues', vuln, batchSize=1000)

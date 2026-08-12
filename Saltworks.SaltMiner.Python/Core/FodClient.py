@@ -30,16 +30,19 @@ import urllib.parse
 import requests
 
 from .ApplicationSettings import ApplicationSettings
+from .Heartbeat import BeatingSleep
 from .RateLimiter import ApiThrottle
 
 class FodClient(object):
 
-    def __init__(self, appSettings:ApplicationSettings, sourceName:str, logger=None):
+    def __init__(self, appSettings:ApplicationSettings, sourceName:str, logger=None, heartbeat=None):
         '''
         Initializes the class.
 
         inSettings: Settings instance containing application settings
         logger: optional Logger instance; if None, uses logging.getLogger(__name__)
+        heartbeat: optional zero-arg callable invoked while paging through results, so a caller
+                   running under the agent can prove it is still working during a long download
         '''
         if not isinstance(appSettings, ApplicationSettings):
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
@@ -50,12 +53,13 @@ class FodClient(object):
             raise FodClientConfigurationException(f"Invalid source type '{sourceType}', should be 'FOD'. (in source config '{sourceName}', property 'Source')")
 
         self.__Logger = logger or logging.getLogger(__name__)
+        self.__Heartbeat = heartbeat
         self.__App = appSettings.Application
         self.__SourceName = sourceName
         self.__VerifySsl = (appSettings.GetSource(sourceName, 'SslVerify', True))
         self.__MaxRetries = appSettings.GetSource(sourceName, 'ServerErrorMaxRetries', 3)
         self.__RetrySec = appSettings.GetSource(sourceName, 'ServerErrorRetrySeconds', 300)
-        self.__DefaultTimeout = appSettings.GetSource(sourceName, 'RequestDefaultTimeoutSeconds', 300)
+        self.__DefaultTimeout = appSettings.GetSource(sourceName, 'RequestDefaultTimeoutSeconds', 30)
         self.__ApiMaxLimit = appSettings.GetSource(sourceName, 'MaxResultsLimit', 50)
         proxy = appSettings.GetSource(sourceName, 'Proxy', '')
         if proxy and len(proxy) > 0:
@@ -124,6 +128,23 @@ class FodClient(object):
     def SourceName(self) -> str:
         return self.__SourceName
 
+    @property
+    def Logger(self) -> logging.Logger:
+        '''The logger this client was configured with; also used by FodScroller, which pages on its behalf.'''
+        return self.__Logger
+
+    def _Beat(self):
+        '''
+        Signal progress to the caller's heartbeat delegate, if one was supplied.  No-op when
+        no delegate was passed.  Never lets a heartbeat failure break the request in progress.
+        Also called by FodScroller, which pages on this client's behalf.
+        '''
+        if self.__Heartbeat is not None:
+            try:
+                self.__Heartbeat()
+            except Exception:
+                self.__Logger.debug("Heartbeat delegate raised; ignoring.", exc_info=True)
+
     #region Requests Mini-Client
     # ***********************************************************************************************************
     # Requests mini-client
@@ -150,7 +171,7 @@ class FodClient(object):
         while True:
             # Waits out any cooldown this endpoint is in (set by this thread or another worker's
             # client) and keeps the aggregate call rate for this credential within limits.
-            self.__Throttle.acquire(endpoint)
+            self.__Throttle.acquire(endpoint, self._Beat)
             try:
                 if (self.__ProxyDict):
                     resp = requests.request(method, _url, json=json, data=data, headers=headers, timeout=timeout, verify=verify, proxies=self.__ProxyDict)
@@ -163,7 +184,7 @@ class FodClient(object):
                     self.__Logger.error("Max retry count (%s) reached, api call '%s' failed.", self.__MaxRetries, url)
                     raise
                 self.__Logger.warning("Server error attempting api call ('%s'), attempt %s/%s, will retry after %s sec delay...", e.__str__(), retryCount, self.__MaxRetries, self.__RetrySec)
-                time.sleep(self.__RetrySec)
+                BeatingSleep(self.__RetrySec, self._Beat)
                 continue
 
             # Records the rate limit headers; returns a wait if the call was throttled (429).
@@ -283,6 +304,7 @@ class FodClient(object):
             self.__Logger.debug("GetPaged found %s total records for url %s", total, url)
             offset += len(dto['items'])
             while (offset < total and (limit == 0 or offset < limit)):
+                self._Beat()  # a full download can be many pages - prove we're still working
                 if logPrefix:
                     self.__Logger.info('%s: retrieved %s of %s documents', logPrefix, len(returnContent['items']), total)
                 if (offset + batchSize > limit and limit != 0):
@@ -311,12 +333,12 @@ class FodClient(object):
         if response.status_code == 429:
             timeToPause = int(response.headers['X-Rate-Limit-Reset']) + 2
             self.__Logger.info("Rate limit hit, pausing: {}".format(timeToPause))
-            time.sleep(timeToPause)
+            BeatingSleep(timeToPause, self._Beat)
 
         elif response.status_code == 500:
             self.__Logger.info("Error 500 returned, pausing for 30 seconds for system reset.")
             self.__Logger.info(response)
-            time.sleep((30))
+            BeatingSleep(30, self._Beat)
 
         elif response.status_code == 400:
             # Bad Request
@@ -762,6 +784,7 @@ class FodScroller(object):
         if self.__Limit > client.ApiMaxLimit:
             self.__Limit = client.ApiMaxLimit
         self.__Client = client
+        self.__Logger = client.Logger
         self.__TotalHits = None
         self.__TotalDownloaded = 0
         self.__LogPrefix = logPrefix if logPrefix else "FodClient"
@@ -784,6 +807,7 @@ class FodScroller(object):
             return None
         url = self.__Url
         url += ('&' if '?' in url else '?') + f'limit={self.__Limit}&offset={self.__Offset}'
+        self.__Client._Beat()
         r = self.__Client.Get(url)
         if r and r.Content and 'items' in r.Content.keys():
             rsp = r.Content['items']

@@ -104,6 +104,17 @@ class Worker(ABC):
         '''Signal this worker to stop processing; called by the agent when abandoning it.'''
         self._abandon.set()
 
+    def heartbeat(self):
+        '''
+        Progress signal for long-running collaborators.  Pass this (usually wrapped in a
+        Core.Heartbeat for throttling) to anything that can run longer than the agent's
+        defunct_worker_timeout_secs without returning, so it can prove it is still working.
+
+        Cheap by design - it refreshes the in-memory liveness timestamp only, and never
+        writes to elasticsearch the way agent.update() does.
+        '''
+        self.agent._record_beat(self.id)
+
     def run(self):
         '''Processes items from the agent queue until a sentinel (None) is received.'''
         self.logger.info("Worker %d started", self.id)

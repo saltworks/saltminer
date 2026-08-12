@@ -38,8 +38,11 @@ class SyncExtractorException(Exception):
 class SyncExtractor(object):
     """Extraction of Open SSC Changes"""
 
-    def __init__(self, appSettings, sourceName, mainConfigName="Main", logger=None):
-
+    def __init__(self, appSettings, sourceName, mainConfigName="Main", logger=None, heartbeat=None):
+        '''
+        :heartbeat: optional zero-arg callable invoked as work progresses.  Supplied by SyncWorker
+        so the agent can tell a slow sync from a defunct worker; None (the default) for standalone runs.
+        '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise SyncExtractorException("Type of appSettings must be 'ApplicationSettings'")
         if not sourceName or not sourceName in appSettings.GetSourceNames():
@@ -48,10 +51,11 @@ class SyncExtractor(object):
             raise SyncExtractorException(f"Invalid or missing configuration for name '{mainConfigName}'")
 
         self.__Logger = logger or logging.getLogger(__name__)
+        self.__Heartbeat = heartbeat
         self.__App = appSettings.Application
         self.__RulePacks = []
         self.__SourceName = sourceName
-        self.__SscUtils = SscUtilities(appSettings, sourceName)
+        self.__SscUtils = SscUtilities(appSettings, sourceName, heartbeat=heartbeat)
         self.__ElasticClient = appSettings.Application.GetElasticClient()
         self.__SscEsUtils = SscEsUtils(appSettings)
         self.__Attributes = appSettings.Get(mainConfigName, 'Attributes', {})
@@ -74,6 +78,17 @@ class SyncExtractor(object):
     @property
     def SourceName(self):
         return self.__SourceName
+
+    def _Beat(self):
+        '''
+        Signal progress to the caller's heartbeat delegate, if one was supplied.  No-op for
+        standalone runs.  Never lets a heartbeat failure break the work in progress.
+        '''
+        if self.__Heartbeat is not None:
+            try:
+                self.__Heartbeat()
+            except Exception:
+                self.__Logger.debug("Heartbeat delegate raised; ignoring.", exc_info=True)
 
     def Cleanup(self):
         self.__SscUtils.Cleanup()
@@ -700,6 +715,7 @@ class SyncExtractor(object):
         p.Finish(iTotal, "Complete")
 
     def __ProcessOne(self, projectVersion, projectAttrDefs, seenIdList, pvMessage, forceSync=False):
+        self._Beat()
         needsReset = forceSync
         needsAttrReset = False
         attributesUpdated = False
@@ -888,6 +904,7 @@ class SyncExtractor(object):
             self.__Logger.info('%s, syncing SSC project version', pvMessage)
 
             # STEP 1 - Clear out records to do refresh
+            self._Beat()
             self.__ClearProject(projid)
 
             # STEP 2 - Refresh project version (application and release)
@@ -915,6 +932,7 @@ class SyncExtractor(object):
                 self.__UpdateAttributes(projid, pvMessage, paDefs, sscRawAttributes, False)
                                 
             # STEP 4 - Refresh project scans
+            self._Beat()
             projectScans = self.__SscUtils.SscClient.GetProjectVersionScans(projid)
 
             scnCount = 0
@@ -923,6 +941,7 @@ class SyncExtractor(object):
             self.__Logger.info("Adding scans for PV ID %s to sscprojscans", projid)
             for artifact in projectScans:
 
+                self._Beat()
                 # artifacts can have multiple scans. map and return as list
                 scans = self.ArtifactToScans(artifact, projid, holdprojectname, holdname)
 
@@ -936,7 +955,8 @@ class SyncExtractor(object):
                     self.__ElasticClient.Index('sscprojscans', json.dumps(scan))
                     scnCount = scnCount + 1
                     
-            # STEP 5 - Refresh issues 
+            # STEP 5 - Refresh issues
+            self._Beat()
             try:
                 if self.__IssueDetailsEndpoint:
                     self.__SscUtils.BulkIssuesLoadFromDetails(projid, projectDefFilter)
@@ -953,6 +973,7 @@ class SyncExtractor(object):
                     raise
 
             # STEP 6 - Update summary counts for matching
+            self._Beat()
             novuls = False
             issues_count = self.__SscUtils.getProjectVersionIssueCounts(projid, projectDefFilter)
             jprojcounts = json.dumps(issues_count)
