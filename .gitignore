@@ -35,6 +35,7 @@ Saltworks.SaltMiner.Python/Custom/*
 !Saltworks.SaltMiner.Python/Custom/*.py
 Saltworks.SaltMiner.Python/**/*/saltworks.key
 Saltworks.SaltMiner.Python/sm-run-config-location.json
+Saltworks.SaltMiner.Python/docs/plans/
 **/*/[Dd]ebug*.py
 *.tmp
 sm-run-config-location.json
