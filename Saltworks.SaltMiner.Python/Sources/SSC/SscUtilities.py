@@ -38,9 +38,10 @@ from Utility.GeneralUtility import GeneralUtility
 
 class SscUtilities:
 
-    def __init__(self, appSettings, sourceName, logger=None):
+    def __init__(self, appSettings, sourceName, logger=None, heartbeat=None):
 
         self.__Logger = logger or logging.getLogger(__name__)
+        self.__Heartbeat = heartbeat
         self.__App = appSettings.Application
         self.__ProjectVersions = {'data': [], 'count': 0}
         self.__AllIssues = {'data': [], 'Critical': 0, 'High': 0, 'Medium': 0, 'Low':0, 'count': 0}
@@ -61,7 +62,7 @@ class SscUtilities:
         #self.__UseSscClient = False
         
         if self.__UseSscClient :
-            self.__Ssc = SscClient(appSettings, sourceName)
+            self.__Ssc = SscClient(appSettings, sourceName, heartbeat=heartbeat)
             self.__Logger.debug(f"{self.__Prog}.init complete - using SSC client.")
             if appSettings.GetSource(sourceName, 'UseIssueDetailsEndpoint', False):
                 self.__CustomTagDefinitions = self.__Ssc.GetCustomTagDefinitions()
@@ -96,6 +97,17 @@ class SscUtilities:
 
             self.__Logger.debug("{self.__Prog}.init complete.  RestClient params - url: '{}', username: '{}', verify: {}".format(appSettings.GetSource(sourceName, 'BaseUrl', '[Unknown]'), appSettings.GetSource(sourceName, 'Username', '[Unknown]'), appSettings.GetSource(sourceName, 'SslVerify', '[Unknown]')))
     
+    def _Beat(self):
+        '''
+        Signal progress to the caller's heartbeat delegate, if one was supplied.  No-op for
+        standalone runs.  Never lets a heartbeat failure break the work in progress.
+        '''
+        if self.__Heartbeat is not None:
+            try:
+                self.__Heartbeat()
+            except Exception:
+                self.__Logger.debug("Heartbeat delegate raised; ignoring.", exc_info=True)
+
     def Cleanup(self):
         if self.__UseSscClient :
             self.__Ssc.Cleanup()
@@ -552,6 +564,7 @@ class SscUtilities:
         issues = []
         counter = 0
         for iss in issueBatch:
+            self._Beat()  # one SSC round trip per issue - the slowest loop in the sync
             rsp = ssc.GetProjectVersionIssueDetail(iss['id'])['data']
             issues.append(self.__BulkIssuesLoadFromDetailsMapIssueFromDetail(rsp, iss['reviewed'], self.__Ssc.BaseUrl, pvid))
             counter += 1
@@ -592,10 +605,12 @@ class SscUtilities:
             counter += 1
             if len(requests) >= self.__SscIssueDetailBatchSize:
                 self.__Logger.info("Bulk issue detail loading %i-%i of a batch of %i issues", counter - self.__SscIssueDetailBatchSize + 1, counter, len(issueBatch))
+                self._Beat()
                 self.__BulkIssuesLoadFromDetailsBatchBulk(requests, issues, pvid)
                 requests = []
         if len(requests) > 0:
             self.__Logger.info("Bulk issue detail loading remaining %i issues", len(requests))
+            self._Beat()
             self.__BulkIssuesLoadFromDetailsBatchBulk(requests, issues, pvid)
         if len(issueBatch) != len(issues):
             self.__Logger.warning("BulkIssuesLoadFromDetailsBatch - counts don't match (expected %s, found %s)", len(issueBatch), len(issues))
@@ -612,6 +627,7 @@ class SscUtilities:
         eBatchSize = self.__ElasticBatchSize
         p = ProgressLogger(self.__ElasticClient)
         while more:
+            self._Beat()  # each page is an SSC round trip plus a details fetch - can be slow
             try:
                 r = self.__Ssc.GetProjectVersionIssuesV2(projectVersionId, projDefFilter, "id,reviewed", self.__SscBatchSize, False, restartScroll = (count == 0))
             except SscClient409ConflictException as e:
@@ -632,6 +648,7 @@ class SscUtilities:
                     count += 1
                     if len(bulkDocs) == eBatchSize:
                         p.Progress(count, f"Bulk inserting {eBatchSize} documents into SaltMiner")
+                        self._Beat()
                         self.__ElasticClient.BulkInsert(bulkDocs)
                         bulkDocs = []
 
@@ -650,6 +667,7 @@ class SscUtilities:
         eBatchSize = self.__ElasticBatchSize
         p = ProgressLogger(self.__ElasticClient)
         while _moreRecords:
+            self._Beat()  # each page is an SSC round trip - can be slow
             response = self.__Ssc.GetProjectVersionIssues(projectVersionId, projDefFilter, sBatchSize, False)
             if response == None:
                 if p.Started:
@@ -664,6 +682,7 @@ class SscUtilities:
                     iCurrentCount += 1
                     if len(bulkDocs) == eBatchSize:
                         p.Progress(iCurrentCount, f"Bulk inserting {eBatchSize} documents into SaltMiner")
+                        self._Beat()
                         self.__ElasticClient.BulkInsert(bulkDocs)
                         bulkDocs = []
 

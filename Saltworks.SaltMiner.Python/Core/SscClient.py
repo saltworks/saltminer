@@ -30,18 +30,21 @@ import os
 import requests
 from requests.exceptions import ConnectionError as RequestsConnectionError, ReadTimeout as RequestsReadTimeout
 
+from .Heartbeat import BeatingSleep
 from .RestClient import RestClient
 from .ApplicationSettings import ApplicationSettings
 
 class SscClient(object):
 
-    def __init__(self, appSettings:ApplicationSettings, sourceName:str, logger=None):
+    def __init__(self, appSettings:ApplicationSettings, sourceName:str, logger=None, heartbeat=None):
         '''
         Initializes the class.
 
         appSettings: Settings instance containing application settings
         sourceName: SourceName appearing in a config file in Config\\Sources
         logger: optional Logger instance; if None, uses logging.getLogger(__name__)
+        heartbeat: optional zero-arg callable invoked while waiting out a retry backoff, so a caller
+                   running under the agent isn't mistaken for a dead worker during a long retry
         '''
         if not isinstance(appSettings, ApplicationSettings):
             raise ValueError("Type of appSettings must be 'ApplicationSettings'")
@@ -51,6 +54,7 @@ class SscClient(object):
         if not sourceType == "SSC":
             raise SscClientConfigurationException(f"Invalid source type '{sourceType}', should be 'SSC'. (in source config '{sourceName}', property 'Source')")
         self.__Logger = logger or logging.getLogger(__name__)
+        self.__Heartbeat = heartbeat
         self.__App = appSettings.Application
         self.__AuthTokenInfo = None
         self.__DefaultTimeout = appSettings.GetSource(sourceName, 'RequestTimeoutSec', 10)
@@ -95,6 +99,17 @@ class SscClient(object):
     def SourceName(self) -> str:
         return self.__SourceName
 
+    def _Beat(self):
+        '''
+        Signal progress to the caller's heartbeat delegate, if one was supplied.  No-op when no
+        delegate was passed.  Never lets a heartbeat failure break the request in progress.
+        '''
+        if self.__Heartbeat is not None:
+            try:
+                self.__Heartbeat()
+            except Exception:
+                self.__Logger.debug("Heartbeat delegate raised; ignoring.", exc_info=True)
+
     def __Logout(self, isRetry=False):
         if not self.__AuthTokenInfo:
             self.__Logger.error("SscClient unable to log out of current session, session information missing.")
@@ -109,7 +124,7 @@ class SscClient(object):
                 self.__Logger.error("SscClient giving up on deleting session token.")
                 return
             self.__Logger.info("SscClient logout retry in 10 sec...")
-            time.sleep(10)
+            BeatingSleep(10, self._Beat)
             return self.__Logout(True)
 
     def __Login(self, appSettings, sourceName, isRetry=False):
@@ -157,7 +172,7 @@ class SscClient(object):
             if isRetry:
                 raise SscClientServerErrorException(msg) from e
             self.__Logger.info("SscClient login retry in 10 sec...")
-            time.sleep(10)
+            BeatingSleep(10, self._Beat)
             return self.__Login(appSettings, sourceName, True)
 
     def __GetAuthToken(self, appSettings, sourceName):
@@ -277,7 +292,7 @@ class SscClient(object):
             self.__Logger.error("Reached retry limit - see earlier logged errors for details.")
             raise ex
 
-        time.sleep(wait)
+        BeatingSleep(wait, self._Beat)
         return self.__Get(url, navToData, suppressError, statKey, errorOnEmptyResponse, retryDelaySec)
 
     def __GetResponseDataOrError(self, response, navToData = True, suppressError = False, errorOnEmptyResponse = True):
@@ -388,7 +403,7 @@ class SscClient(object):
             rlst = self.__GetResponseDataOrError(self.__Client.Post("api/v1/bulk", { "requests": bulkRequests }))
         except (SscClientServerErrorException, SscClientEmptyResponseException, ConnectionError, RequestsConnectionError) as e:
             self.__App.LogError(f"SSC Bulk API error - [{type(e).__name__}] {e}, retrying in {wait} secs...")
-            time.sleep(wait)
+            BeatingSleep(wait, self._Beat)
             retry = True
         except SscClientAuthenticationException as e:
             self.__App.LogWarning(f"Authentication token invalid, attempting to get new token and retry previous operation ({e})")
@@ -396,7 +411,7 @@ class SscClient(object):
             retry = True
         except RequestsReadTimeout as e:
             self.__App.LogError(f"SSC Bulk API read timeout error ('{e}'), retrying in {wait} secs...")
-            time.sleep(wait)
+            BeatingSleep(wait, self._Beat)
             retry = True
         
         if retry:
@@ -875,7 +890,7 @@ class SscClient(object):
         except (SscClientServerErrorException, SscClientEmptyResponseException, ConnectionError, RequestsConnectionError) as e:
             wait = self.__RetrySec
             self.__App.LogError(f"SSC API error - [{type(e).__name__}] {e}, retrying in {wait} secs...")
-            time.sleep(wait)
+            BeatingSleep(wait, self._Beat)
             return self.__Get(url, False, "IssueDetails", "GetProjectVersionIssueDetail")
 
         except Exception as e:

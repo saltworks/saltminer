@@ -20,6 +20,7 @@
 # SyncWorker class - used to run sync processing in multi-threaded environment.
 
 from Core.Agent import Agent
+from Core.Heartbeat import Heartbeat
 from Core.Worker import WorkerFactory, Worker, WorkerException
 from Core.QueueClient import QueueClientDto
 from .SSC.SyncExtractor import SyncExtractor as SscSync
@@ -128,30 +129,35 @@ class SyncWorker(Worker):
         self._ssc_refresh = None
         self._fod_sync = None
         self._fod_refresh = None
+        # A sync or refresh of one project version/release can run far longer than the agent's
+        # defunct_worker_timeout_secs without returning, so the extractors and processors get a
+        # throttled delegate they can fire as they make progress.  One per worker; the extractor
+        # instances below are cached per worker too, so it's bound once at construction.
+        self._heartbeat = Heartbeat(self.heartbeat, min_interval_secs=kwargs.get("heartbeat_interval_secs", 5))
 
     def _get_ssc_sync(self, src_name:str) -> SscSync:
         if self._ssc_sync is None or self._ssc_sync.SourceName != src_name:
             if self._ssc_sync is not None:
                 self._ssc_sync.Cleanup()
-            self._ssc_sync = SscSync(self.agent.app.Settings, src_name, logger=self.logger)
+            self._ssc_sync = SscSync(self.agent.app.Settings, src_name, logger=self.logger, heartbeat=self._heartbeat)
         return self._ssc_sync
 
 
     def _get_ssc_refresh(self, src_name:str) -> SscRefresh:
         if self._ssc_refresh is None or self._ssc_refresh.SourceName != src_name:
-            self._ssc_refresh = SscRefresh(self.agent.app.Settings, src_name, logger=self.logger)
+            self._ssc_refresh = SscRefresh(self.agent.app.Settings, src_name, logger=self.logger, heartbeat=self._heartbeat)
         return self._ssc_refresh
 
 
     def _get_fod_sync(self, src_name:str) -> FodSync:
         if self._fod_sync is None or self._fod_sync.SourceName != src_name:
-            self._fod_sync = FodSync(self.agent.app.Settings, src_name, logger=self.logger)
+            self._fod_sync = FodSync(self.agent.app.Settings, src_name, logger=self.logger, heartbeat=self._heartbeat)
         return self._fod_sync
 
 
     def _get_fod_refresh(self, src_name:str) -> FodRefresh:
         if self._fod_refresh is None or self._fod_refresh.SourceName != src_name:
-            self._fod_refresh = FodRefresh(self.agent.app.Settings, src_name, logger=self.logger)
+            self._fod_refresh = FodRefresh(self.agent.app.Settings, src_name, logger=self.logger, heartbeat=self._heartbeat)
         return self._fod_refresh
 
 

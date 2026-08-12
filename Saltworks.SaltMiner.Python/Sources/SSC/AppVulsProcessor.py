@@ -36,8 +36,11 @@ from Utility.UpdateQueueHelper import UpdateQueueHelper
 class AppVulsProcessor(object):
     """ App vulnerability processor for SSC """
 
-    def __init__(self, appSettings, sourceName, smv3ConfigName="SMv3", mainConfigName="Main", logger=None):
-
+    def __init__(self, appSettings, sourceName, smv3ConfigName="SMv3", mainConfigName="Main", logger=None, heartbeat=None):
+        '''
+        :heartbeat: optional zero-arg callable invoked as work progresses.  Supplied by SyncWorker
+        so the agent can tell a slow refresh from a defunct worker; None (the default) for standalone runs.
+        '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
         if not smv3ConfigName or not smv3ConfigName in appSettings.GetConfigNames():
@@ -46,6 +49,7 @@ class AppVulsProcessor(object):
             raise AppVulsSSCException(f"Invalid or missing configuration for name '{mainConfigName}'")
 
         self.__Logger = logger or logging.getLogger(__name__)
+        self.__Heartbeat = heartbeat
         self.__Es = appSettings.Application.GetElasticClient()
         self.__Attributes = appSettings.Get(mainConfigName, 'Attributes')
         self.__App = appSettings.Application
@@ -274,12 +278,25 @@ class AppVulsProcessor(object):
         #
         queue_scan_ids = []
         if self.__SmApiClientEnabled:
+            self._Beat()
             queue_scan_ids = self.__SmApiClient.finalize_everything()
+            self._Beat()
 
         self.__Logger.info("Complete")
         if cleanupAfter:
             self.Cleanup()
         return queue_scan_ids
+
+    def _Beat(self):
+        '''
+        Signal progress to the caller's heartbeat delegate, if one was supplied.  No-op for
+        standalone runs.  Never lets a heartbeat failure break the work in progress.
+        '''
+        if self.__Heartbeat is not None:
+            try:
+                self.__Heartbeat()
+            except Exception:
+                self.__Logger.debug("Heartbeat delegate raised; ignoring.", exc_info=True)
 
     def Cleanup(self):
         if self.__AppVulsSscCustom.Cleanup:
@@ -392,6 +409,7 @@ class AppVulsProcessor(object):
 
         lastScans = {}
         for scan in projectScans.values():
+            self._Beat()
             if not 'type' in scan and 'scanrec' in scan:
                 raise AppVulsSSCException("sscprojscans index is incompatible and must be upgraded to the latest version.  See Upgrade/RunSscScansUpgrade for more details.")
             scanType = scan['type']
@@ -558,6 +576,7 @@ class AppVulsProcessor(object):
 
                 # Main issue handling loop
                 for IssueContainer in scroller.Results:
+                    self._Beat()
                     Issue = IssueContainer['_source']
                     IssueKey = IssueContainer['_id']
                     IssueActive = True
@@ -763,6 +782,7 @@ class AppVulsProcessor(object):
             if assessmentTypeStatuses[assessment_type]['present']:
                 continue
 
+            self._Beat()
             cancelTrk = CancelTracker(False)
             self.__AppVulsCustom.CustomBeforeIssueUpdate(projectVersion, attributes, assessment_type, 'SSC', cancelTrk)
             if not cancelTrk.Cancel:
@@ -895,6 +915,7 @@ class AppVulsProcessor(object):
                 self.__Logger.info("Bulk queue empty, nothing to send.")
             else:
                 self.__Logger.info("Bulk queue send (%s items)", len(self.__BulkDocs))
+                self._Beat()
                 self.__Es.BulkInsert(self.__BulkDocs)
                 self.__BulkDocs = []
 

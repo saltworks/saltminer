@@ -24,6 +24,8 @@ import threading
 import time
 import logging
 
+from .Heartbeat import BeatingSleep
+
 class RateLimiter:
     """
     Thread-safe rate limiter for API requests.
@@ -183,8 +185,14 @@ class ApiThrottle:
         path = path.split('?', 1)[0].split('#', 1)[0]
         return re.sub(r'/\d+(?=/|$)', '/{id}', path) or '/'
 
-    def acquire(self, endpoint):
-        """Blocks until this endpoint is out of cooldown and the shared rate gate allows a request."""
+    def acquire(self, endpoint, beat=None):
+        """
+        Blocks until this endpoint is out of cooldown and the shared rate gate allows a request.
+
+        beat: optional zero-arg callable invoked while waiting out a cooldown.  A cooldown can run
+        to the server's reset window, which is long enough to look like a dead worker to the agent -
+        the beat is per-caller, so this stays shared across clients.
+        """
         while True:
             wait = self._cooldown_remaining(endpoint)
             if wait <= 0:
@@ -193,7 +201,7 @@ class ApiThrottle:
             # cooldown would still release every thread on the same tick.
             wait += self._stagger()
             self._logger.info("Rate limit cooldown on '%s': waiting %.1fs before next request", endpoint, wait)
-            time.sleep(wait)
+            BeatingSleep(wait, beat)
         self._gate.acquire()
 
     def observe(self, endpoint, status_code, headers):

@@ -46,7 +46,7 @@ class AgentArgs():
         :new_queue_item_stage: optional string for the stage to set when new queue items are created
         :queue_batch_size: optional integer for the batch size when fetching queue items from elasticsearch
         :worker_error_threshold: optional integer for the number of consecutive errors a worker can encounter before it is stopped, defaults to 3
-        :defunct_worker_timeout_secs: optional integer; if a worker goes this many seconds without a heartbeat while holding an item, the agent releases its item and abandons it. 0 (default) disables defunct-worker detection.  Must exceed the longest expected time a single item can spend between heartbeats (heartbeats fire on item pickup and on each agent.update()/complete()).
+        :defunct_worker_timeout_secs: optional integer, defaults to 120; if a worker goes this many seconds without a heartbeat while holding an item, the agent releases its item and abandons it. 0 disables defunct-worker detection.  Must exceed the longest expected time a single item can spend between heartbeats (heartbeats fire on item pickup, on each agent.update()/complete(), and - for workers that pass a Core.Heartbeat delegate to their collaborators - as those make progress).  Note this must clear the source API clients' own timeout and retry budgets, since no beat can fire from inside a blocking request or a retry sleep.
         """
         self._queue_index_pattern_tag = queue_index_pattern_tag
         self._low_threshold_count = kwargs.get("low_threshold_count", 10)
@@ -55,7 +55,7 @@ class AgentArgs():
         self._new_queue_item_stage = kwargs.get("new_queue_item_stage")
         self._queue_batch_size = kwargs.get("queue_batch_size")
         self._worker_error_threshold = kwargs.get("worker_error_threshold", 3)
-        self._defunct_worker_timeout_secs = kwargs.get("defunct_worker_timeout_secs", 0)
+        self._defunct_worker_timeout_secs = kwargs.get("defunct_worker_timeout_secs", 120)
 
     @property
     def queue_index_pattern_tag(self) -> str:
