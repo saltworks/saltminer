@@ -46,6 +46,7 @@ class AgentArgs():
         :new_queue_item_stage: optional string for the stage to set when new queue items are created
         :queue_batch_size: optional integer for the batch size when fetching queue items from elasticsearch
         :worker_error_threshold: optional integer for the number of consecutive errors a worker can encounter before it is stopped, defaults to 3
+        :defunct_worker_timeout_secs: optional integer; if a worker goes this many seconds without a heartbeat while holding an item, the agent releases its item and abandons it. 0 (default) disables defunct-worker detection.  Must exceed the longest expected time a single item can spend between heartbeats (heartbeats fire on item pickup and on each agent.update()/complete()).
         """
         self._queue_index_pattern_tag = queue_index_pattern_tag
         self._low_threshold_count = kwargs.get("low_threshold_count", 10)
@@ -54,6 +55,7 @@ class AgentArgs():
         self._new_queue_item_stage = kwargs.get("new_queue_item_stage")
         self._queue_batch_size = kwargs.get("queue_batch_size")
         self._worker_error_threshold = kwargs.get("worker_error_threshold", 3)
+        self._defunct_worker_timeout_secs = kwargs.get("defunct_worker_timeout_secs", 0)
 
     @property
     def queue_index_pattern_tag(self) -> str:
@@ -104,9 +106,19 @@ class AgentArgs():
     def queue_batch_size(self, value:int):
         self._queue_batch_size = value
 
+    @property
+    def defunct_worker_timeout_secs(self) -> int:
+        return self._defunct_worker_timeout_secs
+    @defunct_worker_timeout_secs.setter
+    def defunct_worker_timeout_secs(self, value:int):
+        self._defunct_worker_timeout_secs = value
+
 
 class Agent():
     """Agent class for multi-threaded processing queue items."""
+
+    # Sentinel for _record_beat: "update the timestamp but leave the current item unchanged".
+    _KEEP = object()
 
     def __init__(self, app:Application, args:AgentArgs, wrk_factory:WorkerFactory):
         """
@@ -122,6 +134,12 @@ class Agent():
         self._es = app.GetElasticClient()
         self._queue = queue.Queue()
         self._workers: list[threading.Thread] = []
+        self._abandoned_workers: list[threading.Thread] = []
+        # Per-worker liveness: {worker_id: {'last_heartbeat': monotonic, 'item': dto|None}}.
+        # Written by workers (heartbeats) and read/pruned by the agent thread, so guarded by a lock.
+        self._worker_state: dict[int, dict] = {}
+        self._state_lock = threading.Lock()
+        self._next_worker_id = 0  # next id to hand out; advances past worker_count as replacements spawn
         self._queue_client = None
 
     @property
@@ -164,43 +182,159 @@ class Agent():
             return -1
 
 
+    def _spawn_worker(self, worker_id:int) -> threading.Thread:
+        """Create, register, and start a single worker thread with the given id."""
+        worker = self.worker_factory.create_worker(worker_id, self)
+        worker.error_threshold = self.args.worker_error_threshold
+        t = threading.Thread(target=worker.run, daemon=True, name=f"worker-{worker_id}")
+        t.worker_id = worker_id
+        t._worker = worker  # kept so the agent can signal (abandon) the worker instance
+        with self._state_lock:
+            self._worker_state[worker_id] = {'last_heartbeat': time.monotonic(), 'item': None}
+        self._workers.append(t)
+        t.start()
+        return t
+
+
     def _start_workers(self):
-        """Start worker threads."""
+        """Start the initial pool of worker threads."""
         for i in range(self.args.worker_count):
-            worker = self.worker_factory.create_worker(i, self)
-            worker.error_threshold = self.args.worker_error_threshold
-            t = threading.Thread(target=worker.run, daemon=True)
-            self._workers.append(t)
-            t.start()
+            self._spawn_worker(i)
+        self._next_worker_id = self.args.worker_count
+
+
+    def _record_beat(self, worker_id:int, item=_KEEP):
+        """Record a worker heartbeat. Pass item to set the worker's current item (None = idle);
+        omit it to just refresh the timestamp (progress within an item)."""
+        now = time.monotonic()
+        with self._state_lock:
+            st = self._worker_state.get(worker_id)
+            if st is None:
+                st = {'last_heartbeat': now, 'item': None}
+                self._worker_state[worker_id] = st
+            st['last_heartbeat'] = now
+            if item is not Agent._KEEP:
+                st['item'] = item
+
+
+    def _beat_current(self):
+        """Refresh the heartbeat for the worker running on the current thread (no-op off a worker thread)."""
+        wid = getattr(threading.current_thread(), 'worker_id', None)
+        if wid is not None:
+            self._record_beat(wid)
+
+
+    def _running_worker_ids(self) -> list[int]:
+        """Return the ids of worker threads that are still alive, sorted."""
+        return sorted(t.worker_id for t in self._workers if t.is_alive())
+
+
+    def _reap_defunct_workers(self, context:str="run"):
+        """Release the in-progress item of, and abandon, any worker that has stopped heartbeating
+        while holding an item.  No-op unless defunct_worker_timeout_secs is set.  Idle workers are
+        never reaped (a worker blocked waiting for work has item=None)."""
+        timeout = self.args.defunct_worker_timeout_secs
+        if not timeout or timeout <= 0:
+            return
+        now = time.monotonic()
+        for t in list(self._workers):
+            if not t.is_alive():
+                continue
+            wid = t.worker_id
+            with self._state_lock:
+                st = self._worker_state.get(wid)
+                item = st.get('item') if st else None
+                last = st.get('last_heartbeat', now) if st else now
+            if item is None:
+                continue
+            age = now - last
+            if age > timeout:
+                logging.error("Worker %d appears defunct (%s): no heartbeat for %.0fs (timeout %ds) while processing item %s. Releasing its item and abandoning the worker.",
+                              wid, context, age, timeout, getattr(item, 'id', '[unknown]'))
+                self._release_defunct_item(wid, item, age)
+                self._abandon_worker(t, wid)
+                # Replace the lost capacity if there's still work waiting (never during shutdown).
+                if context == "run" and not self._queue.empty():
+                    new_id = self._next_worker_id
+                    self._next_worker_id += 1
+                    logging.info("Spawning replacement worker %d for abandoned worker %d (work still queued).", new_id, wid)
+                    self._spawn_worker(new_id)
+
+
+    def _release_defunct_item(self, wid:int, item:QueueClientDto, age:float):
+        """Mark a defunct worker's stuck in-progress item as errored so it isn't left locked forever."""
+        try:
+            self.complete(item, is_error=True, reason=f"Released by agent: worker {wid} became defunct (no heartbeat for {age:.0f}s)")
+            logging.info("Released defunct worker %d's in-progress queue item %s (marked error).", wid, getattr(item, 'id', '[unknown]'))
+        except Exception:
+            logging.exception("Failed to release defunct worker %d's queue item %s", wid, getattr(item, 'id', '[unknown]'))
+
+
+    def _abandon_worker(self, t:threading.Thread, wid:int):
+        """Stop tracking a worker so it no longer counts as active nor blocks shutdown.  The
+        underlying daemon thread (which we cannot force-kill) exits when the process does; if it
+        ever unblocks, its abandon flag makes it stop instead of picking up more work."""
+        w = getattr(t, '_worker', None)
+        if w is not None:
+            w.abandon()
+        self._forget_worker(t)
+        if t not in self._abandoned_workers:
+            self._abandoned_workers.append(t)
+        logging.warning("Worker %d abandoned; %d worker(s) still tracked.", wid, len(self._workers))
+
+
+    def _forget_worker(self, t:threading.Thread):
+        """Remove a worker thread from tracking and drop its liveness state."""
+        try:
+            self._workers.remove(t)
+        except ValueError:
+            pass
+        with self._state_lock:
+            self._worker_state.pop(getattr(t, 'worker_id', None), None)
+
+
+    def _drain_queue(self):
+        """Best-effort drain of any items left in the internal queue so counts stay clean."""
+        while True:
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+            except queue.Empty:
+                break
 
 
     def _shutdown_workers(self):
-        """Block until all queued items are processed, then stop workers."""
-        if any(t.is_alive() for t in self._workers):
-            self._queue.join()
-        else:
-            # All workers died (e.g. error threshold) - drain unprocessed items so join() can't block forever
-            while True:
-                try:
-                    self._queue.get_nowait()
-                    self._queue.task_done()
-                except queue.Empty:
-                    break
-        for _ in self._workers:
+        """Signal workers to stop and wait for them.  Workers still making progress (heartbeating)
+        are waited on; workers that go defunct are reaped, so a hung worker can never block shutdown."""
+        # Enough sentinels to unblock every tracked worker (plus a margin for any resumed abandoned thread).
+        for _ in range(len(self._workers) + len(self._abandoned_workers) + 1):
             self._queue.put(None)
-        for t in self._workers:
-            t.join()
+        if self.args.defunct_worker_timeout_secs and self.args.defunct_worker_timeout_secs > 0:
+            while self._workers:
+                for t in list(self._workers):
+                    t.join(timeout=1.0)
+                    if not t.is_alive():
+                        self._forget_worker(t)
+                self._reap_defunct_workers(context="shutdown")
+        else:
+            # Defunct detection disabled: wait for workers as before (a truly hung worker can block here).
+            for t in list(self._workers):
+                t.join()
+                self._forget_worker(t)
+        self._drain_queue()
         self._workers.clear()
 
 
     def update(self, dto:QueueClientDto, stage:str=None, data:dict=None) -> QueueClientDto:
         """Update the given queue item stage/data using the QueueClient."""
+        self._beat_current()  # progress within an item counts as a heartbeat
         self.queue_client.set_progress(dto, stage, data)
         return dto
-    
-    
+
+
     def complete(self, dto:QueueClientDto, stage:str=None, data:dict=None, is_error:bool=True, reason:str=None) -> QueueClientDto:
         """Mark the given queue item as complete using the QueueClient."""
+        self._beat_current()
         self.queue_client.set_complete(dto, stage, data, is_error, reason)
         return dto
 
@@ -223,11 +357,14 @@ class Agent():
                     if fetched == 0 and self._queue.empty() and stop_when_empty:
                         logging.info("No more items to process and stop_when_empty is True, shutting down.")
                         break
-                logging.info("Internal queue size: %s. Sleeping %ss", self._queue.qsize(), self.args.polling_interval_secs)
+                running = self._running_worker_ids()
+                running_desc = str(running) if len(running) <= 10 else f"{len(running)} workers"
+                logging.info("Internal queue size: %s. Running workers: %s. Sleeping %ss", self._queue.qsize(), running_desc, self.args.polling_interval_secs)
                 time.sleep(self.args.polling_interval_secs)
-                active = sum(1 for t in self._workers if t.is_alive())
-                logging.debug("Active workers: %d", active)
-                if active == 0:
+                self._reap_defunct_workers()
+                running = self._running_worker_ids()
+                logging.debug("Active workers (%d): %s", len(running), running)
+                if not running:
                     logging.info("No active workers, queue size: %d, shutting down.  This might be caused by worker errors, check logs.", self._queue.qsize())
                     break
         except KeyboardInterrupt:

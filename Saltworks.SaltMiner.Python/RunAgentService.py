@@ -18,7 +18,8 @@ def main():
         polling_interval_secs = app.Settings.Get("SyncAgent", "PollingIntervalSecs", 30),
         new_queue_item_stage = SyncQueueStage.SYNC,
         queue_batch_size=app.Settings.Get("SyncAgent", "QueueBatchSize", 20),
-        worker_error_threshold=app.Settings.Get("SyncAgent", "WorkerErrorThreshold", 3)
+        worker_error_threshold=app.Settings.Get("SyncAgent", "WorkerErrorThreshold", 3),
+        defunct_worker_timeout_secs=app.Settings.Get("SyncAgent", "DefunctWorkerTimeoutSecs", 600)
     )
     agent = Agent(app, agent_args, SyncWorkerFactory())
     logging.info("Starting Sync Agent with %d workers", agent.args.worker_count)

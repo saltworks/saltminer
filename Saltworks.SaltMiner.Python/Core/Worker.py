@@ -20,6 +20,7 @@
 # Worker class - used to run processing in multi-threaded environment.
 
 import logging
+import threading
 from abc import ABC, abstractmethod
 
 from .ElasticClient import ElasticClient
@@ -52,6 +53,9 @@ class Worker(ABC):
         self._id = id
         self._err_count = 0
         self._err_threshold = kwargs.get("err_threshold", 5)
+        # Set by the agent when it abandons this worker (e.g. defunct/timed out).  A truly hung
+        # worker can't observe it mid-item, but if it ever unblocks it stops rather than taking more work.
+        self._abandon = threading.Event()
 
     @property
     def es(self) -> ElasticClient:
@@ -90,15 +94,32 @@ class Worker(ABC):
     @error_threshold.setter
     def error_threshold(self, value:int):
         self._err_threshold = value
-    
+
+    @property
+    def abandoned(self) -> bool:
+        '''True once the agent has abandoned this worker (defunct/timed out).'''
+        return self._abandon.is_set()
+
+    def abandon(self):
+        '''Signal this worker to stop processing; called by the agent when abandoning it.'''
+        self._abandon.set()
+
     def run(self):
         '''Processes items from the agent queue until a sentinel (None) is received.'''
         self.logger.info("Worker %d started", self.id)
+        self.agent._record_beat(self.id, item=None)  # register as alive and idle
         while True:
+            if self._abandon.is_set():
+                break
             item = self.agent.queue.get()
             if item is None:
                 self.agent.queue.task_done()
                 break
+            if self._abandon.is_set():
+                # abandoned while blocked on the queue - release this item and stop
+                self.agent.queue.task_done()
+                break
+            self.agent._record_beat(self.id, item=item)  # now busy on this item
             try:
                 if not isinstance(item, QueueClientDto):
                     raise WorkerException(f"Invalid queue item type: expected QueueClientDto, got {type(item)}")
@@ -114,6 +135,8 @@ class Worker(ABC):
                     break
             finally:
                 self.agent.queue.task_done()
+                if not self._abandon.is_set():
+                    self.agent._record_beat(self.id, item=None)  # back to idle
         logging.getLogger(__name__).info("Worker %d stopped", self.id)
 
     @abstractmethod
