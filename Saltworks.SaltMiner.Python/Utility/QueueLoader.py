@@ -28,11 +28,12 @@ BATCH_SIZE = 100
 
 def format_items(pvids: list, target_type: str, src_name: str, force: bool) -> dict:
     '''
-    Format a list of already-normalized ID strings into the {key: payload} shape
-    expected by QueueClient.insert_queue(), matching the key convention used by
+    Format a list of IDs into the {key: payload} shape expected by
+    QueueClient.insert_queue(), matching the key convention used by
     RunWebhookPull.py and the payload fields read by SyncQueueData.
 
-    :pvids: list of ID strings, already normalized (stripped, non-empty)
+    :pvids: list of IDs (str or int, stringified here since target_id is
+        mapped as a keyword field and must be consistent across all callers)
     :target_type: SyncQueueType.SSC or SyncQueueType.FOD
     :src_name: source instance name, becomes target_instance
     :force: written into each payload, bypasses change detection in ProcessOne
@@ -41,6 +42,7 @@ def format_items(pvids: list, target_type: str, src_name: str, force: bool) -> d
     '''
     items = {}
     for pvid in pvids:
+        pvid = str(pvid).strip()
         key = f"{target_type}|{src_name}|{pvid}"
         items[key] = {
             "target_id": pvid,

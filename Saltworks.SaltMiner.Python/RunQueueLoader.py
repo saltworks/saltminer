@@ -18,6 +18,30 @@
 * ----
 '''
 
+'''
+Manually re-queue Project Version IDs for the sync agent, e.g. to push
+difficult-to-process or failed items back through at elevated priority.
+
+Usage:
+  python3 RunQueueLoader.py <target_type> <src_name> <pvids> [-p N] [--force] [--reason TEXT] [--dry-run]
+
+  target_type   SSC or FOD
+  src_name      Source instance name, e.g. SSC1
+  pvids         Comma-separated IDs, or @path/to/file (one ID per line or comma-separated)
+  -p, --priority  Integer, default 5. Lower numbers are processed first.
+  --force         Bypass change detection during sync. Default False.
+  --reason        Free text recorded on each queue document.
+  --dry-run       Print what would be inserted; write nothing.
+
+Examples:
+  python3 RunQueueLoader.py SSC SSC1 12345,56789,101112 -p 1
+  python3 RunQueueLoader.py SSC SSC1 12345
+  python3 RunQueueLoader.py SSC SSC1 @stubborn_ids.txt -p 2 --force
+  python3 RunQueueLoader.py FOD FOD1 998877 --dry-run
+
+Run with -h/--help for the same summary at the command line.
+'''
+
 import argparse
 import logging
 import sys
@@ -29,10 +53,10 @@ from Utility.QueueLoader import load_queue_items
 
 EPILOG = '''\
 Examples:
-  python3 RunAgentSync.py SSC SSC1 12345,56789,101112 -p 1
-  python3 RunAgentSync.py SSC SSC1 12345
-  python3 RunAgentSync.py SSC SSC1 @stubborn_ids.txt -p 2 --force
-  python3 RunAgentSync.py FOD FOD1 998877 --dry-run
+  python3 RunQueueLoader.py SSC SSC1 12345,56789,101112 -p 1
+  python3 RunQueueLoader.py SSC SSC1 12345
+  python3 RunQueueLoader.py SSC SSC1 @stubborn_ids.txt -p 2 --force
+  python3 RunQueueLoader.py FOD FOD1 998877 --dry-run
 '''
 
 
@@ -107,7 +131,7 @@ def main(argv=None):
         logging.error("No IDs supplied after parsing input.")
         return 1
 
-    reason = args.reason or f"RunAgentSync manual reinject of {len(pvids)} ID(s)"
+    reason = args.reason or f"RunQueueLoader manual reinject of {len(pvids)} ID(s)"
 
     app = Application()
     qcli = QueueClient(app, "sync")
@@ -116,6 +140,7 @@ def main(argv=None):
         load_queue_items(
             qcli, pvids, args.target_type, args.src_name,
             priority=args.priority, force=args.force,
+            source=args.target_type,
             change_reason=reason, dry_run=args.dry_run,
         )
     except QueueClientException as ex:
