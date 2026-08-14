@@ -80,8 +80,10 @@ class SscClient(object):
         self.__GetAuthToken(appSettings, sourceName) # this initializes the internal RestClient (self.__Client)
         self.__BatchUrls = {}
         self.__CleanedUp = False
-        self.__RetrySec = appSettings.GetSource(sourceName, 'ServerErrorRetrySeconds', 60)
-        self.__MaxRetries = appSettings.GetSource(sourceName, 'ServerErrorMaxRetries', 3)
+        # Coerced to int, and floored at 1 retry: config values arrive as whatever JSON held, and
+        # these bound a retry loop - a string ("3") or a 0 would silently make the bound unreachable.
+        self.__RetrySec = int(appSettings.GetSource(sourceName, 'ServerErrorRetrySeconds', 60))
+        self.__MaxRetries = max(1, int(appSettings.GetSource(sourceName, 'ServerErrorMaxRetries', 3)))
         self.__RetryCount = 0
         self.__RequestStatsReportEnabled = appSettings.GetSource(sourceName, 'RequestStatsReportEnabled', False)
         self.__LoggingFolder = appSettings.Get('Logging', 'Folder')
@@ -287,7 +289,9 @@ class SscClient(object):
         # Retry
         self.__RetryCount += 1
 
-        if self.__RetryCount == self.__MaxRetries:
+        # >= not ==: an exact test stops bounding the retries the moment the count steps over the
+        # limit rather than landing on it, and the loop below is unbounded without this guard.
+        if self.__RetryCount >= self.__MaxRetries:
             self.__RetryCount = 0
             self.__Logger.error("Reached retry limit - see earlier logged errors for details.")
             raise ex

@@ -69,9 +69,11 @@ class ElasticClient(object):
         self.__DeleteRequestTimeout = appSettings.Get(configName, 'DeleteRequestTimeout', 30)
         self.__BulkRequestTimeout = appSettings.Get(configName, 'BulkRequestTimeout', 120)
         self.__IndexRequestTimeout = appSettings.Get(configName, 'IndexRequestTimeout', 30)
-        self.__RetryDelaySecs = appSettings.Get(configName, 'RetryDelaySecs', 120)
+        self.__RetryDelaySecs = int(appSettings.Get(configName, 'RetryDelaySecs', 120))
         self.__RetryConflictDelaySecs = appSettings.Get(configName, 'RetryConflictDelaySecs', 5)
-        self.__RetryMaxAttempts = appSettings.Get(configName, 'RetryMaxAttempts', 2)
+        # Coerced to int, floored at 1: this bounds every retry loop below, and a string ("2") or a
+        # 0 from config would silently make that bound unreachable.
+        self.__RetryMaxAttempts = max(1, int(appSettings.Get(configName, 'RetryMaxAttempts', 2)))
         self.__RetryCount = 0
         self.__App = appSettings.Application
         self.__DefaultScrollSize = appSettings.Get(configName, "DefaultScrollSize", 1000)
@@ -267,7 +269,7 @@ class ElasticClient(object):
         pagination, leave scrollTimeout empty and use afterKeys instead.  If both are present both will be used which may cause an error.
         NOTE: pitId and scrollTimeout are mutually exclusive in Elasticsearch.
         '''
-        if self.__RetryCount == self.__RetryMaxAttempts:
+        if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
             raise ElasticClientException(self.RETRY_LIMIT_ERROR)
 
@@ -380,10 +382,10 @@ class ElasticClient(object):
         '''
         Calls ES bulk insert, trapping and then retrying for connection exceptions
         '''
-        if self.__RetryCount == self.__RetryMaxAttempts:
+        if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
             raise ElasticClientException(self.RETRY_LIMIT_ERROR)
-        
+
         try:
             rsp = helpers.bulk(self.es, bulkActions, request_timeout=self.__BulkRequestTimeout, raise_on_error=raiseErrors, stats_only=statsOnly)
             self.__RetryCount = 0

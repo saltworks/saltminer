@@ -57,8 +57,10 @@ class FodClient(object):
         self.__App = appSettings.Application
         self.__SourceName = sourceName
         self.__VerifySsl = (appSettings.GetSource(sourceName, 'SslVerify', True))
-        self.__MaxRetries = appSettings.GetSource(sourceName, 'ServerErrorMaxRetries', 3)
-        self.__RetrySec = appSettings.GetSource(sourceName, 'ServerErrorRetrySeconds', 300)
+        # Coerced to int, and floored at 1 retry: config values arrive as whatever JSON held, and
+        # these bound a retry loop - a string ("3") or a 0 would silently make the bound unreachable.
+        self.__MaxRetries = max(1, int(appSettings.GetSource(sourceName, 'ServerErrorMaxRetries', 3)))
+        self.__RetrySec = int(appSettings.GetSource(sourceName, 'ServerErrorRetrySeconds', 300))
         self.__DefaultTimeout = appSettings.GetSource(sourceName, 'RequestDefaultTimeoutSeconds', 30)
         self.__ApiMaxLimit = appSettings.GetSource(sourceName, 'MaxResultsLimit', 50)
         proxy = appSettings.GetSource(sourceName, 'Proxy', '')
@@ -78,7 +80,7 @@ class FodClient(object):
         # server-side budget - the throttle is keyed on the credential, not the source name, and
         # is shared by all FodClient instances in this process.  Default of 10/sec is FOD's
         # documented limit for endpoints without a specific (lower) one.
-        self.__RateLimitMaxRetries = appSettings.GetSource(sourceName, 'RateLimitMaxRetries', 5)
+        self.__RateLimitMaxRetries = max(1, int(appSettings.GetSource(sourceName, 'RateLimitMaxRetries', 5)))
         self.__Throttle = ApiThrottle.for_key(
             clientId or sourceName,
             max_per_second = appSettings.GetSource(sourceName, 'RateLimitMaxPerSecond', 10),

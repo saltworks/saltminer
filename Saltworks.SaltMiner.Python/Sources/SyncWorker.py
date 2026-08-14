@@ -103,18 +103,6 @@ class SyncQueueData():
         }
 
 
-class SyncQueueDto(QueueClientDto):
-    """Data transfer object for sync queue items."""
-    def __init__(self, dto:dict=None):
-        """
-        Initialize SyncQueueDto with required and optional parameters.
-
-        :dto: required dictionary containing the data for the sync queue item, including the base QueueClientDto fields and the SyncQueueData fields
-        """
-        super().__init__(dto)
-        self._sync_data = None if not dto else SyncQueueData(self.doc.data)
-
-
 class SyncWorkerFactory(WorkerFactory):
     """Factory class for creating SyncWorker instances."""
     def create_worker(self, id:int, agent:Agent, **kwargs) -> Worker:
@@ -163,45 +151,52 @@ class SyncWorker(Worker):
 
     def _process(self, item:QueueClientDto):
         """Process a single queue item - exceptions handled by Worker.run()"""
-        sync_item = SyncQueueDto(item.dto())
-        if sync_item._sync_data.target_type == SyncQueueType.SSC:
-            self._process_ssc(sync_item)
-        elif sync_item._sync_data.target_type == SyncQueueType.FOD:
-            self._process_fod(sync_item)
+        # Parse the payload alongside the DTO, never into a copy of it.  Every successful write
+        # refreshes the DTO's _seq_no/_primary_term, so a second DTO over the same document goes
+        # stale the moment either one writes: the loser's next UpdateWithLocking is a version
+        # conflict, which returns {"result": "noop"} instead of raising, and the queue document is
+        # silently left locked forever - invisible to the queue and never retried.  The agent holds
+        # *this* instance in its liveness map to release the item if we go defunct, so it has to be
+        # the same object we update and complete.
+        data = SyncQueueData(item.doc.data)
+        if data.target_type == SyncQueueType.SSC:
+            self._process_ssc(item, data)
+        elif data.target_type == SyncQueueType.FOD:
+            self._process_fod(item, data)
         else:
             # Worker.run() increments error_count for any raised exception - don't double count here
-            raise WorkerException(f"Invalid sync queue item target type: {sync_item._sync_data.target_type}")
+            raise WorkerException(f"Invalid sync queue item target type: {data.target_type}")
 
 
-    def _process_ssc(self, item:SyncQueueDto):
+    def _process_ssc(self, item:QueueClientDto, data:SyncQueueData):
         try:
-            sync = self._get_ssc_sync(item._sync_data.target_instance)
-            sync.ProcessOne(item._sync_data.target_id, item._sync_data.force)
-            self.agent.update(item, SyncQueueStage.REFRESH, item._sync_data.to_dto())
-            refresh = self._get_ssc_refresh(item._sync_data.target_instance)
-            refresh.PopulateVulsOne(item._sync_data.target_id)
+            sync = self._get_ssc_sync(data.target_instance)
+            sync.ProcessOne(data.target_id, data.force)
+            self.agent.update(item, SyncQueueStage.REFRESH, data.to_dto())
+            refresh = self._get_ssc_refresh(data.target_instance)
+            refresh.PopulateVulsOne(data.target_id)
             self.agent.complete(item, stage="", is_error=False)
         except Exception as ex:
-            self.logger.error("Error processing SSC ID '%s' ('%s'), stage %s: %s", item._sync_data.target_id, item._sync_data.target_instance, item.doc.stage, str(ex))
+            self.logger.error("Error processing SSC ID '%s' ('%s'), stage %s: %s", data.target_id, data.target_instance, item.doc.stage, str(ex))
             try:
                 self.agent.complete(item, is_error=True, reason=str(ex))
             except Exception as ex2:
-                self.logger.error("Error setting error for SSC ID '%s' ('%s'), stage %s: %s", item._sync_data.target_id, item._sync_data.target_instance, item.doc.stage, str(ex2))
-            raise WorkerException(f"Error processing SSC ID '{item._sync_data.target_id}' ('{item._sync_data.target_instance}'), stage {item.doc.stage}") from ex
+                self.logger.error("Error setting error for SSC ID '%s' ('%s'), stage %s: %s", data.target_id, data.target_instance, item.doc.stage, str(ex2))
+            raise WorkerException(f"Error processing SSC ID '{data.target_id}' ('{data.target_instance}'), stage {item.doc.stage}") from ex
 
 
-    def _process_fod(self, item:SyncQueueDto):
+    def _process_fod(self, item:QueueClientDto, data:SyncQueueData):
         try:
-            sync = self._get_fod_sync(item._sync_data.target_instance)
-            sync.ProcessOne(item._sync_data.target_id, item._sync_data.force)
-            self.agent.update(item, SyncQueueStage.REFRESH, item._sync_data.to_dto())
-            refresh = self._get_fod_refresh(item._sync_data.target_instance)
-            refresh.PopulateVulsOne(item._sync_data.target_id)
+            sync = self._get_fod_sync(data.target_instance)
+            sync.ProcessOne(data.target_id, data.force)
+            self.agent.update(item, SyncQueueStage.REFRESH, data.to_dto())
+            refresh = self._get_fod_refresh(data.target_instance)
+            refresh.PopulateVulsOne(data.target_id)
             self.agent.complete(item, stage="", is_error=False)
         except Exception as ex:
-            self.logger.error("Error processing FOD ID '%s' ('%s'), stage %s: %s", item._sync_data.target_id, item._sync_data.target_instance, item.doc.stage, str(ex))
+            self.logger.error("Error processing FOD ID '%s' ('%s'), stage %s: %s", data.target_id, data.target_instance, item.doc.stage, str(ex))
             try:
                 self.agent.complete(item, is_error=True, reason=str(ex))
             except Exception as ex2:
-                self.logger.error("Error setting error for FOD ID '%s' ('%s'), stage %s: %s", item._sync_data.target_id, item._sync_data.target_instance, item.doc.stage, str(ex2))
-            raise WorkerException(f"Error processing FOD ID '{item._sync_data.target_id}' ('{item._sync_data.target_instance}'), stage {item.doc.stage}") from ex
+                self.logger.error("Error setting error for FOD ID '%s' ('%s'), stage %s: %s", data.target_id, data.target_instance, item.doc.stage, str(ex2))
+            raise WorkerException(f"Error processing FOD ID '{data.target_id}' ('{data.target_instance}'), stage {item.doc.stage}") from ex

@@ -264,8 +264,18 @@ class Agent():
     def _release_defunct_item(self, wid:int, item:QueueClientDto, age:float):
         """Mark a defunct worker's stuck in-progress item as errored so it isn't left locked forever."""
         try:
-            self.complete(item, is_error=True, reason=f"Released by agent: worker {wid} became defunct (no heartbeat for {age:.0f}s)")
-            logging.info("Released defunct worker %d's in-progress queue item %s (marked error).", wid, getattr(item, 'id', '[unknown]'))
+            # Call the queue client directly so we can see the outcome: set_complete returns None
+            # on a version conflict (UpdateWithLocking answers {"result": "noop"} rather than
+            # raising), which would leave the document locked and invisible to the queue forever.
+            # That must never pass silently.
+            rsp = self.queue_client.set_complete(item, is_error=True,
+                                                 reason=f"Released by agent: worker {wid} became defunct (no heartbeat for {age:.0f}s)")
+            if rsp is None:
+                logging.error("Could not release defunct worker %d's queue item %s - the write was rejected "
+                              "(stale version or already completed). The document may be left locked; check it manually.",
+                              wid, getattr(item, 'id', '[unknown]'))
+            else:
+                logging.info("Released defunct worker %d's in-progress queue item %s (marked error).", wid, getattr(item, 'id', '[unknown]'))
         except Exception:
             logging.exception("Failed to release defunct worker %d's queue item %s", wid, getattr(item, 'id', '[unknown]'))
 
