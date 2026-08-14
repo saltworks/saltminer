@@ -27,7 +27,7 @@ import array as arr
 from datetime import datetime as dt
 from datetime import timedelta
 from datetime import date
-from Core.Application import ElasticClient
+from Core.ElasticClient import ElasticClient
 from Core.ApplicationSettings import ApplicationSettings
 from elasticsearch.exceptions import NotFoundError
 

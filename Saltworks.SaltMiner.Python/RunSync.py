@@ -27,7 +27,8 @@ import os
 import traceback
 import time
 
-from Core.Application import Application, ApplicationException
+from Core.Application import Application
+from Core.ApplicationExceptions import ApplicationException
 from Sources.FOD.SyncExtractor import SyncExtractor as SyncExtractorFod
 from Sources.SSC.SyncExtractor import SyncExtractor as SyncExtractorSsc
 

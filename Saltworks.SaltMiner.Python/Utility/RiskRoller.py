@@ -26,7 +26,7 @@ import uuid
 from datetime import datetime as dt
 from datetime import timedelta
 from elasticsearch.exceptions import NotFoundError
-from Core.Application import ElasticClient
+from Core.ElasticClient import ElasticClient
 from Core.ApplicationSettings import ApplicationSettings
 
 

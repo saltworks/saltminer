@@ -24,7 +24,7 @@ import json
 import time
 import datetime
 from datetime import timedelta
-from Core.Application import ElasticClient
+from Core.ElasticClient import ElasticClient
 from Core.Application import Application
 from Core.ApplicationSettings import ApplicationSettings
 

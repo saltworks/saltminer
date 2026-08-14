@@ -25,7 +25,7 @@ from requests.auth import HTTPBasicAuth
 from datetime import timedelta
 
 from Core.RestClient import RestClient
-from Core.Application import ElasticClient
+from Core.ElasticClient import ElasticClient
 
 from jira import JIRA
 

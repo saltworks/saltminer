@@ -23,7 +23,7 @@ This class conatins all the methods required to change
 the parameters of an ingest pipeline in elastic
 """
 import logging
-from Core.Application import ElasticClient
+from Core.ElasticClient import ElasticClient
 
 
 

@@ -24,7 +24,7 @@ import json
 import traceback
 import datetime
 from Core.Application import Application
-from Core.Application import ElasticClient
+from Core.ElasticClient import ElasticClient
 from elasticsearch.exceptions import NotFoundError
 # Add imports here, ex:
 # import Custom.SW.AppVulsWidget
