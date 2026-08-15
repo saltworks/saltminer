@@ -23,58 +23,44 @@ import logging
 from Core.QueueClient import QueueClient
 from Sources.SyncWorker import SyncQueueType
 
-BATCH_SIZE = 100
+BATCH_SIZE = 1000
+# A whole-source load can be six figures of IDs - log the first few individually in a
+# dry run, then fall back to per-batch logging.
+DRY_RUN_LOG_LIMIT = 20
 
 
-def format_items(pvids: list, target_type: str, src_name: str, force: bool) -> dict:
+def format_item(pvid, target_type: str, src_name: str, force: bool) -> tuple:
     '''
-    Format a list of IDs into the {key: payload} shape expected by
+    Format a single ID into the (key, payload) pair expected by
     QueueClient.insert_queue(), matching the key convention used by
     RunWebhookPull.py and the payload fields read by SyncQueueData.
 
-    :pvids: list of IDs (str or int, stringified here since target_id is
-        mapped as a keyword field and must be consistent across all callers)
+    :pvid: ID (str or int, stringified here since target_id is mapped as a
+        keyword field and must be consistent across all callers)
     :target_type: SyncQueueType.SSC or SyncQueueType.FOD
     :src_name: source instance name, becomes target_instance
-    :force: written into each payload, bypasses change detection in ProcessOne
-
-    Returns a dict of {key: payload}. Duplicate IDs collapse to a single entry.
+    :force: written into the payload, bypasses change detection in ProcessOne
     '''
-    items = {}
-    for pvid in pvids:
-        pvid = str(pvid).strip()
-        key = f"{target_type}|{src_name}|{pvid}"
-        items[key] = {
-            "target_id": pvid,
-            "target_type": target_type,
-            "target_instance": src_name,
-            "force": force,
-        }
-    return items
+    pvid = str(pvid).strip()
+    return f"{target_type}|{src_name}|{pvid}", {
+        "target_id": pvid,
+        "target_type": target_type,
+        "target_instance": src_name,
+        "force": force,
+    }
 
 
-def chunk_items(items: dict, batch_size: int = BATCH_SIZE) -> list:
-    '''
-    Split an {key: payload} dict into a list of same-shaped dicts, each with at
-    most batch_size entries. insert_queue() does no internal batching, so this
-    is required before calling it with a large item list.
-    '''
-    keys = list(items.keys())
-    return [
-        {k: items[k] for k in keys[i:i + batch_size]}
-        for i in range(0, len(keys), batch_size)
-    ]
-
-
-def load_queue_items(qcli: QueueClient, pvids: list, target_type: str, src_name: str,
+def load_queue_items(qcli: QueueClient, pvids, target_type: str, src_name: str,
                      priority: int = 5, force: bool = False,
                      source: str = "Manual Reinject", change_reason: str = None,
                      dry_run: bool = False) -> dict:
     '''
-    Format and insert a list of target IDs into the sync queue.
+    Format and insert target IDs into the sync queue, submitting a batch as soon as
+    one fills rather than materializing the whole set first.
 
     :qcli: constructed QueueClient
-    :pvids: list of already-normalized ID strings (see normalize_ids())
+    :pvids: iterable of IDs - a normalized list (see normalize_pvids()) or a lazy
+        generator such as Sources.IdLoader.iter_all_target_ids()
     :target_type: SyncQueueType.SSC or SyncQueueType.FOD
     :src_name: source instance name, becomes target_instance
     :priority: lower is processed sooner; QueueClient default is 5
@@ -89,34 +75,51 @@ def load_queue_items(qcli: QueueClient, pvids: list, target_type: str, src_name:
         raise ValueError(f"Invalid target_type '{target_type}', expected one of SSC/FOD.")
     if not src_name:
         raise ValueError("src_name is required.")
-    if not isinstance(pvids, list) or len(pvids) == 0:
-        raise ValueError("pvids must be a non-empty list.")
+    if pvids is None:
+        raise ValueError("pvids is required.")
 
-    items = format_items(pvids, target_type, src_name, force)
-    batches = chunk_items(items)
-    summary = {
-        "total": len(pvids),
-        "unique": len(items),
-        "batches": len(batches),
-        "skipped_duplicates": len(pvids) - len(items),
-    }
+    summary = {"total": 0, "unique": 0, "batches": 0, "skipped_duplicates": 0}
+    # Keys already handled, so duplicates are dropped across the whole run and not just
+    # within a batch.  Even a six-figure source costs only a few MB of keys here.
+    seen = set()
+    batch = {}
+
+    def submit(batch):
+        summary["batches"] += 1
+        if dry_run:
+            logging.info("[dry-run] Would submit batch %s (%s items) at priority %s, force=%s",
+                         summary["batches"], len(batch), priority, force)
+            return
+        qcli.insert_queue(source, batch, priority=priority, change_reason=change_reason,
+                          change_trigger="manual")
+        logging.info("Batch %s submitted (%s items)", summary["batches"], len(batch))
+
+    for pvid in pvids:
+        summary["total"] += 1
+        key, payload = format_item(pvid, target_type, src_name, force)
+        if key in seen:
+            summary["skipped_duplicates"] += 1
+            continue
+        seen.add(key)
+        if dry_run and len(seen) <= DRY_RUN_LOG_LIMIT:
+            logging.info("[dry-run] Would submit %s", key)
+        elif dry_run and len(seen) == DRY_RUN_LOG_LIMIT + 1:
+            logging.info("[dry-run] ... further individual IDs not logged.")
+        batch[key] = payload
+        if len(batch) >= BATCH_SIZE:
+            submit(batch)
+            batch = {}
+
+    if batch:
+        submit(batch)
+
+    summary["unique"] = len(seen)
+    if summary["total"] == 0:
+        raise ValueError("No IDs supplied - nothing to queue.")
 
     logging.info("%s IDs supplied, %s unique (%s duplicates dropped)",
                  summary["total"], summary["unique"], summary["skipped_duplicates"])
-
-    if dry_run:
-        for key in items.keys():
-            logging.info("[dry-run] Would submit %s", key)
-        logging.info("[dry-run] Would submit %s batch(es) of up to %s at priority %s, force=%s",
-                     len(batches), BATCH_SIZE, priority, force)
-        return summary
-
-    logging.info("Submitting %s batch(es) of up to %s at priority %s, force=%s",
-                 len(batches), BATCH_SIZE, priority, force)
-    for i, batch in enumerate(batches, start=1):
-        qcli.insert_queue(source, batch, priority=priority, change_reason=change_reason,
-                          change_trigger="manual")
-        logging.info("Batch %s/%s submitted (%s items)", i, len(batches), len(batch))
-
-    logging.info("Done. %s items submitted across %s batch(es).", summary["unique"], summary["batches"])
+    logging.info("%s%s items submitted across %s batch(es) of up to %s at priority %s, force=%s.",
+                 "[dry-run] " if dry_run else "Done. ", summary["unique"], summary["batches"],
+                 BATCH_SIZE, priority, force)
     return summary

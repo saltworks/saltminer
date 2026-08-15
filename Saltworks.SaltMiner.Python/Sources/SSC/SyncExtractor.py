@@ -27,6 +27,7 @@ import datetime
 import time
 
 from Core.SscClient import SscClient409ConflictException
+from .. import IdLoader
 from Utility.ProgressLogger import *
 from .SscUtilities import SscUtilities
 from .SscEsUtils import SscEsUtils
@@ -549,7 +550,8 @@ class SyncExtractor(object):
 
         clearSyncQueue - 'none' means do not clear, 'completed' for completed, 'unlocked' for unlocked only, 'locked' for all locked, 'all' for all.
         '''
-        pvList = self.__SscUtils.SscClient.GetProjectVersions(fields='id', forceRefresh=True)
+        # Pulled up front (not streamed) so a failed download leaves the existing queue intact.
+        pvList = IdLoader.get_all_target_ids(IdLoader.SSC, client=self.__SscUtils.SscClient, logger=self.__Logger)
 
         if not clearSyncQueue in ['none', 'all', 'locked', 'unlocked', 'completed']:
             raise SyncExtractorException("Invalid/unsupported clearSyncqueue value.")
@@ -560,12 +562,12 @@ class SyncExtractor(object):
 
         count = 0
         idList = []
-        for itm in pvList:
+        for pvid in pvList:
             if count > 0 and count % 200 == 0:
                 self.__SyncQueue.InsertQueueBatch(idList)
                 idList = []
                 self.__Logger.info("Reloading sync queue: processed %s IDs", count)
-            idList.append(itm['id'])
+            idList.append(pvid)
             count += 1
         if len(idList) > 0:
             self.__SyncQueue.InsertQueueBatch(idList)

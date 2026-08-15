@@ -3,5 +3,6 @@
     "LowThresholdCount": 10,
     "PollingIntervalSecs": 10,
     "QueueBatchSize": 20,
-    "WorkerErrorThreshold": 3
+    "WorkerErrorThreshold": 3,
+    "AgentId": 1
 }

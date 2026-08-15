@@ -27,16 +27,20 @@ Usage:
 
   target_type   SSC or FOD
   src_name      Source instance name, e.g. SSC1
-  pvids         Comma-separated IDs, or @path/to/file (one ID per line or comma-separated)
+  pvids         Comma-separated IDs, @path/to/file (one ID per line or comma-separated),
+                or @all to queue every ID in the source (SSC and FOD only).
+                Note @all is reserved: to read a file literally named "all", use @./all.
   -p, --priority  Integer, default 5. Lower numbers are processed first.
   --force         Bypass change detection during sync. Default False.
   --reason        Free text recorded on each queue document.
   --dry-run       Print what would be inserted; write nothing.
+  --include-inactive  With @all, include inactive project versions (SSC only).
 
 Examples:
   python3 RunQueueLoader.py SSC SSC1 12345,56789,101112 -p 1
   python3 RunQueueLoader.py SSC SSC1 12345
   python3 RunQueueLoader.py SSC SSC1 @stubborn_ids.txt -p 2 --force
+  python3 RunQueueLoader.py SSC SSC1 @all -p 9
   python3 RunQueueLoader.py FOD FOD1 998877 --dry-run
 
 Run with -h/--help for the same summary at the command line.
@@ -48,15 +52,21 @@ import sys
 
 from Core.Application import Application
 from Core.QueueClient import QueueClient, QueueClientException
+from Sources.IdLoader import IdLoaderException, is_supported, iter_all_target_ids
 from Sources.SyncWorker import SyncQueueType
 from Utility.QueueLoader import load_queue_items
+
+ALL_SENTINEL = "@all"
 
 EPILOG = '''\
 Examples:
   python3 RunQueueLoader.py SSC SSC1 12345,56789,101112 -p 1
   python3 RunQueueLoader.py SSC SSC1 12345
   python3 RunQueueLoader.py SSC SSC1 @stubborn_ids.txt -p 2 --force
+  python3 RunQueueLoader.py SSC SSC1 @all -p 9
   python3 RunQueueLoader.py FOD FOD1 998877 --dry-run
+
+"@all" is reserved - to read a file literally named "all", pass @./all instead.
 '''
 
 
@@ -69,7 +79,8 @@ def parse_args(argv):
     parser.add_argument("target_type", help="SSC or FOD")
     parser.add_argument("src_name", help="Source instance name, e.g. SSC1")
     parser.add_argument("pvids", nargs="+",
-                        help="Comma-separated IDs, or @path/to/file (one ID per line or comma-separated)")
+                        help="Comma-separated IDs, @path/to/file (one ID per line or comma-separated), "
+                             "or @all for every ID in the source")
     parser.add_argument("-p", "--priority", type=int, default=5,
                         help="Lower numbers are processed first. Default 5.")
     parser.add_argument("--force", action="store_true", default=False,
@@ -78,7 +89,14 @@ def parse_args(argv):
                         help="Free text recorded on each queue document.")
     parser.add_argument("--dry-run", action="store_true", default=False,
                         help="Print what would be inserted; write nothing.")
+    parser.add_argument("--include-inactive", action="store_true", default=False,
+                        help="With @all, include inactive project versions (SSC only). Default False.")
     return parser.parse_args(argv)
+
+
+def is_all_request(pvids: list) -> bool:
+    '''True if the caller asked for every ID in the source ("@all", case-insensitive).'''
+    return len(pvids) == 1 and pvids[0].strip().lower() == ALL_SENTINEL
 
 
 def read_ids_file(path: str) -> list:
@@ -95,7 +113,8 @@ def read_ids_file(path: str) -> list:
 
 def normalize_pvids(pvids: list) -> list:
     '''
-    Turn the raw argparse pvids list into a clean list of ID strings.
+    Turn the raw argparse pvids list into a clean list of ID strings.  The "@all"
+    sentinel is handled by the caller and never reaches here.
 
     A shell that splits an unquoted, comma-separated list produces multiple argv
     entries; joining them back on "," before splitting reconstructs the original
@@ -121,20 +140,35 @@ def main(argv=None):
         logging.error("src_name is required.")
         return 1
 
-    try:
-        pvids = normalize_pvids(args.pvids)
-    except OSError as ex:
-        logging.error("Unable to read ID file: %s", ex)
+    load_all = is_all_request(args.pvids)
+    if load_all and not is_supported(args.target_type):
+        logging.error("@all is not supported for target type '%s'.", args.target_type)
         return 1
 
-    if len(pvids) == 0:
-        logging.error("No IDs supplied after parsing input.")
-        return 1
+    pvids = None
+    if not load_all:
+        try:
+            pvids = normalize_pvids(args.pvids)
+        except OSError as ex:
+            logging.error("Unable to read ID file: %s", ex)
+            return 1
 
-    reason = args.reason or f"RunQueueLoader manual reinject of {len(pvids)} ID(s)"
+        if len(pvids) == 0:
+            logging.error("No IDs supplied after parsing input.")
+            return 1
 
     app = Application()
     qcli = QueueClient(app, "sync")
+
+    if load_all:
+        reason = args.reason or f"RunQueueLoader full reload of {args.target_type} source {args.src_name}"
+        # A generator, so IDs stream from the source into the queue a batch at a time.
+        pvids = iter_all_target_ids(args.target_type, app_settings=app.Settings, src_name=args.src_name,
+                                    include_inactive=args.include_inactive)
+        logging.info("Queueing all %s IDs for source '%s'%s.", args.target_type, args.src_name,
+                     " (including inactive)" if args.include_inactive else "")
+    else:
+        reason = args.reason or f"RunQueueLoader manual reinject of {len(pvids)} ID(s)"
 
     try:
         load_queue_items(
@@ -145,6 +179,12 @@ def main(argv=None):
         )
     except QueueClientException as ex:
         logging.error("Queue insert failed: %s", ex)
+        return 1
+    except IdLoaderException as ex:
+        logging.error("Unable to load IDs from source: %s", ex)
+        return 1
+    except ValueError as ex:
+        logging.error("%s", ex)
         return 1
 
     return 0

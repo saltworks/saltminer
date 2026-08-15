@@ -22,11 +22,11 @@ import json
 import logging
 import datetime
 
-from Core.ElasticClient import ElasticClient
 from Core.FodClient import FodClient
-from Utility.ProgressLogger import *
-from Utility.SyncQueueHelper import *
-from elasticsearch import Elasticsearch, NotFoundError, exceptions, ConflictError
+from .. import IdLoader
+from Utility.ProgressLogger import ProgressLogger
+from Utility.SyncQueueHelper import SyncQueueHelper
+from elasticsearch import ConflictError
 
 class SyncExtractor(object):
     """Extraction of Open FOD Changes"""
@@ -38,7 +38,7 @@ class SyncExtractor(object):
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
-        if not sourceName or not sourceName in appSettings.GetSourceNames():
+        if not sourceName or sourceName not in appSettings.GetSourceNames():
             raise SyncExtractorException(f"Invalid or missing source configuration for source name '{sourceName}'")
 
         self.__Logger = logger or logging.getLogger(__name__)
@@ -185,7 +185,7 @@ class SyncExtractor(object):
         while len(scroller.Results):
             for dto in scroller.Results:
                 esRelease = dto['_source']
-                if not esRelease['releaseId'] in releases:
+                if esRelease['releaseId'] not in releases:
                     self.__Logger.info('Removing release with ID %s', esRelease['releaseId'])
                     self.__ClearRelease(esRelease['applicationId'], esRelease['releaseId'])
                     qdoc = {
@@ -211,9 +211,10 @@ class SyncExtractor(object):
 
         clearSyncQueue - 'none' means do not clear, 'completed' for completed, 'unlocked' for unlocked only, 'locked' for all locked, 'all' for all.
         '''
-        avList = self.__Fod.GetReleases(fields='releaseId', scroller=True).GetAll()
+        # Pulled up front (not streamed) so a failed download leaves the existing queue intact.
+        avList = IdLoader.get_all_target_ids(IdLoader.FOD, client=self.__Fod, logger=self.__Logger)
 
-        if not clearSyncQueue in ['none', 'all', 'locked', 'unlocked', 'completed']:
+        if clearSyncQueue not in ['none', 'all', 'locked', 'unlocked', 'completed']:
             raise SyncExtractorException("Invalid/unsupported clearSyncqueue value.")
         if clearSyncQueue != 'none':
             completed = clearSyncQueue in ['all', 'completed']
@@ -222,12 +223,12 @@ class SyncExtractor(object):
 
         count = 0
         idList = []
-        for itm in avList:
+        for avid in avList:
             if count > 0 and count % 200 == 0:
                 self.__SyncQueue.InsertQueueBatch(idList)
                 idList = []
                 self.__Logger.info("Reloading sync queue: processed %s IDs", count)
-            idList.append(itm['releaseId'])
+            idList.append(avid)
             count += 1
         if len(idList) > 0:
             self.__SyncQueue.InsertQueueBatch(idList)
@@ -321,8 +322,8 @@ class SyncExtractor(object):
                     self.__Logger.debug("Attempting to clear sync queue session.")
                     self.__SyncQueue.ClearSession()
                     self.__Logger.debug("Sync queue session cleared.")
-                except:
-                    self.__Logger.error("Failed to clear sync queue session - see previous log messages for details.")
+                except Exception as ex:
+                    self.__Logger.error("Failed to clear sync queue session - see previous log messages for details.", exc_info=ex)
         # end 'while r and len(r[0]) > 0'
         if iTotal == 0:
             self.__Logger.info("No sync queue entries found, aborting sync.")
@@ -331,7 +332,7 @@ class SyncExtractor(object):
     def __GetApplication(self, applicationId):
         # use a numbered position FIFO cache approach, might reduce duplicate application ID lookups
         # expects dict to be sorted by key, and that we process in order of ascending application ID
-        if not applicationId in self.__ApplicationCache.keys():
+        if applicationId not in self.__ApplicationCache.keys():
             app = self.__Fod.GetApplication(applicationId).Content
             app[self.__SourceNameField] = self.__SourceName
             self.__ApplicationCache[applicationId] = app
@@ -344,7 +345,7 @@ class SyncExtractor(object):
                     self.__ApplicationCache.pop(first)
                 except KeyError:
                     self.__Logger.error("[SYNC] Failed to remove application with id %s from application cache", first)
-            if not applicationId in self.__ApplicationCache.keys():
+            if applicationId not in self.__ApplicationCache.keys():
                 self.__Logger.warning("Application %s not found", applicationId)
                 return None
         return self.__ApplicationCache[applicationId]
@@ -357,21 +358,21 @@ class SyncExtractor(object):
         checkMobileDate = True
         holdReleaseId = release['releaseId']
 
-        if release['staticScanDate'] != None:
+        if release['staticScanDate'] is not None:
             holdStaticScanDate = json.dumps(release['staticScanDate'])
             checkStaticDate = True
         else:
             holdStaticScanDate = 'null'
             checkStaticDate = False
 
-        if release['dynamicScanDate'] != None:
+        if release['dynamicScanDate'] is not None:
             holdDynamicScanDate = json.dumps(release['dynamicScanDate'])
             checkDynamicDate = True
         else:
             holdDynamicScanDate = 'null'
             checkDynamicDate = False
 
-        if release['mobileScanDate'] != None:
+        if release['mobileScanDate'] is not None:
             holdMobileScanDate = json.dumps(release['mobileScanDate'])
             checkMobileDate = True
         else:
@@ -415,22 +416,22 @@ class SyncExtractor(object):
             dateMismatch = False
 
             # Compare last scan date
-            if checkStaticDate == True:
+            if checkStaticDate:
 
                 if holdStaticScanDate != compareStaticScanDate:
                     dateMismatch = True
 
-            if checkDynamicDate == True:
+            if checkDynamicDate:
 
                 if holdDynamicScanDate != compareDynamicScanDate:
                     dateMismatch = True
 
-            if checkMobileDate == True:
+            if checkMobileDate:
 
                 if holdMobileScanDate != compareMobileScanDate:
                     dateMismatch = True
 
-            if dateMismatch == True:
+            if dateMismatch:
 
                 logging.debug ('one or more dates are off - need to reset')
                 needsReset = True
@@ -473,7 +474,7 @@ class SyncExtractor(object):
                     self.__Logger.debug('something off in counts - need to reset')
                     needsReset = True
 
-        if not needsReset and self.__CheckAttributes == True:
+        if not needsReset and self.__CheckAttributes:
             # Check attributes
             fAttrApp = self.__GetApplication(release['applicationId'])
             fAttr = [] if not (fAttrApp and 'attributes' in fAttrApp.keys()) else fAttrApp['attributes']
@@ -492,7 +493,7 @@ class SyncExtractor(object):
                         self.__Logger.debug("Application ID % attributes don't match in release %s, need to reset", release['applicationId'], release['releaseId'])
                         break
 
-        if needsReset == True or forceRefresh:
+        if needsReset or forceRefresh:
             self.__Logger.info('Needs update - sending FOD data to Elastic for %s', holdReleaseId)
             holdApplicationId = release['applicationId']
 
@@ -545,7 +546,6 @@ class SyncExtractor(object):
             self.__BulkLoadVulns(holdReleaseId)
 
             queueInfo = {
-                'processedDateTime': '',
                 'releaseId': holdReleaseId,
                 'updateType': 'U',
                 'completedDateTime' : '1900-01-01T00:00:00.000-0000',
