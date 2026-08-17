@@ -573,9 +573,13 @@ class SyncExtractor(object):
             self.__SyncQueue.InsertQueueBatch(idList)
         self.__Logger.info("Sync queue reloaded successfully.")
     
-    def ProcessOne(self, pvid, forceSync=False):
+    def ProcessOne(self, pvid, forceSync=False, queueRefresh=True):
         '''
         Enables sync of a single project version (by id), bypassing the queue entirely
+
+        :queueRefresh: set False to skip the sscupdatequeue record(s) normally written when the
+        project version or its attributes change.  Callers that run the refresh themselves for
+        this one project version (the sync worker) don't need it; the batch Process() path does.
         '''
         # Check mappings - ensures indices are created from templates rather than dynamically mapped by first doc write
         self.MapESIndices(False)
@@ -586,7 +590,7 @@ class SyncExtractor(object):
         if not projectVersion:
             raise SyncExtractorException(f"Project version {pvid} could not be found.")
         self.__Logger.info('Syncing SSC to Elastic for project version %s', pvid)
-        self.__ProcessOne(projectVersion, projectAttrDefs, seenIdList, f"PVID: {pvid}", forceSync)
+        self.__ProcessOne(projectVersion, projectAttrDefs, seenIdList, f"PVID: {pvid}", forceSync, queueRefresh)
         self.__Logger.info('Sync complete.')
 
     def Process(self, cleanupAfter=True, reloadSyncQueue=False):
@@ -716,7 +720,7 @@ class SyncExtractor(object):
             self.__SscUtils.Cleanup()
         p.Finish(iTotal, "Complete")
 
-    def __ProcessOne(self, projectVersion, projectAttrDefs, seenIdList, pvMessage, forceSync=False):
+    def __ProcessOne(self, projectVersion, projectAttrDefs, seenIdList, pvMessage, forceSync=False, queueRefresh=True):
         self._Beat()
         needsReset = forceSync
         needsAttrReset = False
@@ -991,15 +995,17 @@ class SyncExtractor(object):
                     self.__WriteZeroIssue(projid, key, pvAssessmentTypes[key])
 
             # STEP 8 - Add to refresh queue
-            if not attributesUpdated:  # attributes update will have already queued a refresh
-                queueInfo = {
-                    'processedDateTime' : datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S"),
-                    'projectVersionId': projid,
-                    'updateType': 'U',
-                    'updateReason': updateReason,
-                    'completedDateTime' : '1900-01-01T00:00:00.000-0000'
-                }
-                self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
+            if not queueRefresh:
+                self.__Logger.debug("%s, skipping sscupdatequeue record (queueRefresh off).", pvMessage)
+                return
+            queueInfo = {
+                'processedDateTime' : datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+                'projectVersionId': projid,
+                'updateType': 'U',
+                'updateReason': updateReason,
+                'completedDateTime' : '1900-01-01T00:00:00.000-0000'
+            }
+            self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
 
     def __UpdateAttributes(self, projid:int, pvMessage:str, attributeDefs:dict, sscRawAttributes:dict, queueRefresh:bool = True):
         self.__Logger.info('%s, syncing SSC attributes', pvMessage)

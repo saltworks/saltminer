@@ -234,9 +234,13 @@ class SyncExtractor(object):
             self.__SyncQueue.InsertQueueBatch(idList)
         self.__Logger.info("Sync queue reloaded successfully.")
     
-    def ProcessOne(self, avid, forceRefresh=False):
+    def ProcessOne(self, avid, forceRefresh=False, queueRefresh=True):
         '''
         Enables sync of a single release (by id), bypassing the queue entirely
+
+        :queueRefresh: set False to skip the fodupdatequeue record normally written when the
+        release changes.  Callers that run the refresh themselves for this one release (the
+        sync worker) don't need it; the batch Process() path does.
         '''
         # Check mappings - ensures indices are created from templates rather than dynamically mapped by first doc write
         self.MapESIndices(False)
@@ -245,7 +249,7 @@ class SyncExtractor(object):
         if not release:
             raise SyncExtractorException(f"Release {avid} could not be found.")
         self.__Logger.info('Syncing FOD to Elastic for release %s', avid)
-        self.__ProcessOne(release['_source'], forceRefresh)
+        self.__ProcessOne(release['_source'], forceRefresh, queueRefresh)
         self.__Logger.info('Sync complete.')
 
     def Process(self, reloadSyncQueue=False):
@@ -350,7 +354,7 @@ class SyncExtractor(object):
                 return None
         return self.__ApplicationCache[applicationId]
 
-    def __ProcessOne(self, release, forceRefresh=False):
+    def __ProcessOne(self, release, forceRefresh=False, queueRefresh=True):
         self._Beat()
         needsReset = False
         checkStaticDate = True
@@ -545,6 +549,9 @@ class SyncExtractor(object):
                         
             self.__BulkLoadVulns(holdReleaseId)
 
+            if not queueRefresh:
+                self.__Logger.debug("Skipping fodupdatequeue record for release %s (queueRefresh off).", holdReleaseId)
+                return
             queueInfo = {
                 'releaseId': holdReleaseId,
                 'updateType': 'U',

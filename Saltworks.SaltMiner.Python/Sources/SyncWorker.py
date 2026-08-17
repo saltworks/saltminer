@@ -171,7 +171,9 @@ class SyncWorker(Worker):
     def _process_ssc(self, item:QueueClientDto, data:SyncQueueData):
         try:
             sync = self._get_ssc_sync(data.target_instance)
-            sync.ProcessOne(data.target_id, data.force)
+            # queueRefresh off - we run the refresh for this ID ourselves below, so an
+            # sscupdatequeue record would only queue the same work a second time.
+            sync.ProcessOne(data.target_id, data.force, queueRefresh=False)
             self.agent.update(item, SyncQueueStage.REFRESH, data.to_dto())
             refresh = self._get_ssc_refresh(data.target_instance)
             refresh.PopulateVulsOne(data.target_id)
@@ -188,7 +190,9 @@ class SyncWorker(Worker):
     def _process_fod(self, item:QueueClientDto, data:SyncQueueData):
         try:
             sync = self._get_fod_sync(data.target_instance)
-            sync.ProcessOne(data.target_id, data.force)
+            # queueRefresh off - we run the refresh for this ID ourselves below, so a
+            # fodupdatequeue record would only queue the same work a second time.
+            sync.ProcessOne(data.target_id, data.force, queueRefresh=False)
             self.agent.update(item, SyncQueueStage.REFRESH, data.to_dto())
             refresh = self._get_fod_refresh(data.target_instance)
             refresh.PopulateVulsOne(data.target_id)
