@@ -33,6 +33,25 @@ SM_QUEUE = "sm_queue"
 INVALID_QUEUE_CLIENT_DTO = "Invalid argument, expected QueueClientDto."
 MAX_HITS = 10000
 PRIORITY_ENABLED = False
+UNKNOWN_ITEM_ID = "[unknown id]"
+UNKNOWN_ITEM_KEY = "[no key]"
+
+
+def describe_item(item) -> str:
+    '''
+    Null-safe label for any queue item, for use in log messages: the document id plus its
+    generic 'key' field, ex: "45a1889a-467b-4f0b-a1a5-2f5cdbaa6915 (key: SSC|SSC1|21492496779)".
+
+    Accepts anything (a QueueClientDto, a partially built one, or a non-queue object that
+    reached an error path) and never raises - a logging call must not be able to fail.
+    '''
+    try:
+        describe = getattr(item, "describe", None)
+        if callable(describe):
+            return describe()
+        return f"{getattr(item, 'id', None) or UNKNOWN_ITEM_ID} (key: {UNKNOWN_ITEM_KEY})"
+    except Exception:  # pylint: disable=broad-except  # logging path, must never raise
+        return f"{UNKNOWN_ITEM_ID} (key: {UNKNOWN_ITEM_KEY})"
 
 class QueueClientStatus():
     NEW = "New"
@@ -319,6 +338,27 @@ class QueueClientDto(object):
             '_primary_term': self.primary_term,
             '_index': self.index
         }
+
+    def describe(self) -> str:
+        '''
+        Label for this item in a log message: the document id plus its 'key' field, which by
+        convention identifies the target being processed (see Utility/QueueLoader.format_item).
+        Falls back to the conventional optional "target_id" entry in 'data' when no key is set,
+        then to a placeholder.  Domain-agnostic and null-safe - never raises.
+        '''
+        try:
+            item_id = self.id or UNKNOWN_ITEM_ID
+            doc = self.doc
+            key = getattr(doc, "key", None) if doc is not None else None
+            if key:
+                return f"{item_id} (key: {key})"
+            data = getattr(doc, "data", None) if doc is not None else None
+            target_id = data.get("target_id") if isinstance(data, dict) else None
+            if target_id:
+                return f"{item_id} (target_id: {target_id})"
+            return f"{item_id} (key: {UNKNOWN_ITEM_KEY})"
+        except Exception:  # pylint: disable=broad-except  # logging path, must never raise
+            return f"{UNKNOWN_ITEM_ID} (key: {UNKNOWN_ITEM_KEY})"
 
     def update_locking_info(self, response):
         if response and '_seq_no' in response.keys() and '_primary_term' in response.keys():

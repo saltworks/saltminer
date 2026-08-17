@@ -25,7 +25,7 @@ from abc import ABC, abstractmethod
 
 from .ElasticClient import ElasticClient
 from .Agent import Agent
-from .QueueClient import QueueClientDto
+from .QueueClient import QueueClientDto, describe_item
 
 class WorkerException(Exception):
     '''Custom exception for worker errors.'''
@@ -134,12 +134,12 @@ class Worker(ABC):
             try:
                 if not isinstance(item, QueueClientDto):
                     raise WorkerException(f"Invalid queue item type: expected QueueClientDto, got {type(item)}")
-                self.logger.info("Worker %d processing item with ID: %s", self.id, item.id)
+                self.logger.info("Worker %d processing item with ID: %s", self.id, describe_item(item))
                 self._process(item)
                 self.error_count = 0
             except Exception:
-                # getattr: item may not be a QueueClientDto (that's one of the exceptions handled here)
-                self.logger.exception("Worker %d failed processing item with ID: %s", self.id, getattr(item, 'id', '[unknown]'))
+                # describe_item is null-safe: item may not be a QueueClientDto (that's one of the exceptions handled here)
+                self.logger.exception("Worker %d failed processing item with ID: %s", self.id, describe_item(item))
                 self.error_count += 1
                 if self.error_count >= self.error_threshold:
                     self.logger.error("Worker %d has reached error threshold with %d consecutive errors, stopping worker", self.id, self.error_count)

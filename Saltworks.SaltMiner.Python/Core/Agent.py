@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 from .Application import Application
 from .ElasticClient import ElasticClient
-from .QueueClient import QueueClient, QueueClientDto
+from .QueueClient import QueueClient, QueueClientDto, describe_item
 
 if TYPE_CHECKING:
     # Import for type hints only - importing at runtime creates a circular
@@ -250,7 +250,7 @@ class Agent():
             age = now - last
             if age > timeout:
                 logging.error("Worker %d appears defunct (%s): no heartbeat for %.0fs (timeout %ds) while processing item %s. Releasing its item and abandoning the worker.",
-                              wid, context, age, timeout, getattr(item, 'id', '[unknown]'))
+                              wid, context, age, timeout, describe_item(item))
                 self._release_defunct_item(wid, item, age)
                 self._abandon_worker(t, wid)
                 # Replace the lost capacity if there's still work waiting (never during shutdown).
@@ -273,11 +273,11 @@ class Agent():
             if rsp is None:
                 logging.error("Could not release defunct worker %d's queue item %s - the write was rejected "
                               "(stale version or already completed). The document may be left locked; check it manually.",
-                              wid, getattr(item, 'id', '[unknown]'))
+                              wid, describe_item(item))
             else:
-                logging.info("Released defunct worker %d's in-progress queue item %s (marked error).", wid, getattr(item, 'id', '[unknown]'))
+                logging.info("Released defunct worker %d's in-progress queue item %s (marked error).", wid, describe_item(item))
         except Exception:
-            logging.exception("Failed to release defunct worker %d's queue item %s", wid, getattr(item, 'id', '[unknown]'))
+            logging.exception("Failed to release defunct worker %d's queue item %s", wid, describe_item(item))
 
 
     def _abandon_worker(self, t:threading.Thread, wid:int):
