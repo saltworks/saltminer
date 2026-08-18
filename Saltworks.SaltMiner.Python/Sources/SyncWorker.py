@@ -176,7 +176,11 @@ class SyncWorker(Worker):
             sync.ProcessOne(data.target_id, data.force, queueRefresh=False)
             self.agent.update(item, SyncQueueStage.REFRESH, data.to_dto())
             refresh = self._get_ssc_refresh(data.target_instance)
-            refresh.PopulateVulsOne(data.target_id)
+            # race_retry on - the sync stage above just wrote this doc, and elasticsearch's
+            # near-real-time refresh can leave it unsearchable for a moment.  Without the retry
+            # PopulateVulsOne reads back nothing and returns early, skipping the whole refresh
+            # (including the "noscan" queue data for missing expected assessment types).
+            refresh.PopulateVulsOne(data.target_id, race_retry=True)
             self.agent.complete(item, stage="", is_error=False)
         except Exception as ex:
             self.logger.error("Error processing SSC ID '%s' ('%s'), stage %s: %s", data.target_id, data.target_instance, item.doc.stage, str(ex))
@@ -195,7 +199,11 @@ class SyncWorker(Worker):
             sync.ProcessOne(data.target_id, data.force, queueRefresh=False)
             self.agent.update(item, SyncQueueStage.REFRESH, data.to_dto())
             refresh = self._get_fod_refresh(data.target_instance)
-            refresh.PopulateVulsOne(data.target_id)
+            # race_retry on - the sync stage above just wrote this doc, and elasticsearch's
+            # near-real-time refresh can leave it unsearchable for a moment.  Without the retry
+            # PopulateVulsOne reads back nothing and returns early, skipping the whole refresh
+            # (including the "noscan" queue data for missing expected assessment types).
+            refresh.PopulateVulsOne(data.target_id, race_retry=True)
             self.agent.complete(item, stage="", is_error=False)
         except Exception as ex:
             self.logger.error("Error processing FOD ID '%s' ('%s'), stage %s: %s", data.target_id, data.target_instance, item.doc.stage, str(ex))

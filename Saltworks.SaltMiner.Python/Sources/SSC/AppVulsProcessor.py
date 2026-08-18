@@ -24,12 +24,11 @@
 import datetime
 import logging
 import time
-from queue import Queue
 from dateutil.parser import parse as dtparse
 
 from Utility.CancelTracker import CancelTracker
 from Utility.DImport import DImport
-from Utility.ProgressLogger import *
+from Utility.ProgressLogger import ProgressLogger
 from Utility.SmApiClient import SmApiClient
 from Utility.UpdateQueueHelper import UpdateQueueHelper
 
@@ -43,9 +42,9 @@ class AppVulsProcessor(object):
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
-        if not smv3ConfigName or not smv3ConfigName in appSettings.GetConfigNames():
+        if not smv3ConfigName or smv3ConfigName not in appSettings.GetConfigNames():
             raise AppVulsSSCException(f"Invalid or missing configuration for name '{smv3ConfigName}'")
-        if not mainConfigName or not mainConfigName in appSettings.GetConfigNames():
+        if not mainConfigName or mainConfigName not in appSettings.GetConfigNames():
             raise AppVulsSSCException(f"Invalid or missing configuration for name '{mainConfigName}'")
 
         self.__Logger = logger or logging.getLogger(__name__)
@@ -254,13 +253,15 @@ class AppVulsProcessor(object):
         if cleanupAfter:
             self.Cleanup()
 
-    def PopulateVulsOne(self, pvid, cleanupAfter=True):
+    def PopulateVulsOne(self, pvid, cleanupAfter=True, race_retry:bool=False, race_retry_delay:int=5):
         '''
         Process one project version (doesn't have to be in the update queue).
         Returns the list of queue scan IDs created (empty when SM API integration is disabled or nothing processed).
+
+        :race_retry: passed through to _GetSscProjectVersion - see there.
         '''
 
-        sscProject = self._GetSscProjectVersion(pvid)
+        sscProject = self._GetSscProjectVersion(pvid, race_retry, race_retry_delay)
         if not sscProject:
             self.__Logger.error("Couldn't retrieve project version %s from SSC, skipping this update.", pvid)
             return []
@@ -978,9 +979,22 @@ class AppVulsProcessor(object):
         scroller.Clear()
         return lst
 
-    def _GetSscProjectVersion(self, id):
-        '''Return a single project version by project version ID'''
-        res = self.__Es.Search('sscprojects', { "query": { "term": { "id": id } } })
+    def _GetSscProjectVersion(self, id, race_retry:bool=False, race_retry_delay:int=5):
+        '''
+        Return a single project version by project version ID.
+
+        :race_retry: when the project version isn't found, wait race_retry_delay seconds and look
+        once more.  Callers that read straight after the sync stage wrote the doc (the sync worker)
+        set this so elasticsearch's near-real-time refresh gap doesn't look like a missing PV.
+        '''
+        query = { "query": { "term": { "id": id } } }
+        res = self.__Es.Search('sscprojects', query)
+        if race_retry and not res:
+            self.__Logger.info("Project version %s not found, retrying in %s sec in case this is a race condition...", id, race_retry_delay)
+            time.sleep(race_retry_delay)
+            res = self.__Es.Search('sscprojects', query)
+            if res:
+                self.__Logger.info("Found project version %s after waiting for the index to catch up.", id)
         if res and len(res) > 0:
             if ("_source" in res[0].keys()):
                 return res[0]['_source']

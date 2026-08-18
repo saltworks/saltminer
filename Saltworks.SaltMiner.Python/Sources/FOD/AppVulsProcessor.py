@@ -237,13 +237,15 @@ class AppVulsProcessor(object):
             self.Cleanup()
 
 
-    def PopulateVulsOne(self, avid, cleanupAfter=True):
+    def PopulateVulsOne(self, avid, cleanupAfter=True, race_retry:bool=False, race_retry_delay:int=5):
         '''
         Process one project version (doesn't have to be in the update queue).
         Returns the list of queue scan IDs created (empty when SM API integration is disabled or nothing processed).
+
+        :race_retry: passed through to _GetFodRelease - see there.
         '''
 
-        fodRelease = self._GetFodRelease(avid)
+        fodRelease = self._GetFodRelease(avid, race_retry, race_retry_delay)
         if not fodRelease:
             self.__Logger.error("Couldn't retrieve release %s from FOD", avid)
             return []
@@ -926,8 +928,14 @@ class AppVulsProcessor(object):
         sc = self.__Es.SearchScroll('fodreleases', body, 200, scrollTimeout=None)
         return sc.GetAll() if sc else []
 
-    def _GetFodRelease(self, releaseId):
-        '''Return a single release by release ID (and current source name)'''
+    def _GetFodRelease(self, releaseId, race_retry:bool=False, race_retry_delay:int=5):
+        '''
+        Return a single release by release ID (and current source name).
+
+        :race_retry: when the release isn't found, wait race_retry_delay seconds and look once more.
+        Callers that read straight after the sync stage wrote the doc (the sync worker) set this so
+        elasticsearch's near-real-time refresh gap doesn't look like a missing release.
+        '''
         body = { 
             "query": {
                 "bool": {
@@ -939,6 +947,12 @@ class AppVulsProcessor(object):
             }
         }
         res = self.__Es.Search('fodreleases', body)
+        if race_retry and not res:
+            self.__Logger.info("Release %s not found, retrying in %s sec in case this is a race condition...", releaseId, race_retry_delay)
+            time.sleep(race_retry_delay)
+            res = self.__Es.Search('fodreleases', body)
+            if res:
+                self.__Logger.info("Found release %s after waiting for the index to catch up.", releaseId)
         if res and len(res) > 0:
             if ("_source" in res[0].keys()):
                 return res[0]['_source']
