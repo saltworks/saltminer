@@ -49,6 +49,8 @@ class SCWCode:
                 self.__Client = RestClient(url, defaultHeaders=headers, proxy=proxy, proxyUser=proxyUser, proxyPass=proxyPass)
             else:
                 self.__Client = RestClient(url, defaultHeaders=headers, proxy=proxy)
+        else:
+            self.__Client = RestClient(url, defaultHeaders=headers)
         # end if proxy
         self.__Es = self.app.GetElasticClient()
         self.method = appSettings.Get (scwConfigName, 'Method')

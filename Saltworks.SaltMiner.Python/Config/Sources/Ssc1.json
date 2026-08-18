@@ -13,6 +13,7 @@
   "IssueBatchSize": 500,
   "ElasticBatchSize": 500,
   "RequestStatsReportEnabled": true,
+  "RequestTimeoutSec": 60,
   "ServerErrorRetrySeconds": 60,
   "CreateUpdateRecords": true,
   "DisableSM2Indices": false,

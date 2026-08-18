@@ -27,7 +27,18 @@ from Core.RestClient import RestClient
 
 class DevToolsUtility(object):
 
-    def __init__(self, appSettings, elasticConfigName="Elastic"):
+    DEFAULT_TIMEOUT_SEC = 30
+
+    def __init__(self, appSettings, elasticConfigName="Elastic", timeout=DEFAULT_TIMEOUT_SEC):
+        '''
+        :arg appSettings: ApplicationSettings instance
+        :arg elasticConfigName: config section holding the Elasticsearch connection
+        :arg timeout: request timeout in seconds applied to every statement in the script.
+            30 suits ordinary dev-tools queries; raise it for a run containing a heavy
+            aggregation, _reindex, _forcemerge or _delete_by_query (RunDevToolsUtility.py
+            exposes this as --timeout).  Per-run, not per-statement: RestClient fixes its
+            timeout at construction.
+        '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
         if not elasticConfigName or not elasticConfigName in appSettings.GetConfigNames():
@@ -47,20 +58,28 @@ class DevToolsUtility(object):
         except Exception:
             pass
                   
-        if scheme == 'http':            
-            logging.warning("No password or https set, this is for POC use only!")            
+        # coerce like the other numeric settings in this tree, floor of 1 sec
+        self.__Timeout = max(1, int(timeout)) if timeout else DevToolsUtility.DEFAULT_TIMEOUT_SEC
+        logging.debug("DevToolsUtility request timeout is %s sec", self.__Timeout)
+
+        if scheme == 'http':
+            logging.warning("No password or https set, this is for POC use only!")
             if not appSettings.Get(elasticConfigName, 'UseAuth', True):
                 logging.debug('Not using username or password')
-                self.__Es = RestClient(baseUrl=url, sslVerify=sslVerify, defaultHeaders=None, enableSession=True)
+                self.__Es = RestClient(baseUrl=url, sslVerify=sslVerify, defaultHeaders=None, enableSession=True, timeout=self.__Timeout)
             else:
-                self.__Es = RestClient(baseUrl=url, authUser=appSettings.Get(elasticConfigName, "Username"), authPass=appSettings.Get(elasticConfigName, "Password"), sslVerify=sslVerify, defaultHeaders=None, enableSession=True)
+                self.__Es = RestClient(baseUrl=url, authUser=appSettings.Get(elasticConfigName, "Username"), authPass=appSettings.Get(elasticConfigName, "Password"), sslVerify=sslVerify, defaultHeaders=None, enableSession=True, timeout=self.__Timeout)
         else:
-            self.__Es = RestClient(baseUrl=url, authUser=appSettings.Get(elasticConfigName, "Username"), authPass=appSettings.Get(elasticConfigName, "Password"), sslVerify=sslVerify, defaultHeaders=None, enableSession=True)
+            self.__Es = RestClient(baseUrl=url, authUser=appSettings.Get(elasticConfigName, "Username"), authPass=appSettings.Get(elasticConfigName, "Password"), sslVerify=sslVerify, defaultHeaders=None, enableSession=True, timeout=self.__Timeout)
 
+
+    @property
+    def Timeout(self):
+        return self.__Timeout
 
     def ExecuteDevScript(self, method, action,logFilepath=None, body=None):
         time.sleep(0.5)
-        logging.info("Running [%s] %s", method, action)
+        logging.info("Running [%s] %s (timeout %s sec)", method, action, self.__Timeout)
         if body:
 
             response= self.__Es.Request(method=method, url=f'{action}', json=json.loads(body))

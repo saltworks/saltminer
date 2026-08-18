@@ -57,7 +57,18 @@ class SscClient(object):
         self.__Heartbeat = heartbeat
         self.__App = appSettings.Application
         self.__AuthTokenInfo = None
-        self.__DefaultTimeout = appSettings.GetSource(sourceName, 'RequestTimeoutSec', 10)
+        # One timeout governs every SSC HTTP call: the RestClient used for all API requests (see
+        # __GetAuthToken) plus the two direct requests calls (login POST, logout DELETE).
+        # Default 60 sec, deliberately: no heartbeat can fire from inside a blocking request, so the
+        # longest gap between beats is bounded by a single request's timeout, and that gap must stay
+        # under the agent's DefunctWorkerTimeoutSecs (default 120) or a healthy worker gets reaped as
+        # defunct.  Retry backoffs are NOT part of that budget - SscClient sleeps with
+        # Core.Heartbeat.BeatingSleep, which keeps beating - so one request's timeout is the binding
+        # constraint.  60 < 120 with margin.  Raising this above DefunctWorkerTimeoutSecs reintroduces
+        # the false-reap bug (a 240 sec read timeout vs a 120 sec defunct timeout).
+        # Coerced to int and floored at 1 for the same reason as the retry limits below: config values
+        # arrive as whatever JSON held, and a string or a 0 here would be as bad.
+        self.__DefaultTimeout = max(1, int(appSettings.GetSource(sourceName, 'RequestTimeoutSec', 60)))
         self.__Client = None
         self.__SourceName = sourceName
         self.__GroupingTypeId = appSettings.GetSource(sourceName, 'GroupingTypeId')
@@ -185,7 +196,9 @@ class SscClient(object):
             'Content-Type':'application/json;charset=UTF-8',
             'Authorization': f'FortifyToken {self.__AuthTokenInfo['token']}'
         }
-        self.__Client = RestClient(appSettings.GetSource(sourceName, 'BaseUrl'), sslVerify=appSettings.GetSource(sourceName, 'SslVerify'), defaultHeaders= headers, retryConnectionErrors=False, overrideProtocol=self.__OverrideProtocol)
+        # timeout must be passed explicitly - RestClient's own default is 240 sec, which exceeds the
+        # agent's default DefunctWorkerTimeoutSecs (120) and caused live workers to be reaped as defunct.
+        self.__Client = RestClient(appSettings.GetSource(sourceName, 'BaseUrl'), sslVerify=appSettings.GetSource(sourceName, 'SslVerify'), defaultHeaders= headers, retryConnectionErrors=False, overrideProtocol=self.__OverrideProtocol, timeout=self.__DefaultTimeout)
         self.__Client.SessionEnabled = True
 
     def Cleanup(self):

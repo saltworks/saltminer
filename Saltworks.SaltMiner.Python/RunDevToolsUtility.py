@@ -36,17 +36,40 @@ prmFilePath = None
 hlpMsg = '''
 Syntax:
 
-python3 RunDevToolsUtility.py [Dev tools script file path]
+python3 RunDevToolsUtility.py [Dev tools script file path] [log file path] [--timeout secs]
+
+--timeout   request timeout in seconds for every statement in the script (default 30).
+            Raise it for a heavy aggregation, _reindex, _forcemerge or _delete_by_query.
 '''
 app = Application()
 
-if not len(sys.argv) >= 2:
+# pull the optional --timeout flag out before the positional args are read
+args = sys.argv[1:]
+timeoutSec = DevToolsUtility.DEFAULT_TIMEOUT_SEC
+for arg in list(args):
+    if arg.startswith("--timeout="):
+        timeoutSec = arg.split("=", 1)[1]
+        args.remove(arg)
+    elif arg == "--timeout":
+        idx = args.index(arg)
+        if idx + 1 >= len(args):
+            logging.error("--timeout requires a value.\n %s", hlpMsg)
+            exit(1)
+        timeoutSec = args[idx + 1]
+        del args[idx:idx + 2]
+try:
+    timeoutSec = int(timeoutSec)
+except ValueError:
+    logging.error("Invalid --timeout value '%s', expected a whole number of seconds.", timeoutSec)
+    exit(1)
+
+if not len(args) >= 1:
     logging.error("No file specified.\n %s", hlpMsg)
     exit(1)
-prmFilePath = sys.argv[1]
+prmFilePath = args[0]
 
-if len(sys.argv) == 3:
-    logFilePath = sys.argv[2]
+if len(args) >= 2:
+    logFilePath = args[1]
 
 else:
     logFilePath = None
@@ -74,5 +97,5 @@ prcKey = "process"
 logging.info("Dev Tools Utility starting -%s", datetime.datetime.utcnow().isoformat())
 StartTimer(prcKey)
 #add path to config file and to dev tool script.txt file 
-DevToolsUtility(app.Settings).ExecuteDevScriptFile(prmFilePath, logFilepath=logFilePath)
+DevToolsUtility(app.Settings, timeout=timeoutSec).ExecuteDevScriptFile(prmFilePath, logFilepath=logFilePath)
 EndTimer(prcKey)

@@ -34,8 +34,12 @@ class RestClientConfigurationException(RestClientException):
     pass
 
 class RestClient:
-    
-    def __init__(self, baseUrl=None, authUser=None, authPass=None, sslVerify=None, defaultHeaders=None, enableSession=True, timeout=240, retryConnectionErrors=False, retryDelaySec=3, proxy=None, proxyUser=None, proxyPass=None, overrideProtocol=None):
+
+    # timeout default is 30 sec: a generous extension of a short client default, for callers that
+    # don't specify one.  It was 240, which was never a considered value - just what nobody overrode.
+    # Callers with a real requirement should pass timeout explicitly (see SscClient for a case where
+    # the value is load-bearing).
+    def __init__(self, baseUrl=None, authUser=None, authPass=None, sslVerify=None, defaultHeaders=None, enableSession=True, timeout=30, retryConnectionErrors=False, retryDelaySec=3, proxy=None, proxyUser=None, proxyPass=None, overrideProtocol=None):
         if sslVerify is None:
             self.__SslVerify = True
         elif sslVerify == "False":
@@ -316,8 +320,10 @@ class AsyncRestClient:
     event loop without duplicating endpoint logic.
     '''
 
+    # timeout default is 30 sec, matching RestClient - a backstop for callers that don't specify
+    # one, not a considered value.  Callers with a real requirement should pass timeout explicitly.
     def __init__(self, baseUrl=None, authUser=None, authPass=None, sslVerify=None,
-                 defaultHeaders=None, timeout=240, retryConnectionErrors=False,
+                 defaultHeaders=None, timeout=30, retryConnectionErrors=False,
                  retryDelaySec=3, proxy=None, proxyUser=None, proxyPass=None):
         if sslVerify is None:
             self.__SslVerify = True
