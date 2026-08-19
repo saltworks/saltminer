@@ -1393,6 +1393,19 @@
             <param name="alias">Alias to add</param>
             <returns>Success</returns>
         </member>
+        <member name="F:Saltworks.SaltMiner.DataApi.Models.ManagerInstanceManager.TransientInstanceId">
+            <summary>
+            Shared instance ID used by manager runs that process a single queue scan by ID (the sync agent
+            hand-off).  Those runs don't register, but they still need a lock ID so a concurrent batch run
+            can't grab the same queue scan.  Never handed out by NewManagerInstance (which starts at 1), and
+            excluded from the instance count so a burst of hand-offs can't make batch runs bail out.
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.DataApi.Models.ManagerInstanceManager.RegisteredInstanceCount">
+            <summary>
+            Count of registered instances, ignoring the shared transient one - see TransientInstanceId.
+            </summary>
+        </member>
         <member name="P:Saltworks.SaltMiner.DataApi.Models.ApiConfig.EnableManagerUnlockUpdateByQuery">
             <summary>
             If set, uses update by query to unlock manager locked queues.  Otherwise, uses search and bulk update (the old way).  Disable if this is breaking.

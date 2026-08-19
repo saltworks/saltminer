@@ -4,5 +4,6 @@
     "PollingIntervalSecs": 10,
     "QueueBatchSize": 20,
     "WorkerErrorThreshold": 3,
-    "AgentId": 1
+    "AgentId": 1,
+    "ManagerTimeoutSec": 600
 }

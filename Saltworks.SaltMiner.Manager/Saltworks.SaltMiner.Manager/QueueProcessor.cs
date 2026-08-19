@@ -32,12 +32,26 @@ using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.Manager;
 
 public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Manager> dataClientFactory, ManagerConfig config)
 {
+    /// <summary>
+    /// Seconds to wait before the single retry made when a run targeting one queue scan ID finds nothing.
+    /// Deliberately not configurable - it only covers the elasticsearch refresh gap.
+    /// </summary>
+    private const int QueueScanIdRetryDelaySec = 5;
+
+    /// <summary>
+    /// Lock ID used by a by-ID run instead of a registered instance ID.  The API never hands out
+    /// mgr-000 (NewManagerInstance starts at 1) and excludes it from the instance count, so these
+    /// runs still lock the queue scans they touch without being counted as competing instances.
+    /// </summary>
+    private const string TransientInstanceId = "mgr-000";
+
     private readonly ILogger Logger = logger;
     private readonly DataClient.DataClient DataClient = dataClientFactory.GetClient();
     private readonly ManagerConfig Config = config;
@@ -164,17 +178,18 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             SortKeys = new() { { "Timestamp", false } }
         };
 
-        var irSpecific = false;  // controls whether we will continue to run as a "second" instance with low matching queue scan counts
+        var onAMission = false;  // controls whether we will continue to run as an additional instance with low matching queue scan counts
+        // If specific source type then we're "on a mission"
         if (!string.IsNullOrEmpty(RunConfig.SourceType))
         {
             queueScanSearch.Filter.FilterMatches.Add("Saltminer.Scan.SourceType", RunConfig.SourceType);
-            irSpecific = true;
+            onAMission = true;
         }
-
+        // If specific ID then we're "on a mission"
         if (!string.IsNullOrEmpty(RunConfig.QueueScanId))
         {
             queueScanSearch.Filter.FilterMatches.Add("Id", RunConfig.QueueScanId);
-            irSpecific = true;
+            onAMission = true;
         }
 
         queueScanSearch.Filter.AddMustNotExistsFilterMatch("Saltminer.Internal.CurrentQueueScanId");
@@ -182,6 +197,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         var breakOut = false;
         var prevCount = 0;
         var prevFirst = "";
+        var yieldedAny = false;
+        var idRetryDone = false;
         while (!breakOut)
         {
             // If needed, add subfilter to exclude sources from the sources removed list
@@ -201,6 +218,16 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             }
             if (!queueScans.Data.Any())
             {
+                // A by-ID run is normally kicked off by whoever just created that queue scan (the sync
+                // agent), so an empty result on the first pass is more likely elasticsearch's refresh
+                // lag than a missing scan.  Wait once, then take the empty result at face value.
+                if (!string.IsNullOrEmpty(RunConfig.QueueScanId) && !yieldedAny && !idRetryDone)
+                {
+                    idRetryDone = true;
+                    Logger.LogInformation("[Q-Get] Queue scan ID '{QueueScanId}' not found, retrying in {Delay} sec...", RunConfig.QueueScanId, QueueScanIdRetryDelaySec);
+                    Thread.Sleep(TimeSpan.FromSeconds(QueueScanIdRetryDelaySec));
+                    continue;
+                }
                 Logger.LogInformation("[Q-Get] No more pending queue scans found.");
                 break;
             }
@@ -221,7 +248,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             var alone = false;
             try
             {
-                alone = irSpecific || ManagerInstanceCount <= 1;
+                alone = onAMission || ManagerInstanceCount <= 1;
             }
             catch (Exception ex)
             {
@@ -270,6 +297,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 yield return qs;
                 count++;
                 processedOne = true;
+                yieldedAny = true;
             }
             if (!processedOne)
             {
@@ -350,7 +378,14 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
 
         try
         {
-            InstanceId = DataClient.RegisterNewManagerInstanceId().Message;
+            // A by-ID run is a short-lived hand-off from the sync agent, not an instance competing for the
+            // queue.  Registering it would inflate the active-instance count that batch runs use to decide
+            // whether to bail out, so a burst of them could talk a legitimate cron run out of working.
+            // It still takes a lock, under the shared transient ID, so a concurrent batch run can't pick up
+            // the same queue scan.  Releasing that lock is the API's job - see Unlock().
+            InstanceId = string.IsNullOrEmpty(RunConfig.QueueScanId)
+                ? DataClient.RegisterNewManagerInstanceId().Message
+                : TransientInstanceId;
             Logger.LogInformation("Queue processor instance {Instance} configured for sourceType '{SourceType}', queue scan ID '{QueueScanId}', limit {Limit}, and listOnly {ListOnly}",
                 InstanceId,
                 string.IsNullOrEmpty(RunConfig.SourceType) ? "[all]" : RunConfig.SourceType,
@@ -388,7 +423,10 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         }
         finally
         {
-            if (!string.IsNullOrEmpty(InstanceId))
+            // Never unlock by the transient ID - it is shared, so it would clear the locks of any sibling
+            // by-ID run still in flight.  Stale transient locks are released by the API's instance cleanup
+            // once no by-ID run has been seen for 10 minutes.
+            if (!string.IsNullOrEmpty(InstanceId) && InstanceId != TransientInstanceId)
             {
                 Unlock();
             }

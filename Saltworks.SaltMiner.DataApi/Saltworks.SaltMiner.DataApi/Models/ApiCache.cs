@@ -32,9 +32,25 @@ namespace Saltworks.SaltMiner.DataApi.Models
 
     public class ManagerInstanceManager
     {
+        /// <summary>
+        /// Shared instance ID used by manager runs that process a single queue scan by ID (the sync agent
+        /// hand-off).  Those runs don't register, but they still need a lock ID so a concurrent batch run
+        /// can't grab the same queue scan.  Never handed out by NewManagerInstance (which starts at 1), and
+        /// excluded from the instance count so a burst of hand-offs can't make batch runs bail out.
+        /// </summary>
+        public const int TransientInstanceId = 0;
+
         public object Lock { get; } = new object(); // Lock for thread safety
         public Dictionary<int, ManagerInstance> ManagerInstances { get; set; } = [];
         private int NextManagerInstanceId { get; set; } = 1;
+
+        /// <summary>
+        /// Count of registered instances, ignoring the shared transient one - see TransientInstanceId.
+        /// </summary>
+        public int RegisteredInstanceCount
+        {
+            get { lock (Lock) { return ManagerInstances.Keys.Count(k => k != TransientInstanceId); } }
+        }
         public string NewManagerInstance()
         {
             lock (Lock)
@@ -57,8 +73,8 @@ namespace Saltworks.SaltMiner.DataApi.Models
             lock (Lock)
             {
                 var removed = ManagerInstances.Remove(id);
-                if (removed && ManagerInstances.Count == 0)
-                    NextManagerInstanceId = 1; // Reset the ID if no instances are left
+                if (removed && !ManagerInstances.Keys.Any(k => k != TransientInstanceId))
+                    NextManagerInstanceId = 1; // Reset the ID if no registered instances are left
                 return removed ? 1 : 0; // Return 1 if removed, 0 if not found
             }
         }

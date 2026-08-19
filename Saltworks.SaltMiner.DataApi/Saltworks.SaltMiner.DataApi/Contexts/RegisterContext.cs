@@ -40,7 +40,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             return new NoDataResponse(did);
         }
 
-        public NoDataResponse GetMgrInstanceCount() => new(ApiCache.ManagerInstanceManager.ManagerInstances.Count);
+        public NoDataResponse GetMgrInstanceCount() => new(ApiCache.ManagerInstanceManager.RegisteredInstanceCount);
 
         public NoDataResponse GetRole()
         {
