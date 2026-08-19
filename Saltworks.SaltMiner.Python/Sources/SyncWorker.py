@@ -19,6 +19,7 @@
 
 # SyncWorker class - used to run sync processing in multi-threaded environment.
 
+import os
 import subprocess
 import threading
 import time
@@ -34,9 +35,15 @@ from .FOD.SyncExtractor import SyncExtractor as FodSync
 from .FOD.AppVulsProcessor import AppVulsProcessor as FodRefresh
 
 
-# Relative to the agent's working directory (the python app dir) - the manager binaries sit
-# alongside it in the services container.
-MANAGER_DLL_DEFAULT = "./manager/Saltworks.SaltMiner.Manager.dll"
+# The manager binaries sit beside the python app dir in the services container -
+# <app root>/app/manager and <app root>/app/python.  Same layout svc mgr resolves against in
+# ServiceManagerConfig.ManagerExecutablePath.
+MANAGER_DLL_DEFAULT = "../manager/Saltworks.SaltMiner.Manager.dll"
+
+# A relative ManagerDll resolves against the python app dir, not the process working directory.  The
+# agent can be launched from anywhere, and dotnet reports a path that doesn't exist as "you must install
+# a .NET SDK" (exit 145) rather than as a missing file - so guessing the CWD is not worth the confusion.
+PYTHON_APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Once ManagerTimeoutSec is up, manager is only killed if it has also been silent this long.  Big
 # queue scans legitimately run past the timeout, and a killed manager leaves its queue scan stranded.
@@ -182,11 +189,18 @@ class SyncWorker(Worker):
         if not manager_dll:
             self.logger.warning("SyncAgent.ManagerDll is empty - skipping manager processing for %s (%s queue scan(s) left for the manager cron).", target_desc, len(queue_scan_ids))
             return
+        # os.path.join leaves an absolute configured path alone, so this only anchors relative ones.
+        manager_path = os.path.abspath(os.path.join(PYTHON_APP_DIR, manager_dll))
+        if not os.path.isfile(manager_path):
+            raise WorkerException(
+                f"Manager not found at '{manager_path}' (SyncAgent.ManagerDll = '{manager_dll}', "
+                f"relative paths resolve against '{PYTHON_APP_DIR}').  Set ManagerDll to the correct "
+                "path, or to \"\" to leave queue scans for the manager cron.")
         dotnet = settings.Get("SyncAgent", "ManagerDotNetPath", "dotnet")
         timeout_sec = settings.Get("SyncAgent", "ManagerTimeoutSec", 600)
 
         for qsid in queue_scan_ids:
-            cmd = [dotnet, manager_dll, "queue", "--queue-scan-id", str(qsid)]
+            cmd = [dotnet, manager_path, "queue", "--queue-scan-id", str(qsid)]
             self.logger.info("Running manager for queue scan ID %s (%s)", qsid, target_desc)
             self._run_manager_command(cmd, timeout_sec, qsid)
 
