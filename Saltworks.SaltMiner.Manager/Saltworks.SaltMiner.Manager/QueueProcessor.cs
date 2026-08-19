@@ -32,6 +32,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -52,6 +53,13 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     /// </summary>
     private const string TransientInstanceId = "mgr-000";
 
+    /// <summary>
+    /// Prefix of the single-line machine-readable result emitted at the end of a by-ID run.  The python
+    /// sync agent scans manager's stdout for it to learn whether the scan it handed off actually landed
+    /// (Saltworks.SaltMiner.Python/Sources/SyncWorker.py) - do not change without changing that too.
+    /// </summary>
+    public const string ByIdResultMarker = "[Q-RESULT]";
+
     private readonly ILogger Logger = logger;
     private readonly DataClient.DataClient DataClient = dataClientFactory.GetClient();
     private readonly ManagerConfig Config = config;
@@ -63,6 +71,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     private readonly List<Comment> EngagementComments = [];
     private readonly QueueQueryControl QueueControl = new();
     private string InstanceId = string.Empty; // Instance ID for this run, set in Run()
+    private readonly ByIdRunResult ByIdResult = new(); // what a by-ID run did, reported by ReportByIdResult
 
     private Asset GetRecentAsset(string sourceType, string sourceId) => RecentAssets.FirstOrDefault(ra => ra.Saltminer.Asset.SourceType == sourceType && ra.Saltminer.Asset.SourceId == sourceId);
     private void SetRecentAsset(Asset asset)
@@ -294,6 +303,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                     QueueControl.IndexNames.Add(idx);
                 }
                 Logger.LogInformation(message, count, QueueControl.TotalCount, qs.Saltminer.Scan.SourceType, qs.Saltminer.Scan.Instance, qs.Saltminer.Scan.ReportId, qs.Id);
+                if (!string.IsNullOrEmpty(RunConfig.QueueScanId) && qs.Id == RunConfig.QueueScanId)
+                    ByIdResult.Capture(qs);
                 yield return qs;
                 count++;
                 processedOne = true;
@@ -332,6 +343,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 }
                 CheckCancel();
                 await UpdateStatusAsync(qscan, QueueScan.QueueScanStatus.Processing, QueueScan.QueueScanStatus.Complete, EngagementStatus.Published, true);
+                if (!string.IsNullOrEmpty(RunConfig.QueueScanId) && qscan.Id == RunConfig.QueueScanId)
+                    ByIdResult.Completed = true;
             }
             catch (CancelTokenException)
             {
@@ -418,6 +431,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                     msg = ex.Message;
                 }
                 Logger.LogError(ex, "Queue processor encountered an error: [{Type}] {Msg}", name, msg);
+                ByIdResult.Error ??= $"[{name}] {msg}";
                 throw new QueueProcessorException($"Unexpected error in queue processor: [{name}] {msg}", ex);
             }
         }
@@ -430,7 +444,48 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             {
                 Unlock();
             }
+            ReportByIdResult();
         }
+    }
+
+    /// <summary>
+    /// Emits one machine-readable line reporting what this run did with the queue scan a by-ID run
+    /// targeted, so the caller that handed it off can tell a completed load from an errored or missing
+    /// one instead of inferring it from the exit code.  No-op for batch runs.
+    ///
+    /// Reports only what this process observed - it does NOT read the scan back.  A read-back can return
+    /// a stale status, and a caller acting on that would be reacting to a race we invented rather than
+    /// one that happened.
+    /// </summary>
+    private void ReportByIdResult()
+    {
+        if (string.IsNullOrEmpty(RunConfig?.QueueScanId))
+            return;   // by-ID runs only
+
+        // NotFound is its own outcome, and the one worth retrying: the caller usually created this scan
+        // moments ago, so "the search never saw it" is a different problem from "processing failed".
+        var outcome = !ByIdResult.Found ? "NotFound"
+            : ByIdResult.Error != null ? "Error"
+            : ByIdResult.Completed ? "Complete"
+            : "Incomplete";   // found, but this run neither completed nor errored it
+
+        var json = JsonSerializer.Serialize(new
+        {
+            queue_scan_id = RunConfig.QueueScanId,
+            outcome,
+            // True when this run put the scan into Error status - the caller must leave that status
+            // alone rather than cancelling over the top of it.
+            status_set_to_error = ByIdResult.StatusSetToError,
+            report_id = ByIdResult.ReportId,
+            source_type = ByIdResult.SourceType,
+            instance = ByIdResult.Instance,
+            assessment_type = ByIdResult.AssessmentType,
+            issue_count = ByIdResult.IssueCount,
+            errors = QueueControl.ErrorCount,
+            message = ByIdResult.Error ?? "",
+        });
+        // Argument, not an interpolated template - the JSON braces must not be read as message tokens.
+        Logger.LogInformation("{Marker} {Result}", ByIdResultMarker, json);
     }
 
     private void Unlock()
@@ -520,9 +575,14 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 }
                 catch (Exception ex)
                 {
+                    var isTarget = !string.IsNullOrEmpty(RunConfig.QueueScanId) && queueScan?.Id == RunConfig.QueueScanId;
+                    if (isTarget)
+                        ByIdResult.Error = $"[{ex.GetType().Name}] {ex.InnerException?.Message ?? ex.Message}";
                     try
                     {
                         await UpdateStatusAsync(queueScan, QueueScan.QueueScanStatus.None, QueueScan.QueueScanStatus.Error, EngagementStatus.Error, true);
+                        if (isTarget)
+                            ByIdResult.StatusSetToError = true;   // caller must leave this status alone
                     }
                     catch (Exception ex1)
                     {
@@ -1936,6 +1996,34 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     }
 
     #endregion
+    /// <summary>
+    /// What a by-ID run actually did, recorded as it happens.  Deliberately NOT derived by re-reading the
+    /// queue scan at the end: a read-back can be stale, and reporting a stale status would invent a race
+    /// rather than describe one.  This is what this process observed, nothing more.
+    /// </summary>
+    private sealed class ByIdRunResult
+    {
+        internal bool Found;            // the pending search returned the scan
+        internal bool Completed;        // FinishAsync set it Complete
+        internal bool StatusSetToError; // this run set it to Error (so the caller must not overwrite that)
+        internal string Error;          // why it failed
+        internal string ReportId = "";
+        internal string SourceType = "";
+        internal string Instance = "";
+        internal string AssessmentType = "";
+        internal int IssueCount;
+
+        internal void Capture(QueueScan qs)
+        {
+            Found = true;
+            ReportId = qs.Saltminer.Scan.ReportId ?? "";
+            SourceType = qs.Saltminer.Scan.SourceType ?? "";
+            Instance = qs.Saltminer.Scan.Instance ?? "";
+            AssessmentType = qs.Saltminer.Scan.AssessmentType ?? "";
+            IssueCount = qs.Saltminer.Internal.IssueCount;
+        }
+    }
+
     private sealed class QueueQueryControl
     {
         internal int TotalCount { get; set; } = 0;

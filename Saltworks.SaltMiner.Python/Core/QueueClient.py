@@ -16,6 +16,7 @@
 
 import datetime
 import logging
+import threading
 import uuid
 from collections.abc import Iterable
 
@@ -134,6 +135,8 @@ class QueueClientDoc(object):
         self._priority = None
         self._change_reason = None
         self._change_trigger = None
+        self._agent_id = None
+        self._worker_id = None
         if dto:
             self.map(dto)
 
@@ -155,6 +158,9 @@ class QueueClientDoc(object):
         :priority: optional integer priority for the queue entry, defaults to 5 if not provided.  Lower numbers indicate higher priority.
         :change_reason: optional text indicating the reason for queueing the changes.
         :change_trigger: optional string (keyword) indicating what triggered the change.
+        :agent_id: optional id of the agent that locked the entry - who processed it, for troubleshooting.
+        :worker_id: optional id of the worker thread that processed the entry.  Both are kept after
+        completion (unlike lock_id, which is cleared), so a finished item can still be traced.
         '''
         status = kwargs.get("status", QueueClientStatus.NEW)
         if status is not None and not QueueClientStatus.is_valid(status):
@@ -174,7 +180,9 @@ class QueueClientDoc(object):
             "lock_id": kwargs.get("lock_id"),
             "priority": kwargs.get("priority"),
             "change_reason": kwargs.get("change_reason"),
-            "change_trigger": kwargs.get("change_trigger")
+            "change_trigger": kwargs.get("change_trigger"),
+            "agent_id": kwargs.get("agent_id"),
+            "worker_id": kwargs.get("worker_id")
         })
 
     def map(self, dto):
@@ -193,6 +201,8 @@ class QueueClientDoc(object):
         self.priority = dto.get("priority")
         self.change_reason = dto.get("change_reason")
         self.change_trigger = dto.get("change_trigger")
+        self.agent_id = dto.get("agent_id")
+        self.worker_id = dto.get("worker_id")
 
     def dto(self) -> dict:
         return {
@@ -208,7 +218,9 @@ class QueueClientDoc(object):
             "lock_id": self.lock_id,
             "priority": self.priority,
             "change_reason": self.change_reason,
-            "change_trigger": self.change_trigger
+            "change_trigger": self.change_trigger,
+            "agent_id": self.agent_id,
+            "worker_id": self.worker_id
         }
 
     @property
@@ -314,6 +326,24 @@ class QueueClientDoc(object):
     @change_trigger.setter
     def change_trigger(self, value: str):
         self._change_trigger = value
+
+    @property
+    def agent_id(self) -> str:
+        '''Id of the agent that processed this entry.  Survives completion, unlike lock_id.'''
+        return self._agent_id
+
+    @agent_id.setter
+    def agent_id(self, value: str):
+        self._agent_id = value
+
+    @property
+    def worker_id(self) -> int:
+        '''Id of the worker thread that processed this entry.  Survives completion.'''
+        return self._worker_id
+
+    @worker_id.setter
+    def worker_id(self, value: int):
+        self._worker_id = value
 
 
 class QueueClientDto(object):
@@ -456,6 +486,7 @@ class QueueClient(object):
         self._load_exclusions = []
         self._priority_reservations = {}
         self._session_id = uuid.uuid4()
+        self._agent_id = kwargs.get("agent_id")
         self._default_priority = 5
         self._process_args(kwargs)
 
@@ -497,6 +528,19 @@ class QueueClient(object):
     @property
     def session_id(self):
         return self._session_id
+
+    @property
+    def agent_id(self):
+        '''Configured id of the agent owning this client, stamped onto every doc it locks.'''
+        return self._agent_id
+
+    @staticmethod
+    def _current_worker_id():
+        '''
+        Id of the worker thread we're running on, or None off a worker thread (the agent's own feed
+        and reaper threads).  Worker threads carry the attribute - see Agent._spawn_worker.
+        '''
+        return getattr(threading.current_thread(), 'worker_id', None)
 
     @property
     def index(self):
@@ -636,6 +680,31 @@ class QueueClient(object):
         return ret, r['aggregations']['total_count']['value']
 
 
+    def _stamp_worker(self, doc, worker_id:int=None, reset:bool=False):
+        '''
+        Record which agent/worker is handling this doc.  worker_id is taken from the calling thread
+        unless passed explicitly (the agent's defunct reaper completes another worker's item from its
+        own thread, so it names that worker).
+
+        :reset: use when taking a fresh lock - both ids are overwritten unconditionally, clearing
+        anything left by a previous attempt.  clear_session() releases in-flight items by nulling
+        lock_id, so a doc can be re-locked by a different agent and worker, and the stale ids would
+        otherwise stand until the first progress update.
+
+        Without reset, a known id is never overwritten with None: locking happens on the agent's feed
+        thread and progress can be reported from it too, and neither must erase the worker that is
+        actually doing the work.
+        '''
+        wid = worker_id if worker_id is not None else QueueClient._current_worker_id()
+        if reset:
+            doc.agent_id = self._agent_id
+            doc.worker_id = wid
+            return
+        if doc.agent_id is None:
+            doc.agent_id = self._agent_id
+        if wid is not None:
+            doc.worker_id = wid
+
     def set_start(self, qdto:QueueClientDto, stage:str=None, data:dict=None) -> QueueClientDto|None:
         if not isinstance(qdto, QueueClientDto):
             raise ValueError(INVALID_QUEUE_CLIENT_DTO)
@@ -646,6 +715,11 @@ class QueueClient(object):
         doc.locked = datetime.datetime.now(datetime.UTC).isoformat()
         doc.lock_id = self.session_id
         doc.status = QueueClientStatus.IN_PROGRESS
+        # Who is handling this.  lock_id is a per-run uuid and is cleared on completion, so without
+        # these a finished doc says nothing about which agent or worker touched it.  reset because a
+        # re-locked doc still carries the previous attempt's ids; worker_id lands on the first
+        # progress/complete call from the worker thread (locking runs on the agent's feed thread).
+        self._stamp_worker(doc, reset=True)
         if stage is not None:
             doc.stage = stage
         if data is not None:
@@ -664,6 +738,7 @@ class QueueClient(object):
         if not doc.lock_id or doc.lock_id != self.session_id or doc.completed:
             logging.info("Queue doc for key %s not eligible for progress update with lock id '%s'.", doc.key, doc.lock_id)
             return None
+        self._stamp_worker(doc)
         if stage is not None:
             doc.stage = stage
         if data is not None:
@@ -676,13 +751,17 @@ class QueueClient(object):
             logging.warning("Failed to update progress for queue doc with key %s.", doc.key)
             return None
 
-    def set_complete(self, qdto:QueueClientDto, stage:str=None, data:dict=None, is_error:bool=False, reason:str=None) -> QueueClientDto|None:
+    def set_complete(self, qdto:QueueClientDto, stage:str=None, data:dict=None, is_error:bool=False, reason:str=None, worker_id:int=None) -> QueueClientDto|None:
+        # :worker_id: only for the agent completing an item on a worker's behalf - its defunct reaper
+        # runs on the agent thread, so _stamp_worker's thread lookup finds nothing and the reaper has
+        # to name the worker it is releasing.  Worker-thread callers leave it unset.
         if not isinstance(qdto, QueueClientDto):
             raise ValueError(INVALID_QUEUE_CLIENT_DTO)
         doc = qdto.doc
         if not doc.lock_id or doc.lock_id != self.session_id or doc.completed:
             logging.info("Queue doc for key %s not eligible for completion with lock id '%s'.", doc.key, doc.lock_id)
             return None
+        self._stamp_worker(doc, worker_id)
         doc.lock_id = None
         if stage is not None:
             doc.stage = stage

@@ -406,6 +406,15 @@ class SmApiClient(object):
         self._queue_scan_ids = []
         return finalized_ids
 
+    def cancel_queue_scan(self, queue_scan_id):
+        '''
+        Cancels one queue scan by ID.  Raises on failure so the caller can decide - see
+        abort_everything for why Cancel rather than Error.
+        '''
+        self._data_client.queue_scan_update_status(queue_scan_id, 'Cancel')
+        logging.info("[SMAPI] Cancelled queue scan with ID %s", queue_scan_id)
+
+
     def abort_everything(self, reason):
         '''
         Abandons the queues in progress: discards any batched queue issues that haven't been sent and

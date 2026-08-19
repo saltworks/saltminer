@@ -35,7 +35,9 @@
                 "lock_id": { "type": "keyword" },
                 "priority": { "type": "integer" },
                 "change_reason": { "type": "text" },
-                "change_trigger": { "type": "keyword" }
+                "change_trigger": { "type": "keyword" },
+                "agent_id": { "type": "keyword" },
+                "worker_id": { "type": "integer" }
             }
         }
     }

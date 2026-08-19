@@ -285,6 +285,22 @@ class AppVulsProcessor(object):
             raise AppVulsFODException(countError)
         return queue_scan_ids
 
+    def CancelQueueScan(self, queue_scan_id):
+        '''
+        Cancels a single queue scan by ID, for a load the manager didn't carry through.  Returns True if
+        the status was set.  Never raises - a rejected transition (the manager already set Error, or our
+        view of the status is stale) is the caller's to log, not a reason to fail harder.
+        '''
+        if not self.__SmApiClientEnabled:
+            return False
+        try:
+            self.__SmApiClient.cancel_queue_scan(queue_scan_id)
+            return True
+        except Exception as ex:
+            self.__Logger.warning("Could not cancel queue scan %s: [%s] %s", queue_scan_id, type(ex).__name__, ex)
+            return False
+
+
     def _Beat(self):
         '''
         Signal progress to the caller's heartbeat delegate, if one was supplied.  No-op for

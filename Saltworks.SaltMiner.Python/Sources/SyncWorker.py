@@ -20,13 +20,14 @@
 # SyncWorker class - used to run sync processing in multi-threaded environment.
 
 import os
+import json
 import subprocess
 import threading
 import time
 from collections import deque
 
 from Core.Agent import Agent
-from Core.Heartbeat import Heartbeat
+from Core.Heartbeat import Heartbeat, BeatingSleep
 from Core.Worker import WorkerFactory, Worker, WorkerException
 from Core.QueueClient import QueueClientDto
 from .SSC.SyncExtractor import SyncExtractor as SscSync
@@ -48,6 +49,17 @@ PYTHON_APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Once ManagerTimeoutSec is up, manager is only killed if it has also been silent this long.  Big
 # queue scans legitimately run past the timeout, and a killed manager leaves its queue scan stranded.
 MANAGER_ACTIVITY_WINDOW_SEC = 30
+
+# Manager ends a by-ID run with one machine-readable line saying what became of that queue scan
+# (QueueProcessor.ByIdResultMarker).  Exit code 0 only means the process ran - it does not mean the
+# scan landed, so this is the only way to tell a completed load from an untouched one.
+MANAGER_RESULT_MARKER = "[Q-RESULT]"
+
+# "NotFound" means manager's search never saw the queue scan we just handed it - a visibility lag, not a
+# processing failure, so it's worth another look before calling the load failed.  Manager retries once
+# internally; these are whole re-runs on top of that.
+MANAGER_NOTFOUND_RETRIES = 3
+MANAGER_NOTFOUND_RETRY_DELAY_SEC = 5
 
 
 class SyncQueueType():
@@ -170,7 +182,7 @@ class SyncWorker(Worker):
         return self._fod_refresh
 
 
-    def _run_manager(self, queue_scan_ids:list, target_desc:str):
+    def _run_manager(self, queue_scan_ids:list, target_desc:str, cancel_fn=None):
         """
         Runs the manager's queue processor once per queue scan the refresh stage finalized, so the data
         lands in assets/issues now instead of waiting for the next cron pass.  That is one per assessment
@@ -202,10 +214,44 @@ class SyncWorker(Worker):
         dotnet = settings.Get("SyncAgent", "ManagerDotNetPath", "dotnet")
         timeout_sec = settings.Get("SyncAgent", "ManagerTimeoutSec", 600)
 
+        failures = []
         for qsid in queue_scan_ids:
             cmd = [dotnet, manager_path, "queue", "--queue-scan-id", str(qsid)]
-            self.logger.info("Running manager for queue scan ID %s (%s)", qsid, target_desc)
-            self._run_manager_command(cmd, timeout_sec, qsid)
+            result = None
+            for attempt in range(MANAGER_NOTFOUND_RETRIES + 1):
+                self.logger.info("Running manager for queue scan ID %s (%s)%s", qsid, target_desc,
+                                 f", attempt {attempt + 1} of {MANAGER_NOTFOUND_RETRIES + 1}" if attempt else "")
+                result = self._run_manager_command(cmd, timeout_sec, qsid)
+                if result is None or result.get("outcome") != "NotFound":
+                    break
+                if attempt < MANAGER_NOTFOUND_RETRIES:
+                    self.logger.warning("Manager did not find queue scan ID %s; retrying in %s sec.", qsid, MANAGER_NOTFOUND_RETRY_DELAY_SEC)
+                    BeatingSleep(MANAGER_NOTFOUND_RETRY_DELAY_SEC, self.heartbeat)
+
+            if result is None:
+                continue   # no result line - already warned, and a missing line is not proof of failure
+            outcome = result.get("outcome")
+            if outcome == "Complete":
+                self.logger.info("Manager result for queue scan ID %s: Complete (%s issue(s))", qsid, result.get("issue_count"))
+                continue
+
+            # Exit code 0 with a non-Complete outcome is the case worth catching: the process ran fine but
+            # the scan never landed, so the data isn't in the issue indices and nothing else will retry it.
+            self.logger.error("Manager result for queue scan ID %s: %s (%s error(s)) %s",
+                              qsid, outcome, result.get("errors"), result.get("message") or "")
+            if cancel_fn is not None:
+                if result.get("status_set_to_error"):
+                    # Manager recorded why it failed; cancelling would erase that.
+                    self.logger.info("Leaving queue scan ID %s in Error status as set by the manager.", qsid)
+                elif outcome == "NotFound":
+                    self.logger.info("Not cancelling queue scan ID %s - the manager never found it.", qsid)
+                else:
+                    cancel_fn(qsid)
+            failures.append(f"{qsid}: {outcome}")
+        if failures:
+            raise WorkerException(
+                f"Manager did not complete {len(failures)} of {len(queue_scan_ids)} queue scan(s) for {target_desc}: "
+                + "; ".join(failures))
 
 
     def _run_manager_command(self, cmd:list, timeout_sec:int, qsid:str):
@@ -229,12 +275,16 @@ class SyncWorker(Worker):
         # manager writes its own full log; this is so a failure is diagnosable from our log alone.
         # The drain also doubles as the liveness signal: last_output is the proof of life below.
         tail = deque(maxlen=5)
+        result_line = [None]
         last_output = [time.monotonic()]
         def drain():
             try:
                 for line in proc.stdout:
                     last_output[0] = time.monotonic()
-                    tail.append(line.rstrip())
+                    line = line.rstrip()
+                    tail.append(line)
+                    if MANAGER_RESULT_MARKER in line:
+                        result_line[0] = line   # keep the last one; a run reports at most one
             except Exception:
                 pass
             finally:
@@ -275,6 +325,23 @@ class SyncWorker(Worker):
         if proc.returncode != 0:
             raise WorkerException(f"Manager exited with code {proc.returncode} processing queue scan ID {qsid}. Last output:\n" + "\n".join(tail))
         self.logger.info("Manager completed queue scan ID %s in %.0f sec", qsid, time.monotonic() - started)
+        return self._parse_manager_result(result_line[0], qsid)
+
+
+    def _parse_manager_result(self, line:str, qsid:str) -> dict:
+        """
+        Pulls manager's machine-readable outcome off its output.  Returns the parsed dict, or None when
+        the line is absent or unreadable - an older manager build won't emit one, and a missing result
+        must not be treated as a failed load.
+        """
+        if not line:
+            self.logger.warning("Manager produced no %s line for queue scan ID %s - cannot confirm the load landed.", MANAGER_RESULT_MARKER, qsid)
+            return None
+        try:
+            return json.loads(line[line.index(MANAGER_RESULT_MARKER) + len(MANAGER_RESULT_MARKER):].strip())
+        except Exception as ex:
+            self.logger.warning("Could not parse manager result for queue scan ID %s: [%s] %s.  Line: %s", qsid, type(ex).__name__, ex, line)
+            return None
 
 
     def _process(self, item:QueueClientDto):
@@ -310,7 +377,8 @@ class SyncWorker(Worker):
             # (including the "noscan" queue data for missing expected assessment types).
             queue_scan_ids = refresh.PopulateVulsOne(data.target_id, race_retry=True)
             self.agent.update(item, SyncQueueStage.FINALIZE, data.to_dto())
-            self._run_manager(queue_scan_ids, f"SSC project version {data.target_id} ('{data.target_instance}')")
+            self._run_manager(queue_scan_ids, f"SSC project version {data.target_id} ('{data.target_instance}')",
+                              cancel_fn=refresh.CancelQueueScan)
             self.agent.complete(item, stage="", is_error=False)
             self.logger.info("Worker %s completed processing SSC project version %s", self.id, data.target_id)
         except Exception as ex:
@@ -336,7 +404,8 @@ class SyncWorker(Worker):
             # (including the "noscan" queue data for missing expected assessment types).
             queue_scan_ids = refresh.PopulateVulsOne(data.target_id, race_retry=True)
             self.agent.update(item, SyncQueueStage.FINALIZE, data.to_dto())
-            self._run_manager(queue_scan_ids, f"FOD release {data.target_id} ('{data.target_instance}')")
+            self._run_manager(queue_scan_ids, f"FOD release {data.target_id} ('{data.target_instance}')",
+                              cancel_fn=refresh.CancelQueueScan)
             self.agent.complete(item, stage="", is_error=False)
             self.logger.info("Worker %s completed processing FOD release %s", self.id, data.target_id)
         except Exception as ex:

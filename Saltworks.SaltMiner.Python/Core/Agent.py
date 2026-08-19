@@ -46,6 +46,9 @@ class AgentArgs():
         :new_queue_item_stage: optional string for the stage to set when new queue items are created
         :queue_batch_size: optional integer for the batch size when fetching queue items from elasticsearch
         :worker_error_threshold: optional integer for the number of consecutive errors a worker can encounter before it is stopped, defaults to 3
+        :agent_id: optional id identifying this agent, stamped onto every queue doc it locks so a
+        finished item can be traced back to the agent (and worker) that handled it.  Distinct from the
+        queue client's per-run session uuid, which is used as the lock id and cleared on completion.
         :defunct_worker_timeout_secs: optional integer, defaults to 120; if a worker goes this many seconds without a heartbeat while holding an item, the agent releases its item and abandons it. 0 disables defunct-worker detection.  Must exceed the longest expected time a single item can spend between heartbeats (heartbeats fire on item pickup, on each agent.update()/complete(), and - for workers that pass a Core.Heartbeat delegate to their collaborators - as those make progress).  Note this must clear the source API clients' own timeout and retry budgets, since no beat can fire from inside a blocking request or a retry sleep.
         """
         self._queue_index_pattern_tag = queue_index_pattern_tag
@@ -56,6 +59,7 @@ class AgentArgs():
         self._queue_batch_size = kwargs.get("queue_batch_size")
         self._worker_error_threshold = kwargs.get("worker_error_threshold", 3)
         self._defunct_worker_timeout_secs = kwargs.get("defunct_worker_timeout_secs", 120)
+        self._agent_id = kwargs.get("agent_id")
 
     @property
     def queue_index_pattern_tag(self) -> str:
@@ -113,6 +117,13 @@ class AgentArgs():
     def defunct_worker_timeout_secs(self, value:int):
         self._defunct_worker_timeout_secs = value
 
+    @property
+    def agent_id(self):
+        return self._agent_id
+    @agent_id.setter
+    def agent_id(self, value):
+        self._agent_id = value
+
 
 class Agent():
     """Agent class for multi-threaded processing queue items."""
@@ -161,7 +172,8 @@ class Agent():
     @property
     def queue_client(self) -> QueueClient:
         if self._queue_client is None:
-            self._queue_client = QueueClient(self.app, self.args.queue_index_pattern_tag, batch_size=self.args.queue_batch_size)
+            self._queue_client = QueueClient(self.app, self.args.queue_index_pattern_tag, batch_size=self.args.queue_batch_size,
+                                             agent_id=self.args.agent_id)
         return self._queue_client
     
     @property
@@ -269,7 +281,8 @@ class Agent():
             # raising), which would leave the document locked and invisible to the queue forever.
             # That must never pass silently.
             rsp = self.queue_client.set_complete(item, is_error=True,
-                                                 reason=f"Released by agent: worker {wid} became defunct (no heartbeat for {age:.0f}s)")
+                                                 reason=f"Released by agent: worker {wid} became defunct (no heartbeat for {age:.0f}s)",
+                                                 worker_id=wid)
             if rsp is None:
                 logging.error("Could not release defunct worker %d's queue item %s - the write was rejected "
                               "(stale version or already completed). The document may be left locked; check it manually.",
