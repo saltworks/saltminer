@@ -46,6 +46,10 @@ namespace Saltworks.SaltMiner.Manager
         public string DataApiKey { get; set; }
         public string DataApiKeyHeader { get; set; } = "Authorization";
         public int DataApiTimeoutSec { get; set; } = 10;
+        /// <summary>Cache the api host's resolved address and prefer it over DNS - see DataClientConfig.</summary>
+        public bool DataApiHostCacheEnabled { get; set; } = true;
+        /// <summary>Where to cache it.  Delete the file to force a fresh lookup.</summary>
+        public string DataApiHostCacheFile { get; set; } = "/tmp/data-api-host.json";
         public int QueueProcessorInstances { get; set; } = 1;
         public int QueueProcessorQueueBatchSize { get; set; } = 1000;
         public int QueueProcessorMaxErrors { get; set; } = 3;

@@ -18,20 +18,155 @@
 * ----
 */
 
-﻿using Saltworks.Utility.ApiHelper;
+using Saltworks.Utility.ApiHelper;
 using System;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Sockets;
+using System.Text.Json;
+using System.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-namespace Saltworks.SaltMiner.DataClient
+namespace Saltworks.SaltMiner.DataClient;
+public class DataClientFactory<T>(ApiClientFactory<T> factory, ILogger<DataClient> logger, DataClientConfig config) where T : class
 {
-    public class DataClientFactory<T>(ApiClientFactory<T> factory, ILogger<DataClient> logger, DataClientConfig config) where T : class
-    {
-        private readonly ApiClientFactory<T> Factory = factory ?? throw new DataClientInitializationException("Error instantiating data client - underlying ApiClient factory is null.  Check startup.");
-        private readonly ILogger Logger = logger;
-        private readonly DataClientConfig RunConfig = config;
+    private readonly ApiClientFactory<T> Factory = factory ?? throw new DataClientInitializationException("Error instantiating data client - underlying ApiClient factory is null.  Check startup.");
+    private readonly ILogger Logger = logger;
+    private readonly DataClientConfig RunConfig = config;
 
-        public DataClient GetClient() => new(Factory.CreateApiClient(), Logger, RunConfig);
-        public static DataClient GetClient(IServiceProvider services) => services.GetService<DataClientFactory<T>>().GetClient();
+    /// <summary>
+    /// Whether the api host address cache is in play - both switched on and given somewhere to
+    /// write, with a base address to cache in the first place.
+    /// </summary>
+    private bool CacheEnabled => RunConfig.ApiHostCacheEnabled
+        && !string.IsNullOrEmpty(RunConfig.ApiHostCacheFile)
+        && !string.IsNullOrEmpty(Factory.Options.BaseAddress);
+
+    /// <summary>Seconds to wait between initialization attempts over DNS.</summary>
+    private const int InitRetryDelaySec = 5;
+
+    /// <summary>
+    /// How many times to retry initialization over DNS before giving up.  Three attempts total -
+    /// enough to ride out a container DNS service dropping queries under load.
+    /// </summary>
+    private const int InitRetryCount = 2;
+
+    /// <summary>
+    /// Creates a data client, connecting to the api on the way (unless DisableInitialConnection).
+    ///
+    /// When ApiHostCacheEnabled is set, the cached IP is tried FIRST and DNS is the fallback.
+    /// That inversion is the point: a short-lived process spawned many times a minute otherwise
+    /// resolves the api host on every start, and in a container network that resolver is a single
+    /// small service that starts dropping queries under exactly that load.  The api's address only
+    /// changes when the stack is rebuilt, so the cache is nearly always right - and when it isn't,
+    /// the connection fails fast against a dead IP and DNS re-resolves it.
+    /// </summary>
+    public DataClient GetClient()
+    {
+        var cachedAddress = ReadCachedHostAddress();
+        if (cachedAddress != null)
+        {
+            var original = Factory.Options.BaseAddress;
+            try
+            {
+                var viaCache = Factory.CreateApiClient();
+                viaCache.BaseAddress = SwapHost(original, cachedAddress);
+                var client = new DataClient(viaCache, Logger, RunConfig);
+                Logger.LogDebug("Data client connected using cached api address {Addr} (from {File}).", cachedAddress, RunConfig.ApiHostCacheFile);
+                return client;
+            }
+            catch (DataClientInitializationException ex)
+            {
+                Logger.LogWarning("Cached api address {Addr} did not respond ({Msg}) - falling back to DNS.  The stack was probably rebuilt; the cache will be rewritten.",
+                    cachedAddress, ex.Message);
+            }
+            finally
+            {
+                // BaseAddress on the client also writes through to the shared factory options.
+                Factory.Options.BaseAddress = original;
+            }
+        }
+
+        // DNS path - also the first-run path, and what refreshes the cache.
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                var client = new DataClient(Factory.CreateApiClient(), Logger, RunConfig);
+                WriteCachedHostAddress();
+                return client;
+            }
+            catch (DataClientInitializationException ex) when (attempt < InitRetryCount)
+            {
+                Logger.LogWarning(ex, "Data client initialization failed ({Msg}), retrying in {Delay} sec (attempt {Attempt} of {Total})...",
+                    ex.Message, InitRetryDelaySec, attempt + 1, InitRetryCount + 1);
+                Thread.Sleep(TimeSpan.FromSeconds(InitRetryDelaySec));
+            }
+        }
     }
+
+    private static string SwapHost(string baseAddress, string address) =>
+        new UriBuilder(baseAddress) { Host = address }.Uri.ToString();
+
+    /// <summary>
+    /// Returns the cached api IP, or null when caching is off, the file is absent/unreadable, or it
+    /// refers to a different host than we are configured for.  Never throws - a bad cache must
+    /// degrade to a DNS lookup, not fail the process.
+    /// </summary>
+    private string ReadCachedHostAddress()
+    {
+        if (!CacheEnabled)
+            return null;
+        try
+        {
+            if (!File.Exists(RunConfig.ApiHostCacheFile))
+                return null;
+            var doc = JsonDocument.Parse(File.ReadAllText(RunConfig.ApiHostCacheFile));
+            var host = doc.RootElement.GetProperty("host").GetString();
+            var address = doc.RootElement.GetProperty("address").GetString();
+            // Config changed since the cache was written - ignore it rather than talk to the wrong api.
+            if (!string.Equals(host, new Uri(Factory.Options.BaseAddress).Host, StringComparison.OrdinalIgnoreCase))
+                return null;
+            return string.IsNullOrWhiteSpace(address) ? null : address;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug("Ignoring unreadable api host cache '{File}': {Msg}", RunConfig.ApiHostCacheFile, ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Resolves the configured api host and records it, so the next process can skip DNS.  Written
+    /// via a temp file and a rename so concurrent writers can't leave a half-written cache behind.
+    /// Never throws - failing to write a cache must not fail a connection that already succeeded.
+    /// </summary>
+    private void WriteCachedHostAddress()
+    {
+        if (!CacheEnabled)
+            return;
+        try
+        {
+            var host = new Uri(Factory.Options.BaseAddress).Host;
+            if (IPAddress.TryParse(host, out _))
+                return;   // configured with a literal IP - nothing to cache
+            var address = Dns.GetHostAddresses(host)
+                .FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork) ?? Dns.GetHostAddresses(host).FirstOrDefault();
+            if (address == null)
+                return;
+            var json = JsonSerializer.Serialize(new { host, address = address.ToString(), resolved = DateTime.UtcNow.ToString("o") });
+            var tmp = RunConfig.ApiHostCacheFile + ".tmp." + Environment.ProcessId;
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, RunConfig.ApiHostCacheFile, true);
+            Logger.LogDebug("Cached api host address {Host} -> {Addr} in '{File}'.", host, address, RunConfig.ApiHostCacheFile);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug("Could not write api host cache '{File}': {Msg}", RunConfig.ApiHostCacheFile, ex.Message);
+        }
+    }
+
+    public static DataClient GetClient(IServiceProvider services) => services.GetService<DataClientFactory<T>>().GetClient();
 }

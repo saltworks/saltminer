@@ -192,6 +192,9 @@ public static class Program
                                 options.ApiKey = managerConfig.DataApiKey;
                                 options.Timeout = TimeSpan.FromSeconds(managerConfig.DataApiTimeoutSec);
                                 options.VerifySsl = managerConfig.DataApiVerifySsl;
+                                options.RunConfig.ApiHostCacheEnabled = managerConfig.DataApiHostCacheEnabled;
+                                if (!string.IsNullOrEmpty(managerConfig.DataApiHostCacheFile))
+                                    options.RunConfig.ApiHostCacheFile = managerConfig.DataApiHostCacheFile;
                             }
                         );
                     }
