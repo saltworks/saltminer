@@ -39,10 +39,13 @@ ISSUE_COUNT_RECHECK_DELAY_SEC = 5
 class AppVulsProcessor(object):
     """ App vulnerability processor for SSC """
 
-    def __init__(self, appSettings, sourceName, smv3ConfigName="SMv3", mainConfigName="Main", logger=None, heartbeat=None):
+    def __init__(self, appSettings, sourceName, smv3ConfigName="SMv3", mainConfigName="Main", logger=None, heartbeat=None, agent_mode:bool=False):
         '''
         :heartbeat: optional zero-arg callable invoked as work progresses.  Supplied by SyncWorker
         so the agent can tell a slow refresh from a defunct worker; None (the default) for standalone runs.
+        :agent_mode: set by SyncWorker.  Marks a run that handles one app version per invocation, so
+        per-run costs the batch runners amortise over a whole queue are paid every item instead - see
+        SmApiClient's refresh_indices.
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
@@ -70,7 +73,7 @@ class AppVulsProcessor(object):
         #
         self.__SmApiClientEnabled = appSettings.Get(smv3ConfigName, "ApiClientEnabled", False)
         if self.__SmApiClientEnabled:
-            self.__SmApiClient = SmApiClient(appSettings, sourceName, smv3ConfigName)
+            self.__SmApiClient = SmApiClient(appSettings, sourceName, smv3ConfigName, refresh_indices=not agent_mode)
             self.__HistoryV3Enable =  appSettings.GetSource(sourceName, "EnableHistoryImportToV3", False)
         self.__DisableSM2Indices = appSettings.GetSource(sourceName, "DisableSM2Indices", False)
         
@@ -589,10 +592,12 @@ class AppVulsProcessor(object):
             "term": { "application_version_id": { "value": appVersionId } }
           }
         }
+        # flushAfter off - this runs per app version (twice), and a flush is a Lucene commit on indices
+        # every worker is writing.  Nothing reads these deletes back within the run.
         if not issuesOnly:
-            self.__Es.DeleteByQuery("app_scan_history_ssc", DeleteQuery)
+            self.__Es.DeleteByQuery("app_scan_history_ssc", DeleteQuery, flushAfter=False)
         if not scansOnly:
-            self.__Es.DeleteByQuery("app_vuls_ssc", DeleteQuery)
+            self.__Es.DeleteByQuery("app_vuls_ssc", DeleteQuery, flushAfter=False)
 
     def __GetAssessmentTypes(self):
         lst = []

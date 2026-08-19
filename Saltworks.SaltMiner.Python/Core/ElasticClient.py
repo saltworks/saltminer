@@ -1066,25 +1066,34 @@ class ElasticClient(object):
         Deletes all data from an index without dropping the index.  Best suited for large volume indices, 
         as will not wait for completion and will not flush the index after delete is completed.
         '''
-        self.DeleteByQuery(index, { "query": { "match_all": {} } }, False, False, timeout, ignoreMissingIndex)
+        self.DeleteByQuery(index, { "query": { "match_all": {} } }, wait=False, timeout=timeout, ignoreMissingIndex=ignoreMissingIndex)
     
-    def DeleteByQuery(self, index, queryBody, flushAfter=True, wait=True, timeout=None, ignoreMissingIndex=False, ignoreConflictError=False, slices=None):
+    def DeleteByQuery(self, index, queryBody, refreshAfter=False, flushAfter=False, wait=True, timeout=None, ignoreMissingIndex=False, ignoreConflictError=False, slices=None):
         '''
         Deletes from specified index using specified query body
 
         Parameters:
         :index: the index from which to delete; wildcards are possible
         :queryBody: elasticsearch DSL request body (should include "query": {})
-        :flushAfter: calls FlushIndex after the delete (no flush will be executed if wait=False)
+        :refreshAfter: calls RefreshIndex after the delete, making it visible to searches.  Set this when
+        something reads the index back straight away; it is the cheaper of the two and usually the one
+        you want.  No refresh is executed if wait=False.
+        :flushAfter: calls FlushIndex after the delete - a Lucene commit, for durability, NOT visibility.
+        Rarely needed; leave off unless you specifically want the commit.  No flush is executed if wait=False.
         :wait: whether or not to wait for the delete operation to complete
         :timeout: API call timeout - if None, uses the default from config
         :ignoreMissingIndex: If False, raise error if index doesn't exist
         :ignoreConflictError: If False, raise ConflictError if occurs
         :slices: The number of slices to use for the delete by query operation. If None (default), slicing is disabled. Use "auto" for automatic slicing or specify an integer for manual slicing.
 
+        NOTE: both refreshAfter and flushAfter default to False.  Callers that need either must ask for
+        it by keyword - and note refreshAfter sits where flushAfter used to, so any surviving positional
+        call means something different than it did.
+
         Usage:
-        DeleteByQuery("index", query) - use this for most queries where slicing is disabled
-        DeleteByQuery("index", query, False, False) - use this when deleting large amounts of data
+        DeleteByQuery("index", query) - most cases: delete, wait, no refresh or flush
+        DeleteByQuery("index", query, refreshAfter=True) - when the caller reads the index back next
+        DeleteByQuery("index", query, wait=False) - large volume, don't wait for completion
         DeleteByQuery("index", query, slices="auto") - use this for automatic slicing
         DeleteByQuery("index", query, slices=1) - use this to manually specify the number of slices
         '''
@@ -1110,7 +1119,9 @@ class ElasticClient(object):
                 rsp = self.es.delete_by_query(index=index, body=queryBody, wait_for_completion=False, conflicts=conflicts, timeout=f"{timeout}s") # pylint: disable=unexpected-keyword-arg
             if wait:
                 rsp = self.WaitForTask(rsp['task'])
-            if flushAfter and wait:
+            if wait and refreshAfter:
+                self.RefreshIndex(index)
+            if wait and flushAfter:
                 self.FlushIndex(index)
             self.__RetryCount = 0
             return rsp
@@ -1120,7 +1131,7 @@ class ElasticClient(object):
             self.__RetryCount += 1
             logging.error("API connection error during delete by query operation - [%s] %s, retrying in %s secs...", type(e).__name__, msg, delay)
             time.sleep(delay)
-            return self.DeleteByQuery(index, queryBody, flushAfter, wait, timeout, ignoreMissingIndex)
+            return self.DeleteByQuery(index, queryBody, refreshAfter, flushAfter, wait, timeout, ignoreMissingIndex)
 
     def ExecuteEnrichPolicy(self, policy):
         try:
@@ -1187,6 +1198,13 @@ class ElasticClient(object):
         return self.es.indices.exists(index=name)
 
     def FlushIndex(self, index):
+        '''
+        Lucene commit - writes the in-memory buffer to disk and truncates the translog.  This is a
+        DURABILITY operation: it is not what makes recent writes searchable, and it costs more than the
+        one that does.  If you are here because a later read didn't see a write, you want RefreshIndex.
+        '''
+        logging.warning("FlushIndex called on '%s' - flush is a Lucene commit for durability and does NOT "
+                        "make writes searchable.  Use RefreshIndex if you need a read to see recent writes.", index)
         try:
             self.es.indices.flush(index=index)
         except urllib3.exceptions.ReadTimeoutError:

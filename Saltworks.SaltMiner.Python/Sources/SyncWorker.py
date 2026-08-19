@@ -166,7 +166,8 @@ class SyncWorker(Worker):
 
     def _get_ssc_refresh(self, src_name:str) -> SscRefresh:
         if self._ssc_refresh is None or self._ssc_refresh.SourceName != src_name:
-            self._ssc_refresh = SscRefresh(self.agent.app.Settings, src_name, logger=self.logger, heartbeat=self._heartbeat)
+            self._ssc_refresh = SscRefresh(self.agent.app.Settings, src_name, logger=self.logger, heartbeat=self._heartbeat,
+                                              agent_mode=True)
         return self._ssc_refresh
 
 
@@ -178,7 +179,8 @@ class SyncWorker(Worker):
 
     def _get_fod_refresh(self, src_name:str) -> FodRefresh:
         if self._fod_refresh is None or self._fod_refresh.SourceName != src_name:
-            self._fod_refresh = FodRefresh(self.agent.app.Settings, src_name, logger=self.logger, heartbeat=self._heartbeat)
+            self._fod_refresh = FodRefresh(self.agent.app.Settings, src_name, logger=self.logger, heartbeat=self._heartbeat,
+                                              agent_mode=True)
         return self._fod_refresh
 
 
@@ -325,17 +327,23 @@ class SyncWorker(Worker):
         if proc.returncode != 0:
             raise WorkerException(f"Manager exited with code {proc.returncode} processing queue scan ID {qsid}. Last output:\n" + "\n".join(tail))
         self.logger.info("Manager completed queue scan ID %s in %.0f sec", qsid, time.monotonic() - started)
-        return self._parse_manager_result(result_line[0], qsid)
+        return self._parse_manager_result(result_line[0], qsid, tail)
 
 
-    def _parse_manager_result(self, line:str, qsid:str) -> dict:
+    def _parse_manager_result(self, line:str, qsid:str, tail=None) -> dict:
         """
         Pulls manager's machine-readable outcome off its output.  Returns the parsed dict, or None when
-        the line is absent or unreadable - an older manager build won't emit one, and a missing result
-        must not be treated as a failed load.
+        the line is absent or unreadable.
+
+        A missing line is an error, not a nuisance: manager emits one for every by-ID run, so its absence
+        means the run didn't end where it should have - or that the ID never reached it, in which case
+        manager quietly did a full batch pass instead ("all" is the default for --queue-scan-id).  The
+        last few output lines are logged with it because they are the only evidence of which it was.
         """
         if not line:
-            self.logger.warning("Manager produced no %s line for queue scan ID %s - cannot confirm the load landed.", MANAGER_RESULT_MARKER, qsid)
+            recent = "\n".join(list(tail)[-3:]) if tail else "(no output captured)"
+            self.logger.error("Manager produced no %s line for queue scan ID %s - cannot confirm the load landed. Last output:\n%s",
+                              MANAGER_RESULT_MARKER, qsid, recent)
             return None
         try:
             return json.loads(line[line.index(MANAGER_RESULT_MARKER) + len(MANAGER_RESULT_MARKER):].strip())

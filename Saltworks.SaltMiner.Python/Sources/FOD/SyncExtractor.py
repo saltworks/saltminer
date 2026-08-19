@@ -140,7 +140,9 @@ class SyncExtractor(object):
                     { "term": { self.__SourceNameField: { "value": self.__SourceName } } },
                     { "term": { component[1]: { "value": component[2] } } }
                 ] }}}
-                self.__Es.DeleteByQuery(component[0], qry)
+                # flushAfter off - a Lucene commit per cleared component, per release, is cost this
+                # path has no use for; nothing here reads the deletes back.
+                self.__Es.DeleteByQuery(component[0], qry, flushAfter=False)
             except ConflictError as e:
                 msg = e.args[0] if e and e.args else "unknown"
                 self.__Logger.warning("[SyncExtractor] Conflict Error (409) clearing index %s for id %s: %s", component[0], component[2], msg)
@@ -275,8 +277,10 @@ class SyncExtractor(object):
                 rel[self.__SourceNameField] = self.__SourceName
 
 
-        # Main queue loop
-        self.__Es.FlushIndex(self.__SyncQueue.Index)
+        # Main queue loop - refresh, not flush: this is a read-your-writes barrier before reading the
+        # queue back, and only refresh makes recent writes searchable.
+        # NOTE: SSC's SyncExtractor has no equivalent barrier before its GetSyncQueueBatch() calls.
+        self.__Es.RefreshIndex(self.__SyncQueue.Index)
         r = self.__SyncQueue.GetSyncQueueBatch()
         p = ProgressLogger(self.__Es)
         p.Start("ExtractFOD", r[1], "ExtractFOD Status")

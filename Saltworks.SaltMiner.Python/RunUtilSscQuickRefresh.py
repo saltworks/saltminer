@@ -135,7 +135,8 @@ try:
             WriteUpdateQueueDoc(count['key'])
     if prmRunRefresh:
         logging.info("Comparison complete. Updates needed: %s  Begin refresh...", processed)
-        es.FlushIndex('sscupdatequeue')
+        # Refresh, not flush - PopulateVuls reads these queue docs straight back.
+        es.RefreshIndex('sscupdatequeue')
         ssc.PopulateVuls()
     else:
         logging.info("Comparison complete.  Refresh disabled by parameter, so process is complete.")

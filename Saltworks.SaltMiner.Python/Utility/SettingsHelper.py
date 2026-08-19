@@ -58,7 +58,8 @@ class SettingsHelper(object):
                 "timestamp": datetime.datetime.now(datetime.timezone.utc)
             }
             self.__es.Index(self.__idx, doc)
-            self.__es.FlushIndex(self.__idx)
+            # Refresh, not flush - this is a read-your-writes barrier so the next Get() finds the setting.
+            self.__es.RefreshIndex(self.__idx)
         return setting
 
     def Set(self, setting):
@@ -82,7 +83,7 @@ class SettingsHelper(object):
         Delete setting entry by key
         '''
         logging.debug("DeleteByKey called for key '%s'.", key)
-        self.__es.DeleteByQuery(self.__idx, { "query": { "term": { "key": { "value": key } } } }, False, False)
+        self.__es.DeleteByQuery(self.__idx, { "query": { "term": { "key": { "value": key } } } }, wait=False)
         
     
     

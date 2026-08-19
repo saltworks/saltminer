@@ -195,7 +195,7 @@ class CleanQueueHelper():
                     orphan_batch.append(sid)
                     if len(orphan_batch) >= self.bsize:
                         b = { "query": { "terms": { scan_id_field: orphan_batch } } }
-                        self.es.DeleteByQuery(child_index, b, False, False, ignoreConflictError=True)
+                        self.es.DeleteByQuery(child_index, b, wait=False, ignoreConflictError=True)
                         removed += len(orphan_batch)
                         orphan_batch = []
 
@@ -205,7 +205,7 @@ class CleanQueueHelper():
 
         if len(orphan_batch):
             b = { "query": { "terms": { scan_id_field: orphan_batch } } }
-            self.es.DeleteByQuery(child_index, b, False, False, timeout=30, ignoreConflictError=True)
+            self.es.DeleteByQuery(child_index, b, wait=False, timeout=30, ignoreConflictError=True)
             removed += len(orphan_batch)
 
         elapsed = int((datetime.now() - start).total_seconds())
@@ -230,13 +230,13 @@ class CleanQueueHelper():
                 batch.append(dto['_id'])
                 if len(batch) >= self.bsize:
                     b = { "query": { "terms": { "saltminer.queue_scan_id": batch } } }
-                    self.es.DeleteByQuery("queue_issues", b, False, False, ignoreConflictError=True)
+                    self.es.DeleteByQuery("queue_issues", b, wait=False, ignoreConflictError=True)
                     b = { "query": { "terms": { "saltminer.current.queue_scan_id": batch } } }
-                    self.es.DeleteByQuery("queue_assets", b, False, False, ignoreConflictError=True)
+                    self.es.DeleteByQuery("queue_assets", b, wait=False, ignoreConflictError=True)
                     b = { "query": { "terms": { "saltminer.internal.current_queue_scan_id": batch } } }
-                    self.es.DeleteByQuery("queue_scans", b, False, False, ignoreConflictError=True)
+                    self.es.DeleteByQuery("queue_scans", b, wait=False, ignoreConflictError=True)
                     b = { "query": { "terms": { "id": batch } } }
-                    self.es.DeleteByQuery("queue_scans", b, False, False, ignoreConflictError=True)
+                    self.es.DeleteByQuery("queue_scans", b, wait=False, ignoreConflictError=True)
                     batch = []
 
                 count += 1
@@ -248,13 +248,13 @@ class CleanQueueHelper():
             # remainder
             if len(batch):
                 b = { "query": { "terms": { "saltminer.queue_scan_id": batch } } }
-                self.es.DeleteByQuery("queue_issues", b, False, False, timeout=30, ignoreConflictError=True)
+                self.es.DeleteByQuery("queue_issues", b, wait=False, timeout=30, ignoreConflictError=True)
                 b = { "query": { "terms": { "saltminer.current.queue_scan_id": batch } } }
-                self.es.DeleteByQuery("queue_assets", b, False, False, timeout=30, ignoreConflictError=True)
+                self.es.DeleteByQuery("queue_assets", b, wait=False, timeout=30, ignoreConflictError=True)
                 b = { "query": { "terms": { "saltminer.internal.current_queue_scan_id": batch } } }
-                self.es.DeleteByQuery("queue_scans", b, False, False, timeout=30, ignoreConflictError=True)
+                self.es.DeleteByQuery("queue_scans", b, wait=False, timeout=30, ignoreConflictError=True)
                 b = { "query": { "terms": { "id": batch } } }
-                self.es.DeleteByQuery("queue_scans", b, False, False, timeout=30, ignoreConflictError=True)
+                self.es.DeleteByQuery("queue_scans", b, wait=False, timeout=30, ignoreConflictError=True)
             logging.info("Processed %s total queue scans with %s status.", count, key)
 
         logging.info("Processed %s total queue scans. Queue scan removal complete.", gtotal)

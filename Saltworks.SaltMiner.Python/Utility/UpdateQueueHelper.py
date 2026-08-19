@@ -132,7 +132,7 @@ class UpdateQueueHelper(object):
           }
         }
         logging.debug("Removing queue history older than % day(s)", daysOld)
-        self.__Es.DeleteByQuery(self.__UpdateIndex, body, False, False, True)
+        self.__Es.DeleteByQuery(self.__UpdateIndex, body, wait=False, timeout=True)
 
 
 class UpdateQueueHelperException(Exception):

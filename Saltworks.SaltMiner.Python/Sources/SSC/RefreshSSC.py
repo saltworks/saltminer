@@ -119,5 +119,7 @@ class RefreshSSC(object):
                 
 
         p.Finish(iTotal, "Complete")
-        logging.info("Attempting to flush index sscupdatequeue")
-        self.__Es.FlushIndex('sscupdatequeue')
+        # Refresh, not flush - the refresh stage reads these records back, so what is needed is
+        # searchability, not a Lucene commit.
+        logging.info("Refreshing index sscupdatequeue")
+        self.__Es.RefreshIndex('sscupdatequeue')

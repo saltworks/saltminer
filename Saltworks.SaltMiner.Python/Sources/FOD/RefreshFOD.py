@@ -79,4 +79,6 @@ class RefreshFOD(object):
         self.__Es.BulkSendBatch() # send remaining
 
         p.Finish(iTotal, "Complete")
-        self.__Es.FlushIndex('fodupdatequeue')
+        # Refresh, not flush - the refresh stage reads these records back, so what is needed is
+        # searchability, not a Lucene commit.
+        self.__Es.RefreshIndex('fodupdatequeue')

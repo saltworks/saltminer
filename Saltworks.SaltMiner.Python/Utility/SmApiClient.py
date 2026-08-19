@@ -29,6 +29,12 @@ from dateutil.parser import parse as dtparse
 from Core.DataClient import DataClient, DataClientException, DataClientNotFoundException
 
 
+# Seconds to wait before the single retry made when a queue scan status update fails.  The api writes the
+# queue scan under an optimistic seq_no/primary_term lock, so with N workers finalizing at once a losing
+# write is a race to wait out, not an error to report.
+QUEUE_STATUS_RETRY_DELAY_SEC = 5
+
+
 class SmApiClient(object):
     '''
     SaltMiner API Client
@@ -36,13 +42,16 @@ class SmApiClient(object):
     QueueScan -> QueueAsset -> QueueIssues
     '''
 
-    def __init__(self, appSettings, sourceName, configName="SMv3"):
+    def __init__(self, appSettings, sourceName, configName="SMv3", refresh_indices=True):
         '''
         Initializes the class.
 
         appSettings: ApplicationSettings instance containing configuration settings
         sourceName: Name of the source configuration section
         configName: Configuration key for SMv3 configuration settings
+        refresh_indices: whether finalize_everything refreshes the queue indices.  Set False under the
+        sync agent - it finalizes once per queue item, and an index refresh per item across N workers is
+        a cost the batch runners don't pay.  The agent's manager hand-off retries instead.
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise SmApiClientConfigurationException("Type of appSettings must be 'ApplicationSettings'")
@@ -55,6 +64,7 @@ class SmApiClient(object):
         self._history_done = set()
         self._queue_scan_ids = []
         self._source_name = sourceName
+        self._refresh_indices = refresh_indices
         self._es = appSettings.Application.GetElasticClient()
         self._assessment_type_map = appSettings.Get(configName, 'AssessmentTypeMap', {})
         self._enable_stupid_null = appSettings.FlagSet("Enable-Stupid-Null")
@@ -257,8 +267,20 @@ class SmApiClient(object):
     def finalize_queue(self, q_scan_id):
         '''
         Marks the queue scan as Pending, completing the queue load process.
+
+        Retried once after QUEUE_STATUS_RETRY_DELAY_SEC.  The api reads the queue scan and writes it back
+        under an optimistic seq_no/primary_term lock, so a concurrent write to the same document loses
+        and the update fails - reachable with enough workers finalizing at once.  The second attempt
+        re-reads, so it succeeds unless the conflict is persistent or the failure was never a race.
+        A second failure propagates; finalize_everything counts it and reports it.
         '''
-        self._data_client.queue_scan_update_status(q_scan_id, 'Pending')
+        try:
+            self._data_client.queue_scan_update_status(q_scan_id, 'Pending')
+        except Exception as ex:
+            logging.warning("[SMAPI] Failed to set queue scan %s to Pending ([%s] %s), retrying in %s sec...",
+                            q_scan_id, type(ex).__name__, ex, QUEUE_STATUS_RETRY_DELAY_SEC)
+            time.sleep(QUEUE_STATUS_RETRY_DELAY_SEC)
+            self._data_client.queue_scan_update_status(q_scan_id, 'Pending')
         logging.info("[SMAPI] Completed queuescan with id %s, now in Pending status", q_scan_id)
 
     def search_last_scan(self, avid, atype, source_type='Saltworks.SSC'):
@@ -370,11 +392,21 @@ class SmApiClient(object):
         err_count = 0
         finalized_ids = []
         self._batch_issue(None)  # send any remaining queue issues
-        try:
-            self._es.FlushIndex("queue_issues")
-            self._es.FlushIndex("queue_scans")
-        except Exception as e:
-            logging.warning("Error updating v3 indices - this is ok in multi-instance scenarios. %s", e)
+        # Refresh, not flush: refresh is the operation that makes writes searchable.  Flush is a Lucene
+        # commit for durability - it was never providing the visibility this code wants, and costs more.
+        #
+        # Skipped entirely under the sync agent, which finalizes once per queue item: a refresh is
+        # index-wide, so N workers refreshing three contended queue indices per item is real load for a
+        # guarantee the manager hand-off already retries for.  The batch runners finalize once per batch,
+        # where the cost is negligible and the caller has no retry of its own.
+        if self._refresh_indices:
+            try:
+                # In the order the manager reads them.
+                self._es.RefreshIndex("queue_issues")
+                self._es.RefreshIndex("queue_assets")
+                self._es.RefreshIndex("queue_scans")
+            except Exception as e:
+                logging.warning("Error refreshing v3 indices - this is ok in multi-instance scenarios. %s", e)
         logging.info("Wait a moment for elasticsearch to catch up...")
         time.sleep(2)
         for id in self._key_map.keys():
