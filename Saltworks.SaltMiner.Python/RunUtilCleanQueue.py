@@ -25,7 +25,10 @@ from Core.Application import Application
 
 
 class CleanQueueHelper():
-    """Removes aged queue scans (and their child docs) plus any orphaned queue_issues/queue_assets."""
+    """Removes aged queue scans (and their child docs) plus any orphaned queue_issues/queue_assets.
+
+    Replaces the manager's deprecated CleanUpProcessor / `manager cleanup` verb.
+    """
 
     def __init__(self, app:Application=None):
         """
@@ -100,6 +103,26 @@ class CleanQueueHelper():
                 { "exists": { "field": "saltminer.internal.current_queue_scan_id"}},
                 { "exists": { "field": "saltminer.engagement.id"}},
                 { "term": { "saltminer.scan.source_type": { "value": "Saltworks.PenTest" } } }
+              ]
+            }
+          },
+          "sort": [ "id" ],
+          "_source": False
+        }
+
+        # Cancel, keep for 48 hrs.  Set by the python side when a load is abandoned (see
+        # SmApiClient.abort_everything).  Deleting the parent cascades to its Pending history scans via
+        # the current_queue_scan_id delete in run() - nothing else ever collects those.  PenTest is not
+        # excluded here, matching the retired CleanUpProcessor, which removed PenTest on Complete/Cancel.
+        self.bodies['cancel'] = {
+          "query": {
+            "bool": {
+              "must": [
+                { "term": { "saltminer.internal.queue_status": { "value": "Cancel" } } },
+                { "range": { "timestamp": { "lte": "now-48h" } } }
+              ],
+              "must_not": [
+                { "exists": { "field": "saltminer.internal.current_queue_scan_id"}}
               ]
             }
           },
