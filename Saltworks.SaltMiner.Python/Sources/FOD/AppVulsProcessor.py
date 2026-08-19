@@ -22,6 +22,7 @@
 # Originally AppVulsFOD.py and class AppVulsFOD.
 
 import datetime
+import json
 import logging
 import time
 from dateutil.parser import parse as dtparse
@@ -484,7 +485,17 @@ class AppVulsProcessor(object):
         source/instance, the manager merges rather than appends, and synthetic zero/noscan records and
         cancel-hook drops all move that number legitimately.  See PBI-0005.
         '''
-        syncCountAfter = self.__Es.Count(index, query)
+        # The scroller adds "sort" to the query dict it was handed - in place - so the query reaching us
+        # here is no longer count-safe (_count rejects sort).  Strip the paging keys off a copy, the same
+        # way the scroller does for its own count back-fill.
+        countQuery = json.loads(json.dumps(query))
+        countQuery.pop('sort', None)
+        countQuery.pop('search_after', None)
+        countQuery.pop('_source', None)
+        countQuery.pop('size', None)
+        countQuery.pop('from', None)
+
+        syncCountAfter = self.__Es.Count(index, countQuery)
         if syncCountAfter == pulledCount:
             if syncCountBefore != syncCountAfter:
                 # Settled before we finished reading, so the pull is still complete - worth knowing.
@@ -495,7 +506,7 @@ class AppVulsProcessor(object):
         self.__Logger.warning("Issue count mismatch for %s: pulled %s, '%s' now holds %s (%s at pull start).  Rechecking in %s sec...",
                               appVerId, pulledCount, index, syncCountAfter, syncCountBefore, ISSUE_COUNT_RECHECK_DELAY_SEC)
         time.sleep(ISSUE_COUNT_RECHECK_DELAY_SEC)
-        recheckCount = self.__Es.Count(index, query)
+        recheckCount = self.__Es.Count(index, countQuery)
         if recheckCount == pulledCount:
             self.__Logger.info("Issue count for %s matched on recheck (%s) - pull was complete.", appVerId, recheckCount)
             return
