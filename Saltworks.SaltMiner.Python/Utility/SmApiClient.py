@@ -368,6 +368,7 @@ class SmApiClient(object):
         '''
         cid = None
         err_count = 0
+        finalized_ids = []
         self._batch_issue(None)  # send any remaining queue issues
         try:
             self._es.FlushIndex("queue_issues")
@@ -380,6 +381,7 @@ class SmApiClient(object):
             try:
                 cid = self._key_map[id]['sid']
                 self.finalize_queue(cid)
+                finalized_ids.append(cid)
             except SmApiClientException:
                 err_count += 1
                 # already logged error
@@ -391,17 +393,29 @@ class SmApiClient(object):
                 break
         if err_count > 0:
             logging.error("[SMAPI] %s errors encountered while finalizing queue scans - some data will be missing.", err_count)
+        # Return only what we actually finalized - one per app version + assessment type.  Scan-history
+        # queue scans are bulk-created straight into Pending status (see _map_and_add_ssc_scan_history),
+        # never enter _key_map, and there can be hundreds of them for one app version.  They are already
+        # in the state the manager picks up, so the caller must not treat them as work to hand off
+        # individually - that turns one app version into hundreds of manager runs.
+        others = len(set(self._queue_scan_ids) - set(finalized_ids))
+        if others:
+            logging.info("[SMAPI] %s scan-history queue scan(s) created this run are already Pending and left for the manager's normal queue run.", others)
         self._key_map = {}
         self._history_done = set()
-        created_ids = self._queue_scan_ids
         self._queue_scan_ids = []
-        return created_ids
+        return finalized_ids
 
     def abort_everything(self, reason):
         '''
         Abandons the queues in progress: discards any batched queue issues that haven't been sent and
         cancels every queue scan created this run, so the manager never picks up a partial load.
         Returns the list of queue scan IDs cancelled (resetting the list, like finalize_everything).
+
+        Only the _key_map scans are cancelled - one status update per assessment type.  Scan-history
+        scans are bulk-created straight into Pending and there can be hundreds of them; cancelling those
+        one at a time is too expensive to be worth it, and they are self-correcting either way (the cron
+        manager processes them normally, and cleanup ages out anything left stuck).
 
         Cancel, not Error: the api only lets an Agent-role caller move a queue scan
         Loading/Pending -> Loading/Pending/Cancel.  Cancel is excluded from the manager's pending
@@ -416,10 +430,12 @@ class SmApiClient(object):
             self._issue_batch['Documents'] = []
         err_count = 0
         cid = None
+        cancelled_ids = []
         for id in self._key_map.keys():
             try:
                 cid = self._key_map[id]['sid']
                 self._data_client.queue_scan_update_status(cid, 'Cancel')
+                cancelled_ids.append(cid)
                 logging.info("[SMAPI] Cancelled queue scan with ID %s", cid)
             except Exception as ex:
                 err_count += 1
@@ -428,7 +444,6 @@ class SmApiClient(object):
             logging.error("[SMAPI] %s error(s) while cancelling queue scans - some may still be picked up by the manager.", err_count)
         self._key_map = {}
         self._history_done = set()
-        cancelled_ids = self._queue_scan_ids
         self._queue_scan_ids = []
         return cancelled_ids
 

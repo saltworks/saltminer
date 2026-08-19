@@ -172,8 +172,11 @@ class SyncWorker(Worker):
 
     def _run_manager(self, queue_scan_ids:list, target_desc:str):
         """
-        Runs the manager's queue processor once per queue scan ID created by the refresh stage, so
-        the data lands in assets/issues now instead of waiting for the next cron pass.
+        Runs the manager's queue processor once per queue scan the refresh stage finalized, so the data
+        lands in assets/issues now instead of waiting for the next cron pass.  That is one per assessment
+        type on the app version - scan-history queue scans are deliberately not included (they are
+        bulk-created straight into Pending and processed automatically with the main queue scan; 
+        see SmApiClient.finalize_everything for more details).
 
         Manager is a run-once CLI sharing the services container with us, so it's launched the same
         way svc mgr's CommandJob does: `dotnet <ManagerDll> queue --queue-scan-id <id>`.  It picks up
