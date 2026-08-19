@@ -7,7 +7,7 @@ theme — treat it as the toolbox.
 
 | File | Purpose |
 |---|---|
-| `SmApiClient.py` | Maps legacy Fortify v2 staging data into SaltMiner queue scans / assets / issues and finalizes them for the manager. The largest and most involved thing here — see the Context ID above. |
+| `SmApiClient.py` | Maps legacy Fortify v2 staging data into SaltMiner queue scans / assets / issues and finalizes them for the manager. The largest and most involved thing here. |
 | `QueueLoader.py`, `SyncQueueHelper.py`, `UpdateQueueHelper.py` | Load and manage the sync/update queues that drive the agent and the Fortify refresh. |
 | `ProgressLogger.py`, `AlertLogger.py`, `EventLog.py` | Progress reporting and operator-facing event/alert output. |
 | `JiraClient.py`, `SCDastClient.py`, `WizClient.py`, `SCWImport.py` | Third-party integrations. |

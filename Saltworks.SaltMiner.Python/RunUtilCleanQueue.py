@@ -112,8 +112,7 @@ class CleanQueueHelper():
 
         # Cancel, keep for 48 hrs.  Set by the python side when a load is abandoned (see
         # SmApiClient.abort_everything).  Deleting the parent cascades to its Pending history scans via
-        # the current_queue_scan_id delete in run() - nothing else ever collects those.  PenTest is not
-        # excluded here, matching the retired CleanUpProcessor, which removed PenTest on Complete/Cancel.
+        # the current_queue_scan_id delete.   PenTest is not excluded here.
         self.bodies['cancel'] = {
           "query": {
             "bool": {
