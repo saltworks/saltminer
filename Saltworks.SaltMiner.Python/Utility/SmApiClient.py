@@ -397,6 +397,41 @@ class SmApiClient(object):
         self._queue_scan_ids = []
         return created_ids
 
+    def abort_everything(self, reason):
+        '''
+        Abandons the queues in progress: discards any batched queue issues that haven't been sent and
+        cancels every queue scan created this run, so the manager never picks up a partial load.
+        Returns the list of queue scan IDs cancelled (resetting the list, like finalize_everything).
+
+        Cancel, not Error: the api only lets an Agent-role caller move a queue scan
+        Loading/Pending -> Loading/Pending/Cancel.  Cancel is excluded from the manager's pending
+        search and aged out by its cleanup run, which is the outcome we want either way.
+
+        NOTE: This clears self._key_map, so don't call it until after using that data.
+        '''
+        logging.error("[SMAPI] Abandoning queue load: %s", reason)
+        dropped = len(self._issue_batch['Documents'])
+        if dropped:
+            logging.warning("[SMAPI] Discarding %s unsent queue issue(s) from the current batch.", dropped)
+            self._issue_batch['Documents'] = []
+        err_count = 0
+        cid = None
+        for id in self._key_map.keys():
+            try:
+                cid = self._key_map[id]['sid']
+                self._data_client.queue_scan_update_status(cid, 'Cancel')
+                logging.info("[SMAPI] Cancelled queue scan with ID %s", cid)
+            except Exception as ex:
+                err_count += 1
+                logging.error("[SMAPI] Error cancelling queue scan with ID %s: [%s] %s", cid, type(ex).__name__, ex)
+        if err_count > 0:
+            logging.error("[SMAPI] %s error(s) while cancelling queue scans - some may still be picked up by the manager.", err_count)
+        self._key_map = {}
+        self._history_done = set()
+        cancelled_ids = self._queue_scan_ids
+        self._queue_scan_ids = []
+        return cancelled_ids
+
     def map_scanless_asset(self, avid, scanner_vendor, name, version, description, attributes, is_prod=True, assessment_types=[]):
         if len(self._expected_assessment_types) == 0:
             logging.debug("No expected assessment types configured.  Skipping noscan processing.")

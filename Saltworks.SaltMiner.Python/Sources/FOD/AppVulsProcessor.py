@@ -28,10 +28,13 @@ from dateutil.parser import parse as dtparse
 
 from Utility.CancelTracker import CancelTracker
 from Utility.DImport import DImport
-from Utility.ProgressLogger import *
+from Utility.ProgressLogger import ProgressLogger
 from Utility.SmApiClient import SmApiClient
 from Utility.UpdateQueueHelper import UpdateQueueHelper
 from Core.FodClient import FodClient
+
+ISSUE_COUNT_RECHECK_DELAY_SEC = 5
+
 
 class AppVulsProcessor(object):
     """ App vulnerability processor for FOD """
@@ -43,9 +46,9 @@ class AppVulsProcessor(object):
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
-        if not smv3ConfigName or not smv3ConfigName in appSettings.GetConfigNames():
+        if not smv3ConfigName or smv3ConfigName not in appSettings.GetConfigNames():
             raise AppVulsFODException(f"Invalid or missing configuration for name '{smv3ConfigName}'")
-        if not mainConfigName or not mainConfigName in appSettings.GetConfigNames():
+        if not mainConfigName or mainConfigName not in appSettings.GetConfigNames():
             raise AppVulsFODException(f"Invalid or missing configuration for name '{mainConfigName}'")
 
         self.__Logger = logger or logging.getLogger(__name__)
@@ -57,6 +60,7 @@ class AppVulsProcessor(object):
         self.__NullUnsetAttributes = appSettings.GetSource(sourceName, "NullUnsetAttributes", True)
         self.__SourceName = sourceName
         self.__SourceNameField = "sourceName"
+        self.__IssueCountMismatch = None  # set by __CheckIssueCounts when a pull came up short
         self.__Logger.info(f"Unset attributes will {'be' if self.__NullUnsetAttributes else 'not be'} set to null (control with NullUnsetAttributes setting in source config).")
         self.FOD_UNSET_VALUE = "(Not Set)"
 
@@ -259,17 +263,25 @@ class AppVulsProcessor(object):
         self.__ProcessUpdate(avid, [ fodRelease ])
         #
         # SM API Integration
-        # Finalize batch items for issues and complete queue scans
+        # Finalize batch items for issues and complete queue scans - unless the issue pull came up
+        # short, in which case the load is incomplete and the queue scans are cancelled instead so
+        # the manager never processes partial data.  Cleanup still runs; the raise is the last thing.
         #
+        countError = self.__IssueCountMismatch
         queue_scan_ids = []
         if self.__SmApiClientEnabled:
             self._Beat()
-            queue_scan_ids = self.__SmApiClient.finalize_everything()
+            if countError:
+                self.__SmApiClient.abort_everything(countError)
+            else:
+                queue_scan_ids = self.__SmApiClient.finalize_everything()
             self._Beat()
 
-        self.__Logger.info("Complete")
+        self.__Logger.info("Complete" if not countError else "Complete (queue load abandoned)")
         if cleanupAfter:
             self.Cleanup()
+        if countError:
+            raise AppVulsFODException(countError)
         return queue_scan_ids
 
     def _Beat(self):
@@ -297,7 +309,11 @@ class AppVulsProcessor(object):
 
     def __ProcessUpdate(self, avid, fodReleases):
         '''Primary method calls the various private methods to update vuls, history and tests'''
-        
+        # Cleared per app version, not per pull: __UpdateIssues can return early before it ever counts
+        # anything, and SyncWorker reuses this instance across queue items - so a mismatch left over from
+        # a previous app version would fail the next one and cancel its queue scans.
+        self.__IssueCountMismatch = None
+
         attributes = {}
         # It's possible we have a record in the Queue that has been removed from FOD, in that case we can bail out
         find = [ rid for rid in fodReleases if str(rid['_source']['releaseId']) == avid ]
@@ -346,14 +362,15 @@ class AppVulsProcessor(object):
 
     @staticmethod
     def __GetDateStr(ds):
-        if not ds: return None
+        if not ds:
+            return None
         i = ds.find(".")
         if i > -1:
             ds = ds[0:i]
         try:
             return dtparse(ds).isoformat()
-        except:
-            raise(ValueError(f"Date string '{ds}' is incorrect"))
+        except Exception as e:
+            raise(ValueError(f"Date string '{ds}' is incorrect ({e})"))
       
     def __UpdateScanHistory(self, appVerId, fodReleases, attributes):
         
@@ -418,7 +435,7 @@ class AppVulsProcessor(object):
                 cancel = cancelTrk.Cancel
 
                 # Track last scans by assessment for ease of use with zero issues later
-                if not assessment_type in lastScans.keys():
+                if assessment_type not in lastScans.keys():
                     lastScans[assessment_type] = datetime.datetime(1900, 1, 1).isoformat()
                 if scanDate > lastScans[assessment_type] and not cancel:
                     lastScans[assessment_type] = scanDate
@@ -449,6 +466,49 @@ class AppVulsProcessor(object):
             self.__Es.BulkInsert(allDocsToInsert)
         return lastScans
 
+    def __CheckIssueCounts(self, index, query, appVerId, syncCountBefore, pulledCount):
+        '''
+        Validates that the issue pull read the whole source set.
+
+        The sync stage bulk-writes these issues immediately before the refresh stage scrolls them, and
+        elasticsearch makes writes searchable asynchronously, so a scroll can quietly return a short
+        set.  Comparing the count of the source index taken *after* the pull against the number of
+        documents the pull actually read catches that: they agree on a complete read and disagree when
+        documents became visible mid-pull.  A single {delay} sec recheck confirms the discrepancy is
+        real rather than a count taken mid-refresh.
+
+        Records the mismatch on the instance (read by PopulateVulsOne, which cancels the queue scans
+        and errors the item) and logs it.  Never raises - the caller decides what to do about it.
+
+        Deliberately does NOT count the final issues index: it holds every app version for the
+        source/instance, the manager merges rather than appends, and synthetic zero/noscan records and
+        cancel-hook drops all move that number legitimately.  See PBI-0005.
+        '''
+        syncCountAfter = self.__Es.Count(index, query)
+        if syncCountAfter == pulledCount:
+            if syncCountBefore != syncCountAfter:
+                # Settled before we finished reading, so the pull is still complete - worth knowing.
+                self.__Logger.info("Source issue count for %s moved during the pull (%s -> %s) but the pull read all %s.",
+                                   appVerId, syncCountBefore, syncCountAfter, pulledCount)
+            return
+
+        self.__Logger.warning("Issue count mismatch for %s: pulled %s, '%s' now holds %s (%s at pull start).  Rechecking in %s sec...",
+                              appVerId, pulledCount, index, syncCountAfter, syncCountBefore, ISSUE_COUNT_RECHECK_DELAY_SEC)
+        time.sleep(ISSUE_COUNT_RECHECK_DELAY_SEC)
+        recheckCount = self.__Es.Count(index, query)
+        if recheckCount == pulledCount:
+            self.__Logger.info("Issue count for %s matched on recheck (%s) - pull was complete.", appVerId, recheckCount)
+            return
+
+        moved = "" if syncCountBefore == syncCountAfter else f", and moved during the pull ({syncCountBefore} at start)"
+        self.__IssueCountMismatch = (
+            f"Incomplete issue pull for {appVerId}: read {pulledCount} issue(s) but '{index}' holds "
+            f"{recheckCount} after a {ISSUE_COUNT_RECHECK_DELAY_SEC} sec recheck ({syncCountAfter} on first check){moved}. "
+            "The source data was still becoming visible while it was being read - re-run the sync for this ID."
+        )
+        self.__Logger.error(self.__IssueCountMismatch)
+
+
     def __DeleteStuff(self, appVersionId, issuesOnly=False, scansOnly=False):
         if issuesOnly and scansOnly:
             raise AppVulsFODException("Cannot set both issuesOnly and scansOnly")
@@ -468,7 +528,7 @@ class AppVulsProcessor(object):
         lst = []
         for k in self.__AssessmentTypeMap.keys():
             atype = self.__AssessmentTypeMap[k]
-            if not atype in lst:
+            if atype not in lst:
                 lst.append(atype)
         return lst
 
@@ -505,6 +565,10 @@ class AppVulsProcessor(object):
         p = ProgressLogger(self.__Es)
         allDocsToInsert = []
 
+        # Race guard - the sync stage wrote these issues moments ago and elasticsearch's refresh is
+        # asynchronous, so a scroll started too early silently pulls a short set.  TotalCount below is
+        # the source count at the start of the pull; __CheckIssueCounts re-counts at the end and
+        # compares both against what we actually read.
         with self.__Es.SearchScroll("fodrelissues", queryBody=body, scrollSize=1000, scrollTimeout=None) as scroller:
             TotalCount = scroller.TotalHits if scroller else 0
             p.Start("PopulateVuls-UpdateIssues", TotalCount, "PopulateVuls-UpdateIssues Status")
@@ -532,7 +596,7 @@ class AppVulsProcessor(object):
                         if not cancel:
 
                             # Check to see if the Fortify vulnerability is "active", ie should be shown.
-                            if Issue['isSuppressed'] == True or Issue['status'] == 'Fix Validated':
+                            if Issue['isSuppressed'] or Issue['status'] == 'Fix Validated':
                                 IssueActive = False
                                 
                             # Need to remember if the issue is Critical, High, etc.
@@ -709,6 +773,12 @@ class AppVulsProcessor(object):
                 scroller.GetNext()
             # end while
 
+        # TotalCount is scroller.TotalHits, captured before the first page was consumed.  It is an exact
+        # count - the scroller back-fills a _count of its own whenever elasticsearch reports a capped
+        # 'gte' total - and it has to be read there rather than here: this pull uses search_after, which
+        # re-evaluates the total on every page.
+        self.__CheckIssueCounts("fodrelissues", body, appVerId, TotalCount, iCount)
+
         # Zero records handling
         for assessment_type in assessmentTypeStatuses.keys():
             if assessmentTypeStatuses[assessment_type]['present']:
@@ -869,15 +939,6 @@ class AppVulsProcessor(object):
         if not release:
             return RelAttributes
         appId = release['applicationId']
-
-         # declare a filter query dict object
-        query = {
-          "size": 10000,
-          "query": { 
-            "term": { "applicationId": { "value": appVerId } } 
-          }
-        }
- 
         appResult = self.__Es.Search('fodapplications', { "query": { "term": { "applicationId": appId }}})
         relResult = self.__Es.Search('fodreleases', { "query": { "term": { "releaseId": appVerId }}})
 
