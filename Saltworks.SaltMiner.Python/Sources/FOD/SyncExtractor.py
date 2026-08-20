@@ -581,7 +581,14 @@ class SyncExtractor(object):
             vuln['lastUpdated'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
             vuln[self.__SourceNameField] = self.__SourceName
             self.__Es.BulkSendBatch('fodrelissues', vuln, batchSize=1000)
-        self.__Es.BulkSendBatch() # send remaining
+        # wait_for on the flush: the refresh stage scrolls fodrelissues as soon as this returns, and a
+        # bulk write isn't searchable until a refresh.  Same fix as SSC's BulkIssuesLoad; without it the
+        # pull can silently read a short set.  Nothing to flush means the last full batch already went
+        # without the wait, so refresh instead.
+        if self.__Es.BulkBatchCount > 0:
+            self.__Es.BulkSendBatch(refresh='wait_for')
+        else:
+            self.__Es.RefreshIndex('fodrelissues')
 
 class SyncExtractorException(Exception):
     pass

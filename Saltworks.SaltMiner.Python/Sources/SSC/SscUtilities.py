@@ -652,9 +652,17 @@ class SscUtilities:
                         self.__ElasticClient.BulkInsert(bulkDocs)
                         bulkDocs = []
 
+        # refresh='wait_for' on the LAST batch only: the refresh stage scrolls this index as soon as we
+        # return, and a bulk write is not searchable until a refresh happens.  Waiting here makes every
+        # document written by this load - not just this batch - visible before we hand over, which is
+        # what the issue-count guard in AppVulsProcessor was catching us failing to do.  Intermediate
+        # batches don't need it; the final wait covers them.
         if len(bulkDocs) > 0:
             p.Progress(count, f"Bulk inserting {len(bulkDocs)} documents into SaltMiner")
-            self.__ElasticClient.BulkInsert(bulkDocs)
+            self.__ElasticClient.BulkInsert(bulkDocs, refresh='wait_for')
+        else:
+            # Nothing left to flush, but earlier batches still need to be searchable.
+            self.__ElasticClient.RefreshIndex('sscprojissues')
         if p.Started:
             p.Finish(None, "Completed loading this batch of issues from SSC to SaltMiner.")
 
@@ -686,9 +694,13 @@ class SscUtilities:
                         self.__ElasticClient.BulkInsert(bulkDocs)
                         bulkDocs = []
 
+                # See the note in BulkIssuesLoadFromDetails - wait_for on the final batch, so the
+                # refresh stage's scroll sees every document this load wrote.
                 if len(bulkDocs) > 0:
                     p.Progress(iCurrentCount, f"Bulk inserting {len(bulkDocs)} documents into SaltMiner")
-                    self.__ElasticClient.BulkInsert(bulkDocs)
+                    self.__ElasticClient.BulkInsert(bulkDocs, refresh='wait_for')
+                else:
+                    self.__ElasticClient.RefreshIndex('sscprojissues')
     
     # GregLook - deprecating and disabling this method.  Only reference to it is in RWExtractSSCHidden.py (line 94), which seems to not be in use.
     def getAndLoadProjectVersionIssuesHidden(self, id, elasticUtility):

@@ -325,7 +325,12 @@ class ElasticClient(object):
             time.sleep(wait)
             return self.ResilientSearch(index, body, size, scrollTimeout, afterKeys, includeLockingInfo, pitId=pitId, pitKeepAlive=pitKeepAlive)
 
-    def BulkSendBatch(self, index=None, doc=None, docId=None, action="index", batchSize=None):
+    @property
+    def BulkBatchCount(self):
+        '''Documents currently queued in the bulk batch, awaiting a flush.'''
+        return len(self.__BulkBatch)
+
+    def BulkSendBatch(self, index=None, doc=None, docId=None, action="index", batchSize=None, refresh=None):
         '''
         Batches document updates/additions to send via the bulk API.
         
@@ -334,6 +339,8 @@ class ElasticClient(object):
         :docId: document ID for updates (or index, but not required for additions)
         :action: update or index ('index' upserts, 'update' is a partial doc update that requires the doc ID to be included, None defaults to 'index')
         :batchSize: number of documents to batch before sending (overrides default if included)
+        :refresh: passed to BulkInsert - see there.  Use 'wait_for' on the final (flush) call when a
+        caller reads these documents straight back; it applies to the batch actually sent.
         '''
         if action not in ['index', 'update'] and doc:
             raise ElasticClientArgumentException(f"Invalid action '{action}', must be index or update")
@@ -349,7 +356,7 @@ class ElasticClient(object):
             self.__BulkBatch.append(self.BulkInsertDocument(index, doc, docId, action))
         if len(self.__BulkBatch) >= self.__BulkBatchSize or (finishIt and len(self.__BulkBatch) > 0):
             logging.info("Bulk batch send %s items", len(self.__BulkBatch))
-            self.BulkInsert(self.__BulkBatch)
+            self.BulkInsert(self.__BulkBatch, refresh=refresh)
             self.__BulkBatch = []
 
     def BulkInsertDocument(self, index, source, id=None, action=None):
@@ -378,16 +385,24 @@ class ElasticClient(object):
             doc['_op_type'] = action
         return doc
 
-    def BulkInsert(self, bulkActions, raiseErrors=True, statsOnly=True):
+    def BulkInsert(self, bulkActions, raiseErrors=True, statsOnly=True, refresh=None):
         '''
         Calls ES bulk insert, trapping and then retrying for connection exceptions
+
+        :refresh: elasticsearch refresh behaviour for this request.  None (default) writes and returns,
+        leaving the documents invisible to search until the next scheduled refresh.  Pass 'wait_for' when
+        something reads these documents back immediately: the request then returns only once they are
+        searchable.  Prefer it over RefreshIndex - 'wait_for' rides the scheduled refresh instead of
+        forcing an index-wide one, so it costs this request up to one refresh_interval rather than
+        costing the whole cluster a refresh per caller.  'true' forces a refresh and should be avoided.
         '''
         if self.__RetryCount >= self.__RetryMaxAttempts:
             self.__RetryCount = 0
             raise ElasticClientException(self.RETRY_LIMIT_ERROR)
 
         try:
-            rsp = helpers.bulk(self.es, bulkActions, request_timeout=self.__BulkRequestTimeout, raise_on_error=raiseErrors, stats_only=statsOnly)
+            kwargs = {} if refresh is None else { "refresh": refresh }
+            rsp = helpers.bulk(self.es, bulkActions, request_timeout=self.__BulkRequestTimeout, raise_on_error=raiseErrors, stats_only=statsOnly, **kwargs)
             self.__RetryCount = 0
             return rsp
             
@@ -404,7 +419,7 @@ class ElasticClient(object):
             self.__RetryCount += 1
             logging.error(f"API connection error during bulk operation - [{type(e).__name__}] {msg}, retrying in {wait} secs...")
             time.sleep(wait)
-            return self.BulkInsert(bulkActions, raiseErrors, statsOnly)
+            return self.BulkInsert(bulkActions, raiseErrors, statsOnly, refresh)
 
     def WaitForTask(self, taskId, waitKey=None, waitSec=3, maxWaitCycles=60, conflictsAreBad=False):
         '''
