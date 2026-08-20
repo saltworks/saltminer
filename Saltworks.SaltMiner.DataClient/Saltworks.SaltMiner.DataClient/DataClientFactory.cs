@@ -69,23 +69,26 @@ public class DataClientFactory<T>(ApiClientFactory<T> factory, ILogger<DataClien
         if (cachedAddress != null)
         {
             var original = Factory.Options.BaseAddress;
+            // Swap on the SHARED options, not on the client.  ApiClient re-applies Options to itself on
+            // any request made while Options.Dirty is set (ApiClient.UpdateOptions), so setting only
+            // ApiClient.BaseAddress is undone by the very next request - and "restoring" the options
+            // afterwards undoes it for the client we just handed out.  That is exactly why the initial
+            // register/role call succeeded on the cached address and every call after it went back to
+            // the host name.  Left in place on success: the whole process should keep using the address
+            // we just proved works.
+            Factory.Options.BaseAddress = SwapHost(original, cachedAddress);
             try
             {
-                var viaCache = Factory.CreateApiClient();
-                viaCache.BaseAddress = SwapHost(original, cachedAddress);
-                var client = new DataClient(viaCache, Logger, RunConfig);
+                var client = new DataClient(Factory.CreateApiClient(), Logger, RunConfig);
                 Logger.LogDebug("Data client connected using CACHED api address {Addr} (from {File}).", cachedAddress, RunConfig.ApiHostCacheFile);
                 return client;
             }
             catch (DataClientInitializationException ex)
             {
+                // Restore the host name only when the cached address failed - the DNS path below needs it.
+                Factory.Options.BaseAddress = original;
                 Logger.LogWarning("Cached api address {Addr} did not respond ({Msg}) - falling back to DNS.  The stack was probably rebuilt; the cache will be rewritten.",
                     cachedAddress, ex.Message);
-            }
-            finally
-            {
-                // BaseAddress on the client also writes through to the shared factory options.
-                Factory.Options.BaseAddress = original;
             }
         }
 
