@@ -428,8 +428,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 // own "One or more errors occurred." when it is null) loses the actual cause.
                 var inners = ex.Flatten().InnerExceptions;
                 var detail = inners.Count > 0
-                    ? string.Join(" | ", inners.Select(i => $"[{i.GetType().Name}] {i.Message}{(i.InnerException != null ? $" <- [{i.InnerException.GetType().Name}] {i.InnerException.Message}" : "")}"))
-                    : $"[{ex.GetType().Name}] {ex.Message}";
+                    ? string.Join(" | ", inners.Select(Describe))
+                    : Describe(ex);
                 var name = inners.FirstOrDefault()?.GetType().Name ?? ex.GetType().Name;
                 var msg = detail;
                 foreach (var inner in inners)
@@ -453,6 +453,31 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     }
 
     /// <summary>
+    /// Renders an exception for reporting, digging out the detail that matters and is otherwise lost.
+    /// A DataClientResponseException carries the api's status code and body on its Response, and its
+    /// Message is EMPTY whenever the api answered 4xx without an error body - so the type name alone
+    /// tells you nothing about what the api actually objected to.
+    /// </summary>
+    private static string Describe(Exception ex)
+    {
+        var text = $"[{ex.GetType().Name}] {ex.Message}";
+        if (ex is DataClientResponseException dcr)
+        {
+            var status = dcr.Response?.StatusCode;
+            var url = dcr.Response?.HttpResponse?.RequestMessage?.RequestUri?.ToString();
+            var body = dcr.Response?.RawContent;
+            text += $" status={(status.HasValue ? $"{(int)status} {status}" : "(none)")}";
+            if (!string.IsNullOrEmpty(url))
+                text += $" url={url}";
+            if (!string.IsNullOrEmpty(body))
+                text += $" body={body[..Math.Min(300, body.Length)]}";
+        }
+        if (ex.InnerException != null)
+            text += $" <- {Describe(ex.InnerException)}";
+        return text;
+    }
+
+    /// <summary>
     /// Emits one machine-readable line reporting what this run did with the queue scan a by-ID run
     /// targeted, so the caller that handed it off can tell a completed load from an errored or missing
     /// one instead of inferring it from the exit code.  No-op for batch runs.
@@ -466,10 +491,12 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         if (string.IsNullOrEmpty(RunConfig?.QueueScanId))
             return;   // by-ID runs only
 
-        // NotFound is its own outcome, and the one worth retrying: the caller usually created this scan
-        // moments ago, so "the search never saw it" is a different problem from "processing failed".
-        var outcome = !ByIdResult.Found ? "NotFound"
-            : ByIdResult.Error != null ? "Error"
+        // Error is checked FIRST, before Found.  A run that threw before it could search has Found=false
+        // too, and reporting that as NotFound tells the caller to retry a visibility problem that isn't
+        // one - four processes and fifteen seconds spent re-running something that failed outright.
+        // NotFound means "searched, and it wasn't there", which is the only case worth retrying.
+        var outcome = ByIdResult.Error != null ? "Error"
+            : !ByIdResult.Found ? "NotFound"
             : ByIdResult.Completed ? "Complete"
             : "Incomplete";   // found, but this run neither completed nor errored it
 
