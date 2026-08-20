@@ -74,7 +74,7 @@ public class DataClientFactory<T>(ApiClientFactory<T> factory, ILogger<DataClien
                 var viaCache = Factory.CreateApiClient();
                 viaCache.BaseAddress = SwapHost(original, cachedAddress);
                 var client = new DataClient(viaCache, Logger, RunConfig);
-                Logger.LogDebug("Data client connected using cached api address {Addr} (from {File}).", cachedAddress, RunConfig.ApiHostCacheFile);
+                Logger.LogDebug("Data client connected using CACHED api address {Addr} (from {File}).", cachedAddress, RunConfig.ApiHostCacheFile);
                 return client;
             }
             catch (DataClientInitializationException ex)
@@ -133,7 +133,7 @@ public class DataClientFactory<T>(ApiClientFactory<T> factory, ILogger<DataClien
         }
         catch (Exception ex)
         {
-            Logger.LogDebug("Ignoring unreadable api host cache '{File}': {Msg}", RunConfig.ApiHostCacheFile, ex.Message);
+            Logger.LogWarning("Ignoring unreadable api host cache '{File}': {Msg}", RunConfig.ApiHostCacheFile, ex.Message);
             return null;
         }
     }
@@ -160,11 +160,11 @@ public class DataClientFactory<T>(ApiClientFactory<T> factory, ILogger<DataClien
             var tmp = RunConfig.ApiHostCacheFile + ".tmp." + Environment.ProcessId;
             File.WriteAllText(tmp, json);
             File.Move(tmp, RunConfig.ApiHostCacheFile, true);
-            Logger.LogDebug("Cached api host address {Host} -> {Addr} in '{File}'.", host, address, RunConfig.ApiHostCacheFile);
+            Logger.LogInformation("Cached api host address {Host} -> {Addr} in '{File}'.", host, address, RunConfig.ApiHostCacheFile);
         }
         catch (Exception ex)
         {
-            Logger.LogDebug("Could not write api host cache '{File}': {Msg}", RunConfig.ApiHostCacheFile, ex.Message);
+            Logger.LogWarning("Could not write api host cache '{File}': {Msg}", RunConfig.ApiHostCacheFile, ex.Message);
         }
     }
 
