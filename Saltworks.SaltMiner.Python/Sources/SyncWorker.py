@@ -239,8 +239,10 @@ class SyncWorker(Worker):
 
             # Exit code 0 with a non-Complete outcome is the case worth catching: the process ran fine but
             # the scan never landed, so the data isn't in the issue indices and nothing else will retry it.
-            self.logger.error("Manager result for queue scan ID %s: %s (%s error(s)) %s",
-                              qsid, outcome, result.get("errors"), result.get("message") or "")
+            # Manager's own last lines go with it - the structured result says what happened, these say why.
+            recent = "\n".join(result.get("_output_tail", [])[-3:]) or "(no output captured)"
+            self.logger.error("Manager result for queue scan ID %s: %s (%s error(s)) %s\nLast manager output:\n%s",
+                              qsid, outcome, result.get("errors"), result.get("message") or "", recent)
             if cancel_fn is not None:
                 if result.get("status_set_to_error"):
                     # Manager recorded why it failed; cancelling would erase that.
@@ -327,7 +329,10 @@ class SyncWorker(Worker):
         if proc.returncode != 0:
             raise WorkerException(f"Manager exited with code {proc.returncode} processing queue scan ID {qsid}. Last output:\n" + "\n".join(tail))
         self.logger.info("Manager completed queue scan ID %s in %.0f sec", qsid, time.monotonic() - started)
-        return self._parse_manager_result(result_line[0], qsid, tail)
+        result = self._parse_manager_result(result_line[0], qsid, tail)
+        if result is not None:
+            result["_output_tail"] = list(tail)
+        return result
 
 
     def _parse_manager_result(self, line:str, qsid:str, tail=None) -> dict:

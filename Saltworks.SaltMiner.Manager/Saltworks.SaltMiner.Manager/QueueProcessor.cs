@@ -423,15 +423,19 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             }
             else
             {
-                var name = ex.InnerException?.GetType().Name;
-                var msg = ex.InnerException?.Message;
-                if (string.IsNullOrEmpty(name))
-                {
-                    name = ex.GetType().Name;
-                    msg = ex.Message;
-                }
-                Logger.LogError(ex, "Queue processor encountered an error: [{Type}] {Msg}", name, msg);
-                ByIdResult.Error ??= $"[{name}] {msg}";
+                // Flatten and report EVERY inner exception.  Task.WaitAll over three tasks can fail with
+                // several at once, and reporting only InnerException (or falling back to the aggregate's
+                // own "One or more errors occurred." when it is null) loses the actual cause.
+                var inners = ex.Flatten().InnerExceptions;
+                var detail = inners.Count > 0
+                    ? string.Join(" | ", inners.Select(i => $"[{i.GetType().Name}] {i.Message}{(i.InnerException != null ? $" <- [{i.InnerException.GetType().Name}] {i.InnerException.Message}" : "")}"))
+                    : $"[{ex.GetType().Name}] {ex.Message}";
+                var name = inners.FirstOrDefault()?.GetType().Name ?? ex.GetType().Name;
+                var msg = detail;
+                foreach (var inner in inners)
+                    Logger.LogError(inner, "Queue processor task failed: [{Type}] {Msg}", inner.GetType().Name, inner.Message);
+                Logger.LogError(ex, "Queue processor encountered an error: {Detail}", detail);
+                ByIdResult.Error ??= detail;
                 throw new QueueProcessorException($"Unexpected error in queue processor: [{name}] {msg}", ex);
             }
         }
