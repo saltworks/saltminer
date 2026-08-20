@@ -146,6 +146,11 @@ class Agent():
         self._queue = queue.Queue()
         self._workers: list[threading.Thread] = []
         self._abandoned_workers: list[threading.Thread] = []
+        # Run tally, for the end-of-run summary.  Completed/errored are counted where the agent is told
+        # the outcome (complete()), so they reflect what workers actually recorded, not what was fed.
+        self._items_fed = 0
+        self._items_completed = 0
+        self._items_errored = 0
         # Per-worker liveness: {worker_id: {'last_heartbeat': monotonic, 'item': dto|None}}.
         # Written by workers (heartbeats) and read/pruned by the agent thread, so guarded by a lock.
         self._worker_state: dict[int, dict] = {}
@@ -188,6 +193,7 @@ class Agent():
             work_items, _ = self.queue_client.get_next_queue_batch(self.args.new_queue_item_stage, batch_size)
             for item in work_items:
                 self.queue.put(item)
+            self._items_fed += len(work_items)
             return len(work_items)
         except Exception:
             logging.exception("Error feeding queue from elasticsearch")
@@ -359,13 +365,26 @@ class Agent():
         """Mark the given queue item as complete using the QueueClient."""
         self._beat_current()
         self.queue_client.set_complete(dto, stage, data, is_error, reason)
+        if is_error:
+            self._items_errored += 1
+        else:
+            self._items_completed += 1
         return dto
 
 
     def run(self, stop_when_empty:bool=False):
         """Main orchestration loop: start workers, feed ES items into the queue, drain on exit."""
+        # Anything still In Progress under our agent id is ours and nobody is working it - we haven't
+        # started yet.  On a clean start this finds nothing; anything it does find was stranded by a
+        # previous run that died holding locked items.
+        self.queue_client.reset_in_progress("Released at agent startup - held by a previous run")
         self._start_workers()
         feed_error_count = 0
+        started = time.monotonic()
+        # Why we stopped, for the end-of-run summary.  Set at each exit; anything left as the default
+        # means we fell out of the loop by a route nobody described, which is worth saying out loud.
+        stop_reason = "unknown"
+        clean = False
         try:
             while True:
                 if self._queue.qsize() < self.args.low_threshold_count:
@@ -374,11 +393,14 @@ class Agent():
                         feed_error_count += 1
                         if feed_error_count >= 3:
                             logging.error("Queue feed failed %d times in a row, shutting down.", feed_error_count)
+                            stop_reason = f"queue feed failed {feed_error_count} times in a row"
                             break
                     else:
                         feed_error_count = 0
                     if fetched == 0 and self._queue.empty() and stop_when_empty:
                         logging.info("No more items to process and stop_when_empty is True, shutting down.")
+                        stop_reason = "queue drained"
+                        clean = True
                         break
                 running = self._running_worker_ids()
                 running_desc = str(running) if len(running) <= 10 else f"{len(running)} workers"
@@ -389,9 +411,32 @@ class Agent():
                 logging.debug("Active workers (%d): %s", len(running), running)
                 if not running:
                     logging.info("No active workers, queue size: %d, shutting down.  This might be caused by worker errors, check logs.", self._queue.qsize())
+                    stop_reason = (f"all {self.args.worker_count} worker(s) stopped - each hit the "
+                                   f"consecutive error threshold (WorkerErrorThreshold={self.args.worker_error_threshold})")
                     break
         except KeyboardInterrupt:
             logging.info("Agent interrupted, draining queue...")
+            stop_reason = "interrupted"
+            clean = True
+        except Exception as ex:
+            stop_reason = f"unexpected error: [{type(ex).__name__}] {ex}"
+            raise
         finally:
+            left_in_queue = self._queue.qsize()
             self._shutdown_workers()
+            # Workers are stopped, so nothing is mid-flight: whatever is still In Progress under our id
+            # was locked into the in-memory queue and never processed.  Release it or it stays locked
+            # and invisible to every future run.  Matters most when the pool stopped on errors
+            # (WorkerErrorThreshold) with a full queue behind it.
+            released = self.queue_client.reset_in_progress("Released at agent shutdown - not processed")
+            summary = ("Agent run finished: %s.  Items fed: %s, completed: %s, errored: %s, "
+                       "unprocessed at shutdown: %s (released: %s).  Elapsed: %s sec.")
+            args = (stop_reason, self._items_fed, self._items_completed, self._items_errored,
+                    left_in_queue, released, int(time.monotonic() - started))
+            if clean and not self._items_errored:
+                logging.info(summary, *args)
+            elif clean:
+                logging.warning(summary, *args)
+            else:
+                logging.error(summary, *args)
 

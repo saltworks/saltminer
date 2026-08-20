@@ -780,6 +780,59 @@ class QueueClient(object):
             return None
 
 
+    def reset_in_progress(self, reason:str=None) -> int:
+        """
+        Returns every In Progress item belonging to this agent to New, by query.
+
+        Two callers, same need.  At startup there should be nothing to reset - anything found is left
+        over from a previous run that died holding items.  At shutdown it releases whatever the agent
+        still holds: items are locked when they are fed into the in-memory queue, so a worker pool that
+        stops (see WorkerErrorThreshold) strands every item already queued but not yet processed.  Those
+        keep their lock_id, and the queue query skips locked items, so without this they are invisible
+        to every future run.
+
+        Scoped to agent_id, so agents don't release each other's work.  No optimistic locking: this only
+        runs when this agent is not processing anything, so there is nothing to conflict with, and a
+        version conflict here would strand the very items we're trying to free.
+
+        Returns the number of items reset (0 when the agent has no id configured - the query can't be
+        scoped safely, so it does nothing rather than release someone else's items).
+        """
+        if self._agent_id is None or self._agent_id == "":
+            logging.warning("No agent id configured - skipping in-progress reset (cannot scope it safely).")
+            return 0
+        body = {
+            "query": {
+                "bool": {
+                    "must": [
+                        { "term": { "agent_id": { "value": str(self._agent_id) } } },
+                        { "term": { "status": { "value": QueueClientStatus.IN_PROGRESS } } }
+                    ],
+                    "must_not": [ { "exists": { "field": "completed" } } ]
+                }
+            },
+            "script": {
+                "source": "ctx._source.status = params.status; ctx._source.lock_id = null; ctx._source.locked = null; ctx._source.status_reason = params.reason;",
+                "lang": "painless",
+                "params": {
+                    "status": QueueClientStatus.NEW,
+                    "reason": reason or "Released by agent"
+                }
+            }
+        }
+        try:
+            rsp = self._es.UpdateByQuery(self.index_pattern, body, ignoreConflicts=True)
+            count = (rsp or {}).get("updated", 0)
+            if count:
+                logging.warning("Released %s in-progress queue item(s) held by agent %s (%s).", count, self._agent_id, reason or "no reason given")
+            else:
+                logging.info("No in-progress queue items held by agent %s to release.", self._agent_id)
+            return count
+        except Exception as e:
+            logging.exception("Failed to release in-progress queue items for agent %s: %s", self._agent_id, e)
+            return 0
+
+
     def clear_session(self):
         body = {
             "query": { "term": { "lock_id": { "value": self.session_id } } },

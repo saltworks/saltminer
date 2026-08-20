@@ -29,7 +29,7 @@ from collections import deque
 from Core.Agent import Agent
 from Core.Heartbeat import Heartbeat, BeatingSleep
 from Core.Worker import WorkerFactory, Worker, WorkerException
-from Core.QueueClient import QueueClientDto
+from Core.QueueClient import QueueClientDto, describe_item
 from .SSC.SyncExtractor import SyncExtractor as SscSync
 from .SSC.AppVulsProcessor import AppVulsProcessor as SscRefresh
 from .FOD.SyncExtractor import SyncExtractor as FodSync
@@ -357,6 +357,19 @@ class SyncWorker(Worker):
             return None
 
 
+    def _error_item(self, item:QueueClientDto, reason:str):
+        """
+        Mark a queue item as errored, for a failure with no source-specific handler to record it.
+        Never raises - the caller is already on a failure path and the exception it is about to throw
+        is the more useful one.
+        """
+        try:
+            self.agent.complete(item, is_error=True, reason=reason)
+        except Exception:
+            self.logger.exception("Failed to mark queue item %s as errored (%s) - it may be left locked.",
+                                  describe_item(item), reason)
+
+
     def _process(self, item:QueueClientDto):
         """Process a single queue item - exceptions handled by Worker.run()"""
         # Parse the payload alongside the DTO, never into a copy of it.  Every successful write
@@ -367,13 +380,18 @@ class SyncWorker(Worker):
         # *this* instance in its liveness map to release the item if we go defunct, so it has to be
         # the same object we update and complete.
         data = SyncQueueData(item.doc.data)
+        if not SyncQueueType.is_valid(data.target_type):
+            # Complete it as Error here - the per-source paths below do that for their own failures, but
+            # nothing does it for an item we never dispatch.  Left alone it stays In Progress holding its
+            # lock, invisible to the queue forever; released back to New it would just cycle, because a
+            # bad target type can never succeed.  Worker.run() still counts the raise as an error.
+            reason = f"Invalid sync queue item target type: {data.target_type}"
+            self._error_item(item, reason)
+            raise WorkerException(reason)
         if data.target_type == SyncQueueType.SSC:
             self._process_ssc(item, data)
         elif data.target_type == SyncQueueType.FOD:
             self._process_fod(item, data)
-        else:
-            # Worker.run() increments error_count for any raised exception - don't double count here
-            raise WorkerException(f"Invalid sync queue item target type: {data.target_type}")
 
 
     def _process_ssc(self, item:QueueClientDto, data:SyncQueueData):
