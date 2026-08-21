@@ -266,13 +266,22 @@ class DataClient:
         r = await self._client.Post('queuescan/bulk', {'Documents': batch})
         self._verify_response('Error submitting queue scans (bulk)', r)
 
-    def queue_scan_update_status(self, scan_id, status):
-        '''Updates the status of a queue scan (e.g. "Pending").'''
-        return self._run_async(self.queue_scan_update_status_async(scan_id, status))
+    def queue_scan_update_status(self, scan_id, status, lock_id=None):
+        '''
+        Updates the status of a queue scan (e.g. "Pending").
 
-    async def queue_scan_update_status_async(self, scan_id, status):
+        :lock_id: required when the scan is locked - the api rejects a status change that doesn't
+        present the current lock ("[Locked] ... locked to process 'x', not expected ''").  The manager
+        reports the lock it holds in its by-ID result, so callers echo that back rather than guessing.
+        '''
+        return self._run_async(self.queue_scan_update_status_async(scan_id, status, lock_id))
+
+    async def queue_scan_update_status_async(self, scan_id, status, lock_id=None):
         '''Async version of queue_scan_update_status.'''
-        r = await self._client.Get(f'queuescan/status/{scan_id}/{status}')
+        url = f'queuescan/status/{scan_id}/{status}'
+        if lock_id:
+            url = f'{url}?lockId={lock_id}'
+        r = await self._client.Get(url)
         self._verify_response(f"Error updating queue scan '{scan_id}' status to '{status}'", r)
 
     def queue_scan_delete(self, scan_id):

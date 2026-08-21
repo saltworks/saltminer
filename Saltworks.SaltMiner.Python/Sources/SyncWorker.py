@@ -250,7 +250,9 @@ class SyncWorker(Worker):
                 elif outcome == "NotFound":
                     self.logger.info("Not cancelling queue scan ID %s - the manager never found it.", qsid)
                 else:
-                    cancel_fn(qsid)
+                    # Echo back the lock the manager reported - without it the api rejects the cancel
+                    # for any scan the manager left locked.
+                    cancel_fn(qsid, result.get("lock_id"))
             failures.append(f"{qsid}: {outcome}")
         if failures:
             raise WorkerException(

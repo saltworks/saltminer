@@ -435,6 +435,17 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                     return true;
                 }
 
+                // An agent may abandon a scan that is already being processed: Processing -> Cancel.
+                // The manager locks a scan while it works on it, and if it dies mid-flight the scan is
+                // left Processing and locked - invisible to the pending search and, without this,
+                // uncancellable by the agent that queued it.  Only Cancel is allowed out of Processing;
+                // moving it forward stays the manager's job.  The lock still has to match - that check
+                // lives in UpdateStatus, so this does not let an agent cancel another instance's work.
+                if (currentScanStatus == QueueScanStatus.Processing && newScanStatus == QueueScanStatus.Cancel)
+                {
+                    return true;
+                }
+
                 // current must be loading/pending, new must be loading/pending/cancel, current and new can't be equal
                 return (currentScanStatus == QueueScanStatus.Loading || currentScanStatus == QueueScanStatus.Pending) &&
                     (newScanStatus == QueueScanStatus.Loading || newScanStatus == QueueScanStatus.Pending || newScanStatus == QueueScanStatus.Cancel) &&

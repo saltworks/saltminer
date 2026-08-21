@@ -353,7 +353,9 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             }
             catch (Exception ex)
             {
-                if (qscan == null)
+                // Note the null test: the branch that dereferences qscan is the one where it is NOT null.
+                // Reversed, this threw a NullReferenceException from inside the error handler.
+                if (qscan != null)
                 {
                     Logger.LogError(ex, "[Q-Finish] Failed to complete queue scan, source {Src}, ID {Id}: [{Type}] {Msg}",
                         qscan.Saltminer.Scan.SourceType, qscan.Id, ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
@@ -361,6 +363,27 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 else
                 {
                     Logger.LogError(ex, "[Q-Finish] Failed to complete queue scan: [{Type}] {Msg}", ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
+                }
+
+                QueueControl.ErrorCount += 1;
+                if (qscan != null && !string.IsNullOrEmpty(RunConfig.QueueScanId) && qscan.Id == RunConfig.QueueScanId)
+                {
+                    // Record it, or the run reports "Incomplete, 0 errors, no message" - found and
+                    // processed but never completed, with nothing saying why.
+                    ByIdResult.Error ??= Describe(ex);
+                    try
+                    {
+                        // Leave it in a terminal state rather than stuck in Processing holding a lock:
+                        // the pending search only sees Pending, and the caller cannot cancel a scan
+                        // locked to this instance, so it would otherwise sit there until cleanup ages it out.
+                        await UpdateStatusAsync(qscan, QueueScan.QueueScanStatus.None, QueueScan.QueueScanStatus.Error, EngagementStatus.Error, true);
+                        ByIdResult.StatusSetToError = true;
+                    }
+                    catch (Exception ex2)
+                    {
+                        Logger.LogError(ex2, "[Q-Finish] Also failed to mark queue scan ID '{Id}' as errored: [{Type}] {Msg}",
+                            qscan.Id, ex2.GetType().Name, ex2.InnerException?.Message ?? ex2.Message);
+                    }
                 }
             }
         }
@@ -507,6 +530,10 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             // True when this run put the scan into Error status - the caller must leave that status
             // alone rather than cancelling over the top of it.
             status_set_to_error = ByIdResult.StatusSetToError,
+            // The lock this run holds on the scan.  A caller that needs to cancel it must present this,
+            // or the api rejects the change as locked to someone else - reported rather than assumed so
+            // nothing downstream has to know about the transient instance id.
+            lock_id = InstanceId,
             report_id = ByIdResult.ReportId,
             source_type = ByIdResult.SourceType,
             instance = ByIdResult.Instance,

@@ -438,12 +438,15 @@ class SmApiClient(object):
         self._queue_scan_ids = []
         return finalized_ids
 
-    def cancel_queue_scan(self, queue_scan_id):
+    def cancel_queue_scan(self, queue_scan_id, lock_id=None):
         '''
         Cancels one queue scan by ID.  Raises on failure so the caller can decide - see
         abort_everything for why Cancel rather than Error.
+
+        :lock_id: the lock currently held on the scan, when there is one (the manager reports it).
+        Without it the api rejects the change for any locked scan.
         '''
-        self._data_client.queue_scan_update_status(queue_scan_id, 'Cancel')
+        self._data_client.queue_scan_update_status(queue_scan_id, 'Cancel', lock_id)
         logging.info("[SMAPI] Cancelled queue scan with ID %s", queue_scan_id)
 
 
