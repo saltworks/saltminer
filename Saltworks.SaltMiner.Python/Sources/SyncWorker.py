@@ -409,7 +409,8 @@ class SyncWorker(Worker):
             # The sync just told us how many issues it wrote - hand it on so the refresh waits for
             # exactly that many instead of guessing when the index has settled.
             queue_scan_ids = refresh.PopulateVulsOne(data.target_id, race_retry=True,
-                                                     expected_issue_count=getattr(sync_result, "expected_issue_count", None))
+                                                     expected_issue_count=getattr(sync_result, "expected_issue_count", None),
+                                                     expected_scan_count=getattr(sync_result, "expected_scan_count", None))
             self.agent.update(item, SyncQueueStage.FINALIZE, data.to_dto())
             self._run_manager(queue_scan_ids, f"SSC project version {data.target_id} ('{data.target_instance}')",
                               cancel_fn=refresh.CancelQueueScan)
@@ -438,7 +439,8 @@ class SyncWorker(Worker):
             # (including the "noscan" queue data for missing expected assessment types).
             # Hand the sync's issue count on - see the SSC path.
             queue_scan_ids = refresh.PopulateVulsOne(data.target_id, race_retry=True,
-                                                     expected_issue_count=getattr(sync_result, "expected_issue_count", None))
+                                                     expected_issue_count=getattr(sync_result, "expected_issue_count", None),
+                                                     expected_scan_count=getattr(sync_result, "expected_scan_count", None))
             self.agent.update(item, SyncQueueStage.FINALIZE, data.to_dto())
             self._run_manager(queue_scan_ids, f"FOD release {data.target_id} ('{data.target_instance}')",
                               cancel_fn=refresh.CancelQueueScan)

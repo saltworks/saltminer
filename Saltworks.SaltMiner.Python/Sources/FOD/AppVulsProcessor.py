@@ -71,6 +71,7 @@ class AppVulsProcessor(object):
         self.__SourceNameField = "sourceName"
         self.__IssueCountMismatch = None  # set by __CheckIssueCounts when a pull came up short
         self.__ExpectedIssueCount = None  # set per run by PopulateVulsOne, from the sync stage
+        self.__ExpectedScanCount = None   # ditto - scan history is built from these
         self.__Logger.info(f"Unset attributes will {'be' if self.__NullUnsetAttributes else 'not be'} set to null (control with NullUnsetAttributes setting in source config).")
         self.FOD_UNSET_VALUE = "(Not Set)"
 
@@ -251,7 +252,7 @@ class AppVulsProcessor(object):
             self.Cleanup()
 
 
-    def PopulateVulsOne(self, avid, cleanupAfter=True, race_retry:bool=False, race_retry_delay:int=5, expected_issue_count:int=None):
+    def PopulateVulsOne(self, avid, cleanupAfter=True, race_retry:bool=False, race_retry_delay:int=5, expected_issue_count:int=None, expected_scan_count:int=None):
         '''
         Process one project version (doesn't have to be in the update queue).
         Returns the list of queue scan IDs created (empty when SM API integration is disabled or nothing processed).
@@ -262,6 +263,7 @@ class AppVulsProcessor(object):
         '''
 
         self.__ExpectedIssueCount = expected_issue_count
+        self.__ExpectedScanCount = expected_scan_count
         fodRelease = self._GetFodRelease(avid, race_retry, race_retry_delay)
         if not fodRelease:
             self.__Logger.error("Couldn't retrieve release %s from FOD", avid)
@@ -426,6 +428,12 @@ class AppVulsProcessor(object):
         allDocsToInsert = []
 
         lastScans = {}
+        # Scan history is built from these - see the SSC version.  Scans are written one document at a
+        # time with no bulk barrier, so the expected count is the only barrier available.
+        self.__WaitForExpectedCount("fodscans", { "query": { "bool": { "must": [
+            { "term": { "releaseId": { "value": appVerId } } },
+            { "term": { self.__SourceNameField: { "value": self.__SourceName } } } ] } } },
+            appVerId, self.__ExpectedScanCount, "scan")
         # generator used to retrieve scans in batches in background
         for dto in self.__GetFodRelScansByReleaseId(appVerId):
             scan = dto['_source']
@@ -495,9 +503,9 @@ class AppVulsProcessor(object):
             self.__Es.BulkInsert(allDocsToInsert)
         return lastScans
 
-    def __WaitForExpectedIssues(self, index, query, appVerId):
+    def __WaitForExpectedCount(self, index, query, appVerId, expected, label='issue'):
         '''
-        Blocks until the source index shows the number of issues the sync stage said it wrote.
+        Blocks until the source index shows the number of documents the sync stage said it wrote.
 
         The sync bulk-loads with refresh='wait_for', but that only refreshes the shards its final
         request wrote to - '{index}' has more than one, so a small final batch can leave another shard's
@@ -508,29 +516,28 @@ class AppVulsProcessor(object):
         Never raises.  A count that never arrives is left to __CheckIssueCounts to report, with the
         numbers, once the pull has actually happened.
         '''
-        expected = self.__ExpectedIssueCount
         if expected is None:
             return
         try:
             count = self.__Es.Count(index, self.__CountSafeQuery(query))
             if count == expected:
                 return
-            self.__Logger.warning("Sync wrote %s issue(s) for %s but only %s are visible - refreshing '%s' and re-counting...",
-                                  expected, appVerId, count, index)
+            self.__Logger.warning("Sync wrote %s %s(s) for %s but only %s are visible - refreshing '%s' and re-counting...",
+                                  expected, label, appVerId, count, index)
             self.__Es.RefreshIndex(index)
             for attempt in range(ISSUE_VISIBILITY_ATTEMPTS):
                 count = self.__Es.Count(index, self.__CountSafeQuery(query))
                 if count == expected:
-                    self.__Logger.info("All %s issue(s) for %s visible after refresh%s.", expected, appVerId,
+                    self.__Logger.info("All %s %s(s) for %s visible after refresh%s.", expected, label, appVerId,
                                        f" and {attempt} recheck(s)" if attempt else "")
                     return
                 if attempt < ISSUE_VISIBILITY_ATTEMPTS - 1:
                     time.sleep(ISSUE_VISIBILITY_DELAY_SEC)
             # Still short.  Not a visibility problem any more - the pull runs and the guard reports it.
-            self.__Logger.error("Only %s of %s issue(s) for %s are visible after a refresh and %s recheck(s) - the pull will be short.",
-                                count, expected, appVerId, ISSUE_VISIBILITY_ATTEMPTS)
+            self.__Logger.error("Only %s of %s %s(s) for %s are visible after a refresh and %s recheck(s) - the read will be short.",
+                                count, expected, label, appVerId, ISSUE_VISIBILITY_ATTEMPTS)
         except Exception as ex:
-            self.__Logger.warning("Could not verify issue visibility for %s: [%s] %s", appVerId, type(ex).__name__, ex)
+            self.__Logger.warning("Could not verify %s visibility for %s: [%s] %s", label, appVerId, type(ex).__name__, ex)
 
 
     @staticmethod
@@ -657,7 +664,7 @@ class AppVulsProcessor(object):
 
         # Race guard - see the SSC version.  When the sync told us how many it wrote, wait for exactly
         # that many to be visible before starting; otherwise TotalCount below is all we have to go on.
-        self.__WaitForExpectedIssues("fodrelissues", body, appVerId)
+        self.__WaitForExpectedCount("fodrelissues", body, appVerId, self.__ExpectedIssueCount, "issue")
 
         with self.__Es.SearchScroll("fodrelissues", queryBody=body, scrollSize=1000, scrollTimeout=None) as scroller:
             TotalCount = scroller.TotalHits if scroller else 0

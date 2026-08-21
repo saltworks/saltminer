@@ -28,17 +28,27 @@ class SyncResult(object):
     (see needsReset in __ProcessOne) or the PV was skipped - in that case issue_count means nothing,
     because the data in elasticsearch is from an earlier run and this run wrote none of it.
     :issue_count: issues indexed for the project version, zero-issue placeholder records included.
-    The refresh stage uses it as the expected count: an authoritative number to wait for and to check
-    the pull against, instead of comparing two figures that are both still settling.
+    :scan_count: scans indexed for the project version.  Scan history is built from these, so a scan
+    that isn't visible yet is a history record missing from the final index - the same race as issues,
+    and worse, because scans are written one document at a time with no bulk barrier at all.
+
+    Both counts are used the same way by the refresh stage: an authoritative number to wait for and to
+    check against, instead of comparing two figures that are both still settling.
     '''
-    def __init__(self, synced:bool=False, issue_count:int=0):
+    def __init__(self, synced:bool=False, issue_count:int=0, scan_count:int=0):
         self.synced = synced
         self.issue_count = issue_count
+        self.scan_count = scan_count
 
     @property
     def expected_issue_count(self):
         '''The count to expect in elasticsearch, or None when this run didn't write it.'''
         return self.issue_count if self.synced else None
 
+    @property
+    def expected_scan_count(self):
+        '''The count to expect in elasticsearch, or None when this run didn't write it.'''
+        return self.scan_count if self.synced else None
+
     def __repr__(self):
-        return f"SyncResult(synced={self.synced}, issue_count={self.issue_count})"
+        return f"SyncResult(synced={self.synced}, issue_count={self.issue_count}, scan_count={self.scan_count})"

@@ -730,6 +730,7 @@ class SyncExtractor(object):
         '''Returns a SyncResult - see ProcessOne.'''
         self._Beat()
         issuesWritten = 0
+        scansWritten = 0
         needsReset = forceSync
         needsAttrReset = False
         attributesUpdated = False
@@ -968,6 +969,7 @@ class SyncExtractor(object):
                     # write the scan to Elastic
                     self.__ElasticClient.Index('sscprojscans', json.dumps(scan))
                     scnCount = scnCount + 1
+                    scansWritten += 1
                     
             # STEP 5 - Refresh issues
             self._Beat()
@@ -1008,7 +1010,7 @@ class SyncExtractor(object):
             # STEP 8 - Add to refresh queue
             if not queueRefresh:
                 self.__Logger.debug("%s, skipping sscupdatequeue record (queueRefresh off).", pvMessage)
-                return SyncResult(synced=True, issue_count=issuesWritten)
+                return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten)
             queueInfo = {
                 'processedDateTime' : datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S"),
                 'projectVersionId': projid,
@@ -1017,7 +1019,7 @@ class SyncExtractor(object):
                 'completedDateTime' : '1900-01-01T00:00:00.000-0000'
             }
             self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
-            return SyncResult(synced=True, issue_count=issuesWritten)
+            return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten)
 
         # needsReset was False - nothing was re-loaded, so there is no expectation to hand on.  What is
         # in the index belongs to an earlier run.

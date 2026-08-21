@@ -366,6 +366,7 @@ class SyncExtractor(object):
     def __ProcessOne(self, release, forceRefresh=False, queueRefresh=True):
         '''Returns a SyncResult - see ProcessOne.'''
         issuesWritten = 0
+        scansWritten = 0
         self._Beat()
         needsReset = False
         checkStaticDate = True
@@ -541,6 +542,7 @@ class SyncExtractor(object):
                 self._Beat()  # a scan summary call per scan
                 relScan[self.__SourceNameField] = self.__SourceName
                 scnCount = scnCount + 1
+                scansWritten += 1
                 self.__Es.Index('fodscans', relScan)
                     
                 #post Release Scan records
@@ -562,7 +564,7 @@ class SyncExtractor(object):
 
             if not queueRefresh:
                 self.__Logger.debug("Skipping fodupdatequeue record for release %s (queueRefresh off).", holdReleaseId)
-                return SyncResult(synced=True, issue_count=issuesWritten)
+                return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten)
             queueInfo = {
                 'releaseId': holdReleaseId,
                 'updateType': 'U',
@@ -571,7 +573,7 @@ class SyncExtractor(object):
                 'sourceName': self.__SourceName
             }
             self.__Es.Index('fodupdatequeue', json.dumps(queueInfo))
-            return SyncResult(synced=True, issue_count=issuesWritten)
+            return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten)
 
         # Nothing needed re-loading, so there is no expectation to hand on - what is in the index
         # belongs to an earlier run.
