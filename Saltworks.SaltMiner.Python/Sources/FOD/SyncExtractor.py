@@ -27,6 +27,7 @@ from .. import IdLoader
 from Utility.ProgressLogger import ProgressLogger
 from Utility.SyncQueueHelper import SyncQueueHelper
 from elasticsearch import ConflictError
+from ..SyncResult import SyncResult
 
 class SyncExtractor(object):
     """Extraction of Open FOD Changes"""
@@ -243,6 +244,9 @@ class SyncExtractor(object):
         :queueRefresh: set False to skip the fodupdatequeue record normally written when the
         release changes.  Callers that run the refresh themselves for this one release (the
         sync worker) don't need it; the batch Process() path does.
+
+        Returns a SyncResult describing what was written, so the refresh stage that runs next knows how
+        many issues to expect rather than having to guess from the index.
         '''
         # Check mappings - ensures indices are created from templates rather than dynamically mapped by first doc write
         self.MapESIndices(False)
@@ -251,8 +255,9 @@ class SyncExtractor(object):
         if not release:
             raise SyncExtractorException(f"Release {avid} could not be found.")
         self.__Logger.info('Syncing FOD to Elastic for release %s', avid)
-        self.__ProcessOne(release['_source'], forceRefresh, queueRefresh)
-        self.__Logger.info('Sync complete.')
+        result = self.__ProcessOne(release['_source'], forceRefresh, queueRefresh)
+        self.__Logger.info('Sync complete. %s', result)
+        return result
 
     def Process(self, reloadSyncQueue=False):
         '''
@@ -359,6 +364,8 @@ class SyncExtractor(object):
         return self.__ApplicationCache[applicationId]
 
     def __ProcessOne(self, release, forceRefresh=False, queueRefresh=True):
+        '''Returns a SyncResult - see ProcessOne.'''
+        issuesWritten = 0
         self._Beat()
         needsReset = False
         checkStaticDate = True
@@ -551,11 +558,11 @@ class SyncExtractor(object):
                         self.__Logger.warning("Invalid/empty response when retrieving scan %s for release %s.", holdScan, holdReleaseId)
                     #self.__Logger.info(holdscansum)
                         
-            self.__BulkLoadVulns(holdReleaseId)
+            issuesWritten = self.__BulkLoadVulns(holdReleaseId) or 0
 
             if not queueRefresh:
                 self.__Logger.debug("Skipping fodupdatequeue record for release %s (queueRefresh off).", holdReleaseId)
-                return
+                return SyncResult(synced=True, issue_count=issuesWritten)
             queueInfo = {
                 'releaseId': holdReleaseId,
                 'updateType': 'U',
@@ -564,6 +571,11 @@ class SyncExtractor(object):
                 'sourceName': self.__SourceName
             }
             self.__Es.Index('fodupdatequeue', json.dumps(queueInfo))
+            return SyncResult(synced=True, issue_count=issuesWritten)
+
+        # Nothing needed re-loading, so there is no expectation to hand on - what is in the index
+        # belongs to an earlier run.
+        return SyncResult()
 
     def __BulkLoadVulns(self, id):
         ''' 
@@ -571,8 +583,11 @@ class SyncExtractor(object):
         original name: getAndLoadFODVulnerabilityBulk or BulkLoadVulnerabilitiesIntoElastic (FodClient)
 
         :id: release Id for which to retrieve vulnerabilities
+
+        Returns the number of issue documents indexed - the refresh stage uses it as the expected count.
         '''
         vuls = { 'items': [] }
+        written = 0
         rsp = self.__Fod.GetVulnerabilities(id, True, True, logPrefix=f"FOD Issues for release {id}")
         if rsp and rsp.Content:
             vuls = rsp.Content
@@ -581,6 +596,7 @@ class SyncExtractor(object):
             vuln['lastUpdated'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
             vuln[self.__SourceNameField] = self.__SourceName
             self.__Es.BulkSendBatch('fodrelissues', vuln, batchSize=1000)
+            written += 1
         # wait_for on the flush: the refresh stage scrolls fodrelissues as soon as this returns, and a
         # bulk write isn't searchable until a refresh.  Same fix as SSC's BulkIssuesLoad; without it the
         # pull can silently read a short set.  Nothing to flush means the last full batch already went
@@ -589,6 +605,7 @@ class SyncExtractor(object):
             self.__Es.BulkSendBatch(refresh='wait_for')
         else:
             self.__Es.RefreshIndex('fodrelissues')
+        return written
 
 class SyncExtractorException(Exception):
     pass

@@ -32,9 +32,11 @@ from Utility.ProgressLogger import *
 from .SscUtilities import SscUtilities
 from .SscEsUtils import SscEsUtils
 from Utility.SyncQueueHelper import *
+from ..SyncResult import SyncResult
 
 class SyncExtractorException(Exception):
     pass
+
 
 class SyncExtractor(object):
     """Extraction of Open SSC Changes"""
@@ -580,6 +582,9 @@ class SyncExtractor(object):
         :queueRefresh: set False to skip the sscupdatequeue record(s) normally written when the
         project version or its attributes change.  Callers that run the refresh themselves for
         this one project version (the sync worker) don't need it; the batch Process() path does.
+
+        Returns a SyncResult describing what was written, so the refresh stage that runs next knows how
+        many issues to expect rather than having to guess from the index.
         '''
         # Check mappings - ensures indices are created from templates rather than dynamically mapped by first doc write
         self.MapESIndices(False)
@@ -590,8 +595,9 @@ class SyncExtractor(object):
         if not projectVersion:
             raise SyncExtractorException(f"Project version {pvid} could not be found.")
         self.__Logger.info('Syncing SSC to Elastic for project version %s', pvid)
-        self.__ProcessOne(projectVersion, projectAttrDefs, seenIdList, f"PVID: {pvid}", forceSync, queueRefresh)
-        self.__Logger.info('Sync complete.')
+        result = self.__ProcessOne(projectVersion, projectAttrDefs, seenIdList, f"PVID: {pvid}", forceSync, queueRefresh)
+        self.__Logger.info('Sync complete. %s', result)
+        return result
 
     def Process(self, cleanupAfter=True, reloadSyncQueue=False):
         '''
@@ -721,7 +727,9 @@ class SyncExtractor(object):
         p.Finish(iTotal, "Complete")
 
     def __ProcessOne(self, projectVersion, projectAttrDefs, seenIdList, pvMessage, forceSync=False, queueRefresh=True):
+        '''Returns a SyncResult - see ProcessOne.'''
         self._Beat()
+        issuesWritten = 0
         needsReset = forceSync
         needsAttrReset = False
         attributesUpdated = False
@@ -739,12 +747,12 @@ class SyncExtractor(object):
 
         if self.__SscUtils.IsIncompleteProjectVersion(projid):
             self.__Logger.warning(f"ProjectVersion {projid} appears to not be setup correctly in SSC and will be skipped.")
-            return
+            return SyncResult()
 
         projectFilterSet = self.__SscUtils.getProjectVersionFilterSet(projid)
         if not projectFilterSet:
             self.__Logger.error("Invalid/missing filterset from SSC API for project version %s.  Skipping...")
-            return
+            return SyncResult()
         projectDefFilter = None
         for projectFilter in projectFilterSet['data']:
             if projectFilter['defaultFilterSet'] == True:
@@ -965,15 +973,17 @@ class SyncExtractor(object):
             self._Beat()
             try:
                 if self.__IssueDetailsEndpoint:
-                    self.__SscUtils.BulkIssuesLoadFromDetails(projid, projectDefFilter)
+                    issuesWritten = self.__SscUtils.BulkIssuesLoadFromDetails(projid, projectDefFilter) or 0
                 else:
-                    self.__SscUtils.BulkIssuesLoad(projid, projectDefFilter)
+                    issuesWritten = self.__SscUtils.BulkIssuesLoad(projid, projectDefFilter) or 0
             except (SscClient409ConflictException) as e:
                 # Skip this project version if this specific error occurs
                 if e.startswith("Audit session out of date."):
                     self.__Logger.error("SSC API audit session error, issue import for project version %s stopped ('[SscClient409ConflictException] %s')", projid, e.message)
                     self.__Logger.warning("[DATA WARNING] SSC project version %s may have no or incorrect issue counts", projid)
-                    return
+                    # Partial load - synced=False so the refresh stage doesn't wait on a count that will
+                    # never arrive.  The issue-count guard still checks what it pulls.
+                    return SyncResult()
                 else:
                     # Raise any other flavor of 409 conflict exception
                     raise
@@ -993,11 +1003,12 @@ class SyncExtractor(object):
             if novuls:
                 for key in pvAssessmentTypes.keys():
                     self.__WriteZeroIssue(projid, key, pvAssessmentTypes[key])
+                    issuesWritten += 1
 
             # STEP 8 - Add to refresh queue
             if not queueRefresh:
                 self.__Logger.debug("%s, skipping sscupdatequeue record (queueRefresh off).", pvMessage)
-                return
+                return SyncResult(synced=True, issue_count=issuesWritten)
             queueInfo = {
                 'processedDateTime' : datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S"),
                 'projectVersionId': projid,
@@ -1006,6 +1017,11 @@ class SyncExtractor(object):
                 'completedDateTime' : '1900-01-01T00:00:00.000-0000'
             }
             self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
+            return SyncResult(synced=True, issue_count=issuesWritten)
+
+        # needsReset was False - nothing was re-loaded, so there is no expectation to hand on.  What is
+        # in the index belongs to an earlier run.
+        return SyncResult()
 
     def __UpdateAttributes(self, projid:int, pvMessage:str, attributeDefs:dict, sscRawAttributes:dict, queueRefresh:bool = True):
         self.__Logger.info('%s, syncing SSC attributes', pvMessage)

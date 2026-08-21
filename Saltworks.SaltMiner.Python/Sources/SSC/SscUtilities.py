@@ -620,6 +620,10 @@ class SscUtilities:
         ''' 
         Same bulk issue loader as BulkIssuesLoad(), but uses the IssueDetails endpoint for the issue data, 
         which allows us to bring in more information than is available in just the Issues endpoint.
+
+        Returns the number of issue documents indexed.  The refresh stage uses it as the expected count -
+        the authoritative "how many should be there", instead of inferring it from the index while the
+        index is still settling.
         '''
         more = True
         count = 0
@@ -665,9 +669,11 @@ class SscUtilities:
             self.__ElasticClient.RefreshIndex('sscprojissues')
         if p.Started:
             p.Finish(None, "Completed loading this batch of issues from SSC to SaltMiner.")
+        return count
 
     # Simplified bulk issues loader using SscClient and ElasticClient
     def BulkIssuesLoad(self, projectVersionId, projDefFilter):
+        '''Returns the number of issue documents indexed - see BulkIssuesLoadFromDetails.'''
         _moreRecords = True
         iCurrentCount = 0
         bulkDocs = []
@@ -701,6 +707,8 @@ class SscUtilities:
                     self.__ElasticClient.BulkInsert(bulkDocs, refresh='wait_for')
                 else:
                     self.__ElasticClient.RefreshIndex('sscprojissues')
+        return iCurrentCount
+
     
     # GregLook - deprecating and disabling this method.  Only reference to it is in RWExtractSSCHidden.py (line 94), which seems to not be in use.
     def getAndLoadProjectVersionIssuesHidden(self, id, elasticUtility):

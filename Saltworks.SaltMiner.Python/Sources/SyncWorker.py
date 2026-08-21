@@ -399,14 +399,17 @@ class SyncWorker(Worker):
             sync = self._get_ssc_sync(data.target_instance)
             # queueRefresh off - we run the refresh for this ID ourselves below, so an
             # sscupdatequeue record would only queue the same work a second time.
-            sync.ProcessOne(data.target_id, data.force, queueRefresh=False)
+            sync_result = sync.ProcessOne(data.target_id, data.force, queueRefresh=False)
             self.agent.update(item, SyncQueueStage.REFRESH, data.to_dto())
             refresh = self._get_ssc_refresh(data.target_instance)
             # race_retry on - the sync stage above just wrote this doc, and elasticsearch's
             # near-real-time refresh can leave it unsearchable for a moment.  Without the retry
             # PopulateVulsOne reads back nothing and returns early, skipping the whole refresh
             # (including the "noscan" queue data for missing expected assessment types).
-            queue_scan_ids = refresh.PopulateVulsOne(data.target_id, race_retry=True)
+            # The sync just told us how many issues it wrote - hand it on so the refresh waits for
+            # exactly that many instead of guessing when the index has settled.
+            queue_scan_ids = refresh.PopulateVulsOne(data.target_id, race_retry=True,
+                                                     expected_issue_count=getattr(sync_result, "expected_issue_count", None))
             self.agent.update(item, SyncQueueStage.FINALIZE, data.to_dto())
             self._run_manager(queue_scan_ids, f"SSC project version {data.target_id} ('{data.target_instance}')",
                               cancel_fn=refresh.CancelQueueScan)
@@ -426,14 +429,16 @@ class SyncWorker(Worker):
             sync = self._get_fod_sync(data.target_instance)
             # queueRefresh off - we run the refresh for this ID ourselves below, so a
             # fodupdatequeue record would only queue the same work a second time.
-            sync.ProcessOne(data.target_id, data.force, queueRefresh=False)
+            sync_result = sync.ProcessOne(data.target_id, data.force, queueRefresh=False)
             self.agent.update(item, SyncQueueStage.REFRESH, data.to_dto())
             refresh = self._get_fod_refresh(data.target_instance)
             # race_retry on - the sync stage above just wrote this doc, and elasticsearch's
             # near-real-time refresh can leave it unsearchable for a moment.  Without the retry
             # PopulateVulsOne reads back nothing and returns early, skipping the whole refresh
             # (including the "noscan" queue data for missing expected assessment types).
-            queue_scan_ids = refresh.PopulateVulsOne(data.target_id, race_retry=True)
+            # Hand the sync's issue count on - see the SSC path.
+            queue_scan_ids = refresh.PopulateVulsOne(data.target_id, race_retry=True,
+                                                     expected_issue_count=getattr(sync_result, "expected_issue_count", None))
             self.agent.update(item, SyncQueueStage.FINALIZE, data.to_dto())
             self._run_manager(queue_scan_ids, f"FOD release {data.target_id} ('{data.target_instance}')",
                               cancel_fn=refresh.CancelQueueScan)

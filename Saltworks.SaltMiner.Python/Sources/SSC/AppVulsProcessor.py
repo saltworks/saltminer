@@ -35,6 +35,11 @@ from Utility.UpdateQueueHelper import UpdateQueueHelper
 
 ISSUE_COUNT_RECHECK_DELAY_SEC = 5
 
+# How hard to chase the sync stage's expected issue count before giving up and letting the pull run
+# short (the guard then reports it).  One refresh, then this many counts spaced by the delay.
+ISSUE_VISIBILITY_ATTEMPTS = 3
+ISSUE_VISIBILITY_DELAY_SEC = 2
+
 
 class AppVulsProcessor(object):
     """ App vulnerability processor for SSC """
@@ -63,6 +68,7 @@ class AppVulsProcessor(object):
         self.__LastScanDateField = appSettings.GetSource(sourceName, "LastScanDateField", "lastScanDate")
         self.__BulkDocs = []
         self.__IssueCountMismatch = None  # set by __CheckIssueCounts when a pull came up short
+        self.__ExpectedIssueCount = None  # set per run by PopulateVulsOne, from the sync stage
         self.__BulkSendBatchSize = appSettings.GetSource(sourceName, "BulkSendBatchSize", 1000)
         self.__SourceName = sourceName
 
@@ -261,14 +267,20 @@ class AppVulsProcessor(object):
         if cleanupAfter:
             self.Cleanup()
 
-    def PopulateVulsOne(self, pvid, cleanupAfter=True, race_retry:bool=False, race_retry_delay:int=5):
+    def PopulateVulsOne(self, pvid, cleanupAfter=True, race_retry:bool=False, race_retry_delay:int=5, expected_issue_count:int=None):
         '''
         Process one project version (doesn't have to be in the update queue).
         Returns the list of queue scan IDs created (empty when SM API integration is disabled or nothing processed).
 
         :race_retry: passed through to _GetSscProjectVersion - see there.
+        :expected_issue_count: how many issues the sync stage just wrote for this project version
+        (SyncResult.expected_issue_count).  None when the caller doesn't know - the sync didn't re-load
+        it, or this isn't the agent path - in which case the pull proceeds as before.  When known, it is
+        the authoritative number: the pull waits for the index to show it and is checked against it,
+        rather than against an index count that is still settling.
         '''
 
+        self.__ExpectedIssueCount = expected_issue_count
         sscProject = self._GetSscProjectVersion(pvid, race_retry, race_retry_delay)
         if not sscProject:
             self.__Logger.error("Couldn't retrieve project version %s from SSC, skipping this update.", pvid)
@@ -529,6 +541,56 @@ class AppVulsProcessor(object):
         self.__Logger.info(f"Inserting {len(allDocsToInsert)} scan history doc(s) for id {projectVersion['id']}")
         return lastScans
 
+    def __WaitForExpectedIssues(self, index, query, appVerId):
+        '''
+        Blocks until the source index shows the number of issues the sync stage said it wrote.
+
+        The sync bulk-loads with refresh='wait_for', but that only refreshes the shards its final
+        request wrote to - '{index}' has more than one, so a small final batch can leave another shard's
+        documents unsearchable.  Rather than refresh the whole index on every app version, count first
+        and only refresh when the count is short: the healthy majority costs one _count, and the
+        stragglers cost the refresh they actually need.
+
+        Never raises.  A count that never arrives is left to __CheckIssueCounts to report, with the
+        numbers, once the pull has actually happened.
+        '''
+        expected = self.__ExpectedIssueCount
+        if expected is None:
+            return
+        try:
+            count = self.__Es.Count(index, self.__CountSafeQuery(query))
+            if count == expected:
+                return
+            self.__Logger.warning("Sync wrote %s issue(s) for %s but only %s are visible - refreshing '%s' and re-counting...",
+                                  expected, appVerId, count, index)
+            self.__Es.RefreshIndex(index)
+            for attempt in range(ISSUE_VISIBILITY_ATTEMPTS):
+                count = self.__Es.Count(index, self.__CountSafeQuery(query))
+                if count == expected:
+                    self.__Logger.info("All %s issue(s) for %s visible after refresh%s.", expected, appVerId,
+                                       f" and {attempt} recheck(s)" if attempt else "")
+                    return
+                if attempt < ISSUE_VISIBILITY_ATTEMPTS - 1:
+                    time.sleep(ISSUE_VISIBILITY_DELAY_SEC)
+            # Still short.  Not a visibility problem any more - the pull runs and the guard reports it.
+            self.__Logger.error("Only %s of %s issue(s) for %s are visible after a refresh and %s recheck(s) - the pull will be short.",
+                                count, expected, appVerId, ISSUE_VISIBILITY_ATTEMPTS)
+        except Exception as ex:
+            self.__Logger.warning("Could not verify issue visibility for %s: [%s] %s", appVerId, type(ex).__name__, ex)
+
+
+    @staticmethod
+    def __CountSafeQuery(query):
+        '''
+        A copy of a search body with the paging keys stripped - _count rejects them.  The scroller adds
+        "sort" to the dict it is handed, in place, so a query that has been through it is not count-safe.
+        '''
+        q = json.loads(json.dumps(query))
+        for key in ('sort', 'search_after', '_source', 'size', 'from'):
+            q.pop(key, None)
+        return q
+
+
     def __CheckIssueCounts(self, index, query, appVerId, syncCountBefore, pulledCount):
         '''
         Validates that the issue pull read the whole source set.
@@ -547,15 +609,15 @@ class AppVulsProcessor(object):
         source/instance, the manager merges rather than appends, and synthetic zero/noscan records and
         cancel-hook drops all move that number legitimately.  See PBI-0005.
         '''
-        # The scroller adds "sort" to the query dict it was handed - in place - so the query reaching us
-        # here is no longer count-safe (_count rejects sort).  Strip the paging keys off a copy, the same
-        # way the scroller does for its own count back-fill.
-        countQuery = json.loads(json.dumps(query))
-        countQuery.pop('sort', None)
-        countQuery.pop('search_after', None)
-        countQuery.pop('_source', None)
-        countQuery.pop('size', None)
-        countQuery.pop('from', None)
+        countQuery = self.__CountSafeQuery(query)
+
+        # When the sync stage told us what it wrote, that is the number that matters: it is what SHOULD
+        # be there, where the index count is only what happens to be visible.  Reading the right number
+        # of documents is a complete pull even if the index has since moved.
+        expected = self.__ExpectedIssueCount
+        if expected is not None and pulledCount == expected:
+            self.__Logger.debug("Pulled all %s issue(s) the sync stage wrote for %s.", expected, appVerId)
+            return
 
         syncCountAfter = self.__Es.Count(index, countQuery)
         if syncCountAfter == pulledCount:
@@ -574,9 +636,13 @@ class AppVulsProcessor(object):
             return
 
         moved = "" if syncCountBefore == syncCountAfter else f", and moved during the pull ({syncCountBefore} at start)"
+        # Naming the expected count separates the two causes: short of what the sync wrote is a
+        # visibility problem, while an index holding MORE than the sync wrote means something else is
+        # writing this app version.
+        target = "" if expected is None else f"  The sync stage wrote {expected}."
         self.__IssueCountMismatch = (
             f"Incomplete issue pull for {appVerId}: read {pulledCount} issue(s) but '{index}' holds "
-            f"{recheckCount} after a {ISSUE_COUNT_RECHECK_DELAY_SEC} sec recheck ({syncCountAfter} on first check){moved}. "
+            f"{recheckCount} after a {ISSUE_COUNT_RECHECK_DELAY_SEC} sec recheck ({syncCountAfter} on first check){moved}.{target} "
             "The source data was still becoming visible while it was being read - re-run the sync for this ID."
         )
         self.__Logger.error(self.__IssueCountMismatch)
@@ -661,9 +727,11 @@ class AppVulsProcessor(object):
         p = ProgressLogger(self.__Es)      
 
         # Race guard - the sync stage wrote these issues moments ago and elasticsearch's refresh is
-        # asynchronous, so a scroll started too early silently pulls a short set.  TotalCount below is
-        # the source count at the start of the pull; __CheckIssueCounts re-counts at the end and
-        # compares both against what we actually read.
+        # asynchronous, so a scroll started too early silently pulls a short set.  When the sync told us
+        # how many it wrote, wait for exactly that many to be visible before starting; otherwise
+        # TotalCount below is all we have to go on and __CheckIssueCounts does the checking at the end.
+        self.__WaitForExpectedIssues("sscprojissues", issueQuery, appVerId)
+
         with self.__Es.SearchScroll("sscprojissues", queryBody=issueQuery, scrollSize=1000, scrollTimeout=None) as scroller:
             TotalCount = scroller.TotalHits if scroller else 0
             p.Start("PopulateVuls-UpdateIssues", TotalCount, "PopulateVuls-UpdateIssues Status")
