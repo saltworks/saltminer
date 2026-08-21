@@ -171,15 +171,17 @@ query TaniumIntrospectSchema {
 }
 '''
 
-# Best effort only.  Requires the token to carry `Token - View`, and the exact
-# shape of this root field is unverified against a live gateway - treat any
-# failure here as "no token metadata available", never as a run failure.
+# Best effort only.  Requires the token to carry `Token - View`.  myAPITokens
+# returns APITokenQueryPayload { tokens: [APIToken!], error: SystemError },
+# not a bare token list - verified by introspection against a live gateway.
 MY_API_TOKENS_QUERY = '''
 query TaniumMyApiTokens {
   myAPITokens {
-    id
-    expiration
-    trustedIPAddresses
+    tokens {
+      id
+      expiration
+      trustedIPAddresses
+    }
   }
 }
 '''
@@ -518,7 +520,12 @@ class TaniumClient:
 
     def GetEndpointsGenerator(self, first=None, max_pages=None):
         '''
-        Yields raw endpoint `node` dicts across the full cursor walk.
+        Yields each raw `endpoints` page dict (totalRecords, pageInfo, edges)
+        as it comes back, across the full cursor walk. Does not unpack edges
+        into individual nodes - that's a caller concern, not this method's.
+        Different callers want different granularity (raw page vs one node
+        at a time), so walking the cursor is the only thing this method is
+        responsible for.
 
         Raises on any failure rather than breaking the loop.  A partial page set
         that reports success is worse than a visible failure for this source,
@@ -541,13 +548,8 @@ class TaniumClient:
             if not endpoints:
                 raise TaniumGraphQLException("Tanium returned a response with no 'endpoints' block.")
 
-            edges = endpoints.get("edges") or []
-            for edge in edges:
-                node = edge.get("node")
-                if node is None:
-                    continue
-                self.__nodes += 1
-                yield node
+            self.__nodes += len(endpoints.get("edges") or [])
+            yield endpoints
 
             page_info = endpoints.get("pageInfo") or {}
             if not page_info.get("hasNextPage"):
@@ -585,7 +587,7 @@ class TaniumClient:
         '''
         try:
             data = self.Post(MY_API_TOKENS_QUERY, {})
-            return data.get("myAPITokens")
+            return (data.get("myAPITokens") or {}).get("tokens")
         except TaniumException as e:
             logging.info("[Tanium Client] Token metadata unavailable (needs 'Token - View'): [%s] %s",
                          type(e).__name__, e)

@@ -359,66 +359,74 @@ def ModeCensus(client, args):
     probe_fields = client.RequestedFindingFields
     field_stats = { f: { "non_null": 0, "null": 0, "example": None } for f in probe_fields }
 
-    for node in client.GetEndpointsGenerator(first=args.first):
-        counters["endpoints_seen"] += 1
+    stop = False
+    for page in client.GetEndpointsGenerator(first=args.first):
+        for edge in (page.get("edges") or []):
+            node = edge.get("node")
+            if node is None:
+                continue
+            counters["endpoints_seen"] += 1
 
-        compliance = node.get("compliance")
-        if compliance is None:
-            counters["compliance_is_null"] += 1
-            if examples["null_compliance"] is None:
-                examples["null_compliance"] = node
-        else:
-            findings = compliance.get("cveFindings")
-            if findings is None:
-                counters["cve_findings_is_null"] += 1
-                if examples["null_cve_findings"] is None:
-                    examples["null_cve_findings"] = node
-            elif len(findings) == 0:
-                counters["cve_findings_is_empty"] += 1
-                if examples["empty_findings"] is None:
-                    examples["empty_findings"] = node
+            compliance = node.get("compliance")
+            if compliance is None:
+                counters["compliance_is_null"] += 1
+                if examples["null_compliance"] is None:
+                    examples["null_compliance"] = node
             else:
-                counters["cve_findings_populated"] += 1
-                total_findings += len(findings)
-                counters["max_cve_findings_len"] = max(counters["max_cve_findings_len"], len(findings))
+                findings = compliance.get("cveFindings")
+                if findings is None:
+                    counters["cve_findings_is_null"] += 1
+                    if examples["null_cve_findings"] is None:
+                        examples["null_cve_findings"] = node
+                elif len(findings) == 0:
+                    counters["cve_findings_is_empty"] += 1
+                    if examples["empty_findings"] is None:
+                        examples["empty_findings"] = node
+                else:
+                    counters["cve_findings_populated"] += 1
+                    total_findings += len(findings)
+                    counters["max_cve_findings_len"] = max(counters["max_cve_findings_len"], len(findings))
 
-                if len(findings) > highest_count:
-                    highest_count = len(findings)
-                    examples["highest_finding_count"] = node
+                    if len(findings) > highest_count:
+                        highest_count = len(findings)
+                        examples["highest_finding_count"] = node
 
-                cve_ids = []
-                for finding in findings:
-                    for f in probe_fields:
-                        value = finding.get(f)
-                        if value is None:
-                            field_stats[f]["null"] += 1
+                    cve_ids = []
+                    for finding in findings:
+                        for f in probe_fields:
+                            value = finding.get(f)
+                            if value is None:
+                                field_stats[f]["null"] += 1
+                            else:
+                                field_stats[f]["non_null"] += 1
+                                if field_stats[f]["example"] is None:
+                                    field_stats[f]["example"] = value
+
+                        products = finding.get("detectedProducts")
+                        if products is not None:
+                            counters["max_detected_products_len"] = max(
+                                counters["max_detected_products_len"], len(products))
+                            if len(products) > 1 and examples["multi_detected_products"] is None:
+                                examples["multi_detected_products"] = node
+
+                        summary = finding.get("summary")
+                        if summary is None:
+                            counters["summary_null"] += 1
                         else:
-                            field_stats[f]["non_null"] += 1
-                            if field_stats[f]["example"] is None:
-                                field_stats[f]["example"] = value
+                            counters["summary_non_null"] += 1
+                            summary_lengths.append(len(summary))
 
-                    products = finding.get("detectedProducts")
-                    if products is not None:
-                        counters["max_detected_products_len"] = max(
-                            counters["max_detected_products_len"], len(products))
-                        if len(products) > 1 and examples["multi_detected_products"] is None:
-                            examples["multi_detected_products"] = node
+                        cve_ids.append(finding.get("cveId"))
 
-                    summary = finding.get("summary")
-                    if summary is None:
-                        counters["summary_null"] += 1
-                    else:
-                        counters["summary_non_null"] += 1
-                        summary_lengths.append(len(summary))
+                    if len(cve_ids) != len(set(cve_ids)):
+                        counters["endpoints_with_duplicate_cve_id"] += 1
+                        if examples["duplicate_cve_id"] is None:
+                            examples["duplicate_cve_id"] = node
 
-                    cve_ids.append(finding.get("cveId"))
-
-                if len(cve_ids) != len(set(cve_ids)):
-                    counters["endpoints_with_duplicate_cve_id"] += 1
-                    if examples["duplicate_cve_id"] is None:
-                        examples["duplicate_cve_id"] = node
-
-        if args.limit and counters["endpoints_seen"] >= args.limit:
+            if args.limit and counters["endpoints_seen"] >= args.limit:
+                stop = True
+                break
+        if stop:
             break
 
     summary_stats = None

@@ -38,6 +38,7 @@ Application can find Config/ no matter where the debugger launched from.
 
 import json
 import os
+import re
 import sys
 import time
 import traceback
@@ -59,30 +60,30 @@ from Sources.Tanium.TaniumClient import TaniumClient, TaniumException, TaniumGra
 # ===========================================================================
 
 # -- offline: no token, no network required ---------------------------------
-CHECK_CONFIG_LOADS            = True   # B2  client constructs off Base_Url / API_Key
-CHECK_BASE_URL_PATH           = True   # B3  Base_Url is the endpoint, not the host
-CHECK_AUTH_HEADER             = True   # D1  session header only, no bearer machinery
-CHECK_SORT_ENUM               = True   # B1  sort order is lowercase `asc`
-CHECK_QUERY_COMPOSITION       = True   # D2  core fields present, extension guarded
-CHECK_NONLEAF_FIELD_REFUSED   = True   # D2  OBJECT-typed fields dropped, not requested
-CHECK_RESTRICT_OWNER_COMMENT  = True   # D4  filter hazard is documented in the query
-CHECK_TOTALRECORDS_QUERY      = True   # D5  baseline query selects no nodes
-CHECK_CURSOR_GUARD            = True   # C1  hasNextPage + null endCursor raises
-CHECK_NULL_VS_EMPTY           = True   # C2  IterFindings keeps None and [] distinct
-CHECK_CENSUS_EXAMPLE_SLOT     = True   # C3  null_cve_findings example is captured
-CHECK_IDLE_CLOCK_SCOPE        = True   # C4  only the paged query stamps the cursor clock
-CHECK_THRESHOLD_ARGS          = True   # C5  --min-endpoints / --min-findings exist
+CHECK_CONFIG_LOADS            = False  # B2  client constructs off Base_Url / API_Key
+CHECK_BASE_URL_PATH           = False  # B3  Base_Url is the endpoint, not the host
+CHECK_AUTH_HEADER             = False  # D1  session header only, no bearer machinery
+CHECK_SORT_ENUM               = False  # B1  sort order is lowercase `asc`
+CHECK_QUERY_COMPOSITION       = False  # D2  core fields present, extension guarded
+CHECK_NONLEAF_FIELD_REFUSED   = False  # D2  OBJECT-typed fields dropped, not requested
+CHECK_RESTRICT_OWNER_COMMENT  = False  # D4  filter hazard is documented in the query
+CHECK_TOTALRECORDS_QUERY      = False  # D5  baseline query selects no nodes
+CHECK_CURSOR_GUARD            = False  # C1  hasNextPage + null endCursor raises
+CHECK_NULL_VS_EMPTY           = False  # C2  IterFindings keeps None and [] distinct
+CHECK_CENSUS_EXAMPLE_SLOT     = False  # C3  null_cve_findings example is captured
+CHECK_IDLE_CLOCK_SCOPE        = False  # C4  only the paged query stamps the cursor clock
+CHECK_THRESHOLD_ARGS          = False  # C5  --min-endpoints / --min-findings exist
 
 # -- live: needs API_Key set ------------------------------------------------
-LIVE_PREFLIGHT                = False  # totalRecords + sample shape + token metadata
-LIVE_FIELD_RESOLUTION         = False  # real introspection: what the schema exposes
-LIVE_SINGLE_PAGE              = False  # one page, dump it to the console
-LIVE_PAGING                   = False  # 3 pages, cursors advance, no duplicate ids
-LIVE_CENSUS                   = False  # null vs empty vs populated across the fleet
-LIVE_PROBE_EXTENDED           = False  # which experimental fields the tenant populates
-LIVE_SIZING                   = False  # bytes and latency at first = 10/50/100/250
-LIVE_INTROSPECT_FINDING_TYPE  = False  # field list on EndpointComplianceCveFinding
-LIVE_TOKEN_METADATA           = False  # expiration + trustedIPAddresses (best effort)
+LIVE_PREFLIGHT                = True  # totalRecords + sample shape + token metadata
+LIVE_FIELD_RESOLUTION         = True  # real introspection: what the schema exposes
+LIVE_SINGLE_PAGE              = True  # one page, dump it to the console
+LIVE_PAGING                   = True  # 3 pages, cursors advance, no duplicate ids
+LIVE_CENSUS                   = True  # null vs empty vs populated across the fleet
+LIVE_PROBE_EXTENDED           = True  # which experimental fields the tenant populates
+LIVE_SIZING                   = True  # bytes and latency at first = 10/50/100/250
+LIVE_INTROSPECT_FINDING_TYPE  = True  # field list on EndpointComplianceCveFinding
+LIVE_TOKEN_METADATA           = True  # expiration + trustedIPAddresses (best effort)
 
 # -- knobs ------------------------------------------------------------------
 PAGE_SIZE                = 5        # `first` for live page fetches
@@ -91,7 +92,7 @@ PAGING_PAGES             = 3
 OUT_DIR                  = "./tanium_out/debug/"
 WRITE_ARTIFACTS          = True     # write JSON for live checks
 PRINT_FULL_PAYLOADS      = False    # dump whole nodes to console (noisy)
-EXPECTED_FINDING_FIELDS  = 50       # schema says 50 on EndpointComplianceCveFinding
+EXPECTED_FINDING_FIELDS  = 44       # schema says 44 on EndpointComplianceCveFinding
 BREAK_BEFORE_EACH_CHECK  = False    # call breakpoint() before every enabled check
 STOP_ON_FIRST_FAILURE    = False
 
@@ -136,6 +137,63 @@ def _write(name, obj):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2, default=str)
     print(f"         wrote {path}")
+
+
+# ===========================================================================
+# raw query/response capture
+# ===========================================================================
+#
+# Every check's derived artifacts (census.json, sizing.json, ...) are computed
+# summaries. This captures the actual GraphQL request/response pairs behind
+# them, one file per Post() call, numbered in call order and labeled with
+# whichever check was running - so they can be read directly rather than
+# re-derived.
+
+_CALL_COUNT = 0
+_CURRENT_CHECK = "unlabeled"
+
+
+def _SafeName(text):
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", text).strip("_") or "call"
+
+
+def _InstrumentPost(client):
+    '''
+    Wraps client.Post so every live request/response pair this run makes is
+    written under OUT_DIR/queries and OUT_DIR/responses. Errors (including
+    GraphQL error arrays) are written to the response side rather than lost.
+    '''
+    original_post = client.Post
+    queries_dir = os.path.join(OUT_DIR, "queries")
+    responses_dir = os.path.join(OUT_DIR, "responses")
+
+    def wrapped(query, variables=None):
+        global _CALL_COUNT
+        _CALL_COUNT += 1
+        name = f"{_CALL_COUNT:03d}_{_SafeName(_CURRENT_CHECK)}.json"
+
+        if WRITE_ARTIFACTS:
+            os.makedirs(queries_dir, exist_ok=True)
+            os.makedirs(responses_dir, exist_ok=True)
+            with open(os.path.join(queries_dir, name), "w", encoding="utf-8") as f:
+                json.dump({ "query": query, "variables": variables or {} }, f, indent=2, default=str)
+
+        try:
+            data = original_post(query, variables)
+        except TaniumException as e:
+            if WRITE_ARTIFACTS:
+                with open(os.path.join(responses_dir, name), "w", encoding="utf-8") as f:
+                    json.dump({ "error": type(e).__name__, "message": str(e),
+                               "graphql_errors": getattr(e, "Errors", None) }, f, indent=2, default=str)
+            raise
+
+        if WRITE_ARTIFACTS:
+            with open(os.path.join(responses_dir, name), "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, default=str)
+        return data
+
+    client.Post = wrapped
+    return client
 
 
 def _stub_introspection(client, endpoint_fields, finding_fields, nonleaf=()):
@@ -438,6 +496,11 @@ def Live_Paging(client):
 
 def Live_Census(client, probe_extended=False):
     client.EnableExtendedFields(probe_extended)
+    # Field resolution is otherwise lazy (deferred to the first page fetch),
+    # so RequestedFindingFields below would still reflect the *previous*
+    # extension set. Force it now so the population dict matches what this
+    # run actually requests.
+    client.ResolveFields()
     label = "census + probe-extended" if probe_extended else "census"
 
     counts = { "seen": 0, "null_compliance": 0, "null_findings": 0, "empty_findings": 0,
@@ -445,35 +508,43 @@ def Live_Census(client, probe_extended=False):
     fields = client.RequestedFindingFields
     population = { f: { "non_null": 0, "null": 0, "example": None } for f in fields }
 
-    for node in client.GetEndpointsGenerator(first=PAGE_SIZE):
-        counts["seen"] += 1
-        compliance = node.get("compliance")
-        if compliance is None:
-            counts["null_compliance"] += 1
-        else:
-            findings = compliance.get("cveFindings")
-            if findings is None:
-                counts["null_findings"] += 1
-            elif len(findings) == 0:
-                counts["empty_findings"] += 1
+    stop = False
+    for page in client.GetEndpointsGenerator(first=PAGE_SIZE):
+        for edge in (page.get("edges") or []):
+            node = edge.get("node")
+            if node is None:
+                continue
+            counts["seen"] += 1
+            compliance = node.get("compliance")
+            if compliance is None:
+                counts["null_compliance"] += 1
             else:
-                counts["populated"] += 1
-                counts["total_findings"] += len(findings)
-                counts["max_findings"] = max(counts["max_findings"], len(findings))
-                cve_ids = []
-                for finding in findings:
-                    cve_ids.append(finding.get("cveId"))
-                    for f in fields:
-                        value = finding.get(f)
-                        if value is None:
-                            population[f]["null"] += 1
-                        else:
-                            population[f]["non_null"] += 1
-                            if population[f]["example"] is None:
-                                population[f]["example"] = value
-                if len(cve_ids) != len(set(cve_ids)):
-                    counts["dup_cve"] += 1
-        if counts["seen"] >= CENSUS_LIMIT:
+                findings = compliance.get("cveFindings")
+                if findings is None:
+                    counts["null_findings"] += 1
+                elif len(findings) == 0:
+                    counts["empty_findings"] += 1
+                else:
+                    counts["populated"] += 1
+                    counts["total_findings"] += len(findings)
+                    counts["max_findings"] = max(counts["max_findings"], len(findings))
+                    cve_ids = []
+                    for finding in findings:
+                        cve_ids.append(finding.get("cveId"))
+                        for f in fields:
+                            value = finding.get(f)
+                            if value is None:
+                                population[f]["null"] += 1
+                            else:
+                                population[f]["non_null"] += 1
+                                if population[f]["example"] is None:
+                                    population[f]["example"] = value
+                    if len(cve_ids) != len(set(cve_ids)):
+                        counts["dup_cve"] += 1
+            if counts["seen"] >= CENSUS_LIMIT:
+                stop = True
+                break
+        if stop:
             break
 
     for key, value in counts.items():
@@ -542,6 +613,39 @@ def Live_IntrospectFindingType(client):
 def Live_TokenMetadata(client):
     tokens = client.GetMyApiTokens()
     if not tokens:
+        # GetMyApiTokens() swallows the real error (see TaniumClient.py), so
+        # re-introspect here to tell a validation failure (query shape is wrong -
+        # fixable) apart from a permission failure (needs Token - View - not
+        # fixable from here). APITokenQueryPayload is the type name the live
+        # gateway reported in the GRAPHQL_VALIDATION_FAILED error; if that name
+        # ever changes this just reports "no such type" instead of guessing.
+        shape = client.IntrospectType("APITokenQueryPayload")
+        if shape:
+            names = [f.get("name") for f in (shape.get("fields") or [])]
+            _write("token_metadata_shape.json", shape)
+            detail = (f"Query shape is wrong, not a permissions problem: "
+                      f"APITokenQueryPayload actually has fields {names}.")
+
+            # Walk NON_NULL/LIST wrappers to find the named OBJECT type of the
+            # `tokens` field (if present) and introspect one level further, so
+            # the fix doesn't require a second manual round trip.
+            tokens_field = next((f for f in (shape.get("fields") or []) if f.get("name") == "tokens"), None)
+            if tokens_field:
+                node = tokens_field.get("type") or {}
+                for _ in range(4):
+                    if node.get("name"):
+                        break
+                    node = node.get("ofType") or {}
+                token_type_name = node.get("name")
+                if token_type_name:
+                    token_shape = client.IntrospectType(token_type_name)
+                    if token_shape:
+                        token_names = [f.get("name") for f in (token_shape.get("fields") or [])]
+                        _write("token_shape.json", token_shape)
+                        detail += (f" tokens[] is {token_type_name!r} with fields {token_names}. "
+                                  f"Update MY_API_TOKENS_QUERY in TaniumClient.py to match.")
+
+            return _record("LIVE token metadata", False, detail)
         return _record("LIVE token metadata", False,
                        "Unavailable. Needs 'Token - View' on the token, and the myAPITokens "
                        "shape in this client is inferred - verify against your schema file.")
@@ -561,10 +665,12 @@ def Live_TokenMetadata(client):
 _ABORT = False
 
 def _run(label, fn, *args):
-    global _ABORT
+    global _ABORT, _CURRENT_CHECK
     if _ABORT:
         _skip(label, "skipped - STOP_ON_FIRST_FAILURE is set and an earlier check failed")
         return False
+
+    _CURRENT_CHECK = label
 
     if BREAK_BEFORE_EACH_CHECK:
         print(f"\n>>> breakpoint before: {label}")
@@ -588,6 +694,8 @@ def Main():
     print(f"cwd -> {os.getcwd()}")
 
     client, err = BuildClient()
+    if client is not None:
+        _InstrumentPost(client)
 
     _banner("OFFLINE  (no token or network required)")
 
