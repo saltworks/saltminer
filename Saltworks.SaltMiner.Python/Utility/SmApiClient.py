@@ -897,7 +897,8 @@ class SmApiClient(object):
                 if not v3_last_scan_date or 'datetime.datetime' not in str(type(v3_last_scan_date)):
                     logging.error("Invalid v3 last scan date '%s' for app version id %s and assessment type '%s'. Skipping scan history record", v3_last_scan_date, avid, atype)
                     continue
-                if not ssc_all_history_enable and v3_last_scan_date.date() >= dtparse(h_scan_date).date():
+                # changed to > instead of >= so can catch multiple same day scans
+                if not ssc_all_history_enable and v3_last_scan_date.date() > dtparse(h_scan_date).date():
                     continue
                 v3_scan_id_current = ssc_v3_queue_scan['saltminer']['scan']['reportId']
                 v3_scan_id_new = SmApiClient._format_scan_id(scan['artifactUploadDate'], scan['id'])
