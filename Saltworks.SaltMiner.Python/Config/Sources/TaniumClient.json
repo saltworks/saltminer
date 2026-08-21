@@ -1,0 +1,16 @@
+{
+    "_comment": [
+        "Tanium API Gateway (GraphQL) source config.  Read by Sources/Tanium/TaniumClient.py.",
+        "Base_Url is the full GraphQL endpoint path, not just the host.",
+        "API_Key is the Tanium API token including its 'token-' prefix.  Auth is sent as the 'session' header.",
+        "Run tanium_runner.py --mode preflight to confirm connectivity and token validity."
+    ],
+    "Source": "Tanium",
+    "SourceName": "Tanium",
+    "Enabled": false,
+    "Base_Url": "https://tk-saltworks-api.titankube.com/plugin/products/gateway/graphql",
+    "API_Key": "",
+    "Page_Size": 100,
+    "All_Namespaces": true,
+    "Timeout": 60
+}

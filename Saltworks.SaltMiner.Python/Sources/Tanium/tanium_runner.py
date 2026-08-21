@@ -27,9 +27,17 @@ Writes nothing to SaltMiner, the queue, or Elasticsearch.
 The point of this file is to put real payloads on disk so the mapping can be
 written against captured data instead of documentation.
 
+    python Sources/Tanium/tanium_runner.py --mode preflight
     python Sources/Tanium/tanium_runner.py --mode dump --pages 2 --first 5 --out ./tanium_out/
     python Sources/Tanium/tanium_runner.py --mode census --limit 500
-    python Sources/Tanium/tanium_runner.py --mode introspect --type EndpointOS
+    python Sources/Tanium/tanium_runner.py --mode census --limit 500 --probe-extended
+    python Sources/Tanium/tanium_runner.py --mode introspect --type EndpointComplianceCveFinding
+
+Run it from the Saltworks.SaltMiner.Python directory.  Imports are resolved off
+this file's own location, but Application locates Config/ relative to the
+working directory.
+
+Exit codes: 0 ok, 1 TaniumException, 2 threshold not met, 130 interrupt.
 '''
 
 import argparse
@@ -46,8 +54,9 @@ from Core.Application import Application
 from Sources.Tanium.TaniumClient import (
     TaniumClient,
     TaniumException,
-    AUTH_SESSION,
-    AUTH_BEARER
+    TaniumGraphQLException,
+    ENDPOINT_TYPE,
+    FINDING_TYPE
 )
 
 
@@ -74,6 +83,26 @@ def Envelope(endpoints):
     return { "data": { "endpoints": endpoints } }
 
 
+def NextCursor(page_info, page):
+    '''
+    Returns the cursor for the next page, or None when the walk is complete.
+
+    Raises when Tanium reports hasNextPage with no endCursor.  Passing that null
+    straight through as `after` restarts the walk from record one, and the caller
+    cannot tell the difference - the second page simply repeats the first, with
+    duplicate rows and no error.  GetEndpointsGenerator guards this already; the
+    hand-rolled loops in this file are what dropped it.
+    '''
+    if not page_info.get("hasNextPage"):
+        return None
+    cursor = page_info.get("endCursor")
+    if not cursor:
+        raise TaniumGraphQLException(
+            f"Tanium reported hasNextPage=true with no endCursor at page {page}. "
+            "Refusing to loop - the next request would silently restart the walk.")
+    return cursor
+
+
 def IterFindings(node):
     '''
     Yields findings for one endpoint node without collapsing null into empty.
@@ -83,7 +112,7 @@ def IterFindings(node):
     if compliance is None:
         return
     findings = compliance.get("cveFindings")
-    if not findings:
+    if findings is None:
         return
     for finding in findings:
         yield finding
@@ -103,46 +132,84 @@ def CountFindings(node):
 # modes
 # ---------------------------------------------------------------------------
 
-def ModeAuth(client, args):
+def ModePreflight(client, args):
     '''
-    Resolves open item T-1.  Tries `session`, then `Authorization: Bearer`,
-    at first: 1.  Prints which worked and the raw error for the one that did not.
+    One first: 1 request.  Confirms the endpoint path, the token, and that the
+    compliance block comes back at all.  Prints raw error text on failure.
+
+    Replaces the old dual-scheme auth probe.  Tanium authenticates with the API
+    token in a `session` header; Authorization: Bearer returns 401.  There is no
+    longer a scheme to discover.
     '''
-    print("\n== auth ==")
-    results = {}
-    for scheme in (AUTH_SESSION, AUTH_BEARER):
-        label = "session: <token>" if scheme == AUTH_SESSION else "Authorization: Bearer <token>"
-        try:
-            endpoints = client.GetEndpointsPage(first=1, scheme=scheme)
-            results[scheme] = {
-                "header": label,
-                "ok": True,
-                "total_records": (endpoints or {}).get("totalRecords"),
-                "error": None
-            }
-            print(f"  OK      {label}  totalRecords={(endpoints or {}).get('totalRecords')}")
-        except TaniumException as e:
-            results[scheme] = {
-                "header": label,
-                "ok": False,
-                "total_records": None,
-                "error": f"[{type(e).__name__}] {e}"
-            }
-            print(f"  FAILED  {label}")
-            print(f"          [{type(e).__name__}] {e}")
+    print("\n== preflight ==")
+    result = { "ok": False, "total_records": None, "error": None }
 
-    working = [s for s, r in results.items() if r["ok"]]
-    print(f"\n  configured scheme: {client.auth_header}")
-    print(f"  working scheme(s): {', '.join(working) if working else 'NONE'}")
+    try:
+        total = client.GetTotalRecords()
+        result["total_records"] = total
+        print(f"  OK      totalRecords={total}")
+    except TaniumException as e:
+        result["error"] = f"[{type(e).__name__}] {e}"
+        print(f"  FAILED  [{type(e).__name__}] {e}")
+        print("\n  A non-JSON body here usually means Base_Url points at the host")
+        print("  rather than the GraphQL endpoint path.")
+        WriteJson(args.out, "preflight.json", result)
+        return { "endpoints": 0, "findings": 0 }
 
-    WriteJson(args.out, "auth.json", results)
-    return { "endpoints": 0, "findings": 0 }
+    # Field resolution is one introspection call per type, and it is the thing
+    # most likely to be wrong after a vendor release.  Surface it here.
+    keep_ep, keep_fi = client.ResolveFields()
+    result["extension_fields_kept"] = { ENDPOINT_TYPE: keep_ep, FINDING_TYPE: keep_fi }
+    result["extension_fields_dropped"] = client.DroppedFields
+    print(f"\n  extension fields kept   : {ENDPOINT_TYPE}={keep_ep} {FINDING_TYPE}={keep_fi}")
+    for type_name, dropped in client.DroppedFields.items():
+        if dropped:
+            print(f"  DROPPED on {type_name}: {dropped}")
+
+    endpoints = client.GetEndpointsPage(first=1)
+    edges = (endpoints or {}).get("edges") or []
+    if not edges:
+        print("\n  no endpoints returned at first=1.")
+        result["ok"] = True
+        WriteJson(args.out, "preflight.json", result)
+        return { "endpoints": 0, "findings": 0 }
+
+    node = edges[0].get("node") or {}
+    compliance = node.get("compliance")
+    findings = None if compliance is None else compliance.get("cveFindings")
+    shape = ("compliance is null" if compliance is None
+             else "cveFindings is null" if findings is None
+             else "cveFindings is empty" if len(findings) == 0
+             else f"cveFindings populated ({len(findings)})")
+    result["sample_endpoint_id"] = node.get("id")
+    result["sample_shape"] = shape
+    result["ok"] = True
+    print(f"  sample endpoint         : {node.get('id')}")
+    print(f"  compliance shape        : {shape}")
+
+    tokens = client.GetMyApiTokens()
+    if tokens:
+        result["tokens"] = tokens
+        print("\n  token metadata:")
+        for t in (tokens if isinstance(tokens, list) else [tokens]):
+            if isinstance(t, dict):
+                print(f"    id={t.get('id')} expires={t.get('expiration')} "
+                      f"trustedIPs={t.get('trustedIPAddresses')}")
+    else:
+        print("\n  token metadata          : unavailable (needs 'Token - View')")
+
+    WriteJson(args.out, "preflight.json", result)
+    return { "endpoints": len(edges), "findings": CountFindings(node) }
 
 
 def ModeDump(client, args):
     '''
     Pulls --pages pages at --first.  Writes each full response envelope
     unmodified, plus a flattened findings.jsonl.
+
+    Keeps its own pager rather than using GetEndpointsGenerator because the
+    generator yields nodes and discards the page envelope, which is the artifact
+    this mode exists to produce.
     '''
     print(f"\n== dump ==  pages={args.pages} first={args.first or client.page_size}")
     os.makedirs(args.out, exist_ok=True)
@@ -172,10 +239,10 @@ def ModeDump(client, args):
 
             page_info = (endpoints or {}).get("pageInfo") or {}
             print(f"  page {page}: {len(edges)} endpoints, hasNextPage={page_info.get('hasNextPage')}")
-            if not page_info.get("hasNextPage"):
+            after = NextCursor(page_info, page)
+            if after is None:
                 print("  fleet exhausted before page budget.")
                 break
-            after = page_info.get("endCursor")
 
     print(f"  wrote {jsonl_path}")
     return { "endpoints": total_endpoints, "findings": total_findings }
@@ -227,10 +294,10 @@ def ModePaging(client, args):
         cursors.append(page_info.get("endCursor"))
         print(f"  page {page}: {len(edges)} endpoints, endCursor={page_info.get('endCursor')!r}, hasNextPage={page_info.get('hasNextPage')}")
 
-        if not page_info.get("hasNextPage"):
+        after = NextCursor(page_info, page)
+        if after is None:
             print("  fleet exhausted before 3 pages.")
             break
-        after = page_info.get("endCursor")
 
     non_null = [c for c in cursors if c is not None]
     cursors_advanced = len(set(non_null)) == len(non_null)
@@ -251,9 +318,16 @@ def ModePaging(client, args):
 def ModeCensus(client, args):
     '''
     Walks up to --limit endpoints and counts the things that block the mapping.
-    Dumps one full example endpoint for each of five shapes.
+    Dumps one full example endpoint for each of six shapes.
+
+    With --probe-extended the query carries the full experimental field list and
+    the census additionally counts how many of those fields the tenant actually
+    populates.  Schema presence and tenant population are different questions,
+    and only the second one decides whether a field is worth mapping.
     '''
-    print(f"\n== census ==  limit={args.limit}")
+    if args.probe_extended:
+        client.EnableExtendedFields(True)
+    print(f"\n== census ==  limit={args.limit} probe_extended={args.probe_extended}")
 
     counters = {
         "endpoints_seen": 0,
@@ -272,12 +346,18 @@ def ModeCensus(client, args):
 
     examples = {
         "null_compliance": None,
+        "null_cve_findings": None,
         "empty_findings": None,
         "multi_detected_products": None,
         "duplicate_cve_id": None,
         "highest_finding_count": None
     }
     highest_count = -1
+
+    # Per-field population counts, only meaningful under --probe-extended but
+    # cheap enough to always collect.
+    probe_fields = client.RequestedFindingFields
+    field_stats = { f: { "non_null": 0, "null": 0, "example": None } for f in probe_fields }
 
     for node in client.GetEndpointsGenerator(first=args.first):
         counters["endpoints_seen"] += 1
@@ -291,6 +371,8 @@ def ModeCensus(client, args):
             findings = compliance.get("cveFindings")
             if findings is None:
                 counters["cve_findings_is_null"] += 1
+                if examples["null_cve_findings"] is None:
+                    examples["null_cve_findings"] = node
             elif len(findings) == 0:
                 counters["cve_findings_is_empty"] += 1
                 if examples["empty_findings"] is None:
@@ -306,6 +388,15 @@ def ModeCensus(client, args):
 
                 cve_ids = []
                 for finding in findings:
+                    for f in probe_fields:
+                        value = finding.get(f)
+                        if value is None:
+                            field_stats[f]["null"] += 1
+                        else:
+                            field_stats[f]["non_null"] += 1
+                            if field_stats[f]["example"] is None:
+                                field_stats[f]["example"] = value
+
                     products = finding.get("detectedProducts")
                     if products is not None:
                         counters["max_detected_products_len"] = max(
@@ -351,6 +442,22 @@ def ModeCensus(client, args):
     if summary_stats:
         print(f"  summary length min/mean/max    : {summary_stats['min_len']} / {summary_stats['mean_len']} / {summary_stats['max_len']}")
 
+    if args.probe_extended:
+        dropped = { k: v for k, v in client.DroppedFields.items() if v }
+        print("\n  field population across walked findings:")
+        print(f"    {'field':<26} {'non_null':>9} {'null':>9}  example")
+        for f in probe_fields:
+            s = field_stats[f]
+            example = s["example"]
+            if isinstance(example, (list, dict)):
+                example = json.dumps(example, default=str)
+            example = "" if example is None else str(example)
+            if len(example) > 40:
+                example = example[:37] + "..."
+            print(f"    {f:<26} {s['non_null']:>9} {s['null']:>9}  {example}")
+        if dropped:
+            print(f"\n  not in schema (dropped before the query): {dropped}")
+
     print("\n  examples captured:")
     example_dir = os.path.join(args.out, "examples")
     for name, node in examples.items():
@@ -364,6 +471,10 @@ def ModeCensus(client, args):
         "counters": counters,
         "summary_stats": summary_stats,
         "total_findings": total_findings,
+        "probe_extended": args.probe_extended,
+        "requested_finding_fields": probe_fields,
+        "dropped_fields": client.DroppedFields,
+        "field_population": field_stats,
         "examples_found": { k: (v.get("id") if v else None) for k, v in examples.items() }
     })
     return { "endpoints": counters["endpoints_seen"], "findings": total_findings }
@@ -410,7 +521,7 @@ def ModeIntrospect(client, args):
 
     Reference open item 9 lists the unexpanded nested fields by field name, not
     by type name, so with no --type we dump the schema rather than guessing at
-    type names like "EndpointOS".
+    type names.
     '''
     if args.type:
         print(f"\n== introspect ==  type={args.type}")
@@ -438,7 +549,7 @@ def ModeIntrospect(client, args):
 
 
 MODES = {
-    "auth": ModeAuth,
+    "preflight": ModePreflight,
     "dump": ModeDump,
     "paging": ModePaging,
     "census": ModeCensus,
@@ -460,8 +571,15 @@ def ParseArgs(argv=None):
     parser.add_argument("--first", type=int, default=None,
                         help="Page size. Defaults to the configured Tanium.Page_Size.")
     parser.add_argument("--limit", type=int, default=500, help="census: max endpoints to walk. Default: 500.")
+    parser.add_argument("--probe-extended", action="store_true",
+                        help="census: request every experimental field the schema exposes and "
+                             "report how many the tenant actually populates. Default: off.")
     parser.add_argument("--type", default=None, help="introspect: GraphQL type name. Omit for the full schema.")
     parser.add_argument("--out", default="./tanium_out/", help="Artifact directory. Default: ./tanium_out/.")
+    parser.add_argument("--min-endpoints", type=int, default=0,
+                        help="Exit 2 if fewer than N endpoints were seen. Default: 0 (off).")
+    parser.add_argument("--min-findings", type=int, default=0,
+                        help="Exit 2 if fewer than N findings were seen. Default: 0 (off).")
     return parser.parse_args(argv)
 
 
@@ -474,7 +592,6 @@ def Main(argv=None):
     print("****************************")
     print(f"** Tanium runner - mode: {args.mode}")
     print(f"** base_url    : {client.base_url}")
-    print(f"** auth scheme : {client.auth_header}")
     print(f"** page_size   : {client.page_size}")
     print(f"** allNamespaces: {client.all_namespaces}")
     print(f"** out         : {args.out}")
@@ -499,9 +616,27 @@ def Main(argv=None):
     print(f"** requests made   : {stats['requests']}")
     print(f"** elapsed seconds : {stats['elapsed_s']}")
     print("****************************")
-    print("\nAn empty cveFindings array returns HTTP 200 whether the fleet is clean,")
-    print("the token lacks API Gateway permission, or the Comply CVE Findings sensor")
-    print("is not deployed. The counts above are how you tell which.")
+
+    # Thresholds turn this from an interactive probe into something a scheduler
+    # can watch.  An empty cveFindings array returns HTTP 200 whether the fleet
+    # is clean, the token lacks API Gateway permission, or the Comply CVE
+    # Findings sensor is not deployed - so "succeeded and collected nothing" has
+    # to be expressible as a failure.
+    if exit_code == 0:
+        unmet = []
+        if args.min_endpoints and totals.get("endpoints", 0) < args.min_endpoints:
+            unmet.append(f"endpoints {totals.get('endpoints', 0)} < --min-endpoints {args.min_endpoints}")
+        if args.min_findings and totals.get("findings", 0) < args.min_findings:
+            unmet.append(f"findings {totals.get('findings', 0)} < --min-findings {args.min_findings}")
+        if unmet:
+            for reason in unmet:
+                print(f"\n  THRESHOLD NOT MET: {reason}")
+            exit_code = 2
+
+    if exit_code == 0 and not totals.get("findings", 0):
+        print("\nNo findings collected. An empty cveFindings array returns HTTP 200 whether")
+        print("the fleet is clean, the token lacks API Gateway permission, or the Comply CVE")
+        print("Findings sensor is not deployed. Run --mode census to tell which.")
 
     return exit_code
 

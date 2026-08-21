@@ -52,53 +52,96 @@ class TaniumCursorExpired(TaniumException):
     pass
 
 
-# Query is verbatim from the Tanium Gateway reference, provenance [vendor-docs],
-# with allNamespaces lifted from a literal to a variable.  Do not add fields.
-# If a field is wanted and its name is unknown, use IntrospectType.
-ENDPOINTS_QUERY = '''
+# ---------------------------------------------------------------------------
+# field sets
+# ---------------------------------------------------------------------------
+#
+# The query is composed from two tiers rather than frozen as one string.
+#
+# CORE is Stability 3 - always requested, never conditional.  EXTENSION is
+# Stability 1.1/1.2 (Experimental / Release Candidate) and is requested only
+# after introspection confirms the running schema still exposes it.
+#
+# This matters because GraphQL validates the whole document: naming one field
+# the server does not have fails the entire query, not that field.  Three of
+# the fields this integration already relies on are experimental, so without
+# the guard a single vendor rename stops all collection.
+
+ENDPOINT_TYPE = "Endpoint"
+FINDING_TYPE  = "EndpointComplianceCveFinding"
+
+CORE_ENDPOINT_FIELDS = [
+    "id", "name", "computerID", "systemUUID", "serialNumber", "domainName",
+    "namespace", "ipAddress", "ipAddresses", "macAddresses", "manufacturer",
+    "model", "chassisType", "isVirtual", "eidLastSeen"
+]
+
+CORE_FINDING_FIELDS = [
+    "cveId", "cveYear", "cvssScore", "cvssScoreV3", "severity", "severityV3",
+    "summary", "firstFound", "absoluteFirstFoundDate", "lastFound"
+]
+
+# Experimental fields already in use by the mapping.  Moved here from the
+# mandatory set - they were never stable, they were just written down as if
+# they were.  Keep this list minimal; widening it is a mapping decision.
+EXTENSION_ENDPOINT_FIELDS = ["entityProviderName", "entityProviderType"]
+EXTENSION_FINDING_FIELDS  = ["detectedProducts"]
+
+# Candidates for the census probe only (--probe-extended).  Presence in the
+# schema is not evidence the tenant populates them; that is what the probe
+# measures.  Nothing here is mapped, and nothing here should be mapped until
+# the probe says it carries data.
+PROBE_ENDPOINT_FIELDS = []
+PROBE_FINDING_FIELDS = [
+    "excepted", "remediation", "cwes",
+    "epssScore", "epssPercentile", "isCisaKev", "maxMaturity",
+    "cvssScoreV4", "cvssSeverityV4", "cvssVectorV4", "cvssTemporalScoreV3",
+    "detectedCPEs", "affectedProducts", "cpes",
+    "scanType"
+]
+
+
+# `sort` is typed [EndpointFieldSort!].  A single object is legal under GraphQL
+# input coercion, so the un-listed form below is correct as written.
+#
+# SortOrder is `asc` / `desc`, lower case.  Enum values are case sensitive and
+# `ASC` does not exist in this schema.
+ENDPOINTS_QUERY_TEMPLATE = '''
 query TaniumCveFindings($first: Int = 100, $after: Cursor, $allNamespaces: Boolean = true) {
   endpoints(
     first: $first
     after: $after
     source: { tds: { allNamespaces: $allNamespaces } }
-    sort: { path: "id", order: ASC }
+    sort: { path: "id", order: asc }
   ) {
     totalRecords
     pageInfo { hasNextPage endCursor }
     edges {
       cursor
       node {
-        id
-        name
-        computerID
-        systemUUID
-        serialNumber
-        domainName
-        namespace
-        ipAddress
-        ipAddresses
-        macAddresses
-        manufacturer
-        model
-        chassisType
-        isVirtual
-        entityProviderName
-        entityProviderType
-        eidLastSeen
+%(endpoint_fields)s
         compliance {
+          # Do not add a `filter` here without also setting restrictOwner: false.
+          # FieldFilter.restrictOwner defaults to true, which drops every endpoint
+          # with no matching finding.  Clean endpoints would vanish from the page
+          # set, read as absent, and mass-close every finding recorded against them.
           cveFindings {
-            cveId
-            cvssScoreV3
-            severityV3
-            summary
-            detectedProducts
-            firstFound
-            absoluteFirstFoundDate
-            lastFound
+%(finding_fields)s
           }
         }
       }
     }
+  }
+}
+'''
+
+# Fleet-size baseline.  Deliberately selects no nodes - the previous version ran
+# the full endpoints query at first: 1 and pulled an entire node and compliance
+# block to read one integer.
+TOTAL_RECORDS_QUERY = '''
+query TaniumTotalRecords($allNamespaces: Boolean = true) {
+  endpoints(first: 1, source: { tds: { allNamespaces: $allNamespaces } }) {
+    totalRecords
   }
 }
 '''
@@ -110,7 +153,7 @@ query TaniumIntrospectType($name: String!) {
     kind
     fields {
       name
-      type { name kind ofType { name kind ofType { name kind } } }
+      type { name kind ofType { name kind ofType { name kind ofType { name kind } } } }
     }
   }
 }
@@ -128,10 +171,23 @@ query TaniumIntrospectSchema {
 }
 '''
 
-AUTH_SESSION = "session"
-AUTH_BEARER = "bearer"
+# Best effort only.  Requires the token to carry `Token - View`, and the exact
+# shape of this root field is unverified against a live gateway - treat any
+# failure here as "no token metadata available", never as a run failure.
+MY_API_TOKENS_QUERY = '''
+query TaniumMyApiTokens {
+  myAPITokens {
+    id
+    expiration
+    trustedIPAddresses
+  }
+}
+'''
 
-# Schema documented maximum for the `first` argument on `endpoints`.
+# Schema maximum for the `first` argument on `endpoints`.  Note the schema's own
+# default for `first` is 20; the query variable declares 100 and a variable
+# default wins over the argument default, so 100 is what an unspecified call
+# sends.  Do not "fix" one to match the other.
 MAX_FIRST = 5000
 
 # Cursors expire 5 minutes after the most recent request against them and
@@ -147,12 +203,14 @@ class TaniumClient:
     Structural shape follows SeekerClient.  Error handling deliberately does not:
     this client raises where SeekerClient logs and breaks, because a partial page
     set that looks complete is the failure mode that matters for this source.
+
+    Auth is the `session` header carrying the API token.  Authorization: Bearer
+    returns 401 against this API; there is no scheme to negotiate.
     '''
 
     def __init__(self, settings):
         self.base_url        = settings.GetSource("Tanium", "Base_Url")
         self.token           = settings.GetSource("Tanium", "API_Key")
-        self.auth_header     = self.__NormalizeAuthScheme(settings.GetSource("Tanium", "Auth_Header", None))
         self.page_size       = int(settings.GetSource("Tanium", "Page_Size", None) or 100)
         self.all_namespaces  = self.__AsBool(settings.GetSource("Tanium", "All_Namespaces", None), True)
         self.request_timeout = int(settings.GetSource("Tanium", "Timeout", None) or 60)
@@ -167,20 +225,14 @@ class TaniumClient:
         self.__walk_start = None
         self.__last_request_at = None
 
-    # -- configuration helpers ------------------------------------------------
+        # Resolved extension fields, populated once per run by introspection.
+        self.__extended = False
+        self.__resolved_endpoint_ext = None
+        self.__resolved_finding_ext = None
+        self.__dropped = {}
+        self.__query = None
 
-    @staticmethod
-    def __NormalizeAuthScheme(value):
-        '''
-        The header name is unverified, so it is configurable.  Anything that is
-        not recognisably a bearer scheme falls back to `session`.
-        '''
-        if not value:
-            return AUTH_SESSION
-        v = str(value).strip().lower()
-        if v in ("bearer", "authorization", "authorization: bearer"):
-            return AUTH_BEARER
-        return AUTH_SESSION
+    # -- configuration helpers ------------------------------------------------
 
     @staticmethod
     def __AsBool(value, default):
@@ -190,18 +242,12 @@ class TaniumClient:
             return value
         return str(value).strip().lower() in ("true", "1", "yes", "y")
 
-    def BuildHeaders(self, scheme=None):
-        '''
-        Returns request headers for the given auth scheme, defaulting to the
-        configured one.  Exposed so the runner can try both without mutating config.
-        '''
-        scheme = scheme or self.auth_header
-        headers = { "Content-Type": "application/json" }
-        if scheme == AUTH_BEARER:
-            headers["Authorization"] = f"Bearer {self.token}"
-        else:
-            headers["session"] = self.token
-        return headers
+    def BuildHeaders(self):
+        ''' Tanium authenticates with the API token in a `session` header. '''
+        return {
+            "Content-Type": "application/json",
+            "session": self.token
+        }
 
     def __ClampFirst(self, first):
         first = int(first or self.page_size)
@@ -214,7 +260,7 @@ class TaniumClient:
 
     # -- transport ------------------------------------------------------------
 
-    def Post(self, query, variables=None, scheme=None):
+    def Post(self, query, variables=None):
         '''
         Executes one GraphQL request and returns the `data` block.
 
@@ -223,19 +269,21 @@ class TaniumClient:
         transient in the same way and carry no response body to inspect.
 
         A GraphQL `errors` payload is never retried.  Those are deterministic.
+
+        Note this method does not touch cursor bookkeeping.  The idle clock is
+        per-cursor, so only the paged query is allowed to reset it.
         '''
         if self.__started is None:
             self.__started = time.monotonic()
 
         payload = { "query": query, "variables": variables or {} }
-        headers = self.BuildHeaders(scheme)
+        headers = self.BuildHeaders()
         attempts = 3
         last_error = None
 
         for attempt in range(1, attempts + 1):
             try:
                 self.__requests += 1
-                self.__last_request_at = time.monotonic()
                 response = requests.post(
                     url=self.base_url,
                     headers=headers,
@@ -269,7 +317,9 @@ class TaniumClient:
                 body = response.json()
             except ValueError as e:
                 raise TaniumTransportException(
-                    f"Tanium returned HTTP {response.status_code} with a non-JSON body: {response.text[:500]}") from e
+                    f"Tanium returned HTTP {response.status_code} with a non-JSON body. "
+                    f"This usually means Base_Url points at the host rather than the "
+                    f"GraphQL endpoint path: {response.text[:500]}") from e
 
             # GraphQL errors arrive with HTTP 200.  raise_for_status never sees them.
             errors = body.get("errors")
@@ -319,18 +369,135 @@ class TaniumClient:
                     f"Walk has run {walked:.0f}s, over the {CURSOR_WALK_LIMIT_S}s limit. "
                     "The walk is truncated; restart it deliberately rather than continuing.")
 
+    # -- query composition ----------------------------------------------------
+
+    def EnableExtendedFields(self, enabled=True):
+        '''
+        Widens the extension tier to the full probe list.  Invalidates any
+        resolved field set so the next request re-introspects.
+        '''
+        if enabled != self.__extended:
+            self.__extended = enabled
+            self.__resolved_endpoint_ext = None
+            self.__resolved_finding_ext = None
+            self.__dropped = {}
+            self.__query = None
+
+    @staticmethod
+    def __BaseTypeKind(field):
+        '''
+        Unwraps NON_NULL / LIST wrappers and returns the innermost kind.
+
+        Presence in the schema is not enough to safely request a field: an OBJECT
+        field requires a sub-selection, and naming it bare fails validation for the
+        whole document.  Extension fields are composed blind, so anything that is
+        not a leaf gets dropped rather than guessed at.
+        '''
+        node = field.get("type") or {}
+        for _ in range(4):
+            kind = node.get("kind")
+            if kind not in ("NON_NULL", "LIST"):
+                return kind
+            node = node.get("ofType") or {}
+        return node.get("kind")
+
+    def __SchemaLeafFields(self, type_name):
+        '''
+        Returns the set of scalar/enum field names on one type, or None if the
+        schema has no such type.
+        '''
+        result = self.IntrospectType(type_name)
+        if result is None:
+            return None
+        leaves = set()
+        for field in (result.get("fields") or []):
+            if self.__BaseTypeKind(field) in ("SCALAR", "ENUM"):
+                leaves.add(field.get("name"))
+        return leaves
+
+    def __ResolveOne(self, type_name, wanted):
+        present = self.__SchemaLeafFields(type_name)
+        if present is None:
+            logging.warning(
+                "[Tanium Client] Schema has no type %r; dropping all %s extension field(s).",
+                type_name, len(wanted))
+            return [], list(wanted)
+        keep = [f for f in wanted if f in present]
+        drop = [f for f in wanted if f not in present]
+        return keep, drop
+
+    def ResolveFields(self, force=False):
+        '''
+        Introspects both types once and caches which extension fields the running
+        schema actually exposes as leaves.  One request per type, at startup.
+
+        Returns (endpoint_ext, finding_ext).
+        '''
+        if self.__resolved_finding_ext is not None and not force:
+            return self.__resolved_endpoint_ext, self.__resolved_finding_ext
+
+        wanted_ep = list(EXTENSION_ENDPOINT_FIELDS)
+        wanted_fi = list(EXTENSION_FINDING_FIELDS)
+        if self.__extended:
+            wanted_ep += [f for f in PROBE_ENDPOINT_FIELDS if f not in wanted_ep]
+            wanted_fi += [f for f in PROBE_FINDING_FIELDS if f not in wanted_fi]
+
+        keep_ep, drop_ep = self.__ResolveOne(ENDPOINT_TYPE, wanted_ep)
+        keep_fi, drop_fi = self.__ResolveOne(FINDING_TYPE, wanted_fi)
+
+        self.__resolved_endpoint_ext = keep_ep
+        self.__resolved_finding_ext = keep_fi
+        self.__dropped = { ENDPOINT_TYPE: drop_ep, FINDING_TYPE: drop_fi }
+        self.__query = None
+
+        logging.info("[Tanium Client] Extension fields kept: %s=%s %s=%s",
+                     ENDPOINT_TYPE, keep_ep, FINDING_TYPE, keep_fi)
+        for type_name, dropped in self.__dropped.items():
+            if dropped:
+                logging.info(
+                    "[Tanium Client] Dropped %s extension field(s) on %s - absent from the "
+                    "running schema or not a leaf type: %s", len(dropped), type_name, dropped)
+        return keep_ep, keep_fi
+
+    def BuildEndpointsQuery(self):
+        ''' Composes the paged query from core plus resolved extension fields. '''
+        if self.__query is not None:
+            return self.__query
+        keep_ep, keep_fi = self.ResolveFields()
+        endpoint_fields = CORE_ENDPOINT_FIELDS + list(keep_ep)
+        finding_fields  = CORE_FINDING_FIELDS + list(keep_fi)
+        self.__query = ENDPOINTS_QUERY_TEMPLATE % {
+            "endpoint_fields": "\n".join(f"        {f}" for f in endpoint_fields),
+            "finding_fields":  "\n".join(f"            {f}" for f in finding_fields)
+        }
+        return self.__query
+
+    @property
+    def RequestedFindingFields(self):
+        ''' Core plus resolved extension finding fields, in query order. '''
+        return CORE_FINDING_FIELDS + list(self.__resolved_finding_ext or [])
+
+    @property
+    def RequestedEndpointFields(self):
+        return CORE_ENDPOINT_FIELDS + list(self.__resolved_endpoint_ext or [])
+
+    @property
+    def DroppedFields(self):
+        ''' {type_name: [field, ...]} of extension fields the schema did not expose. '''
+        return dict(self.__dropped)
+
+    @property
+    def ExtendedEnabled(self):
+        return self.__extended
+
     # -- queries --------------------------------------------------------------
 
     def GetTotalRecords(self):
-        ''' Cheap fleet-size baseline.  Pulls one record and reads totalRecords. '''
-        data = self.Post(ENDPOINTS_QUERY, {
-            "first": 1,
-            "after": None,
-            "allNamespaces": self.all_namespaces
-        })
+        ''' Cheap fleet-size baseline.  Selects no nodes. '''
+        data = self.Post(TOTAL_RECORDS_QUERY, { "allNamespaces": self.all_namespaces })
         return (data.get("endpoints") or {}).get("totalRecords")
 
-    def GetEndpointsPage(self, after=None, first=None, scheme=None):
+    def GetEndpointsPage(self, after=None, first=None):
         '''
         Returns the raw `endpoints` dict for a single page, unmodified.
 
@@ -338,11 +505,15 @@ class TaniumClient:
         a missing compliance block and an empty one is the thing the runner exists
         to measure, and it does not survive a .get(x, {}) chain.
         '''
-        data = self.Post(ENDPOINTS_QUERY, {
+        data = self.Post(self.BuildEndpointsQuery(), {
             "first": self.__ClampFirst(first),
             "after": after,
             "allNamespaces": self.all_namespaces
-        }, scheme=scheme)
+        })
+        # The idle window is per-cursor, so the clock advances here and nowhere
+        # else.  Stamped after the response so introspection or token lookups
+        # interleaved with a walk cannot mask an expired cursor.
+        self.__last_request_at = time.monotonic()
         return data.get("endpoints")
 
     def GetEndpointsGenerator(self, first=None, max_pages=None):
@@ -402,6 +573,23 @@ class TaniumClient:
         '''
         data = self.Post(SCHEMA_INTROSPECTION_QUERY, {})
         return data.get("__schema")
+
+    def GetMyApiTokens(self):
+        '''
+        Best effort token metadata.  Returns None on any failure.
+
+        The token carries an expiration and a trustedIPAddresses CIDR list.  A
+        scheduled runner starts failing when either lapses, and the failure looks
+        like an auth error rather than an expiry, so preflight surfaces both when
+        the token has permission to read them.
+        '''
+        try:
+            data = self.Post(MY_API_TOKENS_QUERY, {})
+            return data.get("myAPITokens")
+        except TaniumException as e:
+            logging.info("[Tanium Client] Token metadata unavailable (needs 'Token - View'): [%s] %s",
+                         type(e).__name__, e)
+            return None
 
     # -- instrumentation ------------------------------------------------------
 
