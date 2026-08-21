@@ -536,14 +536,17 @@ class SyncExtractor(object):
 
             #self.__Logger.info("scan response: {}".format(releasescans))
             scnCount = 0
-                   
+            # Own helper - see the SSC version.  Scans and their summaries share one batch; each
+            # document carries its own _index, so a mixed batch is fine and halves the round trips.
+            scanBulk = self.__Es.NewBulkHelper()
+
             for relScan in releasescans['items']:
 
                 self._Beat()  # a scan summary call per scan
                 relScan[self.__SourceNameField] = self.__SourceName
                 scnCount = scnCount + 1
                 scansWritten += 1
-                self.__Es.Index('fodscans', relScan)
+                scanBulk.add('fodscans', relScan)
                     
                 #post Release Scan records
                 
@@ -555,11 +558,15 @@ class SyncExtractor(object):
                     #self.__Logger.info(scansumm)
                     holdScanSum = scanSumm.Content
                     if holdScanSum:
-                        self.__Es.Index('fodscansummary', holdScanSum)
+                        scanBulk.add('fodscansummary', holdScanSum)
                     else:
                         self.__Logger.warning("Invalid/empty response when retrieving scan %s for release %s.", holdScan, holdReleaseId)
                     #self.__Logger.info(holdscansum)
                         
+            # wait_for on the flush - see the SSC version.  Must happen before the issue load, which
+            # has its own batch and its own barrier.
+            scanBulk.flush(refresh='wait_for')
+
             issuesWritten = self.__BulkLoadVulns(holdReleaseId) or 0
 
             if not queueRefresh:
@@ -590,6 +597,10 @@ class SyncExtractor(object):
         '''
         vuls = { 'items': [] }
         written = 0
+        # Own helper.  This used to use the client's BulkSendBatch, whose buffer lives on the shared
+        # ElasticClient - with N workers that interleaves documents and lets one worker's flush ship
+        # another's half-built batch.
+        issueBulk = self.__Es.NewBulkHelper(1000)
         rsp = self.__Fod.GetVulnerabilities(id, True, True, logPrefix=f"FOD Issues for release {id}")
         if rsp and rsp.Content:
             vuls = rsp.Content
@@ -597,15 +608,16 @@ class SyncExtractor(object):
             self._Beat()
             vuln['lastUpdated'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
             vuln[self.__SourceNameField] = self.__SourceName
-            self.__Es.BulkSendBatch('fodrelissues', vuln, batchSize=1000)
+            issueBulk.add('fodrelissues', vuln)
             written += 1
         # wait_for on the flush: the refresh stage scrolls fodrelissues as soon as this returns, and a
         # bulk write isn't searchable until a refresh.  Same fix as SSC's BulkIssuesLoad; without it the
         # pull can silently read a short set.  Nothing to flush means the last full batch already went
         # without the wait, so refresh instead.
-        if self.__Es.BulkBatchCount > 0:
-            self.__Es.BulkSendBatch(refresh='wait_for')
+        if issueBulk.count > 0:
+            issueBulk.flush(refresh='wait_for')
         else:
+            # Everything went in full batches without the wait - refresh so the pull can see them.
             self.__Es.RefreshIndex('fodrelissues')
         return written
 

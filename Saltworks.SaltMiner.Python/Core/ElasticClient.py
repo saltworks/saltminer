@@ -22,15 +22,17 @@ from __future__ import annotations
 
 import time
 import logging
+import threading
 import json
 import os
-import uuid
 from importlib.metadata import version as vertest
 from typing import TYPE_CHECKING
 
 import urllib3
 from urllib3.exceptions import ReadTimeoutError
 from elasticsearch import Elasticsearch, NotFoundError, exceptions, ConflictError
+
+from .BulkHelper import BulkHelper
 from elasticsearch import helpers
 from elasticsearch.client import SecurityClient, IndicesClient, IngestClient
 from elasticsearch import logger as es_logger
@@ -74,13 +76,16 @@ class ElasticClient(object):
         # Coerced to int, floored at 1: this bounds every retry loop below, and a string ("2") or a
         # 0 from config would silently make that bound unreachable.
         self.__RetryMaxAttempts = max(1, int(appSettings.Get(configName, 'RetryMaxAttempts', 2)))
-        self.__RetryCount = 0
+        # Retry budget and bulk buffer are PER THREAD.  One ElasticClient is shared by every worker
+        # (Application.GetElasticClient caches it), so as instance state these were cross-contaminated:
+        # one worker's connection error counted against another's budget, one worker's reset cleared
+        # another's, and a worker could hit the retry limit having failed nothing.
+        self.__ThreadState = threading.local()
         self.__App = appSettings.Application
         self.__DefaultScrollSize = appSettings.Get(configName, "DefaultScrollSize", 1000)
         self.__MappingsPath = appSettings.Get(configName, "MappingsPath", "Mappings/")
         self.__MappingsTemplatePath = appSettings.Get(configName, "MappingsTemplatePath", "Template/Mappings/")
         self.__App = appSettings.Application
-        self.__BulkBatch = []
         self.__BulkBatchSize = 10000
         self.es = None
         self._Connect(appSettings, configName)
@@ -327,37 +332,33 @@ class ElasticClient(object):
 
     @property
     def BulkBatchCount(self):
-        '''Documents currently queued in the bulk batch, awaiting a flush.'''
-        return len(self.__BulkBatch)
+        '''Documents queued in THIS THREAD's bulk batch, awaiting a flush.'''
+        return self._bulk_helper.count
 
     def BulkSendBatch(self, index=None, doc=None, docId=None, action="index", batchSize=None, refresh=None):
         '''
-        Batches document updates/additions to send via the bulk API.
-        
+        Batches document updates/additions to send via the bulk API, using this thread's BulkHelper.
+
         :index: index upon which to operate (or None to flush remaining)
         :doc: document to send, not including "doc" node for updates (or None to flush remaining)
         :docId: document ID for updates (or index, but not required for additions)
         :action: update or index ('index' upserts, 'update' is a partial doc update that requires the doc ID to be included, None defaults to 'index')
         :batchSize: number of documents to batch before sending (overrides default if included)
-        :refresh: passed to BulkInsert - see there.  Use 'wait_for' on the final (flush) call when a
-        caller reads these documents straight back; it applies to the batch actually sent.
+        :refresh: passed to BulkInsert - use 'wait_for' on the final (flush) call when a caller reads
+        these documents straight back.
+
+        Prefer NewBulkHelper() for new code: the batch then has an owner and a visible lifetime, rather
+        than living on the client where its extent depends on who called last.
         '''
-        if action not in ['index', 'update'] and doc:
-            raise ElasticClientArgumentException(f"Invalid action '{action}', must be index or update")
-        if doc and '_id' in doc.keys():
-            docId = doc['_id']
-        if not docId and action == "update":
-            raise ElasticClientArgumentException("Update action requires docId parameter, but docId parameter was empty/None")
+        helper = self._bulk_helper
         if batchSize:
-            self.__BulkBatchSize = batchSize
-        doc = doc['_source'] if doc and '_source' in doc.keys() else doc
-        finishIt = True if not (doc and index) else False
-        if doc and index:
-            self.__BulkBatch.append(self.BulkInsertDocument(index, doc, docId, action))
-        if len(self.__BulkBatch) >= self.__BulkBatchSize or (finishIt and len(self.__BulkBatch) > 0):
-            logging.info("Bulk batch send %s items", len(self.__BulkBatch))
-            self.BulkInsert(self.__BulkBatch, refresh=refresh)
-            self.__BulkBatch = []
+            helper.batch_size = batchSize
+        if doc is not None and index:
+            source = doc['_source'] if isinstance(doc, dict) and '_source' in doc else doc
+            docId = doc.get('_id', docId) if isinstance(doc, dict) else docId
+            helper.add(index, source, docId, action, refresh)
+        else:
+            helper.flush(refresh)
 
     def BulkInsertDocument(self, index, source, id=None, action=None):
         '''
@@ -369,21 +370,7 @@ class ElasticClient(object):
         id - optional unique document id (generates one if not present)
         action - create/index/delete/update (or None to default to index)
         '''
-        if action and action not in ['create','delete','index','update']:
-            raise ElasticClientValidationException(f"Bulk action '{action}' invalid/unknown.")
-        if action in ['delete', 'update'] and not id:
-            raise ElasticClientValidationException(f"Bulk action '{action}' requires parameter id to be included.")
-        if not id:
-            id = uuid.uuid4()
-        doc = {
-        '_index': index,
-        '_id': id
-        }
-        if not action or action != 'delete':
-            doc['_source'] = source
-        if action:
-            doc['_op_type'] = action
-        return doc
+        return BulkHelper.build_document(index, source, id, action)
 
     def BulkInsert(self, bulkActions, raiseErrors=True, statsOnly=True, refresh=None):
         '''
@@ -439,13 +426,13 @@ class ElasticClient(object):
             if 'error' in rsp.keys() and rsp['error']:
                 try:
                     logging.error("%s:%s", rsp['error'], rsp['error']['failed_shards'][0]['reason']['reason'])
-                except:
+                except Exception:
                     pass
                 raise ElasticClientSearchFailureException(rsp['error']['reason'])
             if conflictsAreBad and 'task' in rsp.keys() and rsp['task'] and 'status' in rsp['task'].keys() and rsp['task']['status'] and rsp['task']['status']['version_conflicts'] > 0:
                 raise exceptions.ConflictError()
                 # we should also attempt to cancel the task if still running
-            if rsp['completed'] == True:
+            if rsp['completed']:
                 return rsp
             total = "?"
             curr = "?"
@@ -533,11 +520,11 @@ class ElasticClient(object):
 
         except exceptions.ConflictError as e:
             wait = self.__RetryConflictDelaySecs
-            if ignoreConflicts == True:
+            if ignoreConflicts:
                 if not rsp:
                     rsp = True
                 return rsp
-            if retryConflicts == True:
+            if retryConflicts:
                 logging.debug("[%s] %s", type(e).__name__, e.__str__())
                 logging.error(f"API conflict error during update by query operation, retrying in {wait} secs...")
             else:
@@ -620,7 +607,7 @@ class ElasticClient(object):
         
         Exact matches (==) only.
         '''
-        if not type(filters) is dict:
+        if type(filters) is not dict:
             raise TypeError("Parameter filters should be a dict")
         if not len(filters) > 0:
             raise Exception("Parameter filters must include at least one filter")
@@ -841,7 +828,7 @@ class ElasticClient(object):
             return rsp
 
         except exceptions.NotFoundError as e:
-            if raiseNotFoundError == False:
+            if not raiseNotFoundError:
                 return e.info
             raise
             
@@ -1045,7 +1032,7 @@ class ElasticClient(object):
 
         except (exceptions.ConnectionError, exceptions.ConnectionTimeout, exceptions.TransportError, ReadTimeoutError) as e:
             wait = self.__RetryDelaySecs
-            msg = "[no message]" if not 'keys' in dir(e) or "message" not in e.keys() else e.message
+            msg = "[no message]" if 'keys' not in dir(e) or "message" not in e.keys() else e.message
             self.__RetryCount += 1
             logging.error(f"API connection error during delete by id operation - [{type(e).__name__}] {msg}, retrying in {wait} secs...")
             time.sleep(wait)
@@ -1054,7 +1041,7 @@ class ElasticClient(object):
 
     def DeleteByMatchQuery(self, index, filters, ignoreMissingIndex=False):
         ''' Deletes from index based on one or more match conditions.  Filters parameter should be dict of field:value. '''
-        if not type(filters) is dict:
+        if type(filters) is not dict:
             raise TypeError("Parameter filters should be a dict")
         if not len(filters) > 0:
             raise Exception("Parameter filters must include at least one filter")
@@ -1212,6 +1199,33 @@ class ElasticClient(object):
     def IndexExists(self, name):
         return self.es.indices.exists(index=name)
 
+    @property
+    def __RetryCount(self) -> int:
+        '''This thread's retry budget - see __ThreadState.'''
+        return getattr(self.__ThreadState, 'retry_count', 0)
+
+    @__RetryCount.setter
+    def __RetryCount(self, value:int):
+        self.__ThreadState.retry_count = value
+
+    @property
+    def _bulk_helper(self):
+        '''
+        This thread's BulkHelper, for the BulkSendBatch convenience API.  Thread-local because the
+        buffer is stateful and this client is shared: a single helper here would let workers interleave
+        documents and flush each other's partial batches.  Code that wants a predictable batch lifetime
+        should call NewBulkHelper() and hold its own.
+        '''
+        helper = getattr(self.__ThreadState, 'bulk_helper', None)
+        if helper is None:
+            helper = BulkHelper(self, self.__BulkBatchSize)
+            self.__ThreadState.bulk_helper = helper
+        return helper
+
+    def NewBulkHelper(self, batchSize:int=None) -> BulkHelper:
+        '''A BulkHelper owned by the caller - preferred for anything with a defined unit of work.'''
+        return BulkHelper(self, batchSize or self.__BulkBatchSize)
+
     def FlushIndex(self, index):
         '''
         Lucene commit - writes the in-memory buffer to disk and truncates the translog.  This is a
@@ -1337,7 +1351,7 @@ class ElasticClient(object):
         except exceptions.NotFoundError:
             forceNeededToCreate = False
 
-        if force == False and forceNeededToCreate == True:
+        if not force and forceNeededToCreate:
             #It exists and we were not asked to force the update.  Just exit.
             return
         if aliasBody == '':

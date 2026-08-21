@@ -952,6 +952,9 @@ class SyncExtractor(object):
 
             scnCount = 0
             pvAssessmentTypes = {}
+            # Own helper, not the client's shared convenience batch - this batch belongs to this
+            # project version and is flushed before we hand over to the refresh stage.
+            scanBulk = self.__ElasticClient.NewBulkHelper()
                 
             self.__Logger.info("Adding scans for PV ID %s to sscprojscans", projid)
             for artifact in projectScans:
@@ -967,10 +970,16 @@ class SyncExtractor(object):
                         pvAssessmentTypes[scan['type']] = atype
 
                     # write the scan to Elastic
-                    self.__ElasticClient.Index('sscprojscans', json.dumps(scan))
+                    # The dict, not json.dumps(scan): a JSON string would be indexed as a scalar.
+                    scanBulk.add('sscprojscans', scan)
                     scnCount = scnCount + 1
                     scansWritten += 1
                     
+            # wait_for on the flush: the refresh stage reads these back to build scan history, so they
+            # have to be searchable before we return.  Covers only this request's shards, so the
+            # expected-count wait in AppVulsProcessor remains the backstop.
+            scanBulk.flush(refresh='wait_for')
+
             # STEP 5 - Refresh issues
             self._Beat()
             try:
