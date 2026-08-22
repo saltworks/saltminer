@@ -116,19 +116,40 @@ class SyncExtractor(object):
     def __GetElasticFodApplication(self, appId):
         return self.__GetElasticDataByKeyField('fodapplications', appId, 'applicationId')
 
-    def __GetRelease(self, avid, avList):
+    def __GetRelease(self, avid, avList, allowElastic=True):
+        '''
+        Return the release document for avid, preferring the cheapest source that has it.
+
+        :allowElastic: set False when the caller is about to run change detection on the result.
+        __ProcessOne compares what it is given against the copy in 'fodreleases'; answering from
+        elasticsearch here would compare that copy against itself, so nothing ever looks changed
+        and the release is never re-synced.  The batch Process() path can leave this on because it
+        preloads releases from FOD into avList.
+        '''
         # 1 - return from memory list
         if not avList:
             avList = []
         for itm in avList:
             if str(itm['releaseId']) == str(avid):
                 return itm
-        # 2 - return from elastic
-        rel = self.__GetElasticFodRelease(avid)
-        if rel:
-            return rel
-        # 3 - return from FOD (or None if not found)
-        rel = self.__Fod.GetRelease(avid).Content
+        # 2 - return from elastic.  Search(navToData=True) yields hit envelopes, so unwrap to the
+        # release document here - callers (and __ProcessOne) want the same plain shape the memory
+        # list and the FOD API return, not a shape that depends on which branch answered.
+        if allowElastic:
+            rel = self.__GetElasticFodRelease(avid)
+            if rel:
+                return rel.get('_source', rel)
+        # 3 - return from FOD (or None if not found).  FodClient never raises on a 4xx - it hands back
+        # the parsed error body - so an unknown or inaccessible release arrives here as None or as a
+        # dict with no releaseId.  Both have to become None, or the caller stamps a source name onto
+        # an error payload (or onto None) and __ProcessOne fails later on a missing key instead of
+        # reporting the release as not found.
+        rsp = self.__Fod.GetRelease(avid)
+        rel = rsp.Content if rsp else None
+        if not isinstance(rel, dict) or 'releaseId' not in rel:
+            self.__Logger.warning("FOD release %s not returned (status %s); treating as not found.",
+                                  avid, getattr(rsp, "Status", None))
+            return None
         rel[self.__SourceNameField] = self.__SourceName
         return rel
 
@@ -175,7 +196,7 @@ class SyncExtractor(object):
             if safetyOverride:
                 self.__Logger.warning("Local data counts are higher than FOD by more than 5%, safety override means we're cleaning house anyway.")
             else:
-                self.__Logger.error("Local counts are higher than SSC by more than 5%, canceling auto-drop of FOD app versions from SaltMiner.  CheckDrop can be called manually with a safety override switch if desired.")
+                self.__Logger.error("Local counts are higher than FOD by more than 5%, canceling auto-drop of FOD app versions from SaltMiner.  CheckDrop can be called manually with a safety override switch if desired.")
                 return
 
         p = ProgressLogger(self.__Es)
@@ -251,11 +272,13 @@ class SyncExtractor(object):
         # Check mappings - ensures indices are created from templates rather than dynamically mapped by first doc write
         self.MapESIndices(False)
         releases = []
-        release = self.__GetRelease(avid, releases)
+        # allowElastic off - this release is about to be change-detected against the copy in
+        # elasticsearch, so it has to come from FOD (see __GetRelease).
+        release = self.__GetRelease(avid, releases, allowElastic=False)
         if not release:
             raise SyncExtractorException(f"Release {avid} could not be found.")
         self.__Logger.info('Syncing FOD to Elastic for release %s', avid)
-        result = self.__ProcessOne(release['_source'], forceRefresh, queueRefresh)
+        result = self.__ProcessOne(release, forceRefresh, queueRefresh)
         self.__Logger.info('Sync complete. %s', result)
         return result
 
@@ -458,21 +481,19 @@ class SyncExtractor(object):
 
                     #logging.info ('everything matches - check fixed and suppressed')
 
-                    _summary = {'releaseId': holdReleaseId, 'FixedIssue': 0, 'SuppressedIssues': 0}
-
                     _summary = self.__Fod.GetSummaryCounts(holdReleaseId)
 
                     #self.__Logger.info("summary count response: {}".format(_summary))
                     holdFixed = _summary['FixedIssue']
                     holdSuppressed = _summary ['SuppressedIssues']
 
+                    # One hit, not a list - __GetElasticDataByKeyField already takes lst[0].
                     foundRelCounts = self.__GetElasticFodCounts(holdReleaseId)
 
-
-                    if foundRelCounts and len(foundRelCounts) == 1:
+                    if foundRelCounts and '_source' in foundRelCounts:
                         #logging.info ('found it in table')
-                        compareFixed = foundRelCounts[0]['_source']['FixedIssue']
-                        compareSuppressed = foundRelCounts[0]['_source']['SuppressedIssues']
+                        compareFixed = foundRelCounts['_source']['FixedIssue']
+                        compareSuppressed = foundRelCounts['_source']['SuppressedIssues']
 
                         if ((holdFixed == compareFixed) and (holdSuppressed == compareSuppressed)):
                             self.__Logger.debug('all counts match - no need to reset')
@@ -495,9 +516,9 @@ class SyncExtractor(object):
             fAttrApp = self.__GetApplication(release['applicationId'])
             fAttr = [] if not (fAttrApp and 'attributes' in fAttrApp.keys()) else fAttrApp['attributes']
             eAttrApp = self.__GetElasticFodApplication(release['applicationId'])
-            eAttr = [] if not (eAttrApp and len(eAttrApp) > 0 and '_source' in eAttrApp[0].keys() and 'attributes' in eAttrApp[0]['_source'].keys()) else eAttrApp[0]['_source']['attributes']
+            eAttr = [] if not (eAttrApp and '_source' in eAttrApp and 'attributes' in eAttrApp['_source']) else eAttrApp['_source']['attributes']
             if len(fAttr) != len(eAttr):
-                self.__Logger.debug("Application ID % attributes count doesn't match in release %s, need to reset", release['applicationId'], release['releaseId'])
+                self.__Logger.debug("Application ID %s attributes count doesn't match in release %s, need to reset", release['applicationId'], release['releaseId'])
                 needsReset = True
             if not needsReset:
                 eAttrList = {}
@@ -506,7 +527,7 @@ class SyncExtractor(object):
                 for a in fAttr:
                     if a['name'] not in eAttrList.keys() or eAttrList[a['name']] != a['value']:
                         needsReset = True
-                        self.__Logger.debug("Application ID % attributes don't match in release %s, need to reset", release['applicationId'], release['releaseId'])
+                        self.__Logger.debug("Application ID %s attributes don't match in release %s, need to reset", release['applicationId'], release['releaseId'])
                         break
 
         if needsReset or forceRefresh:
@@ -524,8 +545,11 @@ class SyncExtractor(object):
             jRel = json.dumps(release)
             self.__Es.Index('fodreleases', jRel)
    
-            _summary = {'releaseId': holdReleaseId, 'FixedIssue': 0, 'SuppressedIssues': 0, self.__SourceNameField: self.__SourceName}
+            # GetSummaryCounts returns its own dict, so stamp the source on the result - not on a
+            # seed value it discards.  Without it __GetElasticFodCounts, which filters on sourceName,
+            # can never find this document again and every sync re-resets the release.
             _summary = self.__Fod.GetSummaryCounts(holdReleaseId)
+            _summary[self.__SourceNameField] = self.__SourceName
 
             self.__Es.Index('fodcounts', _summary)
 

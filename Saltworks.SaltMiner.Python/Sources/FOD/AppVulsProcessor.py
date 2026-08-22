@@ -350,8 +350,11 @@ class AppVulsProcessor(object):
         # It's possible we have a record in the Queue that has been removed from FOD, in that case we can bail out
         find = [ rid for rid in fodReleases if str(rid['_source']['releaseId']) == avid ]
         if not find:
-            self.__Logger.debug("Unable to process updates for release %s, not found in extract data.  Could be orphan queue record.")
+            self.__Logger.debug("Unable to process updates for release %s, not found in extract data.  Could be orphan queue record.", avid)
             return
+        # Bound from the argument up front: everything below this point logs and deletes by ID, and
+        # the release document is not guaranteed to carry one.
+        appVerId = str(avid)
         appVer = find[0]['_source']
         if appVer:
             appVerId = str(appVer['releaseId'])
@@ -374,8 +377,10 @@ class AppVulsProcessor(object):
                     self.__DeleteStuff(appVerId)
         else:
             self.__Logger.warning("App version %s not found in FOD extract data and will be skipped", appVerId)
-            # Remove if not found in ssc data
-            self.__DeleteStuff(appVerId)       
+            # Remove if not found in FOD data, then stop - the scan history, scanless-asset and issue
+            # work below all describe a release we just deleted and have nothing left to read.
+            self.__DeleteStuff(appVerId)
+            return
         #
         # Append to the scan history
         #
@@ -1089,7 +1094,11 @@ class AppVulsProcessor(object):
 
     def _GetFodRelease(self, releaseId, race_retry:bool=False, race_retry_delay:int=5):
         '''
-        Return a single release by release ID (and current source name).
+        Return a single release by release ID (and current source name), as the raw search hit.
+
+        The envelope is deliberate: the only consumer is PopulateVulsOne, which hands the result to
+        __ProcessUpdate as a one-element list, and __ProcessUpdate/__UpdateScanHistory/__UpdateIssues
+        all read rid['_source'] - the shape _GetAllFodReleases feeds them on the batch path.
 
         :race_retry: when the release isn't found, wait race_retry_delay seconds and look once more.
         Callers that read straight after the sync stage wrote the doc (the sync worker) set this so
@@ -1112,9 +1121,8 @@ class AppVulsProcessor(object):
             res = self.__Es.Search('fodreleases', body)
             if res:
                 self.__Logger.info("Found release %s after waiting for the index to catch up.", releaseId)
-        if res and len(res) > 0:
-            if ("_source" in res[0].keys()):
-                return res[0]['_source']
+        if res and len(res) > 0 and "_source" in res[0].keys():
+            return res[0]
         return None
 
     def __GetFodRelScansByReleaseId(self, releaseId):

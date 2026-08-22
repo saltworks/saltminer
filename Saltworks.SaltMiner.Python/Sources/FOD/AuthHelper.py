@@ -389,7 +389,7 @@ class AuthHelper(object):
         pl = ProgressLogger(self.__Es)
         pl.WriteToElastic = False
         appList = self.__GetApplicationsWithCustomAttribute(cac)
-        logging.info("Found applications to process.", len(appList))
+        logging.info("Found %s application(s) to process.", len(appList))
 
         # Pull users/groups for the selected ProjectVersionIds
         attrUsers = self.__GetUsersGroupsForApplications(appList, pl)
