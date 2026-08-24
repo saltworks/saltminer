@@ -37,11 +37,16 @@ def main():
         queue_batch_size=app.Settings.Get("SyncAgent", "QueueBatchSize", 20),
         worker_error_threshold=app.Settings.Get("SyncAgent", "WorkerErrorThreshold", 3),
         defunct_worker_timeout_secs=app.Settings.Get("SyncAgent", "DefunctWorkerTimeoutSecs", 120),
-        agent_id=app.Settings.Get("SyncAgent", "AgentId", 1)
+        agent_id=app.Settings.Get("SyncAgent", "AgentId", 1),
+        # Per-source concurrency caps, e.g. {"FOD": 2} - for sources whose api rate limiting will not
+        # tolerate the whole pool.  A source not listed here is uncapped, so SSC needs no entry.
+        source_limits=app.Settings.Get("SyncAgent", "SourceWorkerLimits", {})
     )
     agent = Agent(app, agent_args, SyncWorkerFactory())
-    logging.info("Starting Sync Agent with %d workers in %s mode", agent.args.worker_count,
-                 "service" if prm_service else "one-shot (exit when queue is empty)")
+    limits = agent.args.source_limits
+    logging.info("Starting Sync Agent with %d workers in %s mode%s", agent.args.worker_count,
+                 "service" if prm_service else "one-shot (exit when queue is empty)",
+                 f", source worker limits: {limits}" if limits else "")
     agent.run(stop_when_empty=not prm_service)
     logging.info("Sync Agent stopped")
 

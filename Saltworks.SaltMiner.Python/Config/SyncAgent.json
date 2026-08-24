@@ -1,5 +1,8 @@
 {
     "WorkerCount": 4,
+    "SourceWorkerLimits": {
+        "FOD": 2
+    },
     "LowThresholdCount": 10,
     "PollingIntervalSecs": 10,
     "QueueBatchSize": 20,
