@@ -387,10 +387,15 @@ def Check_IdleClockScope():
     attr = f"_{TC.TaniumClient.__name__}__last_request_at"
     in_post = attr in TC.TaniumClient.Post.__code__.co_names
     in_page = attr in TC.TaniumClient.GetEndpointsPage.__code__.co_names
+    # A by-id refetch is not part of any walk.  If it stamped the clock it would
+    # extend the apparent life of a cursor it has nothing to do with - worse than
+    # introspection doing it, because the fan-out design calls it constantly.
+    in_byid = attr in TC.TaniumClient.GetEndpointById.__code__.co_names
     return _record("C4 only the paged query stamps the cursor idle clock",
-                   (not in_post) and in_page,
-                   f"{attr}: Post={in_post} GetEndpointsPage={in_page}. Idle window is "
-                   f"per-cursor; introspection resetting it would mask an expired cursor.")
+                   (not in_post) and in_page and (not in_byid),
+                   f"{attr}: Post={in_post} GetEndpointsPage={in_page} "
+                   f"GetEndpointById={in_byid}. Idle window is per-cursor; anything "
+                   f"outside the walk resetting it would mask an expired cursor.")
 
 
 def Check_ThresholdArgs():

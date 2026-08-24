@@ -1,8 +1,13 @@
 {
     "_comment": [
-        "Tanium API Gateway (GraphQL) source config.  Read by Sources/Tanium/TaniumClient.py.",
+        "Tanium API Gateway (GraphQL) source config.  Read by Sources/Tanium/TaniumClient.py",
+        "and Sources/Tanium/TaniumAdapter.py.",
         "Base_Url is the full GraphQL endpoint path, not just the host.",
         "API_Key is the Tanium API token including its 'token-' prefix.  Auth is sent as the 'session' header.",
+        "Page sizing adapts at runtime: start at Page_Size_Start, halve on load-related failure,",
+        "lock in the first size that works, hard abort at Page_Size_Min.  Tanium recommends ~100",
+        "for compliance/cveFindings payloads - seed Page_Size_Start from a census run's locked size.",
+        "Queue_Max_Size is backpressure only - work items carry an id, not the endpoint payload.",
         "Run tanium_runner.py --mode preflight to confirm connectivity and token validity."
     ],
     "Source": "Tanium",
@@ -12,5 +17,12 @@
     "API_Key": "",
     "Page_Size": 100,
     "All_Namespaces": true,
-    "Timeout": 60
+    "Timeout": 60,
+    "Worker_Count": 5,
+    "Queue_Max_Size": 20,
+    "Worker_Error_Threshold": 5,
+    "Page_Size_Start": 500,
+    "Page_Size_Min": 25,
+    "Max_Retries_Per_Page": 5,
+    "Retry_Delay_Seconds": 3
 }

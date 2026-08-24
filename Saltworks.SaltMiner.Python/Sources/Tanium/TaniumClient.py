@@ -32,7 +32,27 @@ class TaniumException(SaltminerException):
     pass
 
 class TaniumTransportException(TaniumException):
-    ''' HTTP layer failure that survived the retry budget. '''
+    '''
+    HTTP layer failure that survived the retry budget.
+
+    Carries status_code so page-size classification can tell a 503 (shrink and
+    retry) from a 403 (shrinking cannot fix a bad token).  None means the request
+    never got a response at all - a timeout or a connection failure.
+    '''
+    def __init__(self, message, status_code=None):
+        super().__init__(message)
+        self.StatusCode = status_code
+
+
+class TaniumPageSizeException(TaniumException):
+    '''
+    Page-size adaptation gave up: the floor was reached, the per-page retry budget
+    was spent, or the projected run no longer fits inside the cursor lifetime.
+
+    Distinct from the failures it wraps so a caller can tell "this instance cannot
+    serve this query at any size we are willing to try" from a one-off transport
+    blip.
+    '''
     pass
 
 class TaniumGraphQLException(TaniumException):
@@ -85,7 +105,22 @@ CORE_FINDING_FIELDS = [
 # mandatory set - they were never stable, they were just written down as if
 # they were.  Keep this list minimal; widening it is a mapping decision.
 EXTENSION_ENDPOINT_FIELDS = ["entityProviderName", "entityProviderType"]
-EXTENSION_FINDING_FIELDS  = ["detectedProducts"]
+EXTENSION_FINDING_FIELDS  = [
+    "detectedProducts",
+    # Promoted from the probe tier because the mapping reads them.  Every entry
+    # here is a field some mapped value depends on - keep it that way, and move
+    # a field back down the moment nothing maps it.
+    "remediation",           # -> Vulnerability.Recommendation
+    "excepted",              # -> Vulnerability.IsSuppressed
+    "scanType",              # -> Saltminer.Source.Analyzer
+    "cvssTemporalScoreV3",   # -> Vulnerability.Score.Temporal
+    "epssScore",             # -> Attributes
+    "epssPercentile",        # -> Attributes
+    "isCisaKev",             # -> Attributes
+    "maxMaturity",           # -> Attributes
+    "detectedCPEs",          # -> Attributes
+    "cpes"                   # -> Attributes
+]
 
 # Candidates for the census probe only (--probe-extended).  Presence in the
 # schema is not evidence the tenant populates them; that is what the probe
@@ -93,11 +128,12 @@ EXTENSION_FINDING_FIELDS  = ["detectedProducts"]
 # the probe says it carries data.
 PROBE_ENDPOINT_FIELDS = []
 PROBE_FINDING_FIELDS = [
-    "excepted", "remediation", "cwes",
-    "epssScore", "epssPercentile", "isCisaKev", "maxMaturity",
-    "cvssScoreV4", "cvssSeverityV4", "cvssVectorV4", "cvssTemporalScoreV3",
-    "detectedCPEs", "affectedProducts", "cpes",
-    "scanType"
+    # Measured on the lab tenant and not worth mapping yet:
+    "cvssScoreV4",       # 12 of 2013 populated
+    "cvssSeverityV4",    # "Unscored"
+    "cvssVectorV4",      # empty string
+    "affectedProducts",  # duplicated detectedProducts in every sampled finding
+    "cwes"               # not mapped; candidate for Vulnerability.Classification
 ]
 
 
@@ -107,33 +143,74 @@ PROBE_FINDING_FIELDS = [
 # SortOrder is `asc` / `desc`, lower case.  Enum values are case sensitive and
 # `ASC` does not exist in this schema.
 ENDPOINTS_QUERY_TEMPLATE = '''
-query TaniumCveFindings($first: Int = 100, $after: Cursor, $allNamespaces: Boolean = true) {
+query TaniumCveFindings($first: Int = 100, $after: Cursor, $allNamespaces: Boolean = true%(filter_var)s) {
   endpoints(
     first: $first
     after: $after
     source: { tds: { allNamespaces: $allNamespaces } }
     sort: { path: "id", order: asc }
-  ) {
+%(filter_arg)s  ) {
     totalRecords
     pageInfo { hasNextPage endCursor }
     edges {
       cursor
       node {
-%(endpoint_fields)s
-        compliance {
-          # Do not add a `filter` here without also setting restrictOwner: false.
-          # FieldFilter.restrictOwner defaults to true, which drops every endpoint
-          # with no matching finding.  Clean endpoints would vanish from the page
-          # set, read as absent, and mass-close every finding recorded against them.
-          cveFindings {
-%(finding_fields)s
-          }
-        }
+%(endpoint_fields)s%(compliance_block)s
       }
     }
   }
 }
 '''
+
+# The compliance sub-selection, kept separate so ID_ONLY can omit it entirely.
+#
+# Do not add a `filter` here without also setting restrictOwner: false.
+# FieldFilter.restrictOwner defaults to true, which drops every endpoint with no
+# matching finding.  Clean endpoints would vanish from the page set, read as
+# absent, and mass-close every finding recorded against them.
+COMPLIANCE_BLOCK = '''
+        compliance {
+          cveFindings {
+%(finding_fields)s
+          }
+        }'''
+
+
+class QueryVariant:
+    '''
+    Which filter the composed `endpoints` query carries.
+
+    Deliberately orthogonal to `lean` (see BuildEndpointsQuery): filter and
+    payload are independent choices, and folding them into one enum would mean a
+    new name for every combination - a lean resumed walk being the obvious one
+    that a flat enum forgets to provide.
+    '''
+    PLAIN  = "plain"
+    RESUME = "resume"
+    BY_ID  = "byid"
+    ALL    = (PLAIN, RESUME, BY_ID)
+
+
+# (variable declaration fragment, argument fragment) per variant.
+#
+# `filter` is EndpointFieldFilter (Stability 3): path / op / value, op defaulting
+# to EQ.  Unlike the FieldFilter on cveFindings it has no restrictOwner, so
+# filtering endpoints cannot silently drop clean ones.
+#
+# The GT variant is what makes a walk resumable without a cursor.  It is only
+# correct because `sort` is pinned to id ascending - do not unpin it.
+QUERY_FILTERS = {
+    QueryVariant.PLAIN:  ("", ""),
+    QueryVariant.RESUME: (", $idAfter: String!",
+                          '    filter: { path: "id", op: GT, value: $idAfter }\n'),
+    QueryVariant.BY_ID:  (", $id: String!",
+                          '    filter: { path: "id", op: EQ, value: $id }\n'),
+}
+
+# A lean query selects one field.  Anything more is payload the worker is going
+# to re-fetch anyway when it pulls the endpoint by id.
+LEAN_ENDPOINT_FIELDS = ["id"]
+
 
 # Fleet-size baseline.  Deliberately selects no nodes - the previous version ran
 # the full endpoints query at first: 1 and pulled an entire node and compliance
@@ -186,6 +263,74 @@ query TaniumMyApiTokens {
 }
 '''
 
+# ---------------------------------------------------------------------------
+# page-size failure classification
+# ---------------------------------------------------------------------------
+#
+# Shrinking the page only helps when the failure is about how much work one
+# request asked for.  Everything else has to abort immediately: retrying a bad
+# token or a malformed query at a smaller size just burns the cursor's lifetime
+# and buries the real error under five identical ones.
+#
+# Tanium imposes no rate limiting of its own (vendor confirmed, 2026-08); any
+# throttling seen here comes from the hosting infrastructure.
+
+PAGE_RETRYABLE_HTTP = (429, 502, 503, 504)
+PAGE_FATAL_HTTP     = (400, 401, 403, 404, 405)
+
+# Substrings that mark a GraphQL error as load- or size-related.  Matched
+# case-insensitively against the whole serialized error array.
+GRAPHQL_RETRYABLE_HINTS = (
+    "timeout", "timed out", "deadline",
+    "too large", "response size", "payload size", "result set",
+    "query cost", "complexity", "too complex",
+    "resource", "exhausted", "overload", "memory", "capacity", "try again"
+)
+
+# Substrings that mark it as a query defect.  These are deterministic - the same
+# document will fail identically at any page size.
+GRAPHQL_FATAL_HINTS = (
+    "cannot query field", "unknown argument", "unknown type", "did you mean",
+    "expected type", "is not defined", "validation", "syntax error",
+    "must not be", "required", "unauthorized", "forbidden", "permission",
+    "access denied", "invalid token"
+)
+
+
+def ClassifyPageFailure(exc):
+    '''
+    Decide whether a failed page request is worth retrying at a smaller size.
+
+    Returns (is_retryable, reason).  `reason` is short and goes into the shrink
+    log line, so an operator reading logs can see *why* a size was abandoned.
+
+    Unclassifiable GraphQL errors come back retryable - the caller is expected to
+    allow exactly one such attempt and then abort, per the design.  Guessing
+    "retryable" once is cheap; guessing "fatal" on a transient error costs the run.
+    '''
+    if isinstance(exc, TaniumGraphQLException):
+        blob = json.dumps(exc.Errors).lower() if exc.Errors else str(exc).lower()
+        for hint in GRAPHQL_FATAL_HINTS:
+            if hint in blob:
+                return False, f"graphql defect ({hint})"
+        for hint in GRAPHQL_RETRYABLE_HINTS:
+            if hint in blob:
+                return True, f"graphql load ({hint})"
+        return True, "graphql unclassified"
+
+    if isinstance(exc, TaniumTransportException):
+        code = exc.StatusCode
+        if code is None:
+            return True, "timeout or connection failure"
+        if code in PAGE_FATAL_HTTP:
+            return False, f"http {code}"
+        if code in PAGE_RETRYABLE_HTTP or code >= 500:
+            return True, f"http {code}"
+        return False, f"http {code}"
+
+    return False, type(exc).__name__
+
+
 # Schema maximum for the `first` argument on `endpoints`.  Note the schema's own
 # default for `first` is 20; the query variable declares 100 and a variable
 # default wins over the argument default, so 100 is what an unspecified call
@@ -224,17 +369,53 @@ class TaniumClient:
         self.__last_response_bytes = 0
 
         # Cursor lifetime bookkeeping, reset at the start of every walk.
+        # Adaptive page sizing.  The tolerable size is payload-dependent and cannot
+        # be known ahead of time - a size that serves metadata fine will fail once
+        # compliance.cveFindings is in the selection - so it is discovered per run.
+        # `or default` is wrong for these: 0 is a meaningful value for the retry
+        # count and the delay, and `0 or 3` is 3.  Only an absent or blank setting
+        # falls back.
+        self.page_size_start       = int(self.__Setting(settings, "Page_Size_Start", 500))
+        self.page_size_min         = int(self.__Setting(settings, "Page_Size_Min", 25))
+        self.max_retries_per_page  = int(self.__Setting(settings, "Max_Retries_Per_Page", 5))
+        self.retry_delay_seconds   = float(self.__Setting(settings, "Retry_Delay_Seconds", 3))
+        if self.page_size_min < 1:
+            raise ValueError(f"Page_Size_Min must be at least 1, got {self.page_size_min}.")
+        if self.page_size_start < self.page_size_min:
+            raise ValueError(f"Page_Size_Start ({self.page_size_start}) is below "
+                             f"Page_Size_Min ({self.page_size_min}).")
+
+        self.__page_size_current = None
+        self.__page_size_locked = False
+        self.__shrink_events = []
+        self.__total_records = None
+
         self.__walk_start = None
         self.__last_request_at = None
+        # Furthest endpoint id yielded, for cursor-free resume.  See CheckpointId.
+        self.__checkpoint_id = None
 
         # Resolved extension fields, populated once per run by introspection.
         self.__extended = False
         self.__resolved_endpoint_ext = None
         self.__resolved_finding_ext = None
         self.__dropped = {}
-        self.__query = None
+        self.__queries = {}
 
     # -- configuration helpers ------------------------------------------------
+
+    @staticmethod
+    def __Setting(settings, key, default):
+        '''
+        Reads one Tanium setting, falling back only when it is genuinely absent.
+
+        Distinct from `value or default` because 0 is a legitimate setting here -
+        zero retries, zero delay - and truthiness would silently replace it.
+        '''
+        value = settings.GetSource("Tanium", key, None)
+        if value is None or value == "":
+            return default
+        return value
 
     @staticmethod
     def __AsBool(value, default):
@@ -306,14 +487,16 @@ class TaniumClient:
                 last_error = f"HTTP {response.status_code}: {response.text[:500]}"
                 if attempt == attempts:
                     raise TaniumTransportException(
-                        f"Tanium request failed after {attempts} attempts: {last_error}")
+                        f"Tanium request failed after {attempts} attempts: {last_error}",
+                        status_code=response.status_code)
                 self.__Backoff(attempt, last_error)
                 continue
 
             # Any other non-2xx is deterministic - auth, bad request, bad path.
             if not response.ok:
                 raise TaniumTransportException(
-                    f"Tanium request failed: HTTP {response.status_code}: {response.text[:2000]}")
+                    f"Tanium request failed: HTTP {response.status_code}: {response.text[:2000]}",
+                    status_code=response.status_code)
 
             try:
                 body = response.json()
@@ -347,9 +530,158 @@ class TaniumClient:
     # -- cursor lifetime ------------------------------------------------------
 
     def BeginWalk(self):
-        ''' Resets cursor lifetime bookkeeping.  Call at the start of every pager run. '''
+        '''
+        Resets cursor lifetime bookkeeping.  Call at the start of every pager run.
+
+        Deliberately does not clear CheckpointId: a resumed walk has to be able to
+        report the furthest id reached across all of its segments, not just the last.
+        '''
         self.__walk_start = time.monotonic()
         self.__last_request_at = None
+
+    # -- adaptive page sizing -------------------------------------------------
+
+    @property
+    def PageSize(self):
+        ''' Page size currently in use, or None before a walk has started. '''
+        return self.__page_size_current
+
+    @property
+    def PageSizeLocked(self) -> bool:
+        ''' True once a size has served a page successfully in this run. '''
+        return self.__page_size_locked
+
+    @property
+    def ShrinkEvents(self):
+        ''' [{from, to, reason, after}] for every shrink this run.  Empty is the good case. '''
+        return list(self.__shrink_events)
+
+    def __BeginPageSizing(self, first):
+        '''
+        Resets sizing for a new walk.
+
+        An explicit `first` sets the starting size rather than disabling adaptation:
+        a caller asking for 5000 on a lean walk still wants to be rescued if the
+        instance cannot serve it, and silently honouring an impossible size would
+        just fail the run.
+        '''
+        start = first if first is not None else self.page_size_start
+        self.__page_size_current = self.__ClampFirst(start)
+        self.__page_size_locked = False
+        self.__shrink_events = []
+        self.__total_records = None
+
+    def __ProjectedWalkSeconds(self):
+        '''
+        Estimated total seconds for the whole walk at the current rate, or None
+        while there is not enough information to say.
+        '''
+        if not self.__total_records or self.__nodes <= 0 or self.__walk_start is None:
+            return None
+        elapsed = time.monotonic() - self.__walk_start
+        if elapsed <= 0:
+            return None
+        return self.__total_records * (elapsed / self.__nodes)
+
+    def __FetchPageAdaptive(self, after, resume_from, lean):
+        '''
+        One page, shrinking the size and retrying the same cursor position on any
+        load-related failure.
+
+        A failed request returned no data, so the cursor has not advanced - the
+        retry re-requests the same `after` with a smaller `first`.  On success the
+        size is locked for the rest of the run and never probed back upward;
+        re-discovering the ceiling mid-walk would just re-trigger the failure.
+
+        Retries use a short fixed delay, never exponential backoff: the cursor idle
+        window is five minutes, and a backoff long enough to matter would expire
+        the walk position it is trying to protect.
+        '''
+        attempts = 0
+        unclassified_used = False
+
+        while True:
+            size = self.__page_size_current
+            try:
+                endpoints = self.GetEndpointsPage(after=after, first=size,
+                                                  resume_from=resume_from, lean=lean)
+                if not self.__page_size_locked:
+                    self.__page_size_locked = True
+                    logging.info("[Tanium Client] Page size locked at %s for this run.", size)
+                return endpoints
+            except TaniumCursorExpired:
+                raise                                     # not a sizing problem
+            except TaniumException as ex:
+                retryable, reason = ClassifyPageFailure(ex)
+
+                # An error we cannot classify gets exactly one benefit of the doubt
+                # per page position; a second means it is not transient.
+                if reason == "graphql unclassified":
+                    if unclassified_used:
+                        raise TaniumPageSizeException(
+                            f"Unclassified GraphQL error recurred at page size {size}; "
+                            f"refusing to retry further. Raw error: {ex}") from ex
+                    unclassified_used = True
+
+                if not retryable:
+                    raise
+
+                attempts += 1
+                if attempts > self.max_retries_per_page:
+                    raise TaniumPageSizeException(
+                        f"Page at cursor {after!r} failed {attempts} time(s) "
+                        f"(limit {self.max_retries_per_page}), last size {size}, "
+                        f"last reason: {reason}. Aborting rather than retrying blind.") from ex
+
+                if size <= self.page_size_min:
+                    raise TaniumPageSizeException(
+                        f"Page request failed at the floor size {self.page_size_min} "
+                        f"({reason}). This instance cannot serve this query at any size "
+                        f"we are willing to try; lower Page_Size_Min only if you know "
+                        f"the payload can be split further. Last error: {ex}") from ex
+
+                new_size = max(self.page_size_min, size // 2)
+                self.__shrink_events.append({"from": size, "to": new_size,
+                                             "reason": reason, "after": after})
+                logging.warning("[Tanium Client] Page size %s -> %s at cursor %r (%s). "
+                                "Retrying the same position in %ss.",
+                                size, new_size, after, reason, self.retry_delay_seconds)
+                self.__page_size_current = new_size
+                self.__page_size_locked = False
+
+                if new_size <= self.page_size_min:
+                    projected = self.__ProjectedWalkSeconds()
+                    if projected is not None and projected > CURSOR_WALK_LIMIT_S:
+                        raise TaniumPageSizeException(
+                            f"At the floor size {self.page_size_min} the walk projects to "
+                            f"{projected/60:.0f} minutes, past the {CURSOR_WALK_LIMIT_S/60:.0f} "
+                            f"minute cursor lifetime. Collect in segments using the id "
+                            f"checkpoint ({self.CheckpointId}) instead of one walk.") from ex
+
+                time.sleep(self.retry_delay_seconds)
+
+    def __UpdateCheckpoint(self, edges):
+        '''
+        Records the last id on a page as the resume point.  Last, not max - the
+        server sorted the page by id ascending and that ordering is authoritative.
+        '''
+        for edge in reversed(edges or []):
+            node = (edge or {}).get("node")
+            if node is None:
+                continue
+            node_id = node.get("id")
+            if node_id is not None:
+                self.__checkpoint_id = str(node_id)
+                return
+
+    @property
+    def CheckpointId(self):
+        '''
+        Highest endpoint id yielded so far, or None before the first page.
+        Pass back as GetEndpointsGenerator(resume_from=...) to continue a walk that
+        was cut short by cursor expiry, a crash, or a deliberate stop.
+        '''
+        return self.__checkpoint_id
 
     def CheckCursorLifetime(self):
         '''
@@ -383,7 +715,7 @@ class TaniumClient:
             self.__resolved_endpoint_ext = None
             self.__resolved_finding_ext = None
             self.__dropped = {}
-            self.__query = None
+            self.__queries = {}
 
     @staticmethod
     def __BaseTypeKind(field):
@@ -450,7 +782,7 @@ class TaniumClient:
         self.__resolved_endpoint_ext = keep_ep
         self.__resolved_finding_ext = keep_fi
         self.__dropped = { ENDPOINT_TYPE: drop_ep, FINDING_TYPE: drop_fi }
-        self.__query = None
+        self.__queries = {}
 
         logging.info("[Tanium Client] Extension fields kept: %s=%s %s=%s",
                      ENDPOINT_TYPE, keep_ep, FINDING_TYPE, keep_fi)
@@ -461,18 +793,53 @@ class TaniumClient:
                     "running schema or not a leaf type: %s", len(dropped), type_name, dropped)
         return keep_ep, keep_fi
 
-    def BuildEndpointsQuery(self):
-        ''' Composes the paged query from core plus resolved extension fields. '''
-        if self.__query is not None:
-            return self.__query
-        keep_ep, keep_fi = self.ResolveFields()
-        endpoint_fields = CORE_ENDPOINT_FIELDS + list(keep_ep)
-        finding_fields  = CORE_FINDING_FIELDS + list(keep_fi)
-        self.__query = ENDPOINTS_QUERY_TEMPLATE % {
-            "endpoint_fields": "\n".join(f"        {f}" for f in endpoint_fields),
-            "finding_fields":  "\n".join(f"            {f}" for f in finding_fields)
+    def BuildEndpointsQuery(self, variant=QueryVariant.PLAIN, lean=False):
+        '''
+        Composes an `endpoints` query from core plus resolved extension fields.
+
+        Three variants share one template and one field set, so a field added to the
+        walk is automatically present in a by-id refetch.  A refetch that returned a
+        narrower node than the walk would be worse than no refetch at all - the
+        difference would read as the endpoint having lost data.
+
+          PLAIN  - cursor pagination, no filter.  The normal walk.
+          RESUME - adds `id GT $idAfter`.  Used for the whole remainder of a resumed
+                   walk, not just its first page: the cursors a filtered query returns
+                   belong to that filtered result set, so the filter has to stay on.
+          BY_ID  - adds `id EQ $id`.  Single endpoint, no walk.
+
+        EndpointFieldFilter carries no restrictOwner, so unlike the FieldFilter on
+        cveFindings there is no silent-drop behaviour to defend against here.
+        '''
+        if variant not in QueryVariant.ALL:
+            raise ValueError(f"Unknown query variant '{variant}'.")
+        cache_key = (variant, bool(lean))
+        cached = self.__queries.get(cache_key)
+        if cached is not None:
+            return cached
+
+        if lean:
+            # No introspection needed: `id` is Stability 3 and always present, so a
+            # lean enumeration walk cannot be broken by a vendor field rename.
+            endpoint_fields  = list(LEAN_ENDPOINT_FIELDS)
+            compliance_block = ""
+        else:
+            keep_ep, keep_fi = self.ResolveFields()
+            endpoint_fields  = CORE_ENDPOINT_FIELDS + list(keep_ep)
+            finding_fields   = CORE_FINDING_FIELDS + list(keep_fi)
+            compliance_block = COMPLIANCE_BLOCK % {
+                "finding_fields": "\n".join(f"            {f}" for f in finding_fields)
+            }
+
+        filter_var, filter_arg = QUERY_FILTERS[variant]
+        query = ENDPOINTS_QUERY_TEMPLATE % {
+            "endpoint_fields":  "\n".join(f"        {f}" for f in endpoint_fields),
+            "compliance_block": compliance_block,
+            "filter_var": filter_var,
+            "filter_arg": filter_arg
         }
-        return self.__query
+        self.__queries[cache_key] = query
+        return query
 
     @property
     def RequestedFindingFields(self):
@@ -499,26 +866,85 @@ class TaniumClient:
         data = self.Post(TOTAL_RECORDS_QUERY, { "allNamespaces": self.all_namespaces })
         return (data.get("endpoints") or {}).get("totalRecords")
 
-    def GetEndpointsPage(self, after=None, first=None):
+    def IterEndpointIds(self, first=None, max_pages=None, resume_from=None):
+        '''
+        Yields every endpoint id, one at a time, off a lean walk.
+
+        This is call one of the two-call collection design: enumerate cheaply
+        here, then let workers fetch each endpoint independently by id.  Selecting
+        only `id` is what keeps it cheap - the full node is ~461 KB and the worker
+        re-fetches it anyway.
+
+        `first` defaults to MAX_FIRST rather than the configured page size:
+        enumeration wants the largest page the schema allows, since the payload
+        per row is a single string.
+        '''
+        for page in self.GetEndpointsGenerator(first=first or MAX_FIRST,
+                                               max_pages=max_pages,
+                                               resume_from=resume_from,
+                                               lean=True):
+            for edge in (page.get("edges") or []):
+                node = (edge or {}).get("node")
+                if node is None:
+                    continue
+                node_id = node.get("id")
+                if node_id is not None:
+                    yield str(node_id)
+
+    def GetEndpointById(self, endpoint_id):
+        '''
+        Returns the raw `endpoints` dict for one endpoint, selected by id equality
+        rather than by walking to it.  Same field set as the walk.
+
+        Deliberately does not touch cursor bookkeeping: this is not part of a walk,
+        and letting it stamp the idle clock would mask an expiring cursor held by a
+        walk running alongside it.
+
+        Returns the envelope, not the node - callers need totalRecords to tell
+        "no such endpoint" from "endpoint with no compliance block" apart.
+        '''
+        if endpoint_id is None or str(endpoint_id) == "":
+            raise ValueError("GetEndpointById requires an endpoint id.")
+        data = self.Post(self.BuildEndpointsQuery(QueryVariant.BY_ID), {
+            "first": 1,
+            "after": None,
+            "allNamespaces": self.all_namespaces,
+            "id": str(endpoint_id)
+        })
+        return data.get("endpoints")
+
+    def GetEndpointsPage(self, after=None, first=None, resume_from=None, lean=False):
         '''
         Returns the raw `endpoints` dict for a single page, unmodified.
 
         Nothing is defaulted, coalesced, or flattened.  The distinction between
         a missing compliance block and an empty one is the thing the runner exists
         to measure, and it does not survive a .get(x, {}) chain.
+
+        :resume_from: when set, pages the `id GT` filtered result set instead of the
+            unfiltered one.  Must stay set for every page of that walk, including the
+            ones that also pass `after` - the cursors belong to the filtered set.
+        :lean: select only `id` and omit compliance entirely.  This is the
+            enumeration pass that feeds the work queue.
         '''
-        data = self.Post(self.BuildEndpointsQuery(), {
+        variables = {
             "first": self.__ClampFirst(first),
             "after": after,
             "allNamespaces": self.all_namespaces
-        })
+        }
+        if resume_from is None:
+            variant = QueryVariant.PLAIN
+        else:
+            variant = QueryVariant.RESUME
+            variables["idAfter"] = str(resume_from)
+        data = self.Post(self.BuildEndpointsQuery(variant, lean=lean), variables)
         # The idle window is per-cursor, so the clock advances here and nowhere
         # else.  Stamped after the response so introspection or token lookups
         # interleaved with a walk cannot mask an expired cursor.
         self.__last_request_at = time.monotonic()
         return data.get("endpoints")
 
-    def GetEndpointsGenerator(self, first=None, max_pages=None):
+    def GetEndpointsGenerator(self, first=None, max_pages=None, resume_from=None, lean=False):
         '''
         Yields each raw `endpoints` page dict (totalRecords, pageInfo, edges)
         as it comes back, across the full cursor walk. Does not unpack edges
@@ -530,8 +956,20 @@ class TaniumClient:
         Raises on any failure rather than breaking the loop.  A partial page set
         that reports success is worse than a visible failure for this source,
         because closure is inferred from absence.
+
+        :resume_from: restart after this endpoint id, with no cursor.  Cursors die
+            at 5 minutes idle and 1 hour absolute, so a fleet large enough to walk
+            past either limit can only be collected in resumable segments.
+
+        CheckpointId is updated after every page.  On TaniumCursorExpired - or any
+        other mid-walk failure - it is the id to pass back as resume_from, and the
+        walk continues rather than restarting from the top.  Correctness rests on
+        the id-ascending sort, which is why the checkpoint is the last edge rather
+        than a max() over the page: the server's ordering is authoritative, and a
+        lexicographic max over id strings would not necessarily agree with it.
         '''
         self.BeginWalk()
+        self.__BeginPageSizing(first)
         after = None
         page = 0
 
@@ -541,14 +979,18 @@ class TaniumClient:
                 break
 
             self.CheckCursorLifetime()
-            endpoints = self.GetEndpointsPage(after=after, first=first)
+            endpoints = self.__FetchPageAdaptive(after=after, resume_from=resume_from, lean=lean)
             page += 1
             self.__pages += 1
 
             if not endpoints:
                 raise TaniumGraphQLException("Tanium returned a response with no 'endpoints' block.")
 
-            self.__nodes += len(endpoints.get("edges") or [])
+            if endpoints.get("totalRecords") is not None:
+                self.__total_records = endpoints["totalRecords"]
+            edges = endpoints.get("edges") or []
+            self.__nodes += len(edges)
+            self.__UpdateCheckpoint(edges)
             yield endpoints
 
             page_info = endpoints.get("pageInfo") or {}

@@ -46,6 +46,7 @@ import logging
 import os
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 
 # Repo root, three levels up from Sources/Tanium/, so the script runs standalone.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -58,6 +59,40 @@ from Sources.Tanium.TaniumClient import (
     ENDPOINT_TYPE,
     FINDING_TYPE
 )
+
+
+# Filter-cost probe.  Selects one scalar and no compliance block, so the only
+# thing that varies between the three runs is the filter - transfer time would
+# otherwise swamp the lookup cost this is trying to measure.
+#
+# totalRecords is deliberately NOT selected: on a filtered query it may force a
+# count the unfiltered one gets from a cached stat, which would confound exactly
+# the comparison being made.
+FILTER_COST_PROBE_QUERY = '''
+query TaniumFilterCost($allNamespaces: Boolean = true%(filter_var)s) {
+  endpoints(
+    first: 1
+    source: { tds: { allNamespaces: $allNamespaces } }
+%(filter_arg)s  ) {
+    edges { node { id } }
+  }
+}
+'''
+
+# P2 probe only.  Kept here rather than in the client because nothing in
+# collection uses it: it exists to answer whether UPDATED_AFTER is usable at
+# all, and a negative answer is a perfectly good outcome.
+UPDATED_AFTER_PROBE_QUERY = '''
+query TaniumUpdatedAfterProbe($allNamespaces: Boolean = true, $since: String!) {
+  endpoints(
+    first: 1
+    filter: { path: "%(path)s", op: UPDATED_AFTER, value: $since }
+    source: { tds: { allNamespaces: $allNamespaces } }
+  ) {
+    totalRecords
+  }
+}
+'''
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +233,34 @@ def ModePreflight(client, args):
     else:
         print("\n  token metadata          : unavailable (needs 'Token - View')")
 
+    # Filter cost.  Needs a known-good id and serial, which the sample above just
+    # supplied - hence preflight rather than census.
+    if node.get("serialNumber"):
+        cost = RunProbe("filter_cost",
+                        lambda: ProbeFilterCost(client, node.get("id"), node.get("serialNumber")))
+        result["filter_cost"] = cost
+        print("\n  == filter cost (is the id filter index-backed?) ==")
+        for name in ("baseline", "id", "serial"):
+            t = (cost.get("timings") or {}).get(name)
+            if t:
+                print(f"    {name:<10} min {t['min_ms']:>8.1f} ms   "
+                      f"median {t['median_ms']:>8.1f} ms   ({t['runs']} runs)")
+            else:
+                print(f"    {name:<10} did not complete")
+        if cost.get("serial_vs_id") is not None:
+            print(f"    ratios     id/baseline={cost.get('id_vs_baseline')}  "
+                  f"serial/id={cost.get('serial_vs_id')}")
+        for name, err in (cost.get("errors") or {}).items():
+            print(f"    error [{name}]: {err}")
+        print(f"    verdict    {cost.get('verdict')}")
+        total = result.get("total_records")
+        if total is not None and isinstance(total, int) and total < 1000:
+            print(f"    NOTE       tenant has {total} endpoint(s); a scan and an index lookup "
+                  f"are indistinguishable at this size.\n"
+                  f"               serial/id is the only signal that survives a small fleet.")
+    else:
+        print("\n  filter cost probe       : skipped (sample endpoint has no serialNumber)")
+
     WriteJson(args.out, "preflight.json", result)
     return { "endpoints": len(edges), "findings": CountFindings(node) }
 
@@ -315,6 +378,243 @@ def ModePaging(client, args):
     return { "endpoints": total_endpoints, "findings": total_findings }
 
 
+def ShapeOf(container, key):
+    '''
+    Reports missing / null / empty / populated for one key, without collapsing them.
+
+    The whole point of the census is that these four are different answers, and
+    `if not x` turns all four into one.  Probe reports have to preserve the
+    distinction for the same reason the walk does.
+    '''
+    if container is None:
+        return "parent-missing"
+    if key not in container:
+        return "missing"
+    value = container[key]
+    if value is None:
+        return "null"
+    if len(value) == 0:
+        return "empty"
+    return f"populated({len(value)})"
+
+
+def RunProbe(name, fn):
+    '''
+    Runs one probe and normalises however it failed into a report dict.
+
+    Probes are diagnostics, not collection: a probe that raises must never take
+    the census walk down with it.  A GraphQL error here is the finding, not an
+    accident, so Errors is recorded verbatim rather than summarised.
+    '''
+    report = { "probe": name, "ok": False, "http_status": None,
+               "graphql_errors": None, "error": None }
+    try:
+        result = fn()
+        report.update(result)
+        report["ok"] = result.get("ok", True)
+        # Anything that returned through Post() came back HTTP 200; Post raises
+        # on every other status, so claiming a code here would be inventing one.
+        if report["http_status"] is None:
+            report["http_status"] = 200
+    except TaniumGraphQLException as e:
+        report["graphql_errors"] = e.Errors
+        report["http_status"] = 200
+        report["error"] = str(e)
+    except TaniumException as e:
+        report["error"] = f"[{type(e).__name__}] {e}"
+    except Exception as e:                              # noqa: BLE001 - probe must not abort census
+        report["error"] = f"[{type(e).__name__}] {e}"
+    return report
+
+
+def ProbeFilterCost(client, sample_id, sample_serial, reps=3):
+    '''
+    Is `filter: {path:"id", op:EQ}` index-backed, or a scan?
+
+    The whole per-endpoint fan-out design rests on a cheap point lookup.  Nothing
+    in the schema answers this - Tanium does not disclose the backing store - so
+    it can only be settled empirically.  Three queries, identical except for the
+    filter:
+
+      baseline    unfiltered first: 1        cheapest possible query
+      id          filter on id               the one the design depends on
+      serial      filter on serialNumber     control: almost certainly unindexed
+
+    Reading it:
+      id ~= baseline, serial much slower  ->  id is index-backed, design holds
+      id ~= serial                        ->  both are scans, fan-out dies at scale
+
+    On a small tenant absolute latency proves nothing: a scan over 200 endpoints
+    and an index lookup are indistinguishable in wall-clock.  The serial control
+    is the signal that survives that, because it is a *relative* measure.
+
+    Runs are interleaved rather than batched per variant so warm-up and network
+    drift land on all three equally.  Minimum is reported alongside median: the
+    floor is the cleanest estimate of cost with noise removed.
+    '''
+    variants = {
+        "baseline": ("", "", {}),
+        "id":       (", $v: String!", '    filter: { path: "id", op: EQ, value: $v }\n',
+                     {"v": str(sample_id)}),
+        "serial":   (", $v: String!", '    filter: { path: "serialNumber", op: EQ, value: $v }\n',
+                     {"v": str(sample_serial)}),
+    }
+    timings = {k: [] for k in variants}
+    errors  = {}
+    matched = {}
+
+    for _ in range(reps):
+        for name, (fvar, farg, extra) in variants.items():
+            if name in errors:
+                continue
+            query = FILTER_COST_PROBE_QUERY % {"filter_var": fvar, "filter_arg": farg}
+            variables = {"allNamespaces": client.all_namespaces, **extra}
+            start = time.perf_counter()
+            try:
+                data = client.Post(query, variables)
+                timings[name].append((time.perf_counter() - start) * 1000.0)
+                edges = ((data.get("endpoints") or {}).get("edges")) or []
+                matched[name] = len(edges)
+            except TaniumGraphQLException as e:
+                errors[name] = json.dumps(e.Errors)[:300]
+            except Exception as e:                      # noqa: BLE001 - probe must not abort
+                errors[name] = f"[{type(e).__name__}] {e}"
+
+    def stats(vals):
+        if not vals:
+            return None
+        s = sorted(vals)
+        return {"min_ms": round(s[0], 1), "median_ms": round(s[len(s) // 2], 1),
+                "runs": len(s)}
+
+    report = {"probe": "filter_cost", "reps": reps,
+              "sample_id": str(sample_id), "sample_serial": str(sample_serial),
+              "timings": {k: stats(v) for k, v in timings.items()},
+              "matched_edges": matched, "errors": errors or None,
+              "verdict": None, "ok": False}
+
+    base = report["timings"].get("baseline")
+    idt  = report["timings"].get("id")
+    ser  = report["timings"].get("serial")
+
+    if not base or not idt:
+        report["verdict"] = "inconclusive - baseline or id query did not complete"
+    elif not ser:
+        report["verdict"] = ("inconclusive - serialNumber filter unavailable, so there is no "
+                             "control to compare against")
+    else:
+        b, i, s = base["min_ms"], idt["min_ms"], ser["min_ms"]
+        report["id_vs_baseline"]    = round(i / b, 2) if b else None
+        report["serial_vs_baseline"] = round(s / b, 2) if b else None
+        report["serial_vs_id"]      = round(s / i, 2) if i else None
+        if s >= i * 1.5:
+            report["ok"] = True
+            report["verdict"] = (f"id filter looks index-backed - serial is {round(s/i,2)}x the "
+                                 f"cost of id. Per-endpoint fan-out is safe on this evidence.")
+        else:
+            report["verdict"] = (f"id and serial cost about the same ({round(s/i,2)}x) - both may "
+                                 f"be scans. If the fleet here is small this is NOT conclusive; "
+                                 f"re-run on a larger tenant before committing to fan-out.")
+    return report
+
+
+def ProbeByIdFilter(client, sample_id, walk_finding_count):
+    '''
+    P1: confirms on the live tenant that `endpoints(filter: {path:"id", op:EQ})`
+    returns the same endpoint the walk returned.
+
+    The schema says this works.  A failure here is therefore worth more than a
+    pass - it means the fan-out architecture cannot be built on this tenant, and
+    the verbatim GraphQL error is the only thing that explains why.
+    '''
+    def run():
+        envelope = client.GetEndpointById(sample_id)
+        if envelope is None:
+            return { "ok": False, "detail": "response carried no 'endpoints' block" }
+
+        total = envelope.get("totalRecords")
+        edges = envelope.get("edges") or []
+        node = (edges[0] or {}).get("node") if edges else None
+        compliance = node.get("compliance") if node else None
+        refetched = CountFindings(node) if node else None
+
+        return {
+            "ok": total == 1 and node is not None and refetched == walk_finding_count,
+            "requested_id": str(sample_id),
+            "total_records": total,
+            "returned_id": node.get("id") if node else None,
+            "id_matches": (str(node.get("id")) == str(sample_id)) if node else False,
+            "compliance_shape": "null" if node is not None and compliance is None
+                                else ("missing" if node is not None and "compliance" not in node
+                                      else "present"),
+            "cve_findings_shape": ShapeOf(compliance, "cveFindings"),
+            "findings_from_walk": walk_finding_count,
+            "findings_from_refetch": refetched,
+            "finding_count_matches": refetched == walk_finding_count
+        }
+    return RunProbe("by_id_filter", run)
+
+
+def ProbeUpdatedAfter(client):
+    '''
+    P2: tests whether UPDATED_AFTER is usable as a delta mechanism.
+
+    The op's own docstring limits it to "fields from certain data sources", and
+    the schema cannot say whether TDS compliance paths qualify.  Two attempts,
+    then stop - the nested path first, then eidLastSeen as a second data point.
+
+    This probe decides only whether delta collection is *possible*.  No delta
+    logic is built on the result either way.
+    '''
+    since = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    attempts = []
+
+    for path in ("compliance.cveFindings.lastFound", "eidLastSeen"):
+        query = UPDATED_AFTER_PROBE_QUERY % { "path": path }
+        attempt = { "path": path, "since": since }
+        try:
+            data = client.Post(query, { "allNamespaces": client.all_namespaces, "since": since })
+            envelope = data.get("endpoints") or {}
+            attempt.update({ "ok": True, "http_status": 200, "graphql_errors": None,
+                             "total_records": envelope.get("totalRecords") })
+        except TaniumGraphQLException as e:
+            attempt.update({ "ok": False, "http_status": 200,
+                             "total_records": None, "graphql_errors": e.Errors })
+        except Exception as e:                          # noqa: BLE001 - probe must not abort census
+            attempt.update({ "ok": False, "http_status": None,
+                             "total_records": None, "error": f"[{type(e).__name__}] {e}" })
+        attempts.append(attempt)
+        if attempt.get("ok"):
+            break                                       # first success settles it
+
+    return { "probe": "updated_after", "ok": any(a.get("ok") for a in attempts),
+             "attempts": attempts,
+             "http_status": attempts[-1].get("http_status") if attempts else None,
+             "graphql_errors": attempts[-1].get("graphql_errors") if attempts else None,
+             "error": None }
+
+
+def PrintProbeReport(report):
+    ''' One compact block per probe, readable without opening census.json. '''
+    verdict = "PASS" if report.get("ok") else "FAIL"
+    print(f"\n  probe [{report.get('probe')}]: {verdict}")
+    for key in ("requested_id", "total_records", "returned_id", "id_matches",
+                "compliance_shape", "cve_findings_shape",
+                "findings_from_walk", "findings_from_refetch", "finding_count_matches",
+                "http_status", "detail"):
+        if key in report and report[key] is not None:
+            print(f"    {key:<24}: {report[key]}")
+    for attempt in report.get("attempts") or []:
+        state = "ok" if attempt.get("ok") else "error"
+        print(f"    {attempt['path']:<34} {state}  totalRecords={attempt.get('total_records')}")
+        if attempt.get("graphql_errors"):
+            print(f"      errors: {json.dumps(attempt['graphql_errors'])[:400]}")
+    if report.get("graphql_errors"):
+        print(f"    graphql_errors          : {json.dumps(report['graphql_errors'])[:600]}")
+    if report.get("error"):
+        print(f"    error                   : {report['error']}")
+
+
 def ModeCensus(client, args):
     '''
     Walks up to --limit endpoints and counts the things that block the mapping.
@@ -359,13 +659,23 @@ def ModeCensus(client, args):
     probe_fields = client.RequestedFindingFields
     field_stats = { f: { "non_null": 0, "null": 0, "example": None } for f in probe_fields }
 
+    # First endpoint off the walk, kept as the P1 probe's subject.  Using a real
+    # walked endpoint rather than an arbitrary id is what makes the refetch
+    # comparable - the probe checks the two paths agree, not merely that one works.
+    probe_sample_id = None
+    probe_sample_findings = None
+
     stop = False
-    for page in client.GetEndpointsGenerator(first=args.first):
+    for page in client.GetEndpointsGenerator(first=args.first, resume_from=args.resume_from):
         for edge in (page.get("edges") or []):
             node = edge.get("node")
             if node is None:
                 continue
             counters["endpoints_seen"] += 1
+
+            if probe_sample_id is None and node.get("id") is not None:
+                probe_sample_id = str(node.get("id"))
+                probe_sample_findings = CountFindings(node)
 
             compliance = node.get("compliance")
             if compliance is None:
@@ -475,7 +785,45 @@ def ModeCensus(client, args):
             print(f"    {name}: {node.get('id')}")
             WriteJson(example_dir, f"{name}.json", node)
 
+    # ---- schema probes ---------------------------------------------------
+    # Run after the walk so the census result is already complete: a probe that
+    # blows up must cost the run its probe report, never its census.
+    print("\n  == schema probes ==")
+    probes = {}
+
+    if probe_sample_id is None:
+        probes["by_id_filter"] = { "probe": "by_id_filter", "ok": False,
+                                   "error": "no endpoint walked, nothing to refetch" }
+    else:
+        probes["by_id_filter"] = ProbeByIdFilter(client, probe_sample_id, probe_sample_findings)
+    PrintProbeReport(probes["by_id_filter"])
+
+    probes["updated_after"] = RunProbe("updated_after", lambda: ProbeUpdatedAfter(client))
+    PrintProbeReport(probes["updated_after"])
+
+    print(f"\n  walk checkpoint (resume id)    : {client.CheckpointId}")
+
+    # The empirical answer to "what page size does this instance tolerate".
+    # Seed Page_Size_Start from this for future runs.
+    print("\n  == page sizing ==")
+    print(f"    locked page size             : {client.PageSize}  (locked={client.PageSizeLocked})")
+    if client.ShrinkEvents:
+        print(f"    shrink events                : {len(client.ShrinkEvents)}")
+        for ev in client.ShrinkEvents:
+            print(f"      {ev['from']:>5} -> {ev['to']:<5} {ev['reason']}")
+        print(f"    ACTION                       : set Page_Size_Start to {client.PageSize} "
+              f"in Config/Sources/TaniumClient.json to skip this discovery next run.")
+    else:
+        print(f"    shrink events                : none - {client.PageSize} served every page")
+
+    WriteJson(args.out, "probes.json", probes)
+
     WriteJson(args.out, "census.json", {
+        "probes": probes,
+        "page_size_locked": client.PageSize,
+        "page_size_shrink_events": client.ShrinkEvents,
+        "checkpoint_id": client.CheckpointId,
+        "resumed_from": args.resume_from,
         "counters": counters,
         "summary_stats": summary_stats,
         "total_findings": total_findings,
@@ -579,6 +927,11 @@ def ParseArgs(argv=None):
     parser.add_argument("--first", type=int, default=None,
                         help="Page size. Defaults to the configured Tanium.Page_Size.")
     parser.add_argument("--limit", type=int, default=500, help="census: max endpoints to walk. Default: 500.")
+    parser.add_argument("--resume-from", default=None, metavar="ID",
+                        help="census: resume the walk after this endpoint id, using an id GT "
+                             "filter and no cursor. Take the value from a previous run's "
+                             "'walk checkpoint' line. Cursors die at 5min idle / 1hr absolute, "
+                             "so a fleet too large for one walk is collected in segments.")
     parser.add_argument("--probe-extended", action="store_true",
                         help="census: request every experimental field the schema exposes and "
                              "report how many the tenant actually populates. Default: off.")
