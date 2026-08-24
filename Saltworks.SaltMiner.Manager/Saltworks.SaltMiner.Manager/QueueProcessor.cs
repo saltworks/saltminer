@@ -45,6 +45,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     /// Deliberately not configurable - it only covers the elasticsearch refresh gap.
     /// </summary>
     private const int QueueScanIdRetryDelaySec = 5;
+    private const int HistoryScanReportIntervalMs = 10000; // heartbeat interval while writing scan history
 
     /// <summary>
     /// Lock ID used by a by-ID run instead of a registered instance ID.  The API never hands out
@@ -799,9 +800,27 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             }
 
             // Process scan history
-            foreach (var histQueueScan in queueHistoryScans)
+            if (queueHistoryScans.Count > 0)
             {
-                DataClient.ScanAddUpdate(Translate(result.Item1, result.Item2, histQueueScan));
+                Logger.LogInformation("Writing {Count} history scan(s) for source ID '{SourceId}'...", queueHistoryScans.Count, queueAsset.Saltminer.Asset.SourceId);
+                var histSt = Stopwatch.StartNew();
+                var histCount = 0;
+                var lastReport = 0L;
+                foreach (var histQueueScan in queueHistoryScans)
+                {
+                    CheckCancel(false);
+                    DataClient.ScanAddUpdate(Translate(result.Item1, result.Item2, histQueueScan));
+                    histCount++;
+
+                    // Heartbeat so a long history write doesn't look like a hang
+                    if (histSt.ElapsedMilliseconds - lastReport >= HistoryScanReportIntervalMs)
+                    {
+                        lastReport = histSt.ElapsedMilliseconds;
+                        Logger.LogInformation("Still writing history scans - {Count}/{Total} written in {Time} ms", histCount, queueHistoryScans.Count, histSt.ElapsedMilliseconds);
+                    }
+                }
+                histSt.Stop();
+                Logger.LogInformation("Wrote {Count} history scan(s) for source ID '{SourceId}' in {Time} ms", histCount, queueAsset.Saltminer.Asset.SourceId, histSt.ElapsedMilliseconds);
             }
 
             UpdateQueueScanHistoryStatus(queueScan.Id, QueueScan.QueueScanStatus.Complete);
@@ -1444,6 +1463,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         var response = DataClient.QueueScanSearch(request);
         while (response.Success && response.Data != null && response.Data.Any())
         {
+            CheckCancel(false);
             var c = result.Count;
             result.AddRange(response.Data);
             if (result.Count <= c)
@@ -1451,6 +1471,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 Logger.LogWarning("Breaking GetQueueHistoryScans loop, no new results by count.");
                 break;
             }
+            Logger.LogDebug("Retrieved {Count} queue history scan(s) so far", result.Count);
             response = DataClient.QueueScanSearch(request.NextRequest(response));
         }
         return result;
@@ -2134,25 +2155,17 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     }
 }
 
-[Serializable]
 public class QueueProcessorException : Exception
 {
     public QueueProcessorException() { }
     public QueueProcessorException(string message) : base(message) { }
     public QueueProcessorException(string message, Exception inner) : base(message, inner) { }
-    protected QueueProcessorException(
-      System.Runtime.Serialization.SerializationInfo info,
-      System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
 }
 
 
-[Serializable]
 public class QueueProcessorConfigurationException : Exception
 {
     public QueueProcessorConfigurationException() { }
     public QueueProcessorConfigurationException(string message) : base(message) { }
     public QueueProcessorConfigurationException(string message, Exception inner) : base(message, inner) { }
-    protected QueueProcessorConfigurationException(
-      System.Runtime.Serialization.SerializationInfo info,
-      System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
 }
