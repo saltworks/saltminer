@@ -1,7 +1,7 @@
 {
     "WorkerCount": 4,
     "SourceWorkerLimits": {
-        "FOD": 2
+        "FOD": 4
     },
     "LowThresholdCount": 10,
     "PollingIntervalSecs": 10,
