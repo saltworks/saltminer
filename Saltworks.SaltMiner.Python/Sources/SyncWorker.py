@@ -217,6 +217,7 @@ class SyncWorker(Worker):
         timeout_sec = settings.Get("SyncAgent", "ManagerTimeoutSec", 600)
 
         failures = []
+        total_issues = 0
         for qsid in queue_scan_ids:
             cmd = [dotnet, manager_path, "queue", "--queue-scan-id", str(qsid)]
             result = None
@@ -234,7 +235,17 @@ class SyncWorker(Worker):
                 continue   # no result line - already warned, and a missing line is not proof of failure
             outcome = result.get("outcome")
             if outcome == "Complete":
-                self.logger.info("Manager result for queue scan ID %s: Complete (%s issue(s))", qsid, result.get("issue_count"))
+                # issue_count is what the manager actually wrote, counted as it wrote them.  The queue
+                # scan's own count is reported separately and is -1 for sources that never set it (SSC),
+                # so it is only worth mentioning when it disagrees with what landed.
+                written = result.get("issue_count")
+                queued = result.get("queued_issue_count", -1)
+                if isinstance(written, int):
+                    total_issues += written
+                mismatch = ""
+                if isinstance(queued, int) and queued > -1 and queued != written:
+                    mismatch = f" (queue scan claimed {queued})"
+                self.logger.info("Manager result for queue scan ID %s: Complete, %s issue(s) imported%s", qsid, written, mismatch)
                 continue
 
             # Exit code 0 with a non-Complete outcome is the case worth catching: the process ran fine but
@@ -253,11 +264,19 @@ class SyncWorker(Worker):
                     # Echo back the lock the manager reported - without it the api rejects the cancel
                     # for any scan the manager left locked.
                     cancel_fn(qsid, result.get("lock_id"))
-            failures.append(f"{qsid}: {outcome}")
+            # Carry the manager's own explanation into the failure text.  Without it the raised exception
+            # reads "<id>: Error" and the reason lives only in the line above it, which is the log the
+            # caller re-raises past.
+            detail = (result.get("message") or "").strip()
+            errors = result.get("errors")
+            if not detail:
+                detail = f"no detail reported by the manager ({errors} error(s) logged)" if errors else "no detail reported by the manager"
+            failures.append(f"{qsid}: {outcome} - {detail}")
         if failures:
             raise WorkerException(
                 f"Manager did not complete {len(failures)} of {len(queue_scan_ids)} queue scan(s) for {target_desc}: "
                 + "; ".join(failures))
+        self.logger.info("Manager processed %s queue scan(s) for %s, %s issue(s) imported.", len(queue_scan_ids), target_desc, total_issues)
 
 
     def _run_manager_command(self, cmd:list, timeout_sec:int, qsid:str):

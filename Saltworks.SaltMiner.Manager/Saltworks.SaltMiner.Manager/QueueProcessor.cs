@@ -142,6 +142,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                         // Skip if status update doesn't work
                         Logger.LogInformation("[Q-Get] Skipping source '{SourceType}', instance '{Instance}', source scan ID '{Id}', queue scan ID '{Sid}', unable to lock for processing",
                             qscan.Saltminer.Scan.SourceType, qscan.Saltminer.Scan.Instance, qscan.Saltminer.Scan.ReportId, qscan.Id);
+                        NoteTargetSkipped(qscan.Id, "unable to lock it for processing (status was not Pending, or another instance took it first)");
                         nopeCount++;
                         continue;
                     }
@@ -157,6 +158,10 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 catch (Exception ex)
                 {
                     Logger.LogError(ex, "[Q-Get] Error updating status or queuing next pending scan (ID '{Id}'): [{Type}] {Msg}", qscan.Id, ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
+                    // The null placeholder below only bumps an error count - without this the target's
+                    // own failure never reaches the result line.
+                    if (!string.IsNullOrEmpty(RunConfig.QueueScanId) && qscan.Id == RunConfig.QueueScanId)
+                        ByIdResult.Error ??= $"Failed to lock queue scan for processing: {Describe(ex)}";
                     QueueControl.ProcessQueue.Enqueue(null);
                 }
                 while (QueueControl.ProcessQueue.Count >= QueueControl.PreloadCount && QueueControl.ProcessStillRunning)
@@ -223,7 +228,11 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             var count = 1;
             if (queueScans == null || !queueScans.Success)
             {
-                Logger.LogError("[Q-Get] Queue scan search failure.");
+                // The response carries the reason; logging "search failure" alone left the caller with an
+                // outcome and nothing to act on.
+                var why = queueScans == null ? "no response from the api" : queueScans.Message ?? "(no message)";
+                Logger.LogError("[Q-Get] Queue scan search failure: {Why}", why);
+                ByIdResult.Error ??= $"Pending queue scan search failed: {why}";
                 break;
             }
             if (!queueScans.Data.Any())
@@ -276,11 +285,13 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 // don't process sources removed because of too many errors
                 if (QueueControl.SourcesRemoved.Contains(qs.Saltminer.Scan.SourceType))
                 {
+                    NoteTargetSkipped(qs.Id, $"source '{qs.Saltminer.Scan.SourceType}' was dropped after too many errors in this run");
                     continue;
                 }
                 // skip those already locked to another instance
                 if (!string.IsNullOrEmpty(qs.Saltminer.Internal.LockId) && qs.Saltminer.Internal.LockId != InstanceId)
                 {
+                    NoteTargetSkipped(qs.Id, $"already locked to another manager instance ('{qs.Saltminer.Internal.LockId}')");
                     continue;
                 }
                 // list only - just output logging messages instead of processing
@@ -293,6 +304,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 // reached passed limit
                 if (RunConfig.Limit > 0 && count >= RunConfig.Limit)
                 {
+                    NoteTargetSkipped(qs.Id, $"run limit of {RunConfig.Limit} queue scan(s) was reached first");
                     Logger.LogInformation("[Q-Get] Limit of {Limit} reached, ending processing.", RunConfig.Limit);
                     breakOut = true;
                     break;
@@ -539,12 +551,30 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             source_type = ByIdResult.SourceType,
             instance = ByIdResult.Instance,
             assessment_type = ByIdResult.AssessmentType,
+            // Issues this run wrote.  queued_issue_count is what the queue scan claimed, which is -1
+            // for sources that never update it - reported separately so neither one masks the other.
             issue_count = ByIdResult.IssueCount,
+            queued_issue_count = ByIdResult.QueuedIssueCount,
             errors = QueueControl.ErrorCount,
-            message = ByIdResult.Error ?? "",
+            // Error when something threw, otherwise the reason the run skipped it - "Incomplete" on its
+            // own says the run found the scan and walked away, without saying why.
+            message = ByIdResult.Error ?? ByIdResult.Reason ?? "",
         });
         // Argument, not an interpolated template - the JSON braces must not be read as message tokens.
         Logger.LogInformation("{Marker} {Result}", ByIdResultMarker, json);
+    }
+
+    /// <summary>
+    /// Records why a by-ID run passed over the queue scan it was sent for.  Every one of these was
+    /// previously a silent 'continue' that surfaced to the caller as an unexplained "Incomplete".
+    /// No-op for batch runs and for any scan that isn't the target.
+    /// </summary>
+    private void NoteTargetSkipped(string queueScanId, string reason)
+    {
+        if (string.IsNullOrEmpty(RunConfig?.QueueScanId) || queueScanId != RunConfig.QueueScanId)
+            return;
+        ByIdResult.Reason ??= reason;
+        Logger.LogWarning("Target queue scan ID '{Id}' was not processed: {Reason}", queueScanId, reason);
     }
 
     private void Unlock()
@@ -615,6 +645,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                     // Skip any where source was removed
                     if (QueueControl.SourcesRemoved.Contains(queueScan.Saltminer.Scan.SourceType))
                     {
+                        NoteTargetSkipped(queueScan.Id, $"source '{queueScan.Saltminer.Scan.SourceType}' was dropped after exceeding {Config.QueueProcessorMaxErrors} error(s) in this run");
                         continue;
                     }
 
@@ -745,6 +776,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             if (queueAssets.Count == 0)
             {
                 Logger.LogInformation("All assets are retired, skipping further queue scan processing");
+                NoteTargetSkipped(queueScan.Id, "every queue asset on the scan is retired, so there was nothing to import");
                 return; // Don't do scan validation, or regular processing
             }
         }
@@ -769,6 +801,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
 
         Tuple<Scan, Asset> result = null;
         List<Comment> comments;
+        var issuesImported = 0;
 
         foreach (var queueAsset in queueAssets)
         {
@@ -871,11 +904,12 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
                 DataClient.AssetAddUpdate(result.Item2);
 
                 Logger.LogInformation("Imported 1 issue for scan '{ReportId}'", result.Item1.Saltminer.Scan.ReportId);
+                issuesImported += 1;
             }
             else
             {
                 // Processes issues that can be matched with existing
-                ProcessQueueIssues(result.Item1, queueScan, result.Item2, queueAsset);
+                issuesImported += ProcessQueueIssues(result.Item1, queueScan, result.Item2, queueAsset);
             }
 
             // copy comments for asset level
@@ -895,6 +929,11 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         {
             WriteComment(CreateComment(comment, queueScan.Saltminer.Engagement.Id, result.Item1.Id, null, null));
         }
+
+        Logger.LogInformation("Queue scan ID '{Id}' (report ID '{ReportId}') processed, {Count} issue(s) imported across {Assets} asset(s)",
+            queueScan.Id, queueScan.Saltminer.Scan.ReportId, issuesImported, queueAssets.Count);
+        if (!string.IsNullOrEmpty(RunConfig?.QueueScanId) && queueScan.Id == RunConfig.QueueScanId)
+            ByIdResult.IssueCount = issuesImported;
     }
 
     private void UpdateQueueScanHistoryStatus(string id, QueueScan.QueueScanStatus status)
@@ -1077,7 +1116,8 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         return new([]);
     }
 
-    private void ProcessQueueIssues(Scan scan, QueueScan queueScan, Asset asset, QueueAsset queueAsset)
+    /// <returns>Number of queue issues processed into the issue index for this asset.</returns>
+    private int ProcessQueueIssues(Scan scan, QueueScan queueScan, Asset asset, QueueAsset queueAsset)
     {
         scan = scan ?? throw new ArgumentNullException(nameof(scan));
         queueScan = queueScan ?? throw new ArgumentNullException(nameof(queueScan));
@@ -1267,6 +1307,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         DataClient.AssetAddUpdate(asset);
 
         Logger.LogInformation("Imported {Total} issue(s) for scan '{ReportId}'", counter.Total, scan.Saltminer.Scan.ReportId);
+        return counter.Total;
     }
 
     private void ProcessZeroIssue(QueueIssue zeroIssue, QueueScan queueScan, QueueAsset queueAsset, Scan scan)
@@ -2090,7 +2131,14 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
         internal string SourceType = "";
         internal string Instance = "";
         internal string AssessmentType = "";
+        // Issues this run actually wrote, counted as they were written.  NOT the queue scan's own count -
+        // sources that don't maintain it (SSC) leave it at -1, so reporting that told the caller nothing.
         internal int IssueCount;
+        // What the queue scan claimed, kept alongside for comparison (-1 where the source doesn't track it).
+        internal int QueuedIssueCount = -1;
+        // Why a run that found the scan didn't complete it, where nothing threw - a skip is otherwise
+        // reported as a bare "Incomplete" with no message at all.
+        internal string Reason;
 
         internal void Capture(QueueScan qs)
         {
@@ -2099,7 +2147,7 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             SourceType = qs.Saltminer.Scan.SourceType ?? "";
             Instance = qs.Saltminer.Scan.Instance ?? "";
             AssessmentType = qs.Saltminer.Scan.AssessmentType ?? "";
-            IssueCount = qs.Saltminer.Internal.IssueCount;
+            QueuedIssueCount = qs.Saltminer.Internal.IssueCount;
         }
     }
 

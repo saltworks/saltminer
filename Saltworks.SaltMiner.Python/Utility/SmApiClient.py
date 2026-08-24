@@ -601,7 +601,12 @@ class SmApiClient(object):
                 self.add_queue_issue(q_issue)
                 key = f"{avid}|{atype}"
                 if key not in self._key_map.keys():
-                    self._key_map[key] = {'sid': q_scan['id'], 'aid': q_asset['id'], 'prd': None, 'ptyp': None, 'pver': None}
+                    # Product/type must be real values, not None.  This key is claimed before issues are
+                    # mapped, and map_and_add_scan_and_asset skips any key already present - so if issues
+                    # do turn up for this assessment type (an SSC version whose scan artifact was removed
+                    # but whose issues remain), every one of them copies these values.  None here meant
+                    # the whole issue batch came back from the api as "The Product field is required."
+                    self._key_map[key] = {'sid': q_scan['id'], 'aid': q_asset['id'], 'prd': ptype, 'ptyp': ptype, 'pver': ""}
                 else:
                     logging.error("Unexpected app version ID %s and assessment type %s already found in v3 integration keymap.", avid, atype)
             except Exception as ex:
@@ -632,7 +637,10 @@ class SmApiClient(object):
                 "Scan": {
                     "AssessmentType": atype,
                     "ProductType": ptype,
-                    "Product": "Fortify" if not issue else self._nvl(issue, 'engine_type'),
+                    # Product is required by the api.  _nvl only defends against a missing key - SSC
+                    # regularly sends engine_type present and null, which put a null on every issue
+                    # mapped from this scan (they copy it out of the key map below).
+                    "Product": "Fortify" if not issue else (self._nvl(issue, 'engine_type') or ptype or "Fortify"),
                     "ProductVersion": None if not issue else self._nvl(issue, 'engine_version'),
                     "Vendor": "Fortify",
                     "ReportId": scan_id,
@@ -760,6 +768,15 @@ class SmApiClient(object):
             prd = self._key_map[key]['prd']
             ptyp = self._key_map[key]['ptyp']
             pver = self._key_map[key]['pver']
+            if not prd:
+                # Required by the api, and it rejects the whole batch one message per issue - fill it in
+                # and say so once per key rather than losing the load.
+                prd = SmApiClient._get_product(source, atype)
+                logging.warning("Queue scan for app version '%s' / assessment type '%s' has no product set; defaulting issue product to '%s'.", avid, atype, prd)
+                self._key_map[key]['prd'] = prd
+            if not ptyp:
+                ptyp = SmApiClient._get_product(source, atype)
+                self._key_map[key]['ptyp'] = ptyp
 
             if not issue['severity']:
                 logging.warning("Issue '%s' is missing a severity", issue['scanner_id'])
