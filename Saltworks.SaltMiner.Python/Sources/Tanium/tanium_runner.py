@@ -224,19 +224,26 @@ def ModePreflight(client, args):
 
     tokens = client.GetMyApiTokens()
     if tokens:
-        result["tokens"] = tokens
         print("\n  token metadata:")
-        for t in (tokens if isinstance(tokens, list) else [tokens]):
+        token_summaries = []
+        for i, t in enumerate(tokens if isinstance(tokens, list) else [tokens], start=1):
             if isinstance(t, dict):
                 trusted_ips = t.get("trustedIPAddresses")
                 if isinstance(trusted_ips, list):
-                    trusted_ips_summary = f"{len(trusted_ips)} configured"
+                    trusted_ips_summary = "configured" if len(trusted_ips) > 0 else "none"
                 elif trusted_ips:
                     trusted_ips_summary = "configured"
                 else:
                     trusted_ips_summary = "none"
-                print(f"    id={t.get('id')} expires={t.get('expiration')} "
+                expiration_state = "set" if t.get("expiration") else "none"
+                token_summaries.append({
+                    "token_index": i,
+                    "expiration": expiration_state,
+                    "trusted_ips": trusted_ips_summary
+                })
+                print(f"    token[{i}] expiration={expiration_state} "
                       f"trustedIPs={trusted_ips_summary}")
+        result["token_summaries"] = token_summaries
     else:
         print("\n  token metadata          : unavailable (needs 'Token - View')")
 
