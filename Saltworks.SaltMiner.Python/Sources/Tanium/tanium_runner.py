@@ -241,8 +241,7 @@ def ModePreflight(client, args):
                     "expiration": expiration_state,
                     "trusted_ips": trusted_ips_summary
                 })
-                print(f"    token[{i}] expiration={expiration_state} "
-                      f"trustedIPs={trusted_ips_summary}")
+        print(f"    tokens discovered     : {len(token_summaries)}")
         result["token_summaries"] = token_summaries
     else:
         print("\n  token metadata          : unavailable (needs 'Token - View')")
