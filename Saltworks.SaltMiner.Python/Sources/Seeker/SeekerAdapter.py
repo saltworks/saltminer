@@ -26,7 +26,7 @@ from datetime import datetime, timezone, timedelta
 from dateutil import parser 
 from dateutil.tz import gettz
 from Sources.Seeker.SeekerClient import SeekerClient
-from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
+from Core.SmDocsAndDTOs import SmDocsAndDTOs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 
 from Core.DataClient import DataClient, QueueStatus
 from Core.ElasticClient import ElasticClient
@@ -37,7 +37,7 @@ class SeekerAdapter:
     def __init__(self, app):
         settings = app.Settings
         self.seeker_client = SeekerClient(settings)
-        self.sm_docs = SnykDocs()
+        self.sm_docs = SmDocsAndDTOs()
 
         self._data_client = DataClient(app)
         self._es = ElasticClient(settings)

@@ -23,8 +23,8 @@ import logging
 
 from datetime import datetime, timezone, timedelta
 
-from Sources.Coverity_on_Polaris.COPClient import COPClient
-from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
+from Sources.CoverityOnPolaris.COPClient import COPClient
+from Core.SmDocsAndDTOs import SmDocsAndDTOs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 from Core.ElasticClient import ElasticClient
 from Core.DataClient import DataClient, QueueStatus
 
@@ -35,7 +35,7 @@ class COPAdapter:
         self.cop_client = COPClient(settings)
         self._es = ElasticClient(settings)
         self._data_client = DataClient(app)
-        self.sm_docs = SnykDocs()
+        self.sm_docs = SmDocsAndDTOs()
         self.counter = 0
         self.projects_data = {}
         self.issues_included = {}

@@ -22,7 +22,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 from Sources.Tenable.TenableClient import TenableClient
-from Core.SmDocsAndDTOs import SnykDocs
+from Core.SmDocsAndDTOs import SmDocsAndDTOs
 from Core.DataClient import DataClient, QueueStatus
 
 
@@ -32,7 +32,7 @@ class TenableAdapter:
         self.tenable_client = TenableClient(settings)
         #self._es = ElasticClient(settings)
         self.data_client = DataClient(app)
-        self.sm_docs = SnykDocs()
+        self.sm_docs = SmDocsAndDTOs()
         self.vuln_management = settings.GetSource("Tenable", "VulnManagement")
         self.was = settings.GetSource("Tenable", "WAS")
 

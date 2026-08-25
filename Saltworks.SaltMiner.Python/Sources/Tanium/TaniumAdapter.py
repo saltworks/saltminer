@@ -50,7 +50,7 @@ from datetime import datetime, timezone
 
 from Core.Application import Application
 from Core.DataClient import DataClient, QueueStatus
-from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
+from Core.SmDocsAndDTOs import SmDocsAndDTOs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 from Utility.SaltminerExceptions import SaltminerException
 
 from Sources.Tanium.TaniumClient import TaniumClient, TaniumException
@@ -356,7 +356,7 @@ class TaniumAdapterWorker:
         self._processed = 0
         self._dropped = 0
         self._data_client = DataClient(agent.app)
-        self._sm_docs = SnykDocs()
+        self._sm_docs = SmDocsAndDTOs()
         self._error_count = 0
         self._error_threshold = err_threshold
         self._abandon = threading.Event()

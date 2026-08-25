@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from Sources.GHAS.GHASClient import GHASClient
-from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
+from Core.SmDocsAndDTOs import SmDocsAndDTOs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 from Core.DataClient import DataClient, QueueStatus
 
 logger = logging.getLogger(__name__)
@@ -139,7 +139,7 @@ class GHASAdapter:
 
     def __init__(self, app):
         self.client = GHASClient(app.Settings)
-        self.sm_docs = SnykDocs()
+        self.sm_docs = SmDocsAndDTOs()
         self._data_client = DataClient(app)
 
         self.instance = app.Settings.GetSource("GHAS", "SourceName") or "GHAS1"

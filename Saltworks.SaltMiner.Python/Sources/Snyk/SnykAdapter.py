@@ -24,7 +24,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 from Sources.Snyk.SnykClient import SnykClient
-from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
+from Core.SmDocsAndDTOs import SmDocsAndDTOs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 
 from Core.DataClient import DataClient, QueueStatus
 from Core.ElasticClient import ElasticClient
@@ -47,7 +47,7 @@ class SnykAdapter:
     def __init__(self, app):
         settings = app.Settings
         self.snyk_client = SnykClient(settings)
-        self.snyk_docs = SnykDocs()
+        self.snyk_docs = SmDocsAndDTOs()
         self._es = ElasticClient(settings)
         self._data_client = DataClient(app)
         self.base_gui_url = "https://app.snyk.io/org/"

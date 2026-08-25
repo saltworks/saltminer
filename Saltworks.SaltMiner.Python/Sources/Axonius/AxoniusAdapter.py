@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 from Sources.Axonius.AxoniusClient import AxoniusClient
-from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
+from Core.SmDocsAndDTOs import SmDocsAndDTOs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 
 from Core.DataClient import DataClient, QueueStatus
 from Core.ElasticClient import ElasticClient
@@ -15,7 +15,7 @@ class AxoniusAdapter:
     def __init__(self, app):
         settings = app.Settings
         self.axonius_client = AxoniusClient(settings)
-        self.sm_docs = SnykDocs()
+        self.sm_docs = SmDocsAndDTOs()
         self._data_client = DataClient(app)
         self._es = ElasticClient(settings)
         self.last_updated_dict = {}
