@@ -374,7 +374,8 @@ def Check_NullVsEmpty():
 
 
 def Check_CensusExampleSlot():
-    src = open(os.path.join("Sources", "Tanium", "tanium_runner.py"), encoding="utf-8").read()
+    with open(os.path.join("Sources", "Tanium", "tanium_runner.py"), encoding="utf-8") as f:
+        src = f.read()
     wired = '"null_cve_findings": None' in src and 'examples["null_cve_findings"] = node' in src
     return _record("C3 census captures an example for the cveFindings-is-null shape", wired,
                    "Three absence shapes exist; all three now write a file to examples/.")
