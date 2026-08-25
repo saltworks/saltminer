@@ -50,7 +50,6 @@ os.chdir(_PY_ROOT)
 
 from Core.Application import Application
 from Core.ApplicationExceptions import ApplicationConfigurationException
-import Sources.Tanium.TaniumClient as TC
 import Sources.Tanium.tanium_runner as R
 from Sources.Tanium.TaniumClient import TaniumClient, TaniumException, TaniumGraphQLException
 
