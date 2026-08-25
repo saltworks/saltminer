@@ -657,10 +657,7 @@ def Live_TokenMetadata(client):
     _write("token_metadata.json", tokens)
     for t in (tokens if isinstance(tokens, list) else [tokens]):
         if isinstance(t, dict):
-            trusted_ips = t.get("trustedIPAddresses")
-            trusted_ip_count = len(trusted_ips) if isinstance(trusted_ips, list) else 0
-            print(f"         token metadata: has_expiration={bool(t.get('expiration'))} "
-                  f"trustedIPCount={trusted_ip_count}")
+            print("         token metadata retrieved (details redacted)")
     return _record("LIVE token metadata", True,
                    "Expiration and trustedIPAddresses both silently break a scheduled run.")
 
