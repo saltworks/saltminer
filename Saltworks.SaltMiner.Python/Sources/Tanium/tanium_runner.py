@@ -228,8 +228,15 @@ def ModePreflight(client, args):
         print("\n  token metadata:")
         for t in (tokens if isinstance(tokens, list) else [tokens]):
             if isinstance(t, dict):
+                trusted_ips = t.get("trustedIPAddresses")
+                if isinstance(trusted_ips, list):
+                    trusted_ips_summary = f"{len(trusted_ips)} configured"
+                elif trusted_ips:
+                    trusted_ips_summary = "configured"
+                else:
+                    trusted_ips_summary = "none"
                 print(f"    id={t.get('id')} expires={t.get('expiration')} "
-                      f"trustedIPs={t.get('trustedIPAddresses')}")
+                      f"trustedIPs={trusted_ips_summary}")
     else:
         print("\n  token metadata          : unavailable (needs 'Token - View')")
 
