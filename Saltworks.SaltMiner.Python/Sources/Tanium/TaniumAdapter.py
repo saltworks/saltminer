@@ -42,6 +42,7 @@ _resolve_endpoint / _emit are the two methods that change.  See
 docs/plans/2026-08-21-tanium-smq-ready-design.md.
 '''
 
+import json
 import logging
 import queue
 import threading
@@ -97,6 +98,39 @@ PRODUCT_TYPE    = "Application"
 def _utc_now():
     ''' Timestamp format every adapter in this repo writes. '''
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _attr_value(value):
+    '''
+    Coerces one attribute value to a string.
+
+    Attributes is Dictionary<string, string> on the API.  A list or a bool there
+    fails deserialization outright - "The JSON value could not be converted to
+    System.String" - and neither the doc template nor the pydantic DTO models the
+    value type, so nothing local catches it first.
+
+    Lists become a delimited string, following the convention SnykAdapter uses for
+    its `dependencies` attribute.  Bools are lowercased because that is how they
+    read back in search and filters.
+    '''
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple, set)):
+        return ", ".join(_attr_value(v) for v in value)
+    if isinstance(value, dict):
+        return json.dumps(value, default=str)
+    return str(value)
+
+
+def _attrs(mapping: dict) -> dict:
+    '''
+    Builds an Attributes dict with every value stringified and every None dropped.
+
+    Omitting nulls rather than writing "None" keeps the document smaller - which
+    matters at ~1000 issues per endpoint - and an absent attribute and a null one
+    are equivalent to anything reading them back.
+    '''
+    return {k: _attr_value(v) for k, v in mapping.items() if v is not None}
 
 
 # ===========================================================================
@@ -473,6 +507,9 @@ class TaniumAdapterWorker:
         '''
         report_id = f"{data.target_id} | {_utc_now()}"
 
+        # Set the stage before the call it describes, so a failure reports where it
+        # happened.  Without this every pre-asset failure logs "stage None".
+        self._agent.update(item, TaniumQueueStage.SCAN, data.to_dto())
         scan = self._data_client.queue_scan_add_update(self._map_scan(node, report_id))
         queue_scan_id = scan["id"]
         scan_report_id = scan["saltminer"]["scan"]["reportId"]
@@ -530,6 +567,11 @@ class TaniumAdapterWorker:
         doc["Timestamp"] = _utc_now()
         doc["Saltminer"]["Internal"]["IssueCount"] = -1      # disables count validation
         doc["Saltminer"]["Internal"]["ReplaceIssues"] = True  # each run is current-state truth
+        # Required on submit - the DataApi does NOT default it.  Omitting it returns
+        # "<blank> is not a valid Queue Scan Status" and the scan never lands.  It is
+        # also what keeps a half-written scan invisible: the manager only picks up
+        # Pending, and the status flips there once every issue has been sent.
+        doc["Saltminer"]["Internal"]["QueueStatus"] = QueueStatus.LOADING
         scan = doc["Saltminer"]["Scan"]
         scan["AssessmentType"] = ASSESSMENT_TYPE
         scan["ProductType"]    = PRODUCT_TYPE
@@ -558,10 +600,16 @@ class TaniumAdapterWorker:
         asset["SourceType"]  = SOURCE_TYPE
         asset["AssetType"]   = ASSET_TYPE
         asset["Instance"]    = INSTANCE
+        # Port is System.Int32 on the API and is NOT in the python DTO, so pydantic
+        # cannot catch this - the template's null only fails once it reaches C#.
+        # A Tanium endpoint is a host and has no port, and 0 is the value that
+        # survives the conversion.  Do not use the string "None" here: that is what
+        # TenableAdapter:164 does and it fails the same way null does.
+        asset["Port"]        = 0
         # systemUUID and serialNumber are carried deliberately.  `id` is the
         # identity key by decision, but endpointIdChanges exists precisely because
         # EIDs merge and rename - these make a re-key possible without recollecting.
-        asset["Attributes"] = {
+        asset["Attributes"] = _attrs({
             "SystemUuid":         node.get("systemUUID"),
             "SerialNumber":       node.get("serialNumber"),
             "ComputerId":         node.get("computerID"),
@@ -576,7 +624,7 @@ class TaniumAdapterWorker:
             "EidLastSeen":        node.get("eidLastSeen"),
             "EntityProviderName": node.get("entityProviderName"),
             "EntityProviderType": node.get("entityProviderType"),
-        }
+        })
         MapAssetDocDTO(**doc)
         return doc
 
@@ -630,7 +678,7 @@ class TaniumAdapterWorker:
             score["Base"], score["Version"] = finding["cvssScore"], "2.0"
         score["Temporal"] = finding.get("cvssTemporalScoreV3") or 0
 
-        sm["Attributes"] = {
+        sm["Attributes"] = _attrs({
             "CveYear":          finding.get("cveYear"),
             "CvssScoreV2":      finding.get("cvssScore"),
             "CvssScoreV3":      finding.get("cvssScoreV3"),
@@ -646,7 +694,7 @@ class TaniumAdapterWorker:
             "MaxMaturity":      finding.get("maxMaturity"),
             "Excepted":         finding.get("excepted"),
             "ScanType":         finding.get("scanType"),
-        }
+        })
         MapIssueDocDTO(**doc)
         return doc
 
@@ -780,6 +828,13 @@ class TaniumAdapter:
                                    can_continue=self._any_worker_alive)
         logger.info("[Tanium Adapter] Starting: %s worker(s), queue max %s.",
                     self._worker_count, self._queue_max_size)
+        # Resolve extension fields here rather than letting the first by-id fetch
+        # trigger it: on the worker threads every one of them arrives at once and
+        # introspects separately, and a schema problem should fail the run before
+        # any thread has started rather than N times afterwards.
+        keep_ep, keep_fi = self._client.ResolveFields()
+        logger.info("[Tanium Adapter] Extension fields: %s endpoint, %s finding.",
+                    len(keep_ep), len(keep_fi))
         self._start_workers()
         try:
             loader.run(resume_from=resume_from)

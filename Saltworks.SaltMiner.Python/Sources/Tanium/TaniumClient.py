@@ -20,6 +20,7 @@
 
 import json
 import logging
+import threading
 import time
 
 import requests
@@ -384,6 +385,10 @@ class TaniumClient:
         if self.page_size_start < self.page_size_min:
             raise ValueError(f"Page_Size_Start ({self.page_size_start}) is below "
                              f"Page_Size_Min ({self.page_size_min}).")
+
+        # GetEndpointById is called from every worker thread, so field resolution
+        # and the query cache it invalidates need guarding.
+        self.__resolve_lock = threading.Lock()
 
         self.__page_size_current = None
         self.__page_size_locked = False
@@ -770,6 +775,16 @@ class TaniumClient:
         if self.__resolved_finding_ext is not None and not force:
             return self.__resolved_endpoint_ext, self.__resolved_finding_ext
 
+        with self.__resolve_lock:
+            # Re-check inside the lock: several worker threads can arrive here at
+            # once on the first by-id fetch, and without this each of them runs its
+            # own pair of introspection calls.
+            if self.__resolved_finding_ext is not None and not force:
+                return self.__resolved_endpoint_ext, self.__resolved_finding_ext
+            return self.__ResolveFieldsLocked()
+
+    def __ResolveFieldsLocked(self):
+        ''' ResolveFields body; call only with __resolve_lock held. '''
         wanted_ep = list(EXTENSION_ENDPOINT_FIELDS)
         wanted_fi = list(EXTENSION_FINDING_FIELDS)
         if self.__extended:
