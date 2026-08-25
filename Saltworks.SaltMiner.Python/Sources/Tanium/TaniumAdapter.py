@@ -888,7 +888,10 @@ class TaniumAdapter:
                 try:
                     self._queue.put(None, timeout=TaniumQueueLoader.PUT_TIMEOUT_SEC)
                 except queue.Full:
-                    pass
+                    logger.warning(
+                        "[Tanium Adapter] Worker queue full while enqueueing shutdown sentinel; "
+                        "continuing with timed joins."
+                    )
         for thread in self._threads:
             thread.join(timeout=60)
             if thread.is_alive():
