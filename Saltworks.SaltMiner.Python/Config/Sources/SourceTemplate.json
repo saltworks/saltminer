@@ -1,0 +1,25 @@
+{
+    "Source": "TEMPLATE",
+    "SourceName": "TEMPLATE1",
+    "Enabled": false,
+    "Instance": "template1",
+    "NeedsUpdateFields": [
+        "LastScan",
+        "IssueCount",
+        "Critical",
+        "High",
+        "Medium",
+        "Low",
+        "Instance",
+        "SourceId",
+        "SourceType",
+        "IsNotScanned",
+        "Attributes"
+    ],
+    "BaseUrl": "https://api.vendor.com/",
+    "ApiKey": "",
+    "WorkerCount": 5,
+    "WorkerErrorThreshold": 3,
+    "PollingIntervalSecs": 30,
+    "AgentId": 1
+}

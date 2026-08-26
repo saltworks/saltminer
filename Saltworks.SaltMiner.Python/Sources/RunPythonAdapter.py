@@ -44,7 +44,15 @@ prm_logging_instance = None
 if len(sys.argv) > 3:
     prm_logging_instance = sys.argv[3]
 
-hlp_msg = f"Usage: {sys.argv[0]} [source] [first_load] [logging_instance]\n\n:source: Required. Source name to run (Tenable, Snyk, Seeker, etc.)\n:first_load: Optional. Set to 'true' if this is the first load of the adapter (default: true)\n:logging_instance: Optional. Custom logging instance name for this run (default: None)"
+# Which instance of the source to run, for adapters that support more than one
+# (ex "SNYK2" - the SourceName value of that instance's config file).  Adapters
+# built from Sources/Template accept it: adapter = AcmeRunner(app, source_name=prm_instance).
+# None lets the adapter default to its first instance ({SOURCE}1).
+prm_instance = None
+if len(sys.argv) > 4:
+    prm_instance = sys.argv[4]
+
+hlp_msg = f"Usage: {sys.argv[0]} [source] [first_load] [logging_instance] [instance]\n\n:source: Required. Source name to run (Tenable, Snyk, Seeker, etc.)\n:first_load: Optional. Set to 'true' if this is the first load of the adapter (default: true)\n:logging_instance: Optional. Custom logging instance name for this run (default: None)\n:instance: Optional. Source instance to run, the SourceName value of that instance's config file, for adapters supporting multiple instances (default: the adapter's first instance)"
 if prm_source is None:
     print(hlp_msg)
     sys.exit(1)
