@@ -446,12 +446,20 @@ class SourceLoader:
         needs processing).  Skips happen at asset granularity only - an asset
         either passes through whole or produces nothing at all.
 
-        :first_load: True skips the local-metric derivation entirely and yields
-            every asset - the full-sync path.
+        :first_load: True bypasses the gate entirely - no local-metric
+            derivation, no source metric built, no comparison.  Everything the
+            source has is loaded.
         '''
         self._skipped = 0
         self._matched = 0
-        local_metrics = {} if first_load else self.get_local_metrics()
+        if first_load:
+            logger.info("[SourceLoader] First load - NeedsUpdate gate bypassed, "
+                        "loading everything the source has.")
+            for asset in self._client.get_assets_generator():
+                self._matched += 1
+                yield asset
+            return
+        local_metrics = self.get_local_metrics()
         for asset in self._client.get_assets_generator():
             source_metric = self._adapter.build_source_metric(asset)
             result = needs_update(source_metric,

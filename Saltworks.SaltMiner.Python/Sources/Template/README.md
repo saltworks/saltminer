@@ -85,6 +85,12 @@ QueueScanID) → Create Issues (carry QueueScanID + QueueAssetID)**. The gate si
 produces *nothing* — no QueueScan, no QueueAsset, no QueueIssues — and the
 Manager never processes it.
 
+**First load bypasses the gate entirely**: `first_load=true` (the second CLI
+argument, default `true`) skips all source-metric derivation and comparison and
+loads everything the source has. Use it for a new instance's initial sync or to
+force a full re-send; subsequent runs use `first_load=false` to get incremental
+skipping.
+
 **The retirement rule (binding): skip at asset granularity only; never submit a
 partial issue list.** The Manager reconciles only inside a submitted queue scan —
 it matches the asset's existing issues on `Vulnerability.Scanner.Id` against the
