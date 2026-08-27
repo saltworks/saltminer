@@ -124,6 +124,25 @@ one side fills is a permanent mismatch and the gate never skips anything.
 side's `attributes` at `None` (both `None` compares equal) or drop `"Attributes"`
 from `NeedsUpdateFields`.
 
+### Failed or interrupted syncs cancel their own scan
+
+Between Create Scan and the Pending release the queue scan sits at `Loading`, a
+status the Manager's `CleanUpProcessor` deliberately never reaps
+(`CleanupProcessorDisableForStatus` ships as `["Loading"]`, because a Loading
+scan may be mid-load). If `sync_asset()` exits that window by anything other
+than Pending — vendor error, mapping error, Ctrl-C/SIGTERM — it sets the scan
+`Loading → Cancel` and re-raises the original failure unchanged. `Cancel`-status
+scans are reaped by the Manager's **default** cleanup after
+`CleanupCompleteAfterHours`, and the orphan sweeps take the scan's QueueAsset and
+QueueIssues with it. Nothing to configure: `CleanupProcessorDisableForStatus`
+does **not** need editing for this to work.
+
+The cancel is best-effort and lives entirely in `sync_asset()` /
+`_cancel_abandoned_scan()`. If the cancel call itself fails it is logged and the
+scan is left at Loading for manual cleanup; the original exception still
+propagates. A scan that reached Pending belongs to the Manager and is never
+cancelled. Keep this when copying the template — it is not vendor-specific.
+
 ---
 
 ## 4. Config reference (`Config/Sources/SourceTemplate.json`)
@@ -192,5 +211,7 @@ coupling this architecture exists to avoid:
 
 - Retirement logic (Manager-owned; §3 is a *reporting* rule)
 - Backpressure, send-failure lifecycle/retry counters, cancellation plumbing
+  (the per-scan cancel-on-failure in §3 is the whole mechanism — no signal
+  handlers, atexit hooks, or shutdown framework)
 - Zero-issue / no-scan record generation (shared helper, tracked separately)
 - Batch sizing and orchestration knobs beyond the worker settings above

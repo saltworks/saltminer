@@ -32,6 +32,9 @@ Three classes, in dependency order:
   gate, the index-name derivation, and sync_asset() - the three-tier chain
   for one asset: Create Scan -> Create Asset (carries QueueScanID) -> Create
   Issues (carry QueueScanID + QueueAssetID) -> flush -> set scan Pending.
+  Cancel-on-failure contract (not vendor-specific, keep it when copying):
+  any exit from that chain other than the Pending release sets the scan
+  Loading -> Cancel so the Manager's default cleanup reaps it.
 
 - SourceLoader: builds the work list and owns the NeedsUpdate gate.  For
   threaded adapters, load_queue() fills the SMQ queue for the workers; for
@@ -228,25 +231,58 @@ class TemplateAdapter:
 
         queue_scan = self.data_client.queue_scan_add_update(mapped_scan)
         queue_scan_id = queue_scan["id"]
-        scan_report_id = queue_scan["saltminer"]["scan"]["reportId"]
+        # From here until the Pending release the scan is ours at Loading, a
+        # status the Manager's cleanup deliberately never reaps.  Any exit
+        # other than Pending - vendor error, mapping error, Ctrl-C - hands the
+        # scan to the reaper as Cancel and re-raises unchanged.  BaseException
+        # on purpose: KeyboardInterrupt/SystemExit are the graceful-shutdown
+        # case and plain Exception would miss them.
+        try:
+            scan_report_id = queue_scan["saltminer"]["scan"]["reportId"]
 
-        queue_asset = self.data_client.queue_asset_add_update(
-            self.map_asset(asset, queue_scan_id))
-        queue_asset_id = queue_asset["id"]
+            queue_asset = self.data_client.queue_asset_add_update(
+                self.map_asset(asset, queue_scan_id))
+            queue_asset_id = queue_asset["id"]
 
-        issue_count = 0
-        for issue in issues_iterable:
-            self.data_client.queue_issue_add_update_batch(
-                self.map_issue(issue, queue_scan_id, queue_asset_id, scan_report_id, asset))
-            issue_count += 1
+            issue_count = 0
+            for issue in issues_iterable:
+                self.data_client.queue_issue_add_update_batch(
+                    self.map_issue(issue, queue_scan_id, queue_asset_id, scan_report_id, asset))
+                issue_count += 1
 
-        # Flush the partial batch before releasing, or the tail of the scan is
-        # lost; Pending is what makes the scan visible to the Manager.
-        self.data_client.queue_issue_add_update_batch(None)
-        self.data_client.queue_scan_update_status(queue_scan_id, QueueStatus.PENDING)
+            # Flush the partial batch before releasing, or the tail of the scan
+            # is lost; Pending is what makes the scan visible to the Manager.
+            # Pending stays inside the try: a scan that failed to go Pending is
+            # still Loading and still ours to cancel.
+            self.data_client.queue_issue_add_update_batch(None)
+            self.data_client.queue_scan_update_status(queue_scan_id, QueueStatus.PENDING)
+        except BaseException:
+            self._cancel_abandoned_scan(queue_scan_id)
+            raise
+        # Past Pending the scan belongs to the Manager - never cancel it.
         logger.info("[TemplateAdapter] Asset %s released to Manager: %s issue(s).",
                     asset_id, issue_count)
         return issue_count
+
+    def _cancel_abandoned_scan(self, queue_scan_id: str):
+        '''
+        Best-effort Loading -> Cancel on a scan this run abandoned mid-chain, so
+        the Manager's CleanUpProcessor reaps it by default (Cancel is cleaned
+        under CleanupCompleteAfterHours; Loading is disabled for cleanup).  The
+        queue asset/issues are left alone - the reaper's orphan sweeps take
+        them once the scan goes.  Never raises; the original failure must
+        propagate unchanged.
+        '''
+        if self._data_client is None:
+            return
+        try:
+            self._data_client.queue_scan_update_status(queue_scan_id, QueueStatus.CANCEL)
+            logger.warning("[TemplateAdapter] Scan %s abandoned mid-chain, set to Cancel "
+                           "for cleanup.", queue_scan_id)
+        except Exception as ex:  # noqa: BLE001 - cleanup must not mask the original failure
+            logger.error("[TemplateAdapter] Could not cancel abandoned scan %s: %s "
+                         "(it will sit at Loading until manually cleaned).",
+                         queue_scan_id, ex)
 
     def _dry_run_asset(self, asset: dict, issues_iterable, report_id: str) -> int:
         ''' Maps and validates everything, sends nothing.  Mock-run support. '''

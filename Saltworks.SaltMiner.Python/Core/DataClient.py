@@ -37,6 +37,7 @@ class DataClientNotFoundException(DataClientException):
 class QueueStatus:
     PENDING = "Pending"
     LOADING = "Loading"
+    CANCEL = "Cancel"    # exact string - parsed into the C# QueueScanStatus enum
 
 
 class DataClient:
