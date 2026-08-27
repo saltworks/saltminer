@@ -18,6 +18,8 @@
     ],
     "BaseUrl": "https://api.vendor.com/",
     "ApiKey": "",
+    "RequestTimeoutSecs": 30,
+    "PageSize": 100,
     "WorkerCount": 5,
     "WorkerErrorThreshold": 3,
     "PollingIntervalSecs": 30,

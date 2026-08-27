@@ -19,31 +19,45 @@
 '''
 
 '''
-Template source adapter - mapping, loader, and worker in one file.
+Template source adapter - entry point, mapping, and loader in one file.
+The folder is two files: this one and TemplateClient.py (all vendor HTTP).
 
-CLASSIFICATION (declare yours here when copying; these are not config keys):
+CLASSIFICATION (WRITE: declare your classification - these are not config keys):
 - Processing model: single-asset (each asset is an independent unit of work)
 - Write semantics:  replacement (each run reports complete current state)
+This records the DECLARED model.  The EXECUTED path is chosen by the Threaded
+config key that run_sync() reads (see the RULINGS block below).
 
-Three classes, in dependency order:
+Two classes, in dependency order:
 
-- TemplateAdapter: the SourceMapping functions (vendor payloads -> queue
-  documents via the shared DTOs), build_source_metric() for the NeedsUpdate
-  gate, the index-name derivation, and sync_asset() - the three-tier chain
+- TemplateAdapter: two roles in one class.  The ENTRY instance (built by
+  RunPythonAdapter.py or by main() below) wires client + loader and owns
+  run_sync(); WORKER instances (built per thread by SourceLoader.run_threaded)
+  are mapping-only and never call run_sync().  The mapping role is the
+  SourceMapping functions (vendor payloads -> queue documents via the shared
+  DTOs), build_source_metric() for the NeedsUpdate gate, the index-name
+  derivation, and sync_asset() - the three-tier chain
   for one asset: Create Scan -> Create Asset (carries QueueScanID) -> Create
   Issues (carry QueueScanID + QueueAssetID) -> flush -> set scan Pending.
   Cancel-on-failure contract (not vendor-specific, keep it when copying):
   any exit from that chain other than the Pending release sets the scan
   Loading -> Cancel so the Manager's default cleanup reaps it.
 
-- SourceLoader: builds the work list and owns the NeedsUpdate gate.  For
-  threaded adapters, load_queue() fills the SMQ queue for the workers; for
-  non-threaded adapters (incl. all batch adapters), run() drives the whole
-  run directly and no worker is ever instantiated.
+- SourceLoader: builds the work list and owns the NeedsUpdate gate.  run()
+  drives the whole run in this thread (non-threaded adapters, incl. all batch
+  adapters).  run_threaded() fans the gated assets out to an in-memory pool
+  of worker threads, each owning its own client + adapter + DataClient;
+  batch adapters delete it when copying.
 
-- SourceWorker (+ SourceWorkerFactory): the "script" for one threaded worker
-  under Core.Agent/Core.Worker.  Processes exactly one asset per invocation.
-  Non-threaded adapters can delete the worker section when copying.
+RULINGS (Cameron, 2026-08-27):
+- Threaded mode is in-memory only for this build - a bounded stdlib queue
+  inside one process run, no persistence, no resume.  SMQ (persisted
+  queue-index) integration is deliberately absent and may return later.  The
+  DataApi queue_* staging indices are the adapter's only write path; the
+  scheduled Manager takes over from there.
+- The executed path is chosen by config, not by code a copier renames:
+  Threaded=true (default) runs SourceLoader.run_threaded(); Threaded=false
+  runs SourceLoader.run().  run_sync() is the single entry either way.
 
 THE RETIREMENT RULE (binding - see the folder README for the evidence):
 The Manager reconciles only inside a submitted queue scan.  A submitted scan
@@ -54,19 +68,25 @@ FULL current issue set.
 '''
 
 import logging
+import os
+import queue      # DELETE-IF-BATCH: optional - queue/threading only serve run_threaded; Threaded=false is the supported route
+import sys
+import threading
 from datetime import datetime, timezone
 
-from Core.Agent import Agent
+# Repo root, three levels up from Sources/Template/, so the mock check
+# (python Sources/Template/TemplateAdapter.py) works standalone.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from Core.Application import Application
 from Core.DataClient import DataClient, QueueStatus
-from Core.QueueClient import QueueClient, QueueClientDto
 from Core.SmDocsAndDTOs import SmDocsAndDTOs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO, attrs
 from Core.SourceMetric import NEEDS_UPDATE_FIELDS, SourceMetric, derive_local_metrics, needs_update
-from Core.Worker import Worker, WorkerFactory
 
 from Sources.Template.TemplateClient import (
     TemplateClient,
+    MockTemplateClient,
     SourceMappingException,
-    SourceWorkerException,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,6 +96,7 @@ logger = logging.getLogger(__name__)
 # preset fields - the identity of this source.  Set once when copying.
 # ===========================================================================
 
+# WRITE: set the six identity constants; SOURCE_TYPE is always "Saltworks.<ProductName>".
 VENDOR          = "Template"                 # vendor company name
 PRODUCT         = "Template"                 # vendor product name
 SOURCE_TYPE     = "Saltworks.Template"       # always "Saltworks.<ProductName>"
@@ -83,14 +104,16 @@ ASSET_TYPE      = "app"                      # "app" for application security to
 ASSESSMENT_TYPE = "Open"                     # see the Assessment Type catalog in the README
 PRODUCT_TYPE    = "Application"
 
-# The issue attribute build_source_metric()'s last_scan is written to and read
-# back from - keep the two ends of this contract in one constant.
+# WRITE: rename to "<source>_last_updated" - both ends of the last_scan round trip read this constant.
+# (build_source_metric()'s last_scan is written to every issue under this
+# attribute by map_issue_attributes and read back by the local aggregation.)
 LAST_UPDATED_ATTRIBUTE = "template_last_updated"
 
-# Queue item contract for the threaded path.  Same key/payload shape as
-# Utility/QueueLoader.format_item and SyncQueueData, so the queue documents
-# read like every other SMQ source's.
-QUEUE_TARGET_TYPE = "TEMPLATE"
+# Entry identity: SOURCE matches the Source value in the config file, and the
+# default instance is the first config file's SourceName by convention.
+# WRITE: set SOURCE to your source's uppercase name; the default instance is "{SOURCE}1".
+SOURCE = "TEMPLATE"
+DEFAULT_SOURCE_NAME = f"{SOURCE}1"
 
 
 def derive_index_name(prefix: str, asset_type: str, source_type: str, instance: str) -> str:
@@ -124,27 +147,49 @@ def _utc_now():
 
 class TemplateAdapter:
     '''
-    Source-specific mapping and the per-asset queue chain.  Orchestration
-    lives in TemplateRunner/SourceLoader/SourceWorker; HTTP lives in
-    TemplateClient.  Keep it that way when copying.
+    Two roles, one class - read this before copying:
+
+    ENTRY role.  The instance RunPythonAdapter.py (or main() below) builds:
+        adapter = TemplateAdapter(app, source_name=prm_instance)
+        summary = adapter.run_sync(first_load=...)
+    It wires the vendor client and the SourceLoader lazily and owns
+    run_sync(), which reads its marching orders (Threaded, WorkerCount) from
+    the source config file and dispatches to the loader.  Only app, an
+    optional source_name and first_load can arrive from the CLI; everything
+    else must come from config.
+
+    WORKER role.  The instances SourceLoader.run_threaded() builds, one per
+    thread, are mapping-only: they run sync_asset() and never call run_sync().
+    Each owns its own DataClient - DataClient wraps a persistent asyncio loop
+    and batches issues as instance state, so it must never be shared across
+    threads.
+
+    Orchestration lives in SourceLoader; HTTP lives in TemplateClient.  Keep
+    it that way when copying.
 
     :app: Application instance
     :source_name: config lookup key (the SourceName value), ex "TEMPLATE1".
-        Becomes the Instance field on every document.
-    :data_client: optional pre-built DataClient.  Threaded workers pass their
-        own - DataClient wraps a persistent asyncio loop and batches issues as
-        instance state, so it must never be shared across threads.
+        Becomes the Instance field on every document.  None defaults to
+        DEFAULT_SOURCE_NAME ({SOURCE}1).
+    :data_client: optional pre-built DataClient (tests inject a mock).  Left
+        None, the adapter builds its own on first use.
+    :client: optional pre-built vendor client (a MockTemplateClient for the
+        mock check).  Left None, TemplateClient(app.Settings, source_name) is
+        built when first needed - entry role only.
     :dry_run: map and validate only; send nothing.  Used by the mock run.
     '''
 
-    def __init__(self, app, source_name: str, data_client: DataClient = None,
-                 dry_run: bool = False):
+    def __init__(self, app, source_name: str = None, data_client: DataClient = None,
+                 client=None, dry_run: bool = False):
+        source_name = source_name or DEFAULT_SOURCE_NAME
         settings = app.Settings
         self._app = app
         self._source_name = source_name
         self._sm_docs = SmDocsAndDTOs()
         self._dry_run = dry_run
         self._data_client = data_client
+        self._client = client
+        self._loader = None
         # Instance segment for index derivation defaults to SourceName
         # lowercased; config Instance overrides (flag it if those ever collide).
         self._instance = settings.GetSource(source_name, "Instance", None) or source_name.lower()
@@ -185,26 +230,33 @@ class TemplateAdapter:
         '''
         The source-side SourceMetric for one asset, from the vendor payload.
 
-        Fill in what the vendor's asset listing actually provides.  Whatever is
-        set here must be derivable on the local side too (see
-        Core.SourceMetric.derive_local_metrics), or the field must be left out
-        of NeedsUpdateFields in config - a field only one side can supply is a
-        permanent mismatch and the gate never skips anything.
-
-        last_scan uses the vendor's last-updated value, which map_issue_attributes
-        writes to every issue as LAST_UPDATED_ATTRIBUTE - that round trip is
-        what makes the two sides comparable.  attributes stays None unless your
-        local derivation can reproduce it.
+        Inputs: the vendor asset payload as the client's asset listing yields it
+            (no extra fetch - this runs for every asset, before the gate).
+        Must return: a SourceMetric whose source_id is the vendor asset id
+            (the same value map_asset writes to VersionId/SourceId, so it
+            matches the local-metric bucket key) and whose last_scan is the
+            vendor's last-updated value.
+        Invariants: every field set here must be derivable on the local side
+            too (Core.SourceMetric.derive_local_metrics), or be left out of
+            NeedsUpdateFields in config - a field only one side can supply is
+            a permanent mismatch and the gate never skips anything.  last_scan
+            round-trips through LAST_UPDATED_ATTRIBUTE: map_issue_attributes
+            writes it to every issue and the local aggregation reads its max
+            back out.  attributes stays None unless your local derivation can
+            reproduce it.
         '''
         return SourceMetric(
             source_id=str(asset["id"]),
             source_type=SOURCE_TYPE,
             instance=self._source_name,
             last_scan=asset.get("updated_at"),
-            issue_count=0,       # fill from the vendor's counts if it provides them,
-            critical=0,          # and add the fields you fill to NeedsUpdateFields;
-            high=0,              # counts the vendor cannot provide must also be
-            medium=0,            # removed from NeedsUpdateFields in config.
+            # WRITE: fill the counts the vendor's asset listing provides and add those fields
+            # to NeedsUpdateFields; counts the vendor cannot provide must be removed from
+            # NeedsUpdateFields in config (a placeholder 0 is a permanent mismatch).
+            issue_count=0,
+            critical=0,
+            high=0,
+            medium=0,
             low=0,
             is_not_scanned=False,
             attributes=None
@@ -217,10 +269,17 @@ class TemplateAdapter:
         The strictly ordered chain for one asset:
         Create Scan -> Create Asset -> Create Issues -> flush -> scan Pending.
 
-        :asset: the vendor asset payload
-        :issues_iterable: the asset's FULL current issue set (retirement rule -
-            never a delta, never a page)
-        Returns the number of issues sent.
+        Inputs: the vendor asset payload; issues_iterable - the asset's FULL
+            current issue set (retirement rule - never a delta, never a page).
+        Must return: the number of issues sent (mapped and validated, in dry
+            run).
+        Invariants: the chain order above is strict - the asset carries the
+            QueueScanId, the issues carry QueueScanId + QueueAssetId, and the
+            partial batch is flushed before Pending.  Any exit other than the
+            Pending release - including KeyboardInterrupt/SystemExit, hence
+            BaseException - sets the scan Loading -> Cancel and re-raises the
+            original failure unchanged.  Past Pending the scan belongs to the
+            Manager and is never cancelled.  All writes go through DataClient.
         '''
         asset_id = str(asset["id"])
         report_id = f"{asset_id}|{_utc_now()}"
@@ -304,6 +363,16 @@ class TemplateAdapter:
     # line instead of a DataClientException three network hops away.
 
     def map_scan(self, asset: dict, report_id: str) -> dict:
+        '''
+        Inputs: the vendor asset payload; report_id composed by sync_asset
+            ("<asset id>|<utc now>"), unique per run.
+        Must return: the queue-scan document dict, Internal.QueueStatus at
+            Loading (sync_asset releases it to Pending at the end).
+        Invariants: IssueCount -1 and ReplaceIssues True are the replacement
+            semantics this template declares; the preset identity constants
+            fill the Scan block; DTO validation stays as the last line before
+            return.
+        '''
         doc = self._sm_docs.map_scan_doc()
         doc["Timestamp"] = _utc_now()
         doc["Saltminer"]["Internal"]["IssueCount"] = -1       # disables count validation
@@ -315,6 +384,7 @@ class TemplateAdapter:
         scan["Product"]        = PRODUCT
         scan["Vendor"]         = VENDOR
         scan["ReportId"]       = report_id
+        # WRITE: map ScanDate from the vendor's scan / last-updated timestamp.
         scan["ScanDate"]       = asset.get("updated_at") or _utc_now()
         scan["SourceType"]     = SOURCE_TYPE
         scan["AssetType"]      = ASSET_TYPE
@@ -323,10 +393,22 @@ class TemplateAdapter:
         return doc
 
     def map_asset(self, asset: dict, queue_scan_id: str) -> dict:
+        '''
+        Inputs: the vendor asset payload; the QueueScan id returned by the
+            DataApi for this asset's scan.
+        Must return: the queue-asset document dict carrying that QueueScanId
+            in Internal.
+        Invariants: VersionId and SourceId are both the vendor asset id - the
+            local-metric bucket key and build_source_metric().source_id must
+            agree with them; attributes go through map_asset_attributes; DTO
+            validation stays as the last line before return.
+        '''
         doc = self._sm_docs.map_asset_doc()
         doc["Timestamp"] = _utc_now()
         doc["Saltminer"]["Internal"]["QueueScanId"] = queue_scan_id
         mapped = doc["Saltminer"]["Asset"]
+        # WRITE: map Name/Version/VersionId/SourceId from the vendor asset payload.
+        # (VersionId and SourceId: the same stable vendor id the local-metric bucket key uses.)
         mapped["Name"]       = asset.get("name")
         mapped["Version"]    = asset.get("version")
         mapped["VersionId"]  = str(asset["id"])
@@ -340,6 +422,20 @@ class TemplateAdapter:
 
     def map_issue(self, issue: dict, queue_scan_id: str, queue_asset_id: str,
                   report_id: str, asset: dict) -> dict:
+        '''
+        Inputs: one vendor issue payload; the QueueScan and QueueAsset ids for
+            its asset; the scan's report id as the DataApi returned it; the
+            vendor asset payload (for Scanner.Id and the GUI link).
+        Must return: the queue-issue document dict carrying QueueScanId +
+            QueueAssetId, IssueType, the Vulnerability block and Scanner block.
+        Invariants: Scanner["Id"] must be stable across runs for the same
+            issue+asset - it is the key the Manager matches on to decide
+            update vs retire.  IsRemoved is written False and RemovedDate is
+            set only when the vendor reports the issue resolved (setting
+            RemovedDate is what flips IsRemoved inside SaltMiner).  Attributes
+            go through map_issue_attributes; DTO validation stays as the last
+            line before return.
+        '''
         doc = self._sm_docs.map_issue_doc()
         doc["Timestamp"] = _utc_now()
         sm = doc["Saltminer"]
@@ -348,6 +444,8 @@ class TemplateAdapter:
         sm["IssueType"] = ASSESSMENT_TYPE
 
         vuln = doc["Vulnerability"]
+        # WRITE: map the vendor issue payload onto the vuln fields; keep the `or "None"` fallbacks
+        # for fields the vendor lacks.
         vuln["Name"]           = issue.get("title")
         vuln["FoundDate"]      = issue.get("created_at")
         vuln["Severity"]       = (issue.get("severity") or "Info").title()
@@ -364,13 +462,13 @@ class TemplateAdapter:
             vuln["RemovedDate"] = issue["resolved_at"]
 
         scanner = vuln["Scanner"]
-        # Stable unique id for this issue on this asset - the Manager matches on
-        # this to decide update vs retire, so it must not change between runs.
+        # WRITE: compose Scanner["Id"] from the vendor issue id + asset id - stable across runs
+        # (the Manager's update-vs-retire match key; see the docstring contract).
         scanner["Id"]             = f"{issue['id']}|{asset['id']}"
         scanner["AssessmentType"] = ASSESSMENT_TYPE
         scanner["Product"]        = PRODUCT
         scanner["Vendor"]         = VENDOR
-        scanner["GuiUrl"]         = asset.get("gui_url")
+        scanner["GuiUrl"]         = self.build_gui_url(asset, issue)
 
         self.map_issue_attributes(issue, doc)
         MapIssueDocDTO(**doc)
@@ -380,22 +478,53 @@ class TemplateAdapter:
         '''
         Source-specific asset metadata (team, owner, tags, ...).  Separate from
         map_asset because these are the fields most likely to change.
+
+        Inputs: the vendor asset payload; the queue-asset document being built.
+        Must set: Saltminer.Asset.Attributes via attrs() (an empty dict is
+            valid).  Returns the document.
+        Invariants: attribute values are metadata only - nothing the gate or
+            the Manager keys on lives here.
         '''
         doc["Saltminer"]["Asset"]["Attributes"] = attrs({
+            # WRITE: add vendor asset metadata here; "team" is the worked example.
             # "team": asset.get("team"),
         })
         return doc
 
     def map_issue_attributes(self, issue: dict, doc: dict) -> dict:
         '''
-        Source-specific issue metadata.  LAST_UPDATED_ATTRIBUTE is mandatory -
-        it is the field the local-metric aggregation reads last_scan back from.
+        Source-specific issue metadata.
+
+        Inputs: the vendor issue payload; the queue-issue document being built.
+        Must set: Saltminer.Attributes via attrs(), always including
+            LAST_UPDATED_ATTRIBUTE.  Returns the document.
+        Invariants: LAST_UPDATED_ATTRIBUTE is mandatory - it is the field the
+            local-metric aggregation reads last_scan back from, and it must
+            carry the same vendor last-updated value build_source_metric uses.
         '''
         doc["Saltminer"]["Attributes"] = attrs({
             LAST_UPDATED_ATTRIBUTE: issue.get("updated_at"),
-            "status": issue.get("status"),
+            # WRITE: add further issue metadata after LAST_UPDATED_ATTRIBUTE; "status" is the worked example.
+            # "status": issue.get("status"),
         })
         return doc
+
+    def build_gui_url(self, asset: dict, issue: dict = None) -> str:
+        '''
+        The deep-link URL written to Scanner["GuiUrl"] on every issue.
+
+        Inputs: the vendor asset payload; the vendor issue payload when called
+            from map_issue.  issue is there for issue-level deep links and may
+            be ignored.
+        Must return: a URL string, or None when the source has no UI to link
+            to.
+        Invariants: pure composition, no HTTP.  Most real sources do not hand
+            back a link directly - the pattern is host + project/asset path +
+            issue anchor, usually reverse-engineered from the vendor UI, and
+            this method is where that composition lives.
+        '''
+        # WRITE: compose the deep-link URL for your source if the API does not supply gui_url directly.
+        return asset.get("gui_url")
 
     def close(self):
         ''' Flush any batched issues and release the DataClient.  Never raises. '''
@@ -409,6 +538,54 @@ class TemplateAdapter:
             self._data_client.close()
         except Exception as ex:  # noqa: BLE001 - close must not raise
             logger.error("[TemplateAdapter] Failed closing DataClient: %s", ex)
+
+    # -- entry role: client + loader wiring and run_sync ---------------------
+
+    @property
+    def client(self):
+        ''' The vendor client, built from config on first use unless injected. '''
+        if self._client is None:
+            self._client = TemplateClient(self._app.Settings, self._source_name)
+        return self._client
+
+    @property
+    def loader(self) -> "SourceLoader":
+        ''' The SourceLoader over this adapter and its client, built on first use. '''
+        if self._loader is None:
+            self._loader = SourceLoader(self._app, self.client, self, self._source_name)
+        return self._loader
+
+    def run_sync(self, first_load: bool = False) -> dict:
+        '''
+        The single entry for a run - the only method RunPythonAdapter.py calls.
+
+        Inputs: first_load (second CLI argument) - True bypasses the
+            NeedsUpdate gate and loads everything the source has.  Every other
+            parameter comes from the source config file, read in the block
+            below.
+        Must return: the loader's summary dict
+            {"skipped", "completed", "errored", "issues"} from either path.
+        Invariants: the executed path is chosen by the Threaded config key -
+            true runs SourceLoader.run_threaded() with WorkerCount threads,
+            false runs SourceLoader.run() in this thread.  Either way this
+            entry adapter is closed in a finally (worker adapters close
+            themselves on thread exit).  The entry instance never runs
+            sync_asset() on a worker thread; worker instances never call this.
+        '''
+        settings = self._app.Settings
+        # -- config keys read by run_sync (Config/Sources/<Source>.json) ------
+        # WRITE: adjust the Threaded / WorkerCount defaults to the vendor API's tolerance; document
+        # any source-specific keys you add beside them.
+        threaded = str(settings.GetSource(self._source_name, "Threaded", True)).lower() == "true"
+        worker_count = int(settings.GetSource(self._source_name, "WorkerCount", 5))
+        # ---------------------------------------------------------------------
+        try:
+            if threaded:
+                return self.loader.run_threaded(worker_count, first_load=first_load,
+                                                client_factory=type(self.client))
+            return self.loader.run(first_load=first_load)
+        finally:
+            self.close()
 
 
 # ===========================================================================
@@ -424,8 +601,9 @@ class SourceLoader:
     scan).
 
     Two composition modes:
-    - Threaded single-asset adapter: load_queue() inserts one SMQ queue item
-      per asset that needs an update; Core.Agent + SourceWorker drain them.
+    - Threaded single-asset adapter: run_threaded() fans the gated assets out
+      to an in-memory pool of worker threads, each owning its own client +
+      adapter + DataClient.  In-process only; no SMQ, no persistence.
     - Non-threaded adapter (incl. all batch adapters): run() drives the whole
       run directly through TemplateAdapter.
 
@@ -542,119 +720,142 @@ class SourceLoader:
                     "%s issue(s).", self._skipped, completed, errored, issues)
         return summary
 
-    # -- threaded single-asset mode -------------------------------------------
+    # -- threaded single-asset mode (in-memory) ----------------------------
 
-    def load_queue(self, first_load: bool = False, batch_size: int = 500) -> int:
+    # DELETE-IF-BATCH: optional - run_threaded (the in-memory threaded driver); Threaded=false is the supported route
+    def run_threaded(self, worker_count: int, first_load: bool = False,
+                     client_factory=None) -> dict:
         '''
-        Inserts one SMQ queue item per asset that needs an update, for
-        Core.Agent + SourceWorker to drain.  Items carry the asset id only -
-        workers re-fetch their own payloads, so nothing large sits in a queue
-        document.  Returns the number of items submitted.
+        In-memory fan-out of the gated work list across worker threads, in
+        this one process.  Returns the same summary dict as run().
+
+        Inputs: worker_count threads; first_load bypasses the gate exactly as
+            in run(); client_factory - callable (settings, source_name) ->
+            client, one per thread, defaulting to TemplateClient (run_sync
+            passes the entry client's class so a mock entry fans out mocks).
+        Must return: {"skipped", "completed", "errored", "issues"}.
+        Invariants:
+        - This thread gates and feeds a bounded queue of asset payloads; a
+          slow sink backpressures the vendor paging instead of buffering the
+          whole listing.  worker_count threads consume it.
+        - One client + one TemplateAdapter + one DataClient per thread, built
+          on that thread and never shared: DataClient wraps a persistent
+          asyncio loop and batches issues as instance state.  The asset
+          payload rides the queue; issues are fetched on the worker's own
+          client so every sync gets the asset's FULL issue set.
+        - Per-asset failure boundary, as run(): a failed asset is logged and
+          counted, never stops the run, and left nothing half-visible
+          (sync_asset cancels its own scan).
+        - All data writes go through the DataApi (each thread's DataClient);
+          nothing here touches Elasticsearch or any queue index.
+        - Graceful shutdown: KeyboardInterrupt/SystemExit in this thread stops
+          the feed, lets each worker's in-flight asset finish (or cancel via
+          sync_asset's BaseException handling), joins and closes the workers,
+          then re-raises.  Un-started assets still in the queue are dropped.
+        - No persistence and no resume: a killed run loses only its in-flight
+          work list; the next run's gate re-derives what still needs doing.
         '''
-        queue_client = QueueClient(self._app, self._source_name.lower())
-        loaded = 0
-        batch = {}
-        for asset in self.iter_assets_needing_update(first_load=first_load):
-            asset_id = asset["id"]
-            batch[f"{QUEUE_TARGET_TYPE}|{self._source_name}|{asset_id}"] = {
-                "target_id": str(asset_id),
-                "target_type": QUEUE_TARGET_TYPE,
-                "target_instance": self._source_name,
-                "force": first_load,
-            }
-            if len(batch) >= batch_size:
-                queue_client.insert_queue(f"{self._source_name} Loader", batch)
-                loaded += len(batch)
-                batch = {}
-        if batch:
-            queue_client.insert_queue(f"{self._source_name} Loader", batch)
-            loaded += len(batch)
-        logger.info("[SourceLoader] Queued %s asset(s) for workers (%s skipped by gate).",
-                    loaded, self._skipped)
-        return loaded
-
-
-# ===========================================================================
-# SourceWorker - one asset per invocation, threaded single-asset mode only
-# ===========================================================================
-
-class SourceWorkerFactory(WorkerFactory):
-    '''
-    Creates SourceWorker instances for Core.Agent.
-
-    :source_name: config lookup key (SourceName), ex "TEMPLATE1"
-    :client_factory: optional callable (settings, source_name) -> client, so a
-        mock client can be injected; defaults to TemplateClient.
-    '''
-
-    def __init__(self, source_name: str, client_factory=None):
-        self._source_name = source_name
-        self._client_factory = client_factory or TemplateClient
-
-    def create_worker(self, id: int, agent: Agent, **kwargs) -> Worker:
-        return SourceWorker(id, agent, source_name=self._source_name,
-                            client_factory=self._client_factory, **kwargs)
-
-
-class SourceWorker(Worker):
-    '''
-    Processes exactly one asset per queue item: fetch the payload by id, then
-    run the adapter's sync chain with the asset's FULL current issue set
-    (retirement rule).  The queue item carries only the asset id - payloads
-    are re-fetched here so nothing large ever sits in a queue document, and
-    the fetch half is what parallelises.
-
-    Each worker owns its own TemplateAdapter (and therefore its own
-    DataClient).  DataClient wraps a persistent asyncio loop and batches
-    issues as instance state - shared across threads it would interleave
-    issues from different scans.
-    '''
-
-    def __init__(self, id: int, agent: Agent, **kwargs):
-        self._source_name = kwargs.pop("source_name")
-        self._client_factory = kwargs.pop("client_factory", TemplateClient)
-        super().__init__(id, agent, **kwargs)
-        # Built lazily on the worker's own thread, one of each per worker.
-        self._client = None
-        self._adapter = None
-
-    @property
-    def client(self):
-        if self._client is None:
-            self._client = self._client_factory(self.agent.app.Settings, self._source_name)
-        return self._client
-
-    @property
-    def adapter(self) -> TemplateAdapter:
-        if self._adapter is None:
-            self._adapter = TemplateAdapter(self.agent.app, self._source_name)
-        return self._adapter
-
-    def _process(self, item: QueueClientDto):
-        '''
-        One work item, end to end.  On failure the item is completed as an
-        error and the exception re-raised: the agent needs the terminal state,
-        and Core.Worker.run() needs the raise to count it toward the error
-        threshold.
-        '''
-        target_id = (item.doc.data or {}).get("target_id")
+        worker_count = max(1, int(worker_count))
+        client_factory = client_factory or TemplateClient
+        work = queue.Queue(maxsize=worker_count * 2)
+        stop = threading.Event()
+        stop_item = object()      # one per worker tells it the feed is finished
+        results = []
+        threads = [
+            threading.Thread(target=self._worker_thread, name=f"{self._source_name}-worker-{i}",
+                             args=(i, work, stop, stop_item, results, client_factory), daemon=True)
+            for i in range(worker_count)
+        ]
+        for thread in threads:
+            thread.start()
         try:
-            if not target_id:
-                raise SourceWorkerException(
-                    f"Queue item {item.id} has no target_id in its data payload.")
-            asset = self.client.get_asset(target_id)
-            # FULL current issue set - never a delta (retirement rule).
-            issue_count = self.adapter.sync_asset(
-                asset, self.client.get_issues_generator(target_id))
-            self.agent.complete(item, is_error=False,
-                                data=dict(item.doc.data, issue_count=issue_count))
-        except Exception as ex:
-            self.logger.error("Worker %s failed asset '%s': [%s] %s",
-                              self.id, target_id, type(ex).__name__, ex)
+            for asset in self.iter_assets_needing_update(first_load=first_load):
+                self._feed(work, threads, asset)
+            for _ in threads:
+                self._feed(work, threads, stop_item)
+        except BaseException:
+            # Stop consuming; whatever a worker is mid-way through completes
+            # or cancels on its own, then the join below lets it finish.
+            stop.set()
+            raise
+        finally:
+            for thread in threads:
+                thread.join()
+        completed = sum(r["completed"] for r in results)
+        errored = sum(r["errored"] for r in results)
+        issues = sum(r["issues"] for r in results)
+        summary = {"skipped": self._skipped, "completed": completed,
+                   "errored": errored, "issues": issues}
+        logger.info("[SourceLoader] Threaded run finished (%s worker(s)): %s skipped, "
+                    "%s completed, %s errored, %s issue(s).",
+                    len(threads), self._skipped, completed, errored, issues)
+        return summary
+
+    @staticmethod
+    def _feed(work, threads, item):
+        '''
+        Blocking put with backpressure that stays responsive: the short
+        timeout keeps Ctrl-C deliverable to this thread and notices when every
+        worker has died (nothing would ever drain the queue).
+        '''
+        while True:
             try:
-                self.agent.complete(item, is_error=True, reason=str(ex))
-            except Exception as ex2:  # noqa: BLE001 - never mask the original failure
-                self.logger.error("Worker %s could not record failure for '%s': %s",
-                                  self.id, target_id, ex2)
-            raise SourceWorkerException(
-                f"Error processing asset '{target_id}'") from ex
+                work.put(item, timeout=0.5)
+                return
+            except queue.Full:
+                if not any(t.is_alive() for t in threads):
+                    raise RuntimeError(
+                        "[SourceLoader] All worker threads exited; feed aborted.")
+
+    # DELETE-IF-BATCH: optional - _worker_thread (the worker-thread body behind run_threaded)
+    def _worker_thread(self, worker_id: int, work, stop, stop_item, results: list, client_factory):
+        '''
+        One worker's whole life: build its own client and (mapping-only)
+        adapter, drain assets until the sentinel or the stop flag, flush/close
+        the adapter, report its counts.  Exceptions from a single asset are
+        the per-asset boundary (logged, counted); anything else ends this
+        thread after the adapter is closed, and the feeder notices if none are
+        left.
+        '''
+        completed = errored = issues = 0
+        client = client_factory(self._app.Settings, self._source_name)
+        adapter = TemplateAdapter(self._app, self._source_name, dry_run=self._adapter._dry_run)
+        try:
+            while not stop.is_set():
+                try:
+                    asset = work.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+                if asset is stop_item:
+                    break
+                asset_id = asset.get("id")
+                try:
+                    # FULL current issue set, fetched on this thread's client
+                    # (retirement rule).
+                    issues += adapter.sync_asset(asset, client.get_issues_generator(asset_id))
+                    completed += 1
+                except Exception as ex:  # noqa: BLE001 - per-asset boundary, logged and counted
+                    errored += 1
+                    logger.error("[SourceLoader] Worker %s: asset %s failed: [%s] %s",
+                                 worker_id, asset_id, type(ex).__name__, ex)
+        finally:
+            adapter.close()
+            results.append({"completed": completed, "errored": errored, "issues": issues})
+
+
+# ===========================================================================
+# Mock check - python Sources/Template/TemplateAdapter.py
+# ===========================================================================
+
+def main():
+    ''' No-op template check: mock client + dry run, nothing sent anywhere. '''
+    app = Application()
+    adapter = TemplateAdapter(app, client=MockTemplateClient(source_name=DEFAULT_SOURCE_NAME),
+                              dry_run=True)
+    summary = adapter.run_sync(first_load=True)
+    logging.info("[TemplateAdapter] Mock dry run complete: %s", summary)
+    print(f"Mock dry run complete: {summary}")
+
+
+if __name__ == "__main__":
+    main()
