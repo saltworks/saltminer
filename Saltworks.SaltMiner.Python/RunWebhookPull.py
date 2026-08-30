@@ -27,27 +27,41 @@ from Core.Application import Application
 from Core.DataClient import DataClient
 from Core.QueueClient import QueueClient
 from Core.SscClient import SscClient
+from Sources.SyncWorker import SyncQueueType
+from Utility.QueueLoader import format_item
 
-def get_queue_item(ssc_id:str|int, src_name:str) -> tuple[str, dict]:
-    """Helper to build queue item for a given SSC project version ID."""
-    data = {"target_id": str(ssc_id), "target_type": "SSC", "target_instance": src_name, "force": True}
-    return (f"{data['target_type']}|{data['target_instance']}|{data['target_id']}", data)
+# Queue the new (python) sync agent - RunAgentService.py - reads from.  Pass the optional
+# queue tag argument to sweep webhook events into a different queue instead (ex: the legacy
+# queue tag configured under SyncAgent/queue_index_pattern_tag).
+DEFAULT_QUEUE_TAG = "sync"
 
+# Whether webhook-queued items bypass change detection during sync.  A webhook event means SSC
+# already told us something changed, so today we force.  Flip to False to let the sync agent's
+# own change detection decide instead.
+WEBHOOKS_SHOULD_FORCE = True
 
 # Parameters
 prog = os.path.splitext(os.path.basename(__file__))[0]
 prm_webhook_src = None
 prm_src_name = 'all'
 prm_log_instance = None
+prm_queue_tag = DEFAULT_QUEUE_TAG
 enable_drop_check = True
 if len(sys.argv) > 1:
     prm_webhook_src = sys.argv[1]      # Webhook source ID (i.e. ssc1)
 if len(sys.argv) > 2:
     prm_src_name = sys.argv[2]         # Source name (i.e. SSC1)
 if len(sys.argv) > 3:
-    prm_log_instance = sys.argv[3]        # Custom logging instance
+    prm_log_instance = sys.argv[3]     # Custom logging instance
+if len(sys.argv) > 4 and sys.argv[4].strip():
+    prm_queue_tag = sys.argv[4].strip()  # Destination queue index pattern tag
 
-msg = "Usage:\n\npython3 RunWebhookPull.py whsrc src [loginst]\n\n:whsrc: Webhook source ID, i.e ssc1\n:src: Source name, i.e. SSC1\n:loginst: logging instance number, defaults to none"
+msg = ("Usage:\n\npython3 RunWebhookPull.py whsrc src [loginst] [queuetag]\n\n"
+       ":whsrc: Webhook source ID, i.e ssc1\n"
+       ":src: Source name, i.e. SSC1\n"
+       ":loginst: logging instance number, defaults to none\n"
+       f":queuetag: destination queue index pattern tag, defaults to '{DEFAULT_QUEUE_TAG}' "
+       "(sm_queue_sync_*, the queue the sync agent reads)")
 if len(sys.argv) < 3:
     logging.warning(msg)
     sys.exit(1)
@@ -56,13 +70,14 @@ if len(sys.argv) < 3:
 app = Application(loggingCustomTag=prm_log_instance)
 es = app.GetElasticClient()
 api = DataClient(app, validate_on_init=True)
-qcli = QueueClient(app, app.Settings.Get("SyncAgent", "queue_index_pattern_tag"))
+qcli = QueueClient(app, prm_queue_tag)
+logging.info("[Webhook Pull] Webhook events will be swept into queue '%s'.", qcli.index_pattern)
 ssc = None
 ssc_inactives = []
 try:
     ssc = SscClient(app.Settings, prm_src_name)
 except Exception:
-    logging.warning("[Webhook Pull] '%' appears to not be an SSC source name, inactive release checking disabled.")
+    logging.warning("[Webhook Pull] '%s' appears to not be an SSC source name, inactive release checking disabled.", prm_src_name)
     ssc = None
 try:
     if ssc:
@@ -115,8 +130,8 @@ while cur_loop < max_loops:
                     logging.info("[Webhook Pull] SSC projectVersion ID %s is inactive and will not be syned.", ssc_id)
                     continue
                 if event not in ['APP_VERSION_DELETED'] and ssc_id not in seen_ids:
-                    key, data = get_queue_item(ssc_id, prm_src_name)
-                    ssc_data[key] = data
+                    key, item = format_item(ssc_id, SyncQueueType.SSC, prm_src_name, WEBHOOKS_SHOULD_FORCE)
+                    ssc_data[key] = item
                     seen_ids.append(ssc_id)
                 else:
                     logging.debug("[Webhook Pull] SSC project version ID %s already queued for update, skipping.", ssc_id)
@@ -132,8 +147,8 @@ while cur_loop < max_loops:
 
     if len(ssc_data) > 0:
         logging.info("[Webhook Pull] %s total SSC IDs to queue for updates.", len(ssc_data))
-        qcli.insert_queue("SSC Webhook", ssc_data, force=True)
-        ssc_data = []
+        qcli.insert_queue("SSC Webhook", ssc_data, change_reason="SSC webhook event", change_trigger="webhook")
+        ssc_data = {}
     cur_loop += 1
 # end while
 logging.warning("[Webhook Pull] Max data loops occurred (%s), stopping processing.", max_loops)
