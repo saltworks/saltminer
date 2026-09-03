@@ -1,0 +1,103 @@
+{
+  "Id": "eng-0001",
+  "Name": "Acme Web Portal Pentest",
+  "State": "Active",
+  "Customer": "Acme Corp",
+  "Timestamp": "08/28/2026",
+  "Summary": "Black-box assessment of the customer portal.\nSecond line of summary.",
+  "PublishDate": "September 03, 2026",
+  "EngagementAttribute_tester": "Cameron",
+  "Critical": 1, "High": 1, "Medium": 1, "Low": 0, "Information": 0,
+  "Closed_Critical": 0, "Closed_High": 0, "Closed_Medium": 0, "Closed_Low": 1, "Closed_Information": 0,
+  "Total": 3, "Closed_Total": 1,
+  "AssetTocs": [
+    {"Id": "asset-1", "Name": "portal.acme.example", "Description": "Customer portal",
+     "SeverityGroups": [
+       {"Severity": "Critical", "SeverityLevel": 1, "Issues": [{"Name": "SQL Injection", "Total": 1}]},
+       {"Severity": "High", "SeverityLevel": 2, "Issues": [{"Name": "Stored XSS", "Total": 1}]}
+     ]},
+    {"Id": "asset-2", "Name": "api.acme.example", "Description": "REST API",
+     "SeverityGroups": [
+       {"Severity": "Medium", "SeverityLevel": 3, "Issues": [{"Name": "Verbose Errors", "Total": 1}]}
+     ]}
+  ],
+  "IssueTocs": [
+    {"Severity": "Critical", "SeverityLevel": 1, "SeverityGroups": [{"Name": "SQL Injection", "Total": 1}]},
+    {"Severity": "High", "SeverityLevel": 2, "SeverityGroups": [{"Name": "Stored XSS", "Total": 1}]},
+    {"Severity": "Medium", "SeverityLevel": 3, "SeverityGroups": [{"Name": "Verbose Errors", "Total": 1}]}
+  ],
+  "IssueDetails": [
+    {
+      "Name": "SQL Injection", "Description": "Login form is injectable.", "Product": "Manual", "Vendor": "Saltworks",
+      "Severity": "Critical", "SeverityLevel": 1, "ReportId": "R-1", "AssetId": "asset-1", "FoundDate": "2026/08/20",
+      "TestStatus": "Confirmed", "TestingInstructions": "Send `' OR 1=1--` in the **username** field.",
+      "IsSuppressed": "False", "IsActive": "True", "IsRemoved": "False", "RemovedDate": null,
+      "Location": "/login", "LocationFull": "https://portal.acme.example/login", "Classification": "CWE-89",
+      "Enumeration": "CWE-89", "Reference": "OWASP A03",
+      "Proof": "Request:\n\n```http\nPOST /login HTTP/1.1\nusername=' OR 1=1--\n```\n\nScreenshot: ![login bypass](images/big.png)",
+      "ProofText": "Request:", "ProofImgs": "![login bypass](images/big.png)",
+      "Details": "The **login** endpoint concatenates *user input* into SQL.\n\n- Parameter: `username`\n- Impact: full DB read\n  - includes `users` table\n\n1. first\n2. second",
+      "DetailsText": "", "DetailsImgs": "",
+      "Implication": "An attacker can read ~~some~~ **all** customer records.",
+      "ImplicationText": "", "ImplicationImgs": "",
+      "Recommendation": "Use parameterized queries. See [OWASP cheat sheet](https://cheatsheetseries.owasp.org/).\nAlso review <br> other endpoints.",
+      "RecommendationText": "", "RecommendationImgs": "",
+      "References": "- https://owasp.org/Top10/A03_2021-Injection/\n- [CWE-89](https://cwe.mitre.org/data/definitions/89.html)",
+      "ReferencesText": "", "ReferencesImgs": "",
+      "Comments": "[8/21/2026] cameron: Confirmed on staging\n[8/22/2026] alex: Fix scheduled",
+      "AppVersion": "3.5.1", "EngagementId": "eng-0001", "Id": "issue-1",
+      "IssueAttribute_tested_by": "cameron", "IssueAttribute_influencers": "", "IssueAttribute_developer_note": "Escalated", "IssueAttribute_comments": ""
+    },
+    {
+      "Name": "Stored XSS", "Description": "Profile bio renders HTML.", "Product": "Manual", "Vendor": "Saltworks",
+      "Severity": "High", "SeverityLevel": 2, "ReportId": "R-2", "AssetId": "asset-1", "FoundDate": "2026/08/21",
+      "TestStatus": "Confirmed", "TestingInstructions": "",
+      "IsSuppressed": "False", "IsActive": "True", "IsRemoved": "False", "RemovedDate": null,
+      "Location": "/profile", "LocationFull": "https://portal.acme.example/profile", "Classification": "CWE-79",
+      "Enumeration": "CWE-79", "Reference": "",
+      "Proof": "| Field | Payload |\n|---|---|\n| bio | `<img onerror=alert(1)>` |",
+      "ProofText": "", "ProofImgs": "",
+      "Details": "> Quoted note from the developer.\n\n---\n\n## Heading in markdown\nPlain text after heading.",
+      "DetailsText": "", "DetailsImgs": "",
+      "Implication": "", "ImplicationText": "", "ImplicationImgs": "",
+      "Recommendation": "Encode output.", "RecommendationText": "", "RecommendationImgs": "",
+      "References": "", "ReferencesText": "", "ReferencesImgs": "",
+      "Comments": "",
+      "AppVersion": "3.5.1", "EngagementId": "eng-0001", "Id": "issue-2",
+      "IssueAttribute_tested_by": "alex"
+    },
+    {
+      "Name": "Verbose Errors", "Description": "Stack traces returned to client.", "Product": "Manual", "Vendor": "Saltworks",
+      "Severity": "Medium", "SeverityLevel": 3, "ReportId": "R-3", "AssetId": "asset-2", "FoundDate": "2026/08/22",
+      "TestStatus": "Confirmed", "TestingInstructions": "",
+      "IsSuppressed": "False", "IsActive": "True", "IsRemoved": "False", "RemovedDate": null,
+      "Location": "/api/v1/orders", "LocationFull": "https://api.acme.example/api/v1/orders", "Classification": "CWE-209",
+      "Enumeration": "CWE-209", "Reference": "",
+      "Proof": "Broken image should be skipped: ![missing](images/does-not-exist.png) and text continues.",
+      "ProofText": "", "ProofImgs": "",
+      "Details": "", "DetailsText": "", "DetailsImgs": "",
+      "Implication": "", "ImplicationText": "", "ImplicationImgs": "",
+      "Recommendation": "", "RecommendationText": "", "RecommendationImgs": "",
+      "References": "", "ReferencesText": "", "ReferencesImgs": "",
+      "Comments": "",
+      "AppVersion": "3.5.1", "EngagementId": "eng-0001", "Id": "issue-3"
+    }
+  ],
+  "IssueDetailsRemoved": [
+    {
+      "Name": "Old Low Finding", "Description": "Fixed last cycle.", "Product": "Manual", "Vendor": "Saltworks",
+      "Severity": "Low", "SeverityLevel": 4, "ReportId": "R-0", "AssetId": "asset-2", "FoundDate": "2026/01/10",
+      "TestStatus": "Closed", "TestingInstructions": "",
+      "IsSuppressed": "False", "IsActive": "False", "IsRemoved": "True", "RemovedDate": "2026/03/01",
+      "Location": "/", "LocationFull": "https://api.acme.example/", "Classification": "", "Enumeration": "", "Reference": "",
+      "Proof": "", "ProofText": "", "ProofImgs": "", "Details": "", "DetailsText": "", "DetailsImgs": "",
+      "Implication": "", "ImplicationText": "", "ImplicationImgs": "", "Recommendation": "", "RecommendationText": "",
+      "RecommendationImgs": "", "References": "", "ReferencesText": "", "ReferencesImgs": "", "Comments": "",
+      "AppVersion": "3.5.1", "EngagementId": "eng-0001", "Id": "issue-0"
+    }
+  ],
+  "IssueDetailsAll": [],
+  "IssueSummary": [],
+  "IssueSummaryRemoved": [],
+  "IssueSummaryAll": []
+}

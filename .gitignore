@@ -52,3 +52,9 @@ ai/scratch/
 # Private AI team repo-in-a-repo (never committed to the public repo)
 /ai-team/
 CLAUDE.local.md
+
+# smreport (src/smreport)
+src/smreport/.venv/
+src/smreport/.pytest_cache/
+src/smreport/build/
+src/smreport/*.egg-info/
