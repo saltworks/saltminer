@@ -35,6 +35,9 @@ using Syncfusion.Drawing;
 using Saltworks.SaltMiner.UiApiClient.Responses;
 using Saltworks.SaltMiner.UiApiClient.ViewModels;
 using Saltworks.SaltMiner.UiApiClient.Requests;
+using System.Diagnostics;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 
 namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 {
@@ -91,7 +94,8 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             //Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("Mgo+DSMBMAY9C3t2VlhhQlJCfV5AQmBIYVp/TGpJfl96cVxMZVVBJAtUQF1hSn9TdkdiX35ecHJcQ2Vb"); // 23.x
             //Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("Mgo+DSMBMAY9C3t2UFhhQlJBfV5AQmBIYVp/TGpJfl96cVxMZVVBJAtUQF1hTX5WdkxiWntZcXRWRGBY"); // 25.x
             //Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("Ngo9BigBOggjHTQxAR8/V1NCaF5cXmZCf1FpRmJGdld5fUVHYVZUTXxaS00DNHVRdkdnWXdecnVRRmlZVkB2WUs="); //26.x
-            Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("Mgo+DSMBMAY9C3t2UlhhQlVMfV5AQmBIYVp/TGpJfl96cVxMZVVBJAtUQF1hTX5ad0xiXnpfcXBXQWlc"); // 27.x
+            if (UseSyncfusionRenderer)
+                Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("Mgo+DSMBMAY9C3t2UlhhQlVMfV5AQmBIYVp/TGpJfl96cVxMZVVBJAtUQF1hTX5ad0xiXnpfcXBXQWlc"); // 27.x
             //Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense("Ngo9BigBOggjHTQxAR8/V1JFaF5cXGRCf1FpRmJGdld5fUVHYVZUTXxaS00DNHVRdkdmWXZfcnVVRGVZWUV3WEZWYEA="); // 31.x
             try
             {
@@ -193,6 +197,18 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             return engagementComments;
         }
 
+        // 3.5.1: report rendering is delegated to the standalone Python renderer (src/smreport) by default.
+        // The Syncfusion path is kept behind ReportRenderer="syncfusion" for parity testing and is removed after cutover.
+        private bool UseSyncfusionRenderer => Config.ReportRenderer?.Equals("syncfusion", StringComparison.OrdinalIgnoreCase) ?? false;
+
+        private static readonly JsonSerializerOptions ContextJsonOptions = new()
+        {
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            WriteIndented = false
+        };
+
+        private static readonly Regex MarkdownImageRegex = new(@"!\[[^\]]*\]\((https?://[^)\s]+)[^)]*\)");
+
         private void CreateWordReport(WordTemplate template)
         {
             var cDir = Directory.GetCurrentDirectory();
@@ -228,167 +244,45 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
             Logger.LogInformation("Generating Report Name: '{ReportName}'", reportName);
 
-            Directory.SetCurrentDirectory(template.TmpDirectory);
+            Logger.LogInformation("Generating Report DTO");
+            object reportEngagement = CreateReportEngagementDto(engagementSummary, engagementAssets, engagementIssues, engagementIssuesRemoved, engagementComments);
 
-            using (var fileStream = new FileStream(template.Template, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            using (var document = new WordDocument(fileStream, FormatType.Docx))
+            var makePdf = Config.ReportAttachmentType.Equals("pdf", StringComparison.OrdinalIgnoreCase) || Config.ReportAttachmentType.Equals("all", StringComparison.OrdinalIgnoreCase);
+            var makeWord = Config.ReportAttachmentType.Equals("word", StringComparison.OrdinalIgnoreCase) || Config.ReportAttachmentType.Equals("all", StringComparison.OrdinalIgnoreCase);
+
+            if (UseSyncfusionRenderer)
             {
-
-                Logger.LogInformation("Generating Report DTO");
-                var reportEngagement = CreateReportEngagementDto(engagementSummary, engagementAssets, engagementIssues, engagementIssuesRemoved, engagementComments);
-
-                document.MailMerge.MergeImageField += new MergeImageFieldEventHandler(MergeField_ImageEvent);
-                document.MailMerge.MergeField += new MergeFieldEventHandler(MergeMarkdownFieldEvent);
-
-                var count = 1;
-
-                var dataList = new List<dynamic> { reportEngagement };
-                Logger.LogDebug("Merging Template");
-                foreach (WSection section in document.Sections)
-                {
-                    var dataTable = new MailMergeDataTable($"Section{count}", dataList);
-                    section.Document.MailMerge.ExecuteNestedGroup(dataTable);
-                    count++;
-                }
-
-                // Find/convert markdown values to html in the merged document
-                InsertMarkdownToHtml();
-
-                // Find and style any hyperlinks
-                // only find paragraphs that have hyperlinks to style
-                string hyperlinkPattern = @"HYPERLINK\s+""([^""]+)""";
-                TextSelection[] textSelections = document.FindAll(new Regex(hyperlinkPattern));
-                string hyperLinkText = string.Empty;
-
-                if (textSelections != null)
-                {
-                    foreach (TextSelection selection in textSelections)
-                    {
-                        WParagraph paragraph = selection.GetAsOneRange().OwnerParagraph;
-
-                        foreach (Entity entity in paragraph.ChildEntities)
-                        {
-                            // check to see if field type is hyperlink and record the text to be decorated
-                            if (entity is WField wField)
-                            {
-                                if (wField.FieldType == FieldType.FieldHyperlink)
-                                {
-                                    hyperLinkText = wField.Text;
-                                }
-                            }
-                            else if (entity is WTextRange wText)
-                            {
-                                var newText = wText;
-                                // once it finds a match of the hyperlink text, this is the field to set the styling to
-                                if (!string.IsNullOrEmpty(hyperLinkText) && newText.Text.Equals(hyperLinkText))
-                                {
-                                    newText.CharacterFormat.UnderlineStyle = UnderlineStyle.Single;
-                                    newText.CharacterFormat.TextColor = Color.Blue;
-                                    hyperLinkText = string.Empty;
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Find all image and resize..
-                List<Entity> pictures = document.FindAllItemsByProperty(Syncfusion.DocIO.DLS.EntityType.Picture, null, null);
-                if (pictures != null)
-                {
-                    foreach (WPicture picture in pictures.Cast<WPicture>())
-                    {
-                        // only resize images that do not have the alt text set to the configured text
-                        if (picture.AlternativeText != Config.ReportStaticImageAltText)
-                        {
-                            var origHeight = picture.Height;
-                            var origWidth = picture.Width;
-
-                            int maxWidth = Config.ReportImageMaxWidth;
-                            int maxHeight = Config.ReportImageMaxHeight;
-
-                            // Compute differences between w & h with max w & h
-                            var deltaWidth = origWidth - maxWidth;
-                            var deltaHeight = origHeight - maxHeight;
-
-                            // Aspect ratio needed to scale the "2nd" adjusted dimension
-                            double aspectRatio = (double)origWidth / origHeight;
-                            int newWidth, newHeight;
-
-                            // Figure out which of the dimensions is further out, then set that one and scale the other
-                            // No changes happen if neither exceed max (are > 0)
-                            if (deltaWidth > 0 || deltaHeight > 0)
-                            {
-                                if (deltaWidth > deltaHeight)
-                                {
-                                    newWidth = maxWidth;
-                                    newHeight = (int)(maxWidth / aspectRatio);
-                                }
-                                else
-                                {
-                                    newHeight = maxHeight;
-                                    newWidth = (int)(maxHeight * aspectRatio);
-                                }
-                                picture.Height = newHeight;
-                                picture.Width = newWidth;
-                            }
-                        }
-                    }
-                }
-                
-                var type = FormatType.Docx;
-
-                Logger.LogInformation($"Saving Report");
-                using (var fs = new FileStream(outputFileName, FileMode.Create, FileAccess.ReadWrite))
-                {
-                    document.Save(fs, type);
-                }
-
-                if (Config.ReportAttachmentType.Equals("pdf", StringComparison.OrdinalIgnoreCase) || Config.ReportAttachmentType.Equals("all", StringComparison.OrdinalIgnoreCase))
-                {
-                    var outputPdfFilePath = Path.Combine(template.TmpDirectory, outputPdfFileName);
-
-                    document.FontSettings.SubstituteFont += FontSettings_SubstituteFont;
-
-                    using var render = new DocIORenderer();
-                    using var pdfDoc = render.ConvertToPDF(document);
-                    document.FontSettings.SubstituteFont -= FontSettings_SubstituteFont;
-
-                    // Log the fonts that are not available but used in Word document.
-                    if (FontsNotAvailableDict.Count > 0)
-                    {
-                        foreach (string font in FontsNotAvailableDict.Keys)
-                            Logger.LogWarning("The font {Font} used in the source document is not available. Replaced with {Replace}", font, FontsNotAvailableDict[font]);
-                    }
-
-                    FileStream pdfFs = null;
-                    // Save the PDF physical file from Word doc stream
-                    using (pdfFs = new FileStream(outputPdfFilePath, FileMode.Create, FileAccess.ReadWrite))
-                    {
-                        pdfDoc.Save(pdfFs);
-                    }
-
-                    // Open the newly created PDF file and upload for attachment
-                    using (pdfFs = new FileStream(outputPdfFilePath, FileMode.Open))
-                    {
-                        UiApiClient.UploadFile(pdfFs, outputPdfFileName);
-                        var pdfAttachment = UiApiClient.GetEngagementAttachment(outputPdfFileName);
-                        if (pdfAttachment?.Data == null)
-                        {
-                            throw new JobManagerException($"Report PDF Attachment was not created for '{outputPdfFileName}'");
-                        }
-                        Logger.LogInformation($"Attaching PDF report to Engagement");
-                        UiApiClient.AddEngagementAttachment(JobQueue.TargetId, pdfAttachment.Data);
-                    }
-                }
+                Logger.LogInformation("Rendering report with Syncfusion (legacy renderer)");
+                RenderWithSyncfusion(template, reportEngagement, outputFileName, outputPdfFileName, makePdf);
+            }
+            else
+            {
+                Logger.LogInformation("Rendering report with smreport");
+                RenderWithSmReport(template, reportEngagement, reportName, makePdf);
             }
 
             Directory.SetCurrentDirectory(cDir);
             var outputFilePath = Path.Combine(template.TmpDirectory, outputFileName);
+            var outputPdfFilePath = Path.Combine(template.TmpDirectory, outputPdfFileName);
+
+            if (makePdf)
+            {
+                // Open the newly created PDF file and upload for attachment
+                using var pdfFs = new FileStream(outputPdfFilePath, FileMode.Open);
+                UiApiClient.UploadFile(pdfFs, outputPdfFileName);
+                var pdfAttachment = UiApiClient.GetEngagementAttachment(outputPdfFileName);
+                if (pdfAttachment?.Data == null)
+                {
+                    throw new JobManagerException($"Report PDF Attachment was not created for '{outputPdfFileName}'");
+                }
+                Logger.LogInformation($"Attaching PDF report to Engagement");
+                UiApiClient.AddEngagementAttachment(JobQueue.TargetId, pdfAttachment.Data);
+            }
 
             using (var fileStream = new FileStream(outputFilePath, FileMode.Open))
             {
                 // If selected for attachment, upload and attach Word doc
-                if (Config.ReportAttachmentType.Equals("word", StringComparison.OrdinalIgnoreCase) || Config.ReportAttachmentType.Equals("all", StringComparison.OrdinalIgnoreCase))
+                if (makeWord)
                 {
                     UiApiClient.UploadFile(fileStream, outputFileName);
                     var attachment = UiApiClient.GetEngagementAttachment(outputFileName);
@@ -403,6 +297,341 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
             Logger.LogInformation("Cleaning Up Temp Files");
             Directory.Delete(template.TmpDirectory, true);
+        }
+
+        /// <summary>
+        /// 3.5.1: renders the report through the standalone Python renderer (python -m smreport).
+        /// Communicates only via files in the job's temp directory: context.json in, docx/pdf out.
+        /// </summary>
+        private void RenderWithSmReport(WordTemplate template, object reportEngagement, string reportName, bool makePdf)
+        {
+            // Markdown images that need the authenticated UI API (what MdImportSettings_ImageNodeVisited did)
+            // are fetched here and rewritten to local files so the renderer stays standalone.
+            PrefetchMarkdownImages(reportEngagement, template.TmpDirectory, []);
+
+            var contextPath = Path.Combine(template.TmpDirectory, "context.json");
+            File.WriteAllText(contextPath, JsonSerializer.Serialize(reportEngagement, typeof(object), ContextJsonOptions));
+            Logger.LogDebug("Report context written to '{Path}'", contextPath);
+
+            var command = (Config.ReportRendererCommand ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (command.Length == 0)
+            {
+                throw new JobManagerException("ReportRendererCommand is not configured");
+            }
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = command[0],
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WorkingDirectory = template.TmpDirectory
+            };
+            foreach (var arg in command.Skip(1))
+            {
+                psi.ArgumentList.Add(arg);
+            }
+            void Arg(string name, string value)
+            {
+                psi.ArgumentList.Add(name);
+                psi.ArgumentList.Add(value ?? string.Empty);
+            }
+            Arg("--context", contextPath);
+            Arg("--template", template.Template);
+            Arg("--outdir", template.TmpDirectory);
+            Arg("--name", reportName);
+            Arg("--formats", makePdf ? "docx,pdf" : "docx");
+            Arg("--image-max-width", Config.ReportImageMaxWidth.ToString());
+            Arg("--image-max-height", Config.ReportImageMaxHeight.ToString());
+            Arg("--static-image-alt-text", Config.ReportStaticImageAltText);
+            Arg("--markdown-fields", string.Join(",", MarkdownFieldsList.Distinct()));
+            if (Config.ReportFontSubstitutions?.Count > 0)
+            {
+                Arg("--font-substitutions", JsonSerializer.Serialize(Config.ReportFontSubstitutions));
+            }
+            if (ValueColors?.Count > 0)
+            {
+                Arg("--value-colors", JsonSerializer.Serialize(ValueColors));
+            }
+
+            RunRenderer(psi);
+
+            var docxPath = Path.Combine(template.TmpDirectory, $"{reportName}.docx");
+            if (!File.Exists(docxPath))
+            {
+                throw new JobManagerException($"Report renderer completed but '{docxPath}' was not produced");
+            }
+            var pdfPath = Path.Combine(template.TmpDirectory, $"{reportName}.pdf");
+            if (makePdf && !File.Exists(pdfPath))
+            {
+                throw new JobManagerException($"Report renderer completed but '{pdfPath}' was not produced");
+            }
+        }
+
+        private void RunRenderer(ProcessStartInfo psi)
+        {
+            var timeoutSec = Config.ReportRendererTimeoutSec > 0 ? Config.ReportRendererTimeoutSec : 1800;
+            var timeoutMs = (int)Math.Min((long)timeoutSec * 1000, int.MaxValue);
+            var stderr = new StringBuilder();
+
+            Logger.LogInformation("Launching report renderer '{File}' (timeout {Timeout}s)", psi.FileName, timeoutSec);
+            Logger.LogDebug("Report renderer arguments: {Args}", string.Join(' ', psi.ArgumentList.Select(a => a.Contains(' ') ? $"\"{a}\"" : a)));
+
+            using var proc = new Process { StartInfo = psi };
+            proc.OutputDataReceived += (_, e) => { if (e.Data != null) Logger.LogDebug("[smreport] {Line}", e.Data); };
+            proc.ErrorDataReceived += (_, e) =>
+            {
+                if (e.Data == null) return;
+                stderr.AppendLine(e.Data);
+                Logger.LogInformation("[smreport] {Line}", e.Data);
+            };
+
+            try
+            {
+                proc.Start();
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+            {
+                throw new JobManagerException($"Failed to launch report renderer '{psi.FileName}' (check ReportRendererCommand): {ex.Message}", ex);
+            }
+            proc.BeginOutputReadLine();
+            proc.BeginErrorReadLine();
+
+            if (!proc.WaitForExit(timeoutMs))
+            {
+                try
+                {
+                    proc.Kill(entireProcessTree: true);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to kill report renderer after timeout: [{Type}] {Msg}", ex.GetType().Name, ex.Message);
+                }
+                throw new JobManagerException($"Report renderer timed out after {timeoutSec}s");
+            }
+            proc.WaitForExit(); // drains the async output readers
+
+            if (proc.ExitCode != 0)
+            {
+                var tail = stderr.ToString().Trim();
+                if (tail.Length > 2000)
+                {
+                    tail = tail[^2000..];
+                }
+                throw new JobManagerException($"Report renderer failed with exit code {proc.ExitCode}: {tail}");
+            }
+        }
+
+        /// <summary>
+        /// Walks the DTO and downloads any http(s) markdown image through the UI API, rewriting the
+        /// markdown to a path relative to the temp directory. Failures are logged and the URL is left as-is.
+        /// </summary>
+        private void PrefetchMarkdownImages(object node, string tmpDirectory, Dictionary<string, string> cache)
+        {
+            switch (node)
+            {
+                case IDictionary<string, object> dict:
+                    foreach (var key in dict.Keys.ToList())
+                    {
+                        if (dict[key] is string s)
+                        {
+                            dict[key] = RewriteMarkdownImages(s, tmpDirectory, cache);
+                        }
+                        else
+                        {
+                            PrefetchMarkdownImages(dict[key], tmpDirectory, cache);
+                        }
+                    }
+                    break;
+                case string:
+                    break;
+                case System.Collections.IEnumerable list:
+                    foreach (var item in list)
+                    {
+                        PrefetchMarkdownImages(item, tmpDirectory, cache);
+                    }
+                    break;
+            }
+        }
+
+        private string RewriteMarkdownImages(string markdown, string tmpDirectory, Dictionary<string, string> cache)
+        {
+            if (string.IsNullOrEmpty(markdown) || !markdown.Contains("!["))
+            {
+                return markdown;
+            }
+            return MarkdownImageRegex.Replace(markdown, match =>
+            {
+                var url = match.Groups[1].Value;
+                if (!cache.TryGetValue(url, out var local))
+                {
+                    local = null;
+                    try
+                    {
+                        byte[] image = UiApiClient.DownloadFile(url);
+                        var imageDir = Path.Combine(tmpDirectory, "images");
+                        Directory.CreateDirectory(imageDir);
+                        var fileName = $"img_{cache.Count + 1}.{ImageExtension(image)}";
+                        File.WriteAllBytes(Path.Combine(imageDir, fileName), image);
+                        local = $"images/{fileName}";
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex, "'{Uri}' could not be downloaded on Engagement '{TargetId}': [{Type}] {Msg}", url, JobQueue.TargetId, ex.GetType().Name, ex.Message);
+                    }
+                    cache[url] = local;
+                }
+                return local == null ? match.Value : match.Value.Replace(url, local);
+            });
+        }
+
+        private static string ImageExtension(byte[] data)
+        {
+            if (data.Length >= 4 && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47) return "png";
+            if (data.Length >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF) return "jpg";
+            if (data.Length >= 3 && data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46) return "gif";
+            if (data.Length >= 2 && data[0] == 0x42 && data[1] == 0x4D) return "bmp";
+            return "img";
+        }
+
+        /// <summary>
+        /// Legacy Syncfusion merge/render. Writes docx (and pdf when requested) into the temp directory.
+        /// Scheduled for removal once smreport parity is confirmed.
+        /// </summary>
+        private void RenderWithSyncfusion(WordTemplate template, object reportEngagement, string outputFileName, string outputPdfFileName, bool makePdf)
+        {
+            Directory.SetCurrentDirectory(template.TmpDirectory);
+
+            using var fileStream = new FileStream(template.Template, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var document = new WordDocument(fileStream, FormatType.Docx);
+
+            document.MailMerge.MergeImageField += new MergeImageFieldEventHandler(MergeField_ImageEvent);
+            document.MailMerge.MergeField += new MergeFieldEventHandler(MergeMarkdownFieldEvent);
+
+            var count = 1;
+
+            var dataList = new List<dynamic> { reportEngagement };
+            Logger.LogDebug("Merging Template");
+            foreach (WSection section in document.Sections)
+            {
+                var dataTable = new MailMergeDataTable($"Section{count}", dataList);
+                section.Document.MailMerge.ExecuteNestedGroup(dataTable);
+                count++;
+            }
+
+            // Find/convert markdown values to html in the merged document
+            InsertMarkdownToHtml();
+
+            // Find and style any hyperlinks
+            // only find paragraphs that have hyperlinks to style
+            string hyperlinkPattern = @"HYPERLINK\s+""([^""]+)""";
+            TextSelection[] textSelections = document.FindAll(new Regex(hyperlinkPattern));
+            string hyperLinkText = string.Empty;
+
+            if (textSelections != null)
+            {
+                foreach (TextSelection selection in textSelections)
+                {
+                    WParagraph paragraph = selection.GetAsOneRange().OwnerParagraph;
+
+                    foreach (Entity entity in paragraph.ChildEntities)
+                    {
+                        // check to see if field type is hyperlink and record the text to be decorated
+                        if (entity is WField wField)
+                        {
+                            if (wField.FieldType == FieldType.FieldHyperlink)
+                            {
+                                hyperLinkText = wField.Text;
+                            }
+                        }
+                        else if (entity is WTextRange wText)
+                        {
+                            var newText = wText;
+                            // once it finds a match of the hyperlink text, this is the field to set the styling to
+                            if (!string.IsNullOrEmpty(hyperLinkText) && newText.Text.Equals(hyperLinkText))
+                            {
+                                newText.CharacterFormat.UnderlineStyle = UnderlineStyle.Single;
+                                newText.CharacterFormat.TextColor = Color.Blue;
+                                hyperLinkText = string.Empty;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Find all image and resize..
+            List<Entity> pictures = document.FindAllItemsByProperty(Syncfusion.DocIO.DLS.EntityType.Picture, null, null);
+            if (pictures != null)
+            {
+                foreach (WPicture picture in pictures.Cast<WPicture>())
+                {
+                    // only resize images that do not have the alt text set to the configured text
+                    if (picture.AlternativeText != Config.ReportStaticImageAltText)
+                    {
+                        var origHeight = picture.Height;
+                        var origWidth = picture.Width;
+
+                        int maxWidth = Config.ReportImageMaxWidth;
+                        int maxHeight = Config.ReportImageMaxHeight;
+
+                        // Compute differences between w & h with max w & h
+                        var deltaWidth = origWidth - maxWidth;
+                        var deltaHeight = origHeight - maxHeight;
+
+                        // Aspect ratio needed to scale the "2nd" adjusted dimension
+                        double aspectRatio = (double)origWidth / origHeight;
+                        int newWidth, newHeight;
+
+                        // Figure out which of the dimensions is further out, then set that one and scale the other
+                        // No changes happen if neither exceed max (are > 0)
+                        if (deltaWidth > 0 || deltaHeight > 0)
+                        {
+                            if (deltaWidth > deltaHeight)
+                            {
+                                newWidth = maxWidth;
+                                newHeight = (int)(maxWidth / aspectRatio);
+                            }
+                            else
+                            {
+                                newHeight = maxHeight;
+                                newWidth = (int)(maxHeight * aspectRatio);
+                            }
+                            picture.Height = newHeight;
+                            picture.Width = newWidth;
+                        }
+                    }
+                }
+            }
+            
+            var type = FormatType.Docx;
+
+            Logger.LogInformation($"Saving Report");
+            using (var fs = new FileStream(outputFileName, FileMode.Create, FileAccess.ReadWrite))
+            {
+                document.Save(fs, type);
+            }
+
+            if (makePdf)
+            {
+                var outputPdfFilePath = Path.Combine(template.TmpDirectory, outputPdfFileName);
+
+                document.FontSettings.SubstituteFont += FontSettings_SubstituteFont;
+
+                using var render = new DocIORenderer();
+                using var pdfDoc = render.ConvertToPDF(document);
+                document.FontSettings.SubstituteFont -= FontSettings_SubstituteFont;
+
+                // Log the fonts that are not available but used in Word document.
+                if (FontsNotAvailableDict.Count > 0)
+                {
+                    foreach (string font in FontsNotAvailableDict.Keys)
+                        Logger.LogWarning("The font {Font} used in the source document is not available. Replaced with {Replace}", font, FontsNotAvailableDict[font]);
+                }
+
+                // Save the PDF physical file from Word doc stream
+                using var pdfFs = new FileStream(outputPdfFilePath, FileMode.Create, FileAccess.ReadWrite);
+                pdfDoc.Save(pdfFs);
+            }
         }
 
         static readonly Dictionary<string, string> FontsNotAvailableDict = [];
@@ -432,16 +661,30 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             }
         }
 
+        private static bool IsJinjaTemplate(string path) => Path.GetFileNameWithoutExtension(path).EndsWith("-jinja", StringComparison.OrdinalIgnoreCase);
+
         private WordTemplate GetWordTemplate(string template)
         {
             var temp = Guid.NewGuid().ToString();
             var outDir = Path.Combine(Directory.GetCurrentDirectory(), Config.ReportOutputFilePath);
             var tempDir = Path.Combine(outDir, temp);
             var templateSource = Path.Combine(Directory.GetCurrentDirectory(), Config.ReportTemplateFolderPath, template);
-            var file = Directory.GetFiles(templateSource)
+            var candidates = Directory.GetFiles(templateSource)
+                .Where(x => x.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(f => new FileInfo(f).LastWriteTime)
-                .FirstOrDefault(x => x.Contains(".docx", StringComparison.OrdinalIgnoreCase)) 
+                .ToList();
+            // 3.5.1: Jinja-tagged templates carry a "-jinja" suffix until cutover. Each renderer only sees its own kind,
+            // falling back to whatever is there (with a warning) so a folder with a single template still works.
+            var jinja = candidates.Where(IsJinjaTemplate).ToList();
+            var legacy = candidates.Where(x => !IsJinjaTemplate(x)).ToList();
+            var preferred = UseSyncfusionRenderer ? legacy : jinja;
+            var fallback = UseSyncfusionRenderer ? jinja : legacy;
+            var file = preferred.FirstOrDefault() ?? fallback.FirstOrDefault()
                 ?? throw new JobManagerException($"No DOCX Template file in '{templateSource}'");
+            if (preferred.Count == 0)
+            {
+                Logger.LogWarning("No {Kind} template found in '{Dir}'; using '{File}'", UseSyncfusionRenderer ? "merge-field" : "'-jinja.docx'", templateSource, Path.GetFileName(file));
+            }
             Directory.CreateDirectory(tempDir);
 
             return new WordTemplate

@@ -84,6 +84,20 @@ public class JobManagerConfig : ConfigBase
     public string ReportCommentTemplate { get; set; } = "[{Date:d}] {User}: {Message}";
     public int ReportMaxIssueComments { get; set; } = 3;
     public bool ReportIssueCommentSortLatestFirst { get; set; } = false;
+    /// <summary>
+    /// 3.5.1: report rendering engine. "smreport" (default) runs the standalone Python renderer in src/smreport;
+    /// "syncfusion" uses the legacy in-process Syncfusion path (kept only for parity testing, removed after cutover).
+    /// </summary>
+    public string ReportRenderer { get; set; } = "smreport";
+    /// <summary>
+    /// Command used to launch the smreport renderer. First token is the executable, the rest are leading arguments;
+    /// the renderer's own arguments (--context, --template, ...) are appended.
+    /// </summary>
+    public string ReportRendererCommand { get; set; } = "python3 -m smreport";
+    /// <summary>
+    /// Maximum time to wait for the renderer before failing the job. Reports take minutes, not hours.
+    /// </summary>
+    public int ReportRendererTimeoutSec { get; set; } = 1800;
 }
 
 public class FontInfo
