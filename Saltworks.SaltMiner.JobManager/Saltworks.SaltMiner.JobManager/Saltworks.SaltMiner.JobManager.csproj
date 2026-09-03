@@ -66,6 +66,9 @@
     <None Update="TemplateDefaults\Saltworks\SaltworksTemplate.docx">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="TemplateDefaults\Saltworks\SaltworksTemplate-jinja.docx">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 	
   <ProjectExtensions><VisualStudio><UserProperties /></VisualStudio></ProjectExtensions>
