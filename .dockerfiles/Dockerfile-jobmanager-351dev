@@ -1,0 +1,39 @@
+# 3.5.1 dev/test layer: adds the Python report renderer (src/smreport) and LibreOffice
+# on top of a built jobmanager image.  Temporary until cutover, when this folds into
+# Dockerfile-jobmanager.
+#
+#   docker build -f .dockerfiles/Dockerfile-jobmanager-351dev \
+#       --build-arg BASE_IMAGE=saltminer-jobmanager:<tag> -t saltminer-jobmanager:351dev .
+#
+# Build context is the repo root (COPY src/smreport).
+#
+# NOTE: Alpine font coverage is thin.  ttf-dejavu plus the metric-compatible Liberation
+# (Arial/Times/Courier) and Carlito (Calibri) families cover the common Word defaults;
+# anything else is substituted by LibreOffice.  PDF fidelity is judged on the VM — if
+# the substitutions are unacceptable, a Debian-based (mcr.microsoft.com/dotnet/aspnet:8.0)
+# variant with `apt-get install libreoffice-writer fonts-*` is the fallback.
+ARG BASE_IMAGE=saltminer-jobmanager:latest
+FROM ${BASE_IMAGE}
+
+LABEL vendor="Saltworks Security, LLC"
+LABEL description="jobmanager + smreport renderer + LibreOffice (3.5.1 dev)"
+
+ENV APP_ROOT=/opt/saltworks/saltminer
+ENV SMREPORT_PATH=${APP_ROOT}/app/smreport
+
+RUN apk add --no-cache \
+        python3 py3-pip \
+        libreoffice-writer \
+        fontconfig ttf-dejavu font-liberation font-carlito
+
+COPY src/smreport ${SMREPORT_PATH}
+
+# Alpine's system python is PEP 668 "externally managed"; this image is single-purpose,
+# so installing straight into it is fine.
+RUN pip install --no-cache-dir --break-system-packages \
+        -r ${SMREPORT_PATH}/requirements.txt ${SMREPORT_PATH} \
+    && python3 -m smreport --version \
+    && soffice --version
+
+# JobManagerConfig defaults: ReportRenderer=smreport, ReportRendererCommand="python3 -m smreport"
+WORKDIR ${APP_ROOT}/app/jobmanager
