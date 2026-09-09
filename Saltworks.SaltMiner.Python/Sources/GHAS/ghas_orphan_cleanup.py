@@ -34,6 +34,21 @@ SAFETY
 - A configurable safety margin (--min-age-minutes, default 120) prevents
   deleting data from a run that is merely in-progress or very recent.
 - Prints a per-instance summary before any deletion.
+- RETIRE-001: issues carrying vulnerability.removed_date are NEVER deleted.
+  The adapter now retires closed GHAS alerts (setting RemovedDate from
+  GitHub's own closure timestamp) instead of having the Manager hard-delete
+  them. Run-tags are stamped only on documents the adapter queues, and the
+  Manager's RemoveIssue path sets RemovedDate without refreshing the tag — so
+  any retired issue the adapter stops re-queueing (alert deleted at GitHub,
+  engine skipped under rate limit, repo newly excluded by config) carries a
+  FROZEN run-tag and would otherwise be swept up here, destroying the very
+  closure history the retirement change exists to preserve. This guard applies
+  to issue indices only; asset and scan indices are purged as before.
+
+  Deliberate consequence: a scope whose alerts GitHub deleted outright leaves
+  stale issues that were never retired. Those have no removed_date, so this
+  script still collects them — which is what keeps that case covered now that
+  the adapter no longer hard-deletes empty scopes.
 
 CONNECTION (.env)
 -----------------
@@ -154,11 +169,53 @@ class ESRest:
         val = (res.get("aggregations", {}).get("latest", {}) or {}).get("value_as_string")
         return val
 
-    def count_older_than(self, index, cutoff_iso):
+    @staticmethod
+    def is_issue_index(index):
+        """True for the issue indices (issues_app_saltworks.ghas_<instance>).
+
+        Only issue documents carry vulnerability.removed_date, so only they
+        get the retirement guard; asset and scan indices are untouched.
+        """
+        return index.startswith("issues")
+
+    @staticmethod
+    def _orphan_query(cutoff_iso, protect_retired):
+        """Documents older than the cutoff, optionally excluding retired ones.
+
+        RETIRE-001: the adapter now marks closed alerts with
+        vulnerability.removed_date rather than having the Manager hard-delete
+        them, and the Manager's own RemoveIssue path never refreshes the
+        ghas_run_ts tag. A retired issue the adapter stops re-queueing
+        therefore carries a FROZEN run tag and would be swept up here as an
+        orphan, destroying exactly the closure history the retirement change
+        exists to preserve. Excluding removed_date keeps that history.
+        """
+        query = {
+            "bool": {
+                "must": [{"exists": {"field": "saltminer.attributes.ghas_run_ts"}}],
+                "filter": [{"range": {"saltminer.attributes.ghas_run_ts": {"lt": cutoff_iso}}}],
+            }
+        }
+        if protect_retired:
+            query["bool"]["must_not"] = [
+                {"exists": {"field": "vulnerability.removed_date"}}
+            ]
+        return query
+
+    def count_older_than(self, index, cutoff_iso, protect_retired=False):
+        body = {"query": self._orphan_query(cutoff_iso, protect_retired)}
+        res = self._req("POST", f"/{index}/_count", body=body)
+        return res.get("count", 0)
+
+    def count_retired_skipped(self, index, cutoff_iso):
+        """Stale-tagged issues shielded from deletion by their removed_date."""
         body = {
             "query": {
                 "bool": {
-                    "must": [{"exists": {"field": "saltminer.attributes.ghas_run_ts"}}],
+                    "must": [
+                        {"exists": {"field": "saltminer.attributes.ghas_run_ts"}},
+                        {"exists": {"field": "vulnerability.removed_date"}},
+                    ],
                     "filter": [{"range": {"saltminer.attributes.ghas_run_ts": {"lt": cutoff_iso}}}],
                 }
             }
@@ -166,18 +223,20 @@ class ESRest:
         res = self._req("POST", f"/{index}/_count", body=body)
         return res.get("count", 0)
 
-    def sample_orphan_repos(self, index, cutoff_iso, size=25):
+    def sample_orphan_repos(self, index, cutoff_iso, protect_retired=False, size=25):
+        # Same query as the delete, so the sample always reflects what would
+        # actually be removed rather than a superset of it.
         body = {
             "size": 0,
-            "query": {"range": {"saltminer.attributes.ghas_run_ts": {"lt": cutoff_iso}}},
+            "query": self._orphan_query(cutoff_iso, protect_retired),
             "aggs": {"repos": {"terms": {"field": "saltminer.attributes.ghas_repo_full_name", "size": size}}},
         }
         res = self._req("POST", f"/{index}/_search", body=body)
         buckets = res.get("aggregations", {}).get("repos", {}).get("buckets", [])
         return [(b["key"], b["doc_count"]) for b in buckets]
 
-    def delete_older_than(self, index, cutoff_iso):
-        body = {"query": {"range": {"saltminer.attributes.ghas_run_ts": {"lt": cutoff_iso}}}}
+    def delete_older_than(self, index, cutoff_iso, protect_retired=False):
+        body = {"query": self._orphan_query(cutoff_iso, protect_retired)}
         res = self._req("POST", f"/{index}/_delete_by_query",
                         body=body, params={"conflicts": "proceed", "refresh": "true"})
         return res.get("deleted", 0)
@@ -210,25 +269,36 @@ def process_index(es, index, instance_filter, min_age_minutes, apply):
     cutoff_dt = latest_dt - timedelta(minutes=min_age_minutes)
     cutoff_iso = cutoff_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    count = es.count_older_than(index, cutoff_iso)
+    # RETIRE-001: issue indices exclude retired issues from deletion so that
+    # closure history survives the adapter no longer re-queueing them.
+    protect_retired = es.is_issue_index(index)
+
+    count = es.count_older_than(index, cutoff_iso, protect_retired)
+    retired_skipped = es.count_retired_skipped(index, cutoff_iso) if protect_retired else 0
+
     print(f"  [{index}]")
     print(f"      latest run ts : {latest}")
     print(f"      cutoff (<)    : {cutoff_iso}  (latest − {min_age_minutes}m safety margin)")
     print(f"      orphan docs   : {count}")
+    if protect_retired:
+        print(f"      retired kept  : {retired_skipped}  "
+              f"(stale run-tag but removed_date set — closure history, not orphans)")
 
     if count == 0:
-        return {"index": index, "orphans": 0, "deleted": 0}
+        return {"index": index, "orphans": 0, "deleted": 0,
+                "retired_skipped": retired_skipped}
 
-    for repo, n in es.sample_orphan_repos(index, cutoff_iso):
+    for repo, n in es.sample_orphan_repos(index, cutoff_iso, protect_retired):
         print(f"        - {repo or '(no repo attr)'}: {n}")
 
     deleted = 0
     if apply:
-        deleted = es.delete_older_than(index, cutoff_iso)
+        deleted = es.delete_older_than(index, cutoff_iso, protect_retired)
         print(f"      DELETED       : {deleted}")
     else:
         print(f"      DRY RUN       : would delete {count} (pass --apply to delete)")
-    return {"index": index, "orphans": count, "deleted": deleted}
+    return {"index": index, "orphans": count, "deleted": deleted,
+            "retired_skipped": retired_skipped}
 
 
 def main():
@@ -278,6 +348,9 @@ def main():
     print("=" * 64)
     total_orphans = sum(r["orphans"] for r in results)
     total_deleted = sum(r["deleted"] for r in results)
+    total_retired_kept = sum(r.get("retired_skipped", 0) for r in results)
+    if total_retired_kept:
+        print(f"  Retired issues preserved (not orphans): {total_retired_kept}")
     if args.apply:
         print(f"  DONE — deleted {total_deleted} orphan doc(s) across {len(results)} index(es).")
     else:

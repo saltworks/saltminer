@@ -26,9 +26,26 @@ Arguments:
                     or edit the relevant state file directly.
     --instance      Run only the named instance (matching SourceName) instead
                     of discovering all enabled instances.
-    --config-dir    Directory to scan for GHAS instance configs.
-                    Default: /etc/saltworks/saltminer-2.5.0/Sources
+    --config-dir    Directory to scan for GHAS instance configs (the 'Sources'
+                    directory itself). Usually unnecessary — when omitted the
+                    location is resolved automatically, see below.
     --log-level     Logging verbosity. Default: INFO
+
+Config resolution:
+    The Config directory (the one containing 'Sources') is located in the same
+    order Core.Application uses, so the two can never disagree:
+      1. $SALTMINER_2_CONFIG_PATH
+      2. a 'Config' directory next to THIS script
+      3. a 'Config' directory in the current working directory
+      4. failing all of the above, the legacy deployment path
+         /etc/saltworks/saltminer-2.5.0/Sources
+    Because step 2 is anchored to the script's own location rather than the
+    cwd, running under the VS Code debugger or from the repo root behaves the
+    same as running from Saltworks.SaltMiner.Python/. The resolved paths are
+    logged at startup.
+
+    Note $SALTMINER_2_CONFIG_PATH points at 'Config', while --config-dir
+    points at 'Config/Sources'.
 """
 
 import argparse
@@ -49,6 +66,60 @@ def configure_logging(level: str = "INFO"):
         format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
+
+
+CONFIG_ENV_VAR = "SALTMINER_2_CONFIG_PATH"
+LEGACY_SOURCES_DIR = "/etc/saltworks/saltminer-2.5.0/Sources"
+
+
+def resolve_config_root() -> "str | None":
+    """
+    Locate the platform Config directory (the one CONTAINING 'Sources').
+
+    Mirrors Core.Application.__GetConfig's resolution order so this script and
+    the Application object can never disagree about where config lives —
+    previously they used entirely separate mechanisms, so setting
+    SALTMINER_2_CONFIG_PATH fixed Application while instance discovery still
+    looked at the hardcoded /etc default and reported "no instances".
+
+    Order:
+      1. SALTMINER_2_CONFIG_PATH environment variable
+      2. A 'Config' directory next to this script (the repo layout). Anchored
+         to the script's own location, not the cwd, so running under a
+         debugger or from the repo root behaves the same as running from
+         Saltworks.SaltMiner.Python/.
+      3. A 'Config' directory in the current working directory
+    Returns None when none of these exist.
+    """
+    env_path = os.getenv(CONFIG_ENV_VAR)
+    if env_path and os.path.isdir(env_path):
+        return env_path
+
+    script_local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Config")
+    if os.path.isdir(script_local):
+        return script_local
+
+    if os.path.isdir("Config"):
+        return os.path.abspath("Config")
+
+    return None
+
+
+def resolve_sources_dir(explicit: "str | None") -> str:
+    """
+    Directory to scan for instance configs. An explicit --config-dir always
+    wins (it names the Sources directory itself). Otherwise derive it from the
+    resolved config root, falling back to the legacy deployment path so
+    production behaviour is unchanged.
+    """
+    if explicit:
+        return explicit
+
+    root = resolve_config_root()
+    if root:
+        return os.path.join(root, "Sources")
+
+    return LEGACY_SOURCES_DIR
 
 
 def discover_ghas_instances(config_dir: str) -> List[str]:
@@ -102,7 +173,8 @@ def discover_ghas_instances(config_dir: str) -> List[str]:
     return instances
 
 
-def run_instance(source_name: str, first_load: bool) -> bool:
+def run_instance(source_name: str, first_load: bool,
+                 config_root: "str | None" = None) -> bool:
     """
     Run a single GHAS adapter instance. Returns True on success, False on failure.
 
@@ -112,7 +184,11 @@ def run_instance(source_name: str, first_load: bool) -> bool:
     log = logging.getLogger("RunGHASAdapter")
     log.info("=== Starting instance: %s ===", source_name)
     try:
-        app = Application()
+        # Pass the resolved root explicitly. Application would otherwise fall
+        # back to a 'Config' dir relative to the CWD, which fails whenever the
+        # script is launched from anywhere but Saltworks.SaltMiner.Python/
+        # (the VS Code debugger launches from the repo root).
+        app = Application(config_root) if config_root else Application()
         adapter = GHASAdapter(app, source_name)
         adapter.run_sync(first_load=first_load)
         log.info("=== Completed instance: %s ===", source_name)
@@ -140,8 +216,12 @@ def main():
     )
     parser.add_argument(
         "--config-dir",
-        default="/etc/saltworks/saltminer-2.5.0/Sources",
-        help="Directory containing GHAS instance configs (default: /etc/saltworks/saltminer-2.5.0/Sources)",
+        default=None,
+        help=(
+            "Directory containing GHAS instance configs. Default: resolved from "
+            f"${CONFIG_ENV_VAR}, else a 'Config/Sources' next to this script, "
+            f"else '{LEGACY_SOURCES_DIR}'."
+        ),
     )
     parser.add_argument(
         "--log-level",
@@ -155,15 +235,27 @@ def main():
     log = logging.getLogger("RunGHASAdapter")
 
     try:
+        config_root = resolve_config_root()
+        sources_dir = resolve_sources_dir(args.config_dir)
+        log.info("Config root: %s | Sources: %s",
+                 config_root or "(unresolved)", sources_dir)
+        if config_root is None and not args.config_dir:
+            log.warning(
+                "Could not locate a Config directory (checked $%s, a Config dir "
+                "next to this script, and ./Config). Falling back to '%s'. Set "
+                "$%s or pass --config-dir if that is not what you want.",
+                CONFIG_ENV_VAR, LEGACY_SOURCES_DIR, CONFIG_ENV_VAR,
+            )
+
         if args.instance:
             instances = [args.instance]
             log.info("Running single specified instance: %s", args.instance)
         else:
-            instances = discover_ghas_instances(args.config_dir)
+            instances = discover_ghas_instances(sources_dir)
             if not instances:
                 log.warning(
                     "No enabled GHAS instances discovered in '%s'. Nothing to do.",
-                    args.config_dir,
+                    sources_dir,
                 )
                 sys.exit(0)
             log.info(
@@ -173,7 +265,7 @@ def main():
 
         failed = []
         for source_name in instances:
-            ok = run_instance(source_name, args.first_load)
+            ok = run_instance(source_name, args.first_load, config_root)
             if not ok:
                 failed.append(source_name)
 

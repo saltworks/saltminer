@@ -808,9 +808,10 @@ class GHASClient:
 
         Phase 1 must query across all states (open + closed). A state transition
         out of open (dismissal, fix, resolution) bumps the alert's updated_at
-        and must trigger Phase 2 so the open set in SaltMiner can be refreshed
-        via ReplaceIssues=True. If Phase 1 narrowed to open-only, dismissals
-        would be invisible and dismissed alerts would linger in SaltMiner.
+        and must trigger Phase 2 so the alert can be collected and retired with
+        its closure timestamp (RETIRE-001). If Phase 1 narrowed to open-only,
+        dismissals would be invisible and dismissed alerts would linger in
+        SaltMiner as open.
 
         For most engines this costs one API call. For secret_scanning, GitHub
         rejects comma-separated state parameters, so we issue one call per
@@ -871,21 +872,30 @@ class GHASClient:
 
     async def get_alerts_async(self, full_name: str, engine: str) -> AsyncGenerator[dict, None]:
         """
-        Async generator yielding currently-open alerts for a given repo and
+        Async generator yielding alerts in ALL states for a given repo and
         engine. Handles pagination transparently. Yields raw GitHub API alert
         objects.
 
-        FIX-001: Phase 2 fetch is narrowed to state=open for every engine. The
-        customer-visible Open count in SaltMiner is drawn exclusively from
-        currently-open GHAS alerts; closed-state alerts (dismissed/fixed/
-        resolved/auto_dismissed) are never queued. Removal is handled via
-        ReplaceIssues=True on the Scan document — alerts that have transitioned
-        out of open are simply absent from the replacement set, and SaltMiner
-        removes them by absence.
+        RETIRE-001 (supersedes FIX-001's open-only narrowing): Phase 2 fetches
+        every state, not just open. Closed alerts (dismissed/fixed/resolved/
+        auto_dismissed) are queued as issues carrying Vulnerability.RemovedDate
+        drawn from GitHub's own closure timestamp, so SaltMiner keeps a closure
+        record (date + reason) instead of hard-deleting the issue.
 
-        For code_scanning and dependabot this is one paginated query. For
-        secret_scanning, the GitHub API still requires a state parameter on
-        the request, but for "open" we issue exactly one paginated query.
+        Why this does NOT re-inflate the customer-visible Open count — the
+        objection FIX-001 was written to answer: the Open count is drawn from
+        the `is_active` alias, and IsActive is computed server-side as
+        !IsSuppressed && !IsRemoved && !IsFiltered && (TestStatus empty or
+        "Found"), with IsRemoved derived from RemovedDate. A retired alert
+        carries RemovedDate and is therefore excluded from the active alias.
+        The Open count is protected by the alias, not by this fetch filter.
+        FIX-001's inflation was caused by loading closed alerts AS OPEN (no
+        RemovedDate set), not by loading them at all.
+
+        For code_scanning and dependabot this is one paginated query per engine
+        (GitHub accepts a comma-separated `state` list). Secret scanning rejects
+        comma-separated states and is queried once per state; results are
+        merged by the caller-facing generator here.
 
         Error handling:
           - 403 or 404 → raises GHASEngineInaccessibleError. The adapter
@@ -896,7 +906,7 @@ class GHASClient:
         """
         endpoint = self._engine_endpoint(full_name, engine)
 
-        for state in self._engine_state_queries(engine, purpose="open"):
+        for state in self._engine_state_queries(engine, purpose="all"):
             url = endpoint
             params = {
                 "per_page": PAGE_SIZE,
@@ -956,14 +966,16 @@ class GHASClient:
         and purpose.
 
         purpose:
-          "open" — Phase 2 narrow fetch (FIX-001). Returns ["open"] for every
-                   engine. The customer-visible Open count in SaltMiner must
-                   match GHAS's Open tab, so closed-state alerts are never
-                   fetched into the issue replacement set.
-          "all"  — Phase 1 change detection. Returns the full per-engine
-                   state set so that state transitions out of open
-                   (dismissal, fix, resolution) bump the alert's updated_at
-                   and trigger Phase 2.
+          "all"  — Phase 1 change detection AND Phase 2 collection
+                   (RETIRE-001). Returns the full per-engine state set, so
+                   transitions out of open (dismissal, fix, resolution) both
+                   bump the alert's updated_at to trigger Phase 2 and are
+                   themselves collected, letting the adapter stamp
+                   RemovedDate from GitHub's closure timestamp.
+          "open" — Open-only fetch. No longer used by Phase 2 (superseded by
+                   RETIRE-001); retained because the Open count is the figure
+                   rebaseline.md's pre-flight compares against GitHub's Open
+                   tab, and an open-only query is the honest way to obtain it.
 
         GitHub's code-scanning and dependabot endpoints accept a comma-
         separated list of states in a single request, so the "all" path

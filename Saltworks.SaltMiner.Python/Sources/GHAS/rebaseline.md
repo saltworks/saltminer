@@ -111,7 +111,15 @@ python3 -m Sources.GHAS.RunGHASAdapter --instance ghas3 --log-level DEBUG 2>&1 |
 grep -E "Queueing [0-9]+ alerts.*code_scanning|RATE-LIMITED|SYNC SUMMARY" /tmp/ghas3-test.log
 ```
 
-Expect: `Queueing 1724 alerts ... code_scanning`. Clean up afterward:
+Expect: `Queueing N alerts (1724 open, R retired) ... code_scanning`.
+
+Since RETIRE-001 the adapter fetches **all** alert states, so the total `N` is
+open + retired and will exceed the old 1724 literal. Compare the **open**
+figure — that is the one that must match GitHub's Open tab. `R` is closure
+history (dismissed/fixed/resolved alerts carrying `RemovedDate`); those issues
+are excluded from the `is_active` alias and never reach the Open count.
+
+Clean up afterward:
 
 ```bash
 rm -f /etc/saltworks/saltminer-2.5.0/Sources/ghas3.json /tmp/ghas-test-state.json /tmp/ghas3-test.log
@@ -119,12 +127,28 @@ rm -f /etc/saltworks/saltminer-2.5.0/Sources/ghas3.json /tmp/ghas-test-state.jso
 
 ---
 
-## 4. Re-baseline (the clean rebuild)
+## 4. Re-baseline (full resync)
 
-A re-baseline forces every scope to first-sync and re-queue with
-`ReplaceIssues=True`, refreshing/cleaning all reachable data, AND tombstones
+A re-baseline forces every scope to first-sync and re-queue, AND tombstones
 every archived repo (purging the phantom rows). It engages automatically when
 the state file is empty.
+
+> **Changed by RETIRE-001.** A re-baseline is no longer a clean rebuild via
+> hard delete. Active-repo scans now carry `ReplaceIssues=False`, so the
+> Manager **diffs** rather than deleting the scope first: queued alerts are
+> updated in place, and any existing issue absent from the batch is **retired**
+> (`RemovedDate = ScanDate`) rather than removed. Malformed or duplicate rows
+> are therefore no longer scrubbed by re-baselining — they are retired, and
+> they persist. Archived-repo tombstones still purge (`ReplaceIssues=True`).
+>
+> **One-time cutover.** Because of the above, purge before you deploy:
+>
+> 1. Run the adapter once on the **old** build (active scans still
+>    `ReplaceIssues=True`) to hard-delete the malformed rows left by the
+>    under-reporting incident.
+> 2. Then deploy this change and re-baseline normally.
+>
+> Skipping step 1 leaves those rows retired-but-present forever.
 
 **Per instance** (do one org at a time so you can read each summary cleanly):
 
@@ -204,10 +228,15 @@ gh api --paginate "/orgs/Onbe/dependabot/alerts?state=open&per_page=100"    --jq
 gh api --paginate "/orgs/Onbe/secret-scanning/alerts?state=open&per_page=100" --jq '.[].number' | wc -l
 ```
 
-Compare to the `Alerts by engine` line in the run summary and to the SaltMiner
-UI counts. They should match closely (small differences can be archived repos,
-which GitHub's org endpoint excludes but which you've now tombstoned, or alerts
-that changed state between the pull and the run).
+Compare to the **open** half of the `Alerts by engine` line in the run summary
+(now rendered as `<engine>: <open> open/<retired> retired`) and to the SaltMiner
+UI counts. Compare open-to-open: the retired figure counts closed alerts the
+adapter now preserves as closure history, and they carry `RemovedDate` so they
+sit outside the `is_active` alias the UI and dashboards read.
+
+They should match closely (small differences can be archived repos, which
+GitHub's org endpoint excludes but which you've now tombstoned, or alerts that
+changed state between the pull and the run).
 
 ---
 
@@ -230,6 +259,14 @@ margin, default 120 min), scoped to GHAS indices. It refuses to run if it
 can't positively identify a latest run, so it can't wipe pre-run-tag data by
 accident. Run it **after** a successful re-baseline so the latest-run marker is
 current.
+
+Since RETIRE-001 it also **never deletes an issue carrying
+`vulnerability.removed_date`**. Retired issues legitimately hold a frozen
+run-tag (the Manager sets `RemovedDate` without re-stamping the tag), so
+without this guard the cleanup would destroy the closure history the
+retirement change exists to preserve. The dry-run reports these as
+`retired kept`; expect that number to be non-zero and rising, and expect
+zero retired issues among the deletion candidates.
 
 > Note: orphan cleanup only has effect once at least one run has stamped the new
 > run-tag. The first post-deploy run establishes the baseline tag; orphans from
