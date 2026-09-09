@@ -278,7 +278,7 @@ class GHASAdapter:
         self._inaccessible_scopes: list = []   # permission/enablement 403/404
         self._rate_limited_scopes: list = []   # secondary-rate-limit exhaustion
         self._archived_purged_scopes: list = []  # tombstoned this run
-        self._ingested_scopes: list = []       # (scope, alert_count) tuples
+        self._ingested_scopes: list = []       # (scope, open_count, retired_count)
         self._clean_scopes: list = []          # clean/heartbeat scans
         # Scopes whose WRITE to SaltMiner raised (e.g. a bulk issue batch
         # rejected by the DataApi). Surfaced by name in the summary so a
@@ -413,7 +413,11 @@ class GHASAdapter:
         rate_limited = len(self._rate_limited_scopes)
         inaccessible = len(self._inaccessible_scopes)
         failed = len(failures)
-        alerts_total = sum(n for _, n in self._ingested_scopes)
+        # RETIRE-001: open and retired are reported separately. The OPEN
+        # figure is the one that must match GitHub's Open tab; the retired
+        # figure is closure history being preserved, not new exposure.
+        open_total = sum(o for _, o, _ in self._ingested_scopes)
+        retired_total = sum(r for _, _, r in self._ingested_scopes)
 
         bar = "=" * 58
         lines = [
@@ -423,7 +427,8 @@ class GHASAdapter:
             f"  Mode: {'RE-BASELINE (cold full pull)' if self._is_rebaseline else 'incremental'}",
             bar,
             f"  Tasks dispatched     : {total_tasks:>6}   (active sync: {active_tasks}, archived tombstone: {archived_tasks})",
-            f"    ingested w/ alerts : {ingested:>6}   ({alerts_total} alerts queued)",
+            f"    ingested w/ alerts : {ingested:>6}   ({open_total + retired_total} queued: "
+            f"{open_total} open, {retired_total} retired)",
             f"    clean (heartbeat)  : {clean:>6}   (zero open alerts, scan recorded)",
             f"    archived (purged)  : {archived_purged:>6}   (findings tombstoned via ReplaceIssues)",
             f"    RATE-LIMITED       : {rate_limited:>6}   {'← retried next run; data IS reachable' if rate_limited else ''}",
@@ -435,10 +440,13 @@ class GHASAdapter:
         # Per-engine alert breakdown (only the engines that ingested anything).
         if self._ingested_scopes:
             by_engine = {}
-            for scope, n in self._ingested_scopes:
+            for scope, o, r in self._ingested_scopes:
                 eng = scope.rsplit("/", 1)[-1]
-                by_engine[eng] = by_engine.get(eng, 0) + n
-            eng_str = "   ".join(f"{e}: {c}" for e, c in sorted(by_engine.items()))
+                prev_o, prev_r = by_engine.get(eng, (0, 0))
+                by_engine[eng] = (prev_o + o, prev_r + r)
+            eng_str = "   ".join(
+                f"{e}: {o} open/{r} retired" for e, (o, r) in sorted(by_engine.items())
+            )
             lines.append(f"  Alerts by engine     : {eng_str}")
 
         lines.append(bar)
@@ -508,18 +516,20 @@ class GHASAdapter:
                  If unchanged, fall through to the heartbeat clean-scan path
                  (ENH-004) — the engine may still need a clean-scan re-queue
                  if execution evidence has advanced.
-        Phase 2: Full alert fetch — open-state only (FIX-001).
-          - If alerts present → queue Scan→Asset→Issues normally, advance state.
+        Phase 2: Full alert fetch — ALL states (RETIRE-001).
+          - If alerts present → queue Scan→Asset→Issues normally, advance
+            state. Closed alerts are queued alongside open ones carrying
+            Vulnerability.RemovedDate, so SaltMiner retains a closure record
+            and excludes them from the is_active alias instead of deleting
+            them. Scans carry ReplaceIssues=False, so the Manager diffs rather
+            than purging — which is why the FULL alert set must be queued for
+            every scope synced; a delta batch would retire its omissions.
             Watermark advances to latest_ts_from_phase1 (or alerts max when
-            Phase 1 didn't run), so it never regresses below a closed-state
-            timestamp that Phase 2 can't see.
-          - If zero alerts AND watermark was non-None on entry → REPLACEMENT
-            event. All previously-open alerts have transitioned to closed.
-            Queue an unconditional empty Scan+Asset replacement so SaltMiner
-            removes the prior alerts by absence (ReplaceIssues=True).
-          - If zero alerts AND no prior watermark → HEARTBEAT event. First-time
-            sync of a scope that was always clean. Evaluate the existing
-            ENH-004 strict-newer gated clean-scan path.
+            Phase 1 didn't run).
+          - If zero alerts → GitHub has no alerts in ANY state. Queue a
+            non-destructive clean Scan+Asset (heartbeat). This records
+            visibility only; see _maybe_queue_clean_scan_async for why an
+            empty batch retires nothing.
         """
         full_name = repo["full_name"]
 
@@ -568,7 +578,7 @@ class GHASAdapter:
                 logger.debug("Alert changes detected for %s/%s (latest=%s > watermark=%s).",
                              full_name, engine, latest_ts_from_phase1, watermark)
 
-            # ── Phase 2: Full fetch (open-only per FIX-001) ────────────────
+            # ── Phase 2: Full fetch (ALL states per RETIRE-001) ───────────
             alerts = []
             async for alert in self.client.get_alerts_async(full_name, engine):
                 alerts.append(alert)
@@ -580,38 +590,49 @@ class GHASAdapter:
 
             if not alerts and not sarif_issues:
                 # Phase 1 completed (did not raise), so this empty result is
-                # AUTHORITATIVE: GitHub confirms the scope has no OPEN alerts.
-                # Either there are no alerts at all (Phase 1 latest is None) or
-                # every alert is in a closed state (Phase 1 latest is a
-                # timestamp). In BOTH cases the correct reflection in SaltMiner
-                # is an empty REPLACEMENT (unconditional=True ->
-                # ReplaceIssues=True) so any stale open issues are closed by
-                # absence. This is safe precisely because Phase 1 succeeded — a
-                # transient/error can't reach here (it raises out of this try),
-                # which is what made the old unconditional replace destructive.
+                # AUTHORITATIVE. Under RETIRE-001's all-states Phase 2 fetch,
+                # "no alerts" now means GitHub has zero alerts in ANY state —
+                # the stronger condition. The old "alerts exist but none are
+                # open" case can no longer land here: those closed alerts are
+                # now IN the batch, and flow through the normal queue path
+                # below carrying RemovedDate, which is the whole point of the
+                # change. The latest_ts_from_phase1-is-not-None branch is kept
+                # only as a defensive path (e.g. an alert closing between the
+                # Phase 1 and Phase 2 calls of the same run).
+                #
+                # Both branches queue a non-destructive heartbeat
+                # (replace=False). Note the consequence: with no issues in the
+                # batch, the Manager's diff loop never runs (it is nested
+                # inside the queue-issue batch generator) and no Zero-severity
+                # sentinel is sent, so nothing is retired here. A scope whose
+                # alerts GitHub deleted outright keeps its stale issues until
+                # ghas_orphan_cleanup.py collects them by frozen run-tag —
+                # those issues have no removed_date, so the new retirement
+                # guard in that script does not shield them. This is the
+                # accepted trade for never hard-deleting closure history.
                 logger.info(
-                    "No open alerts for %s/%s (Phase 1 latest=%s) — authoritative empty replacement.",
+                    "No alerts in any state for %s/%s (Phase 1 latest=%s) — "
+                    "non-destructive clean scan.",
                     full_name, engine, latest_ts_from_phase1,
                 )
                 if latest_ts_from_phase1 is not None:
-                    # Real close event: alerts exist in some state but none are
-                    # open. Replace immediately (gate=False) and advance the
+                    # Defensive: alerts exist in some state but Phase 2 saw
+                    # none. Queue immediately (gate=False) and advance the
                     # watermark so the event does not re-trigger next run.
                     await self._maybe_queue_clean_scan_async(
                         repo, engine,
-                        gate=False, replace=True,
+                        gate=False, replace=False,
                         watermark_advance=latest_ts_from_phase1,
                     )
                 else:
                     # Truly-empty scope: GitHub has zero alerts in ANY state.
-                    # Replace to close any stale issues (replace=True) but gate
-                    # on scan_date (gate=True) so this fires once, not every run
-                    # (Phase 1 returns None forever for a truly-empty scope).
-                    # Floor the watermark at now() so the no-change skip path can
-                    # engage on subsequent runs.
+                    # Gate on scan_date (gate=True) so this fires once, not
+                    # every run (Phase 1 returns None forever for a truly-empty
+                    # scope). Floor the watermark at now() so the no-change skip
+                    # path can engage on subsequent runs.
                     await self._maybe_queue_clean_scan_async(
                         repo, engine,
-                        gate=True, replace=True,
+                        gate=True, replace=False,
                         watermark_advance=self._now(),
                     )
                 return
@@ -626,16 +647,31 @@ class GHASAdapter:
             report_id = f"{full_name}/{engine}/{run_id}"  # full_name already includes the org (org/repo)
             scan_date = self._resolve_scan_date(repo, engine, latest_analysis) or self._now()
 
-            # FIX-001: advance watermark to Phase 1's latest_ts (which reflects
-            # max across ALL states) rather than max over the open-only Phase 2
-            # set. Without this, the watermark regresses any time an alert
-            # newer than the open set transitions to a closed state, causing
-            # spurious re-triggers next sync. Falls back to alerts max only
-            # when Phase 1 wasn't run (first-time sync with no prior watermark).
+            # Advance the watermark to Phase 1's latest_ts. Since RETIRE-001
+            # Phase 2 also spans all states, so the two should agree; Phase 1
+            # is still preferred because it is a single authoritative read
+            # taken before the (longer, paginated) Phase 2 walk, and because
+            # SARIF-only scopes can have findings with no alert timestamps.
+            # Falls back to alerts max only when Phase 1 wasn't run (first-time
+            # sync with no prior watermark).
             new_watermark = latest_ts_from_phase1 or self._max_updated_at(alerts)
 
-            logger.info("Queueing %d alerts + %d SARIF findings for %s/%s (ScanDate=%s).",
-                        len(alerts), len(sarif_issues), full_name, engine, scan_date)
+            # RETIRE-001: split the batch for reporting. `retired` are alerts
+            # GitHub reports in a closed state; they are queued exactly like
+            # open ones but carry RemovedDate, so they land outside the
+            # is_active alias. rebaseline.md's per-engine pre-flight compares
+            # the OPEN figure against GitHub's Open tab — never the total.
+            # SARIF suppressed findings have no GitHub alert state and count
+            # as open.
+            retired_count = sum(1 for a in alerts if self._removed_date(a, engine))
+            open_count = len(alerts) - retired_count + len(sarif_issues)
+
+            logger.info(
+                "Queueing %d alerts (%d open, %d retired) + %d SARIF findings "
+                "for %s/%s (ScanDate=%s).",
+                len(alerts), len(alerts) - retired_count, retired_count,
+                len(sarif_issues), full_name, engine, scan_date,
+            )
 
             # SmDataClient is sync and not thread-safe across its internal
             # batch buffer. Hold the queue lock around the whole scan→asset→
@@ -697,7 +733,9 @@ class GHASAdapter:
                 await self._state.save_async()
             logger.debug("State advanced for %s/%s — watermark=%s, last_scan_date=%s.",
                          full_name, engine, new_watermark, scan_date)
-            self._ingested_scopes.append((f"{full_name}/{engine}", len(alerts) + len(sarif_issues)))
+            self._ingested_scopes.append(
+                (f"{full_name}/{engine}", open_count, retired_count)
+            )
 
         except GHASRateLimitError as exc:
             # GitHub SECONDARY rate limit unbeatable within budget for this
@@ -764,28 +802,35 @@ class GHASAdapter:
                     pushed_at) has advanced past the recorded last_scan_date.
                     Prevents re-queuing the same clean state every run.
           replace — if True, the Scan carries ReplaceIssues=True, so SaltMiner
-                    removes any prior issues for this scope by absence. If
-                    False, the queue is a NON-destructive visibility heartbeat
-                    that cannot delete existing issues.
+                    HARD-DELETES any prior issues for this scope. Since
+                    RETIRE-001 every caller of this method passes False: an
+                    empty queue is a NON-destructive visibility heartbeat.
+                    The parameter is retained because _tombstone_archived_async
+                    still needs the purge, and it calls map_scan directly.
 
-        The three callers:
+        The three callers (all replace=False since RETIRE-001):
 
           No-change refresh   (gate=True,  replace=False):
             Phase 1 says alerts are unchanged. Only refresh visibility if
-            execution evidence advanced. Never deletes issues.
+            execution evidence advanced. Never touches issues.
 
-          Real close event    (gate=False, replace=True, watermark_advance set):
-            Phase 1 returned a timestamp (alerts exist in some state) but
-            Phase 2 returned zero OPEN alerts — every alert has transitioned to
-            a closed state. Replace now (bypass the gate, it's a state-change
-            event, not a heartbeat tick) and advance the watermark so the same
-            event does not re-trigger.
+          Defensive close     (gate=False, replace=False, watermark_advance set):
+            Phase 1 returned a timestamp but Phase 2 returned zero alerts.
+            With the all-states Phase 2 fetch this should not normally occur
+            (closed alerts are now collected and retired in-band); it survives
+            for the case of an alert closing mid-run. Bypasses the gate and
+            advances the watermark so the event does not re-trigger.
 
-          Truly-empty scope   (gate=True,  replace=True, watermark_advance set):
-            Phase 1 returned None — GitHub has zero alerts in ANY state. Any
-            issues in SaltMiner are stale and must be closed, so replace=True —
-            but gate=True so this happens ONCE (when scan_date advances) rather
+          Truly-empty scope   (gate=True,  replace=False, watermark_advance set):
+            Phase 1 returned None — GitHub has zero alerts in ANY state.
+            gate=True so this happens ONCE (when scan_date advances) rather
             than every run, since a truly-empty scope returns None forever.
+
+        IMPORTANT: with no issues in the batch the Manager retires nothing —
+        its diff loop is nested inside the queue-issue batch generator and the
+        adapter sends no Zero-severity sentinel. This method records
+        visibility; it does not close issues. Stale issues for a scope whose
+        alerts GitHub deleted outright are collected by ghas_orphan_cleanup.py.
 
         Skips entirely (all modes) when there's no honest scan-execution
         evidence (engine appears unrun: for code_scanning, no analyses
@@ -912,7 +957,17 @@ class GHASAdapter:
             )
 
             async with self._queue_lock:
-                mapped_scan = self.map_scan(repo, engine, report_id, scan_date)
+                # RETIRE-001: map_scan now defaults to ReplaceIssues=False, so
+                # the tombstone must ask for the purge EXPLICITLY. It is the
+                # only remaining True caller. An empty batch under
+                # ReplaceIssues=False would be a silent no-op: the Manager's
+                # diff loop is nested inside the queue-issue batch generator,
+                # so with zero issues queued it never runs, and the adapter
+                # sends no Zero-severity sentinel to trigger ProcessZeroIssue.
+                # Archiving a repo is a scope-level purge instruction, not a
+                # per-alert closure event, so hard delete remains correct here.
+                mapped_scan = self.map_scan(repo, engine, report_id, scan_date,
+                                            replace=True)
                 queue_scan = await asyncio.to_thread(
                     self._data_client.AddQueueScan,
                     json.loads(mapped_scan.model_dump_json())
@@ -1093,7 +1148,7 @@ class GHASAdapter:
     # ── DTO Mapping ────────────────────────────────────────────────────────
 
     def map_scan(self, repo: dict, engine: str, report_id: str, scan_date: str,
-                 replace: bool = True) -> MapScanDocDTO:
+                 replace: bool = False) -> MapScanDocDTO:
         """
         Map repo + engine metadata to a SaltMiner scan document.
 
@@ -1106,17 +1161,30 @@ class GHASAdapter:
 
         doc["Timestamp"] = now
         doc["Saltminer"]["Internal"]["IssueCount"] = -1
-        # ReplaceIssues drives whether SaltMiner DELETES all existing issues for
-        # this scope and replaces them with the queued set. It MUST be True only
-        # when we have an authoritative, complete picture to replace with:
-        #   - alerts-present Phase 2 (full open set fetched), or
-        #   - a CONFIRMED removal (FIX-001 open->closed transition detected via a
-        #     prior watermark, or an archived-repo tombstone).
-        # It MUST be False for a plain clean-scan heartbeat: a heartbeat is a
+        # ReplaceIssues drives whether SaltMiner HARD-DELETES all existing
+        # issues for this scope before loading the queued set
+        # (QueueProcessor: IssuesDeleteBySourceId, which also disables the
+        # diff path by clearing getExistingIssues).
+        #
+        # RETIRE-001 defaults this to False — the platform default, and what
+        # COPAdapter/TenableAdapter already do. With all-states Phase 2, the
+        # queued set contains closed alerts carrying RemovedDate, so closure
+        # is expressed by retiring the issue rather than deleting it. Under
+        # ReplaceIssues=False the Manager runs its diff: issues present in the
+        # batch are updated (adopting our RemovedDate), and issues absent from
+        # it are retired with RemovedDate=ScanDate. That is precisely why the
+        # adapter must queue the FULL alert set for every scope it syncs —
+        # a delta batch would retire everything it omitted.
+        #
+        # The one remaining True caller is the archived-repo tombstone, which
+        # is a deliberate purge and has no issue batch to diff against; see
+        # _tombstone_archived_async.
+        #
+        # It MUST stay False for a plain clean-scan heartbeat: a heartbeat is a
         # visibility tick, not proof the scope is empty. Setting it True on a
         # heartbeat caused progressive data loss — any scope momentarily showing
-        # zero OPEN alerts (open-only Phase 2 per FIX-001) had its real issues
-        # deleted by the empty replacement, run after run.
+        # zero OPEN alerts had its real issues deleted by the empty
+        # replacement, run after run.
         doc["Saltminer"]["Internal"]["ReplaceIssues"] = replace
         # QueueStatus is set by SmDataClient.AddQueueScan itself (to "Loading"
         # when immediate=False, the default). FinalizeQueue() flips it to
@@ -1238,7 +1306,17 @@ class GHASAdapter:
         vuln["FoundDate"] = self._iso_utc(alert.get("created_at")) or self._now()
         vuln["Name"] = self._alert_name(alert, engine)
         vuln["Severity"] = self._normalize_severity(alert, engine)
-        vuln["IsRemoved"] = False
+        # RETIRE-001: closed alerts carry GitHub's own closure timestamp in
+        # RemovedDate; open alerts omit the field entirely. IsRemoved is NOT
+        # set here — it is computed server-side from RemovedDate
+        # (VulnerabilityInfo.IsRemoved), so assigning it was always inert.
+        # The Manager's update path copies the queued RemovedDate verbatim
+        # (QueueProcessor.Translate), which means a reopened alert arriving
+        # with no RemovedDate clears the stored value automatically — no
+        # adapter-side reopen logic is needed.
+        removed_date = self._removed_date(alert, engine)
+        if removed_date:
+            vuln["RemovedDate"] = removed_date
         vuln["Id"] = self._alert_ids(alert, engine)
         vuln["ReportId"] = report_id
 
@@ -1427,6 +1505,47 @@ class GHASAdapter:
             return dt.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
         except (ValueError, TypeError):
             return value
+
+    # States that mean "this alert is no longer live at GitHub", and the
+    # per-engine field carrying the moment it closed. Order matters: the first
+    # present, non-null field wins. updated_at is the last-resort fallback —
+    # code-scanning "fixed" alerts carry no dedicated closure timestamp at all.
+    _CLOSED_STATES = {
+        "code_scanning": {"dismissed", "fixed"},
+        "dependabot": {"dismissed", "fixed", "auto_dismissed"},
+        "secret_scanning": {"resolved"},
+    }
+    _CLOSURE_DATE_FIELDS = {
+        "code_scanning": ("dismissed_at",),
+        "dependabot": ("dismissed_at", "fixed_at", "auto_dismissed_at"),
+        "secret_scanning": ("resolved_at",),
+    }
+
+    def _removed_date(self, alert: dict, engine: str) -> Optional[str]:
+        """
+        Return the canonical UTC closure timestamp for a closed alert, or None
+        when the alert is still open (RETIRE-001).
+
+        None is the meaningful "still open" signal: the caller omits
+        RemovedDate entirely, and the Manager copies that absence over any
+        previously stored value, which is what reopens an issue on resync.
+
+        Falls back to updated_at when the engine-specific closure field is
+        absent or null — notably code_scanning state="fixed", which GitHub
+        reports with no dedicated timestamp. Falling back to now() would make
+        the closure date drift on every resync, so updated_at (GitHub's own
+        last-mutation time, and the closest honest proxy) is used instead.
+        """
+        state = (alert.get("state") or "").lower()
+        if state not in self._CLOSED_STATES.get(engine, frozenset()):
+            return None
+
+        for field in self._CLOSURE_DATE_FIELDS.get(engine, ()):
+            value = alert.get(field)
+            if value:
+                return self._iso_utc(value)
+
+        return self._iso_utc(alert.get("updated_at"))
 
     @staticmethod
     def _max_updated_at(alerts: list) -> Optional[str]:

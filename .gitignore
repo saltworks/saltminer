@@ -46,3 +46,7 @@ ai-*.ps1
 
 # AI scratch - connection files contain credentials
 ai/scratch/*-connection.md
+
+# GHAS retirement (RETIRE-001) test + verification tooling — local only
+Saltworks.SaltMiner.Python/Sources/GHAS/test_ghas_retirement.py
+Saltworks.SaltMiner.Python/Sources/GHAS/verify_retirement.py
