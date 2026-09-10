@@ -3,6 +3,28 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64
 LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
+# SkiaSharp -- pulled in by Syncfusion.DocIORenderer for Word->PDF -- links
+# libfontconfig.so.1 at load time.  Without it the first touch of SkiaSharp
+# fails with "The type initializer for 'SkiaSharp.SKImageInfo' threw an
+# exception".  DocIO also needs real font files present to render glyphs.
+# Liberation is metric-compatible with Arial/Times New Roman/Courier New.
+RUN apk add --no-cache fontconfig freetype font-dejavu font-liberation
+
+# Optional Microsoft core fonts (Arial, Times New Roman, Verdana, ...).
+# msttcorefonts-installer downloads the original Microsoft .exe cabs at build
+# time and extracts them locally -- it is fully non-interactive, there is no
+# EULA prompt.  NOTE: the EULA permits redistribution only in that original
+# .exe form, so an image containing the extracted fonts should not be shipped
+# to third parties.  Off by default; enable for internal builds with
+#   --build-arg INSTALL_MS_FONTS=true
+# Requires outbound network (SourceForge) from the build host.
+ARG INSTALL_MS_FONTS=false
+RUN if [ "$INSTALL_MS_FONTS" = "true" ]; then \
+      apk add --no-cache msttcorefonts-installer \
+      && update-ms-fonts </dev/null \
+      && fc-cache -f; \
+    fi
+
 ENV APP_ROOT=/opt/saltworks/saltminer
 WORKDIR ${APP_ROOT}/app/jobmanager
 
