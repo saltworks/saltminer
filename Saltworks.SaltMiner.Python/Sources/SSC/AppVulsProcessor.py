@@ -772,7 +772,7 @@ class AppVulsProcessor(object):
                             # Check to see if the Fortify vulnerability is "active", ie should be shown.
                             if Issue['suppressed'] or Issue['removed'] or Issue['hidden']:
                                 IssueActive = False
-                            RemovedDate = None if Issue['removed'] else Issue['removedDate']
+                            RemovedDate = None if not Issue['removed'] else Issue['removedDate']
 
                             # Need to remember if the issue is Critical, High, etc.
                             Critical = 0
