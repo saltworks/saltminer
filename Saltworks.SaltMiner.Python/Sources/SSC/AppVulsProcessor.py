@@ -35,10 +35,12 @@ from Utility.UpdateQueueHelper import UpdateQueueHelper
 
 ISSUE_COUNT_RECHECK_DELAY_SEC = 5
 
-# How hard to chase the sync stage's expected issue count before giving up and letting the pull run
-# short (the guard then reports it).  One refresh, then this many counts spaced by the delay.
-ISSUE_VISIBILITY_ATTEMPTS = 3
-ISSUE_VISIBILITY_DELAY_SEC = 2
+# Escalating waits, in seconds, before a document the sync stage just wrote is treated as missing or
+# a count as short.  The sync bulk-loads with refresh='wait_for', which only covers the shards its
+# final request touched, so a brief window of invisibility is normal - and a refresh costs the whole
+# cluster.  Wait it out first, refresh only when the waits run out.  Mirrors the manager's
+# QueueIssueCountWaitsSec, so both halves of the agent hand-off settle the same way.
+SETTLE_WAITS_SEC = [3, 10, 15]
 
 
 class AppVulsProcessor(object):
@@ -268,7 +270,7 @@ class AppVulsProcessor(object):
         if cleanupAfter:
             self.Cleanup()
 
-    def PopulateVulsOne(self, pvid, cleanupAfter=True, race_retry:bool=False, race_retry_delay:int=5, expected_issue_count:int=None, expected_scan_count:int=None):
+    def PopulateVulsOne(self, pvid, cleanupAfter=True, race_retry:bool=False, expected_issue_count:int=None, expected_scan_count:int=None):
         '''
         Process one project version (doesn't have to be in the update queue).
         Returns the list of queue scan IDs created (empty when SM API integration is disabled or nothing processed).
@@ -283,7 +285,7 @@ class AppVulsProcessor(object):
 
         self.__ExpectedIssueCount = expected_issue_count
         self.__ExpectedScanCount = expected_scan_count
-        sscProject = self._GetSscProjectVersion(pvid, race_retry, race_retry_delay)
+        sscProject = self._GetSscProjectVersion(pvid, race_retry)
         if not sscProject:
             self.__Logger.error("Couldn't retrieve project version %s from SSC, skipping this update.", pvid)
             return []
@@ -551,13 +553,7 @@ class AppVulsProcessor(object):
 
     def __WaitForExpectedCount(self, index, query, appVerId, expected, label='issue'):
         '''
-        Blocks until the source index shows the number of documents the sync stage said it wrote.
-
-        The sync bulk-loads with refresh='wait_for', but that only refreshes the shards its final
-        request wrote to - '{index}' has more than one, so a small final batch can leave another shard's
-        documents unsearchable.  Rather than refresh the whole index on every app version, count first
-        and only refresh when the count is short: the healthy majority costs one _count, and the
-        stragglers cost the refresh they actually need.
+        Waits for the source index to show the number of documents the sync stage said it wrote.
 
         Never raises.  A count that never arrives is left to __CheckIssueCounts to report, with the
         numbers, once the pull has actually happened.
@@ -565,25 +561,56 @@ class AppVulsProcessor(object):
         if expected is None:
             return
         try:
-            count = self.__Es.Count(index, self.__CountSafeQuery(query))
-            if count == expected:
-                return
-            self.__Logger.warning("Sync wrote %s %s(s) for %s but only %s are visible - refreshing '%s' and re-counting...",
-                                  expected, label, appVerId, count, index)
-            self.__Es.RefreshIndex(index)
-            for attempt in range(ISSUE_VISIBILITY_ATTEMPTS):
-                count = self.__Es.Count(index, self.__CountSafeQuery(query))
-                if count == expected:
-                    self.__Logger.info("All %s %s(s) for %s visible after refresh%s.", expected, label, appVerId,
-                                       f" and {attempt} recheck(s)" if attempt else "")
-                    return
-                if attempt < ISSUE_VISIBILITY_ATTEMPTS - 1:
-                    time.sleep(ISSUE_VISIBILITY_DELAY_SEC)
-            # Still short.  Not a visibility problem any more - the pull runs and the guard reports it.
-            self.__Logger.error("Only %s of %s %s(s) for %s are visible after a refresh and %s recheck(s) - the read will be short.",
-                                count, expected, label, appVerId, ISSUE_VISIBILITY_ATTEMPTS)
+            body = self.__CountSafeQuery(query)
+            count = self.__WaitForSettle(
+                index,
+                lambda: self.__Es.Count(index, body),
+                lambda c: c == expected,
+                f"Sync wrote {expected} {label}(s) for {appVerId} but '{index}' shows fewer")
+            if count != expected:
+                self.__Logger.error("Only %s of %s %s(s) for %s are visible after waiting and a refresh - the read will be short.",
+                                    count, expected, label, appVerId)
         except Exception as ex:
             self.__Logger.warning("Could not verify %s visibility for %s: [%s] %s", label, appVerId, type(ex).__name__, ex)
+
+    def __WaitForSettle(self, index, get_value, is_settled, describe):
+        '''
+        Waits out elasticsearch's near-real-time gap before treating a document as missing, and
+        refreshes only as a last resort.
+
+        get_value() is re-run after each wait in SETTLE_WAITS_SEC and its result handed to
+        is_settled(); the first settled value is returned.  If none of the waits get there, '{index}'
+        is refreshed once and get_value() runs one final time.  The refresh is guarded: it is an
+        optimisation, not the verdict, so a failed or slow refresh must not decide the outcome.
+
+        Returns the last value either way, settled or not - this waits and reports, it does not judge.
+        The caller decides what an unsettled value means.
+
+        Heartbeats around every wait so a legitimate settle is not mistaken for a defunct worker.
+        '''
+        value = get_value()
+        if is_settled(value):
+            return value
+        for wait in SETTLE_WAITS_SEC:
+            self.__Logger.info("%s - waiting %s sec for '%s' to catch up...", describe, wait, index)
+            self._Beat()
+            time.sleep(wait)
+            self._Beat()
+            value = get_value()
+            if is_settled(value):
+                self.__Logger.info("%s - resolved after waiting for '%s' to catch up.", describe, index)
+                return value
+        self.__Logger.warning("%s - still unresolved after %s sec, refreshing '%s' as a last resort.",
+                              describe, "/".join(str(w) for w in SETTLE_WAITS_SEC), index)
+        try:
+            self.__Es.RefreshIndex(index)
+        except Exception as ex:
+            self.__Logger.warning("Refresh of '%s' failed ([%s] %s) - checking anyway.", index, type(ex).__name__, ex)
+        self._Beat()
+        value = get_value()
+        if is_settled(value):
+            self.__Logger.info("%s - resolved after refreshing '%s'.", describe, index)
+        return value
 
 
     @staticmethod
@@ -1155,22 +1182,23 @@ class AppVulsProcessor(object):
         scroller.Clear()
         return lst
 
-    def _GetSscProjectVersion(self, id, race_retry:bool=False, race_retry_delay:int=5):
+    def _GetSscProjectVersion(self, id, race_retry:bool=False):
         '''
         Return a single project version by project version ID.
 
-        :race_retry: when the project version isn't found, wait race_retry_delay seconds and look
-        once more.  Callers that read straight after the sync stage wrote the doc (the sync worker)
-        set this so elasticsearch's near-real-time refresh gap doesn't look like a missing PV.
+        :race_retry: when the project version isn't found, wait it out on the SETTLE_WAITS_SEC
+        schedule and refresh 'sscprojects' as a last resort before giving up.  Callers that read
+        straight after the sync stage wrote the doc (the sync worker) set this so elasticsearch's
+        near-real-time refresh gap doesn't look like a missing PV.
         '''
         query = { "query": { "term": { "id": id } } }
-        res = self.__Es.Search('sscprojects', query)
-        if race_retry and not res:
-            self.__Logger.info("Project version %s not found, retrying in %s sec in case this is a race condition...", id, race_retry_delay)
-            time.sleep(race_retry_delay)
+        if race_retry:
+            res = self.__WaitForSettle('sscprojects',
+                                       lambda: self.__Es.Search('sscprojects', query),
+                                       lambda r: bool(r),
+                                       f"Project version {id} not found in 'sscprojects'")
+        else:
             res = self.__Es.Search('sscprojects', query)
-            if res:
-                self.__Logger.info("Found project version %s after waiting for the index to catch up.", id)
         if res and len(res) > 0:
             if ("_source" in res[0].keys()):
                 return res[0]['_source']
