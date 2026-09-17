@@ -33,6 +33,10 @@ from Core.DataClient import DataClient, DataClientException, DataClientNotFoundE
 # queue scan under an optimistic seq_no/primary_term lock, so with N workers finalizing at once a losing
 # write is a race to wait out, not an error to report.
 QUEUE_STATUS_RETRY_DELAY_SEC = 5
+# Lock id a manager by-ID run uses instead of a registered instance id (QueueProcessor.TransientInstanceId).
+# The api never hands this one out - NewManagerInstance starts at 1 - and excludes it from the instance
+# count, so claiming it here cannot be mistaken for a competing manager instance.
+TRANSIENT_MANAGER_LOCK_ID = "mgr-000"
 
 
 class SmApiClient(object):
@@ -42,16 +46,21 @@ class SmApiClient(object):
     QueueScan -> QueueAsset -> QueueIssues
     '''
 
-    def __init__(self, appSettings, sourceName, configName="SMv3", refresh_indices=True):
+    def __init__(self, appSettings, sourceName, configName="SMv3", agent_mode=False):
         '''
         Initializes the class.
 
         appSettings: ApplicationSettings instance containing configuration settings
         sourceName: Name of the source configuration section
         configName: Configuration key for SMv3 configuration settings
-        refresh_indices: whether finalize_everything refreshes the queue indices.  Set False under the
-        sync agent - it finalizes once per queue item, and an index refresh per item across N workers is
-        a cost the batch runners don't pay.  The agent's manager hand-off retries instead.
+        agent_mode: set by SyncWorker.  The agent marshals one app version end to end - sync, refresh,
+        then its own manager run for each queue scan it produced.  Two things follow, both of which
+        must stay off for the batch runners:
+          - the queue scans it finalizes are claimed for that hand-off (see _queue_lock_id) rather than
+            left for the manager's cron, which would skip a scan locked to another instance;
+          - finalize_everything does not refresh the queue indices.  It finalizes once per queue item,
+            and an index refresh per item across N workers is a cost the batch runners don't pay; the
+            agent's manager hand-off retries instead.
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise SmApiClientConfigurationException("Type of appSettings must be 'ApplicationSettings'")
@@ -63,8 +72,20 @@ class SmApiClient(object):
         self._key_map = {}
         self._history_done = set()
         self._queue_scan_ids = []
+        # Queue scan documents this run created, by id, and how many queue issues were written against
+        # each.  Both feed finalize_queue: the api verifies IssueCount against the queue issues it can
+        # actually see when the scan moves Loading -> Pending, so the count has to be on the document
+        # before that call and the document is the only way to set it (there is no count endpoint).
+        self._queue_scan_docs = {}
+        self._issue_counts = {}
         self._source_name = sourceName
-        self._refresh_indices = refresh_indices
+        self._refresh_indices = not agent_mode
+        # Claimed at finalize time, in the same call that sets Pending.  A batch manager run skips a
+        # queue scan locked to another instance, so this reserves it for the by-ID run this worker is
+        # about to start - which presents the same id and is therefore allowed through.  The lock is
+        # never released by the by-ID run (it is shared, so releasing it would clear siblings' locks);
+        # it is cleared by the api's stale-instance sweep once no by-ID run has been seen for 10 min.
+        self._queue_lock_id = TRANSIENT_MANAGER_LOCK_ID if agent_mode else None
         self._es = appSettings.Application.GetElasticClient()
         self._assessment_type_map = appSettings.Get(configName, 'AssessmentTypeMap', {})
         self._enable_stupid_null = appSettings.FlagSet("Enable-Stupid-Null")
@@ -111,6 +132,10 @@ class SmApiClient(object):
         if not rsp:
             raise SmApiClientException("Queue scan add/update returned no data from API.")
         self._queue_scan_ids.append(rsp['id'])
+        # Keep the document we built, now carrying the id the api assigned, so finalize_queue can put
+        # the issue count on it with an update rather than a re-create.
+        q_scan['Id'] = rsp['id']
+        self._queue_scan_docs[rsp['id']] = q_scan
         return rsp
 
     def add_queue_asset(self, q_asset):
@@ -127,8 +152,16 @@ class SmApiClient(object):
         '''
         Adds queue issue (uses batching for better performance).  Make sure Saltminer.QueueScanId and
         Saltminer.QueueAssetId are set to the ids of valid QueueScan and QueueAsset documents.
+
+        Counted per queue scan on the way through - every path that queues an issue comes here, so this
+        is the one place the tally can be kept without each caller remembering to.
         '''
         q_issue['Id'] = None
+        qsid = (q_issue.get('Saltminer') or {}).get('QueueScanId')
+        if qsid:
+            self._issue_counts[qsid] = self._issue_counts.get(qsid, 0) + 1
+        else:
+            logging.warning("[SMAPI] Queue issue has no QueueScanId - it cannot be counted toward a scan's IssueCount.")
         self._batch_issue(q_issue)
 
     def delete_asset(self, asset_id, source_type):
@@ -264,24 +297,53 @@ class SmApiClient(object):
             ok = False
         return ok
 
+    def _set_issue_count(self, q_scan_id):
+        '''
+        Writes the number of queue issues queued against this scan onto the queue scan document, before
+        it is moved to Pending.
+
+        The api's Loading -> Pending check counts the queue issues it can see and compares them to
+        IssueCount, but skips the comparison entirely when IssueCount is -1 (the value every scan
+        carries until now).  Setting the real number turns that check on, which is the point: a scan
+        whose issues did not all land is rejected at the boundary instead of loading short.
+
+        Only scans this run created are touched - anything else keeps whatever count it has.
+        '''
+        doc = self._queue_scan_docs.get(q_scan_id)
+        if doc is None:
+            return
+        count = self._issue_counts.get(q_scan_id, 0)
+        doc['Saltminer']['Internal']['IssueCount'] = count
+        self._data_client.queue_scan_add_update(doc)
+        logging.debug("[SMAPI] Queue scan %s issue count set to %s", q_scan_id, count)
+
     def finalize_queue(self, q_scan_id):
         '''
-        Marks the queue scan as Pending, completing the queue load process.
+        Records the issue count on the queue scan and marks it Pending, completing the queue load
+        process.  Under the agent the same status call also locks it to the by-ID manager run that
+        follows - the api sets LockId from the lockId it is given, and the scan is unlocked at this
+        point so the claim always succeeds.
 
-        Retried once after QUEUE_STATUS_RETRY_DELAY_SEC.  The api reads the queue scan and writes it back
-        under an optimistic seq_no/primary_term lock, so a concurrent write to the same document loses
-        and the update fails - reachable with enough workers finalizing at once.  The second attempt
-        re-reads, so it succeeds unless the conflict is persistent or the failure was never a race.
-        A second failure propagates; finalize_everything counts it and reports it.
+        Retried once after QUEUE_STATUS_RETRY_DELAY_SEC.  Two things the retry absorbs.  The api reads
+        the queue scan and writes it back under an optimistic seq_no/primary_term lock, so a concurrent
+        write to the same document loses and the update fails - reachable with enough workers finalizing
+        at once.  And the count it validates against is whatever the queue issue index can see, which
+        under the agent is not refreshed on our behalf, so a just-written issue may not be searchable on
+        the first attempt.  The second attempt re-reads and re-counts, so it succeeds unless the
+        conflict is persistent or the issues really are missing.  A second failure propagates;
+        finalize_everything counts it and reports it.
         '''
         try:
-            self._data_client.queue_scan_update_status(q_scan_id, 'Pending')
+            self._set_issue_count(q_scan_id)
+            self._data_client.queue_scan_update_status(q_scan_id, 'Pending', self._queue_lock_id)
         except Exception as ex:
-            logging.warning("[SMAPI] Failed to set queue scan %s to Pending ([%s] %s), retrying in %s sec...",
+            logging.warning("[SMAPI] Failed to finalize queue scan %s ([%s] %s), retrying in %s sec...",
                             q_scan_id, type(ex).__name__, ex, QUEUE_STATUS_RETRY_DELAY_SEC)
             time.sleep(QUEUE_STATUS_RETRY_DELAY_SEC)
-            self._data_client.queue_scan_update_status(q_scan_id, 'Pending')
-        logging.info("[SMAPI] Completed queuescan with id %s, now in Pending status", q_scan_id)
+            self._set_issue_count(q_scan_id)
+            self._data_client.queue_scan_update_status(q_scan_id, 'Pending', self._queue_lock_id)
+        logging.info("[SMAPI] Completed queuescan with id %s, now in Pending status%s", q_scan_id,
+                     f", locked to '{self._queue_lock_id}'" if self._queue_lock_id else "")
 
     def search_last_scan(self, avid, atype, source_type='Saltworks.SSC'):
         '''
@@ -436,6 +498,8 @@ class SmApiClient(object):
         self._key_map = {}
         self._history_done = set()
         self._queue_scan_ids = []
+        self._queue_scan_docs = {}
+        self._issue_counts = {}
         return finalized_ids
 
     def cancel_queue_scan(self, queue_scan_id, lock_id=None):
@@ -489,6 +553,8 @@ class SmApiClient(object):
         self._key_map = {}
         self._history_done = set()
         self._queue_scan_ids = []
+        self._queue_scan_docs = {}
+        self._issue_counts = {}
         return cancelled_ids
 
     def map_scanless_asset(self, avid, scanner_vendor, name, version, description, attributes, is_prod=True, assessment_types=[]):

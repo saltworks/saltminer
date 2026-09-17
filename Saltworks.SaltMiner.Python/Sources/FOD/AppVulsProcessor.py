@@ -50,8 +50,8 @@ class AppVulsProcessor(object):
         :heartbeat: optional zero-arg callable invoked as work progresses.  Supplied by SyncWorker
         so the agent can tell a slow refresh from a defunct worker; None (the default) for standalone runs.
         :agent_mode: set by SyncWorker.  Marks a run that handles one app version per invocation, so
-        per-run costs the batch runners amortise over a whole queue are paid every item instead - see
-        SmApiClient's refresh_indices.
+        per-run costs the batch runners amortise over a whole queue are paid every item instead, and the
+        queue scans it produces are claimed for its own manager hand-off - see SmApiClient's agent_mode.
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
@@ -82,7 +82,7 @@ class AppVulsProcessor(object):
         #
         self.__SmApiClientEnabled = appSettings.Get(smv3ConfigName, "ApiClientEnabled", False)
         if self.__SmApiClientEnabled:
-            self.__SmApiClient = SmApiClient(appSettings, sourceName, smv3ConfigName, refresh_indices=not agent_mode)
+            self.__SmApiClient = SmApiClient(appSettings, sourceName, smv3ConfigName, agent_mode=agent_mode)
         self.__DisableSM2Indices = appSettings.Get(sourceName, "DisableSM2Indices", False)
         
         clientCode = appSettings.Get(mainConfigName, 'CustomerCode', 'SW')
