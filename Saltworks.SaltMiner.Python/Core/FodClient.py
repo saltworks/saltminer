@@ -19,7 +19,6 @@
 '''
 
 import json
-import sys
 import time
 import logging
 import weakref
@@ -329,29 +328,6 @@ class FodClient(object):
             response.Text = f"Error getting multi-call data.  Last response: {response.Text if response.Text else '[not available]'}"
             self.__Logger.error("Get_Paged: %s", ex, exc_info=ex)
             return response
-
-    def ManageError(self, postData, response):
-
-        if response.status_code == 429:
-            timeToPause = int(response.headers['X-Rate-Limit-Reset']) + 2
-            self.__Logger.info("Rate limit hit, pausing: {}".format(timeToPause))
-            BeatingSleep(timeToPause, self._Beat)
-
-        elif response.status_code == 500:
-            self.__Logger.info("Error 500 returned, pausing for 30 seconds for system reset.")
-            self.__Logger.info(response)
-            BeatingSleep(30, self._Beat)
-
-        elif response.status_code == 400:
-            # Bad Request
-            self.__Logger.info("Error 400, bad request.")
-            self.__Logger.info(postData)
-            sys.exit()
-
-        else:
-            self.__Logger.info("Unknown state, exiting")
-            self.__Logger.info(response)
-            sys.exit()
 
     #endregion
 
