@@ -892,7 +892,9 @@ class QueueClient(object):
 
         If a key is already present in the queue:
           (1) If in progress, no update will occur for the key.
-          (2) If not in progress but present, priority (only) will be updated if different.
+          (2) If not in progress but present, priority (only) is updated, and only to promote it -
+              a lower number is processed sooner, so a request carrying a higher number leaves the
+              existing entry where it is.
 
         If an ID is already present in the helper index that priority will be updated.
         No internal batching, don't pass a huge key list all at once.
@@ -941,12 +943,15 @@ class QueueClient(object):
                 # (selection requires must_not exists lock_id).  Leave it alone; it is already being
                 # worked, which is what the caller wanted.
                 logging.info(f"Queue item with key '{key}' is already {status}, leaving it as-is.")
-            elif pri != priority:
-                logging.info(f"Updating priority for existing queue item with key '{key}' from {pri} to {priority}.")
+            elif priority < pri:
+                # Promote only.
+                logging.info(f"Promoting existing queue item with key '{key}' from priority {pri} to {priority}.")
                 # The partial document must be wrapped in "doc" - the bulk update action takes
                 # doc/script, and a bare field map is rejected with "script or doc is missing".
                 bdocs.append(self._es.BulkInsertDocument(idx, {"doc": {"priority": priority}}, id, "update"))
                 updates += 1
+            elif priority > pri:
+                logging.info(f"Queue item with key '{key}' already exists at priority {pri}, keeping it (requested {priority} would demote it).")
             else:
                 logging.info(f"Queue item with key '{key}' already exists.")
             wrk.pop(key)
