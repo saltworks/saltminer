@@ -116,9 +116,15 @@ class SyncExtractor(object):
     def __GetElasticFodApplication(self, appId):
         return self.__GetElasticDataByKeyField('fodapplications', appId, 'applicationId')
 
-    def __GetRelease(self, avid, avList, allowElastic=True):
+    def __GetRelease(self, avid, avList, allowElastic=True, reportErrors=False):
         '''
         Return the release document for avid, preferring the cheapest source that has it.
+
+        :reportErrors: set True to raise SyncExtractorException, carrying the FOD status, when the
+        release could not be RETRIEVED (401/403/429/5xx) rather than being genuinely absent.  Left
+        False the method answers None for both, which is right for the batch path - it logs and
+        moves to the next queue item - but loses the only evidence of why for a caller that records
+        the failure.  Genuine absence (404) still answers None either way.
 
         :allowElastic: set False when the caller is about to run change detection on the result.
         __ProcessOne compares what it is given against the copy in 'fodreleases'; answering from
@@ -147,11 +153,45 @@ class SyncExtractor(object):
         rsp = self.__Fod.GetRelease(avid)
         rel = rsp.Content if rsp else None
         if not isinstance(rel, dict) or 'releaseId' not in rel:
-            self.__Logger.warning("FOD release %s not returned (status %s); treating as not found.",
-                                  avid, getattr(rsp, "Status", None))
+            status = getattr(rsp, "Status", None)
+            self.__Logger.warning("FOD release %s not returned (status %s); treating as not found.", avid, status)
+            if reportErrors:
+                failure = self.__DescribeReleaseFailure(avid, rsp, rel, status)
+                if failure:
+                    raise SyncExtractorException(failure)
             return None
         rel[self.__SourceNameField] = self.__SourceName
         return rel
+
+    def __DescribeReleaseFailure(self, avid, rsp, rel, status):
+        '''
+        Returns a message describing why a release did not come back, or None when the release is
+        genuinely absent and "could not be found" is the honest answer.
+
+        Only 404 means absent.  Everything else FOD documents (400, 401, 403, 422, 429, 500) means
+        the release was never actually looked for, and reporting those as "not found" is what made
+        expired tokens and throttling read as missing data.
+        '''
+        if status == 404:
+            return None
+        # FOD puts a human-readable cause in 'message' on its error bodies.
+        detail = ''
+        if isinstance(rel, dict):
+            detail = rel.get('message') or rel.get('errors') or ''
+        if not detail:
+            detail = (getattr(rsp, "Text", None) or '')[:200]
+        reason = getattr(rsp, "Reason", None) or ''
+        if status is None:
+            return f"Release {avid} not retrieved from FOD: no response from api."
+        if status == 200:
+            # FOD answered successfully with something that is not a release.
+            return f"Release {avid} not retrieved from FOD: (200) unexpected response body: {detail}"
+        hint = {
+            401: " - access token rejected",
+            403: " - not entitled to this release under the configured credentials",
+            429: " - rate limited, retries exhausted",
+        }.get(status, " - server error, retries exhausted" if status >= 500 else "")
+        return f"Release {avid} not retrieved from FOD: ({status}) {reason}{hint}. {detail}".strip()
 
     def __ClearRelease(self, appId, relId):
         releaseComponents = [['fodapplications', 'applicationId', appId],['fodreleases', 'releaseId', relId],['fodcounts', 'releaseId', relId],
@@ -274,7 +314,10 @@ class SyncExtractor(object):
         releases = []
         # allowElastic off - this release is about to be change-detected against the copy in
         # elasticsearch, so it has to come from FOD (see __GetRelease).
-        release = self.__GetRelease(avid, releases, allowElastic=False)
+        # reportErrors on - this is the agent's path, and whatever it raises becomes the
+        # status_reason recorded against the queue item.  Without it a 401/403/429 is written to
+        # sm_queue_sync* as "could not be found", indistinguishable from a deleted release.
+        release = self.__GetRelease(avid, releases, allowElastic=False, reportErrors=True)
         if not release:
             raise SyncExtractorException(f"Release {avid} could not be found.")
         self.__Logger.info('Syncing FOD to Elastic for release %s', avid)
