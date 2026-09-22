@@ -349,6 +349,9 @@ class FodClient(object):
         offset: Starting offset.  Defaults to 0 (first result)
         headers: Optional override headers (must include auth)
         logPrefix: If present, will cause an info severity log message with the prefix and a progress suffix
+
+        A FAILED call is returned as-is, with its real status and error body.
+        Check .Ok before trusting ['items'].
         '''
         batchSize = self.__BatchSize
         returnResponse = None
@@ -366,8 +369,14 @@ class FodClient(object):
             if (batchSize > limit and limit > 0):
                 batchSize = limit
             returnResponse = self.Get(myurl, headers=headers)
+            if not returnResponse.Ok:
+                # Hand the failure back intact - status, reason and FOD's error body.
+                self.__Logger.error("GetPaged failed for url %s: (%s) %s", url,
+                                    returnResponse.Status, returnResponse.Reason)
+                return returnResponse
             dto = returnResponse.Content
             if not dto or not isinstance(dto, dict):
+                # Successful call, unusable body - genuinely nothing to page through.
                 returnResponse.Content = { "items": [] }
                 return returnResponse
             else:
@@ -385,6 +394,12 @@ class FodClient(object):
                     batchSize = limit - offset
                 myurl = f"{url}{op}offset={offset}&limit={batchSize}"
                 response = self.Get(myurl, headers=headers)
+                if not response.Ok or not isinstance(response.Content, dict) or 'items' not in response.Content:
+                    # Partial results are worse than none here: the caller would write a subset and
+                    # have no way to know it was short.  Fail the whole call.
+                    self.__Logger.error("GetPaged failed on page at offset %s for url %s: (%s) %s",
+                                        offset, url, response.Status, response.Reason)
+                    return response
                 dto = response.Content
                 returnContent['items'].extend(dto['items'])
                 offset += len(dto['items'])
@@ -899,7 +914,15 @@ class FodScroller(object):
 class FodClientResponse(object):
     def __init__(self, response=None):
         if response is not None:
-            self.__Content = response.json() if response and callable(getattr(response, "json", None)) else None
+            # 'response is not None', not 'response': requests.Response.__bool__ returns .ok, so a
+            # plain truthiness test discards the body of every 4xx/5xx - leaving Content None while
+            # Text held FOD's error json.  Parse it for failures too; the error body is the single
+            # most useful thing a caller has when something goes wrong.  Non-json bodies (proxy
+            # error pages, gateway html) stay None and remain available via Text.
+            try:
+                self.__Content = response.json() if callable(getattr(response, "json", None)) else None
+            except ValueError:
+                self.__Content = None
             self.__Status = getattr(response, "status_code", 200)
             self.__Text = getattr(response, "text", None)
             self.__Reason = getattr(response, "reason", "Ok")

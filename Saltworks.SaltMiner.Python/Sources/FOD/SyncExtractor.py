@@ -193,6 +193,28 @@ class SyncExtractor(object):
         }.get(status, " - server error, retries exhausted" if status >= 500 else "")
         return f"Release {avid} not retrieved from FOD: ({status}) {reason}{hint}. {detail}".strip()
 
+    def __FodFailure(self, what, rsp):
+        '''
+        Message describing a failed FodClient response, including FOD's own error text.
+        Used where an unusable response must abort the sync rather than be read as "no data".
+        '''
+        status = getattr(rsp, "Status", None)
+        reason = getattr(rsp, "Reason", None) or ''
+        content = getattr(rsp, "Content", None)
+        detail = ''
+        if isinstance(content, dict):
+            errs = content.get('errors')
+            if isinstance(errs, list) and errs:
+                detail = '; '.join(str(e.get('message', e)) for e in errs)
+            else:
+                detail = content.get('message') or ''
+        if not detail:
+            detail = (getattr(rsp, "Text", None) or '')[:200]
+        hint = {401: ' - access token rejected', 403: ' - not entitled to this data',
+                429: ' - rate limited, retries exhausted'}.get(status,
+                ' - server error, retries exhausted' if status and status >= 500 else '')
+        return f"FOD request for {what} failed: ({status}) {reason}{hint}. {detail}".strip()
+
     def __ClearRelease(self, appId, relId):
         releaseComponents = [['fodapplications', 'applicationId', appId],['fodreleases', 'releaseId', relId],['fodcounts', 'releaseId', relId],
                                 ['fodscans', 'releaseId', relId],['fodscansummary', 'releaseId', relId],['fodrelissues', 'releaseId', relId]]
@@ -596,10 +618,16 @@ class SyncExtractor(object):
 
             self.__Es.Index('fodcounts', _summary)
 
-            releasescans = { 'items': [] }
+            # __ClearRelease has already deleted this release's scans.  An unusable response here
+            # must abort the sync: reading it as "no scans" would leave fodscans permanently empty
+            # for this release AND complete the queue item successfully, so nothing would ever
+            # retry it.  Raising marks the item Error, which is retryable.
             rsp = self.__Fod.GetScans(holdReleaseId)
-            if rsp and rsp.Content:
-                releasescans = rsp.Content
+            if not rsp or not getattr(rsp, 'Ok', False):
+                raise SyncExtractorException(self.__FodFailure(f"scans of release {holdReleaseId}", rsp))
+            releasescans = rsp.Content if isinstance(rsp.Content, dict) else {}
+            if 'items' not in releasescans:
+                releasescans['items'] = []
 
             #self.__Logger.info("scan response: {}".format(releasescans))
             scnCount = 0
@@ -669,7 +697,11 @@ class SyncExtractor(object):
         # another's half-built batch.
         issueBulk = self.__Es.NewBulkHelper(1000)
         rsp = self.__Fod.GetVulnerabilities(id, True, True, logPrefix=f"FOD Issues for release {id}")
-        if rsp and rsp.Content:
+        # Same reasoning as the scan load above - fodrelissues has just been cleared for this
+        # release, so a failed fetch has to fail the sync rather than write nothing.
+        if not rsp or not getattr(rsp, 'Ok', False):
+            raise SyncExtractorException(self.__FodFailure(f"issues of release {id}", rsp))
+        if rsp.Content:
             vuls = rsp.Content
         for vuln in vuls['items']:
             self._Beat()
