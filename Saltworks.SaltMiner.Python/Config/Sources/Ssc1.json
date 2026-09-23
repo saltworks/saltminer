@@ -12,6 +12,8 @@
   "SslVerify": "False",
   "IssueBatchSize": 500,
   "ElasticBatchSize": 500,
+  "SyncVisibilityAttempts": 3,
+  "SyncVisibilityDelaySeconds": 5,
   "RequestStatsReportEnabled": true,
   "RequestTimeoutSec": 60,
   "ServerErrorRetrySeconds": 60,
