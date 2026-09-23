@@ -487,64 +487,107 @@ class SyncExtractor(object):
         self.__Logger.info("Process complete.  %s project version orphans removed.", dropcount)
                 
 
-    def CheckSscDropProjects(self, safetyOverride=False):
-        self.__Logger.info('Compare Elastic SSC information with SSC looking for dropped app/versions')
-        self.__Logger.info('Getting ProjectVersions')
+    # Batch size for terms-clause deletes.  Inside elasticsearch's 65,536 terms ceiling, and keeps
+    # each request body clear of http.max_content_length.
+    DROP_BATCH_SIZE = 10000
+    V3_SOURCE_TYPE = "Saltworks.SSC"
+    # ssc* indices and the field each keys project versions by, plus the SM2 reporting indices.
+    # None of these carry a source field, so the deletes cannot be source-scoped - see CheckSscDropProjects.
+    PROJECT_INDICES = [('sscprojects', 'id'), ('sscprojcounts', 'projectVersionId'),
+                       ('sscprojattrs', 'projectVersionId'), ('sscprojattr2', 'projectVersionId'),
+                       ('sscprojscans', 'projectVersionId'), ('sscprojissues', 'projectVersionId'),
+                       ('app_scan_history_ssc', 'application_version_id'), ('app_vuls_ssc', 'application_version_id')]
 
-        self.__SscEsUtils.getAllESSSCProjects()
-        esTotal = len(self.__SscEsUtils.AllSscProjects)
+    def __DeleteByIdBatches(self, index, field, ids):
+        '''
+        Deletes from one index where `field` matches any of `ids`, in batches.  Returns ids submitted.
+
+        Submitted with wait=False, so this is ids handed to elasticsearch, not documents removed -
+        nothing reads these indices back in this pass.
+        '''
+        submitted = 0
+        for start in range(0, len(ids), SyncExtractor.DROP_BATCH_SIZE):
+            batch = [str(i) for i in ids[start:start + SyncExtractor.DROP_BATCH_SIZE]]
+            try:
+                self.__ElasticClient.DeleteByQuery(index, { "query": { "terms": { field: batch } } },
+                                                   wait=False, ignoreMissingIndex=True, ignoreConflictError=True)
+                submitted += len(batch)
+            except Exception as ex:
+                self.__Logger.error("[CheckDrop] Error deleting from '%s' (%s ids in this batch): [%s] %s",
+                                    index, len(batch), type(ex).__name__, ex)
+        return submitted
+
+    def __DropProjectVersions(self, projectVersionIds):
+        '''Removes every trace of the given project versions - ssc* indices, SM2 reporting, and v3.'''
+        if not projectVersionIds:
+            return
+        self.__Logger.info("[CheckDrop] Dropping %s project version(s) from local data.", len(projectVersionIds))
+        for index, field in SyncExtractor.PROJECT_INDICES:
+            n = self.__DeleteByIdBatches(index, field, projectVersionIds)
+            self.__Logger.info("[CheckDrop] Submitted delete of %s id(s) against '%s'.", n, index)
+        # v3 scans/assets/issues - source_id on a v3 asset is the project version id.
+        try:
+            results = self.__ElasticClient.DeleteV3BySourceIds(SyncExtractor.V3_SOURCE_TYPE, self.__SourceName,
+                                                               projectVersionIds, batchSize=SyncExtractor.DROP_BATCH_SIZE)
+            self.__Logger.info("[CheckDrop] v3 removal: %s", results or "nothing to remove")
+        except Exception as ex:
+            self.__Logger.error("[CheckDrop] Error removing v3 data for dropped project versions: [%s] %s",
+                                type(ex).__name__, ex)
+
+    def CheckSscDropProjects(self, safetyOverride=False):
+        '''
+        Removes local data for project versions that no longer exist in SSC.
+
+        Everything found missing is deleted by query in batches rather than one document at a time,
+        covering the ssc* indices, the SM2 reporting indices and the v3 scans/assets/issues.
+
+        NOTE: the ssc* indices carry no source name field, so these deletes cannot be scoped to one
+        source.  With more than one SSC source configured against the same indices, this would drop
+        the other source's project versions as well - it compares against one source's project list.
+        That limitation predates this method and is unchanged by it, but it is why the deletes are not
+        source-scoped the way the FOD ones are.
+
+        :safetyOverride: proceed even when local data is more than 5% larger than SSC's, which
+        normally aborts on the assumption that the SSC pull came back short.
+        '''
+        self.__Logger.info('Compare local data with SSC looking for dropped app/versions.  Loading project versions from SSC...')
+        projectVersions = self.__SscUtils.SscClient.GetProjectVersions("id", forceRefresh=True)
+        sscIds = { str(pv['id']) for pv in (projectVersions or []) if pv.get('id') is not None }
+        if not sscIds:
+            self.__Logger.warning("No project versions found in SSC.")
+
+        # Scrolled rather than aggregated: an aggregation caps at its `size` and would silently miss
+        # ids beyond it, and being wrong here means deleting data that still exists upstream.
+        body = { "sort": ["id"], "_source": ["id"], "query": { "match_all": {} } }
+        scroller = self.__ElasticClient.SearchScroll("sscprojects", body, scrollSize=1000, scrollTimeout=None)
+        esTotal = scroller.TotalHits if scroller else 0
         if esTotal <= 0:
             self.__Logger.error("No SSC project versions found in elasticsearch (sscprojects).")
             return
-        sscTotal = self.__SscUtils.SscClient.GetProjectVersionCount()
-        self.__Logger.info("Totals: Elastic SSC count: %s, SSC count: %s", esTotal, sscTotal)
-        if esTotal > sscTotal and (int(abs(esTotal - sscTotal) / esTotal * 100) > 5):
+        missing = []
+        seen = set()
+        while scroller and len(scroller.Results):
+            for dto in scroller.Results:
+                value = dto['_source'].get('id')
+                if value is None or str(value) in seen:
+                    continue
+                seen.add(str(value))
+                if str(value) not in sscIds:
+                    missing.append(value)
+            scroller.GetNext()
+        self.__Logger.info("Totals: local project versions %s (%s distinct), SSC %s, not present in SSC %s.",
+                           esTotal, len(seen), len(sscIds), len(missing))
+
+        if len(seen) > len(sscIds) and int(abs(len(seen) - len(sscIds)) / len(seen) * 100) > 5:
             if safetyOverride:
-                self.__Logger.warning("Elastic counts are higher than SSC by more than 5%, safety override means we're cleaning house anyway.")
+                self.__Logger.warning("Local project versions exceed SSC by more than 5%, safety override set - cleaning house anyway.")
             else:
-                self.__Logger.error("Elastic counts are higher than SSC by more than 5%, canceling auto-drop of SSC app versions from SaltMiner.  CheckSscDropProjects can be called manually with a safety override switch if desired.")
+                self.__Logger.error("Local project versions exceed SSC by more than 5%% (local %s, SSC %s), cancelling auto-drop.  "
+                                    "Call CheckSscDropProjects with safetyOverride=True to proceed anyway.", len(seen), len(sscIds))
                 return
 
-        projectVersions = self.__SscUtils.SscClient.GetProjectVersions("id", forceRefresh=True)
-        p = ProgressLogger(self.__ElasticClient)
-        p.Start("CheckSSCDropProjects", esTotal, "CheckSscDropProjects Status")
-        p.Progress(0, 'Starting CheckSscDropProjects - check for SSC dropped projectversions')
-
-        counttodrop = 0
-        iCount = 0
-
-        for sscProj in self.__SscEsUtils.AllSscProjects:
-            holdprojectId = sscProj['id']
-            bfoundincurrent = False
-            iCount = iCount + 1
-
-            if iCount % 50 == 0 or iCount == esTotal:
-                p.Progress(iCount, 'Checking Elastic app/version is in SSC {} of {}'.format(iCount, esTotal))
-        
-            for projectVersion in projectVersions:
-                projid = projectVersion['id']
-                if holdprojectId == projid:
-                    bfoundincurrent = True
-    
-            if bfoundincurrent == False:
-                p.Progress(iCount, 'Dropping Elastic app/version {} of {}'.format(iCount, esTotal))
-                self.__Logger.info('Removing Elastic app/version ID {}'.format(holdprojectId))
-                projid = holdprojectId
-                self.__ClearProject(projid)
-
-                queueInfo = {
-                    'processedDateTime' : datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S"),
-                    'projectVersionId': projid,
-                    'updateType': 'D',
-                    'completedDateTime' : '1900-01-01T00:00:00.000-0000'
-                }
-                self.__Logger.info(queueInfo)
-                self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
-
-                counttodrop = counttodrop + 1
-
-        self.__Logger.info('Total Elastic app/versions dropped: {}'.format(counttodrop))
-        p.Finish(esTotal, "Complete")
+        self.__DropProjectVersions(missing)
+        self.__Logger.info('CheckDrop complete.  Project versions dropped: %s.', len(missing))
 
     def ReloadSyncQueue(self, clearSyncQueue='none'):
         '''

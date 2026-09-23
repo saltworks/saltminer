@@ -1042,15 +1042,35 @@ class AppVulsProcessor(object):
         if not release:
             return RelAttributes
         appId = release['applicationId']
-        appResult = self.__Es.Search('fodapplications', { "query": { "term": { "applicationId": appId }}})
-        relResult = self.__Es.Search('fodreleases', { "query": { "term": { "releaseId": appVerId }}})
+        # Scoped to this source.  Application and release ids are unique per FOD tenant, not across
+        # them, so without the source term a second FOD source sharing an id makes every lookup below
+        # return 2 and fail permanently.
+        appResult = self.__Es.Search('fodapplications', { "query": { "bool": { "must": [
+            { "term": { "applicationId": { "value": appId } } },
+            { "term": { self.__SourceNameField: { "value": self.__SourceName } } } ] } } })
+        relResult = self.__Es.Search('fodreleases', { "query": { "bool": { "must": [
+            { "term": { "releaseId": { "value": appVerId } } },
+            { "term": { self.__SourceNameField: { "value": self.__SourceName } } } ] } } })
 
-        # should only have one application returned
-        if not appResult or not len(appResult) == 1:
-            self.__Logger.critical("[DATA] FOD Application id %s not found in fodapplications, skipping release %s", appId, appVerId)
+        # Exactly one of each, and anything else is fatal for this release - including duplicates.
+        # Too many is as wrong as none: it means the index has diverged and there is no way to know
+        # which copy is current, so the attributes below would be a coin toss.  The count is reported
+        # because "not found" and "found 35" need completely different fixes, and a message that
+        # cannot tell them apart sends the next person looking in the wrong place.
+        appCount = len(appResult) if appResult else 0
+        if appCount != 1:
+            self.__Logger.critical(
+                "[DATA] Expected exactly 1 fodapplications document for FOD application id %s (source '%s'), found %s - skipping release %s.%s",
+                appId, self.__SourceName, appCount, appVerId,
+                "  Duplicates indicate divergence in fodapplications - it is upserted per application by"
+                " SyncExtractor.__ProcessOne, so extra copies are stale rows needing cleanup." if appCount > 1 else "")
             return {}
-        if not relResult or not len(relResult) == 1:
-            self.__Logger.critical("[DATA] FOD Release id %s not found in fodreleases, skipping release", appVerId)
+        relCount = len(relResult) if relResult else 0
+        if relCount != 1:
+            self.__Logger.critical(
+                "[DATA] Expected exactly 1 fodreleases document for FOD release id %s (source '%s'), found %s - skipping release.%s",
+                appVerId, self.__SourceName, relCount,
+                "  Duplicates indicate divergence in fodreleases." if relCount > 1 else "")
             return {}
 
         FODApplication = appResult[0]['_source']
