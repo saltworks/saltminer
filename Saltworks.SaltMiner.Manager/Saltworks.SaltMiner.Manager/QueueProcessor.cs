@@ -48,6 +48,15 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
     private const int HistoryScanReportIntervalMs = 10000; // heartbeat interval while writing scan history
 
     /// <summary>
+    /// Escalating waits, in seconds, before a queue issue count short of the loader's IssueCount is
+    /// treated as real.  The loader writes the issues and moves the scan to Pending without forcing a
+    /// refresh - queue_issues is under constant write load and an index-wide refresh per load is not
+    /// affordable - so the documents are written but not yet searchable for a short window.  Waiting it
+    /// out costs nothing but time; refreshing costs the whole cluster, so that is the last resort.
+    /// </summary>
+    private static readonly int[] QueueIssueCountWaitsSec = [3, 10, 15];
+
+    /// <summary>
     /// Lock ID used by a by-ID run instead of a registered instance ID.  The API never hands out
     /// mgr-000 (NewManagerInstance starts at 1) and excludes it from the instance count, so these
     /// runs still lock the queue scans they touch without being counted as competing instances.
@@ -1134,6 +1143,11 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
 
         Logger.LogInformation("Getting Queue Issues...");
 
+        // Settle the issue count before anything destructive happens.  With ReplaceIssues the next block
+        // deletes every existing issue for this source id, so failing validation after it has run leaves
+        // the asset with nothing - check first, fail first.
+        WaitForQueueIssueCount(queueScan);
+
         // delete existing issues so that all incoming queue issues will be loaded in place of
         if (queueScan.Saltminer.Internal.ReplaceIssues)
         {
@@ -1458,6 +1472,70 @@ public class QueueProcessor(ILogger<QueueProcessor> logger, DataClientFactory<Ma
             yield return new(rsp.Data, totalHits);
             queueIssueRequest.PagingInfo = rsp.PagingInfo.NextPage();
         }
+    }
+
+    /// <summary>
+    /// Waits for the queue issues the loader reported to become visible, and fails the load if they
+    /// never do.
+    /// </summary>
+    /// <remarks>
+    /// IssueCount is what we expect; Short means "not searchable yet" more often than it means 
+    /// "missing", so wait escalates (QueueIssueCountWaitsSec) and only then pays for a 
+    /// refresh of queue_issues.  A count that is still wrong after that real and should fail.
+    ///
+    /// Each attempt logs, which also keeps the process talking: the python sync agent kills a manager
+    /// that goes quiet for longer than its liveness window.
+    ///
+    /// An IssueCount below zero means the loader did not report one (older loaders always sent -1), so
+    /// there is nothing to wait for and nothing to check.
+    /// </remarks>
+    private void WaitForQueueIssueCount(QueueScan queueScan)
+    {
+        var expected = queueScan.Saltminer.Internal.IssueCount;
+        if (expected < 0)
+            return;
+
+        var count = DataClient.QueueIssueCountByScan(queueScan.Id).Affected;
+        if (count == expected)
+            return;
+
+        foreach (var wait in QueueIssueCountWaitsSec)
+        {
+            Logger.LogInformation("Queue scan '{Id}' reports {Expected} queue issue(s), {Count} visible - waiting {Wait} sec.",
+                queueScan.Id, expected, count, wait);
+            Task.Delay(TimeSpan.FromSeconds(wait)).Wait();
+            CheckCancel(false);
+            count = DataClient.QueueIssueCountByScan(queueScan.Id).Affected;
+            if (count == expected)
+            {
+                Logger.LogInformation("Queue scan '{Id}' queue issue count settled at {Count}.", queueScan.Id, count);
+                return;
+            }
+        }
+
+        Logger.LogWarning("Queue scan '{Id}' still shows {Count} of {Expected} queue issue(s) after waiting - refreshing {Index}.",
+            queueScan.Id, count, expected, QueueIssue.GenerateIndex());
+        try
+        {
+            DataClient.RefreshIndex(QueueIssue.GenerateIndex());
+        }
+        catch (Exception ex)
+        {
+            // A timeout here does not mean the refresh failed: the api keeps going after we stop listening
+            // Log it (and any other exception) and let the count have the last word.
+            Logger.LogWarning(ex, "Refresh of {Index} did not complete for queue scan '{Id}' ([{Type}] {Msg}) - counting anyway.",
+                QueueIssue.GenerateIndex(), queueScan.Id, ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
+        }
+        count = DataClient.QueueIssueCountByScan(queueScan.Id).Affected;
+        if (count == expected)
+        {
+            Logger.LogInformation("Queue scan '{Id}' queue issue count settled at {Count} after refresh.", queueScan.Id, count);
+            return;
+        }
+
+        throw new ManagerValidationException(
+            $"Queue scan '{queueScan.Id}' reports {expected} queue issue(s) but only {count} are present after " +
+            $"{string.Join("/", QueueIssueCountWaitsSec)} sec + index refresh - count mismatch.");
     }
 
     /// <summary>

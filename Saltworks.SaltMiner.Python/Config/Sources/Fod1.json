@@ -9,6 +9,8 @@
   "ClientSecret": "<your_client_secret_here>",
   "Proxy": "",
   "BatchSize": 50,
+  "SyncVisibilityAttempts": 3,
+  "SyncVisibilityDelaySeconds": 5,
   "DisableSM2Indices": false,
   "InventoryAssetKeyAttribute": "",
   "AssessmentTypeMap": {

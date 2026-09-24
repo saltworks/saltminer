@@ -21,3 +21,4 @@ pytenable
 httpx
 aiohttp
 jwt
+google-cloud-bigquery

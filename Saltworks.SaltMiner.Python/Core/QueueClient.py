@@ -849,9 +849,13 @@ class QueueClient(object):
             logging.exception(f"Clear session unexpected error: {e}")
 
 
-    def _search_existing(self, keys:list[str]) -> list[tuple[str, str, str, int]]:
+    def _search_existing(self, keys:list[str]) -> list[tuple[str, str, str, int, str]]:
         '''
-        Search the queue for existing items matching the provided keys, returning a list of found indexes, ids, keys, and their priority.
+        Search the queue for existing items matching the provided keys, returning a list of found indexes, ids, keys, their priority, and their status.
+
+        Both New and In Progress are returned: either means the key is already queued and must not be
+        inserted again.  The status tells the caller them apart - only a New item may be modified,
+        since an In Progress one is held by a worker under optimistic locking.
         '''
         body = {
           "query": {
@@ -862,14 +866,16 @@ class QueueClient(object):
               ]
             }
           },
-          "_source": [ "key", "priority" ]
+          "_source": [ "key", "priority", "status" ]
         }
         rsp = self._es.Search(self.index_pattern, body, 10000, True)
         found = []
         if not rsp:
             return found
         for item in rsp:
-            found.append((item['_index'], item['_id'], item['_source'].get('key'), item['_source'].get('priority', self._default_priority)))
+            found.append((item['_index'], item['_id'], item['_source'].get('key'),
+                          item['_source'].get('priority', self._default_priority),
+                          item['_source'].get('status')))
         return found
 
 
@@ -922,13 +928,25 @@ class QueueClient(object):
         
         # Handle existing queue items ("Gatekeeper" logic)
         found_list = self._search_existing(list(wrk.keys()))
-        for idx, id, key, pri in found_list:
+        updates = 0
+        for idx, id, key, pri, status in found_list:
             if key not in wrk:
                 logging.error(f"[insert_queue] Existing queue item with key '{key}' found but not in current insert list, skipping update.")
                 continue
-            if pri != priority:
+            if status != QueueClientStatus.NEW:
+                # In Progress: a worker holds this item and every write it makes is an optimistic
+                # update carrying the seq_no/primary_term it read.  Touching the document here bumps
+                # both, so the worker's next set_progress/set_complete comes back a noop and the item
+                # is left locked and completed by nobody - which removes it from the queue for good
+                # (selection requires must_not exists lock_id).  Leave it alone; it is already being
+                # worked, which is what the caller wanted.
+                logging.info(f"Queue item with key '{key}' is already {status}, leaving it as-is.")
+            elif pri != priority:
                 logging.info(f"Updating priority for existing queue item with key '{key}' from {pri} to {priority}.")
-                bdocs.append(self._es.BulkInsertDocument(idx, {"priority": priority}, id, "update"))
+                # The partial document must be wrapped in "doc" - the bulk update action takes
+                # doc/script, and a bare field map is rejected with "script or doc is missing".
+                bdocs.append(self._es.BulkInsertDocument(idx, {"doc": {"priority": priority}}, id, "update"))
+                updates += 1
             else:
                 logging.info(f"Queue item with key '{key}' already exists.")
             wrk.pop(key)
@@ -939,7 +957,8 @@ class QueueClient(object):
         rsp = self._es.BulkInsert(bdocs, raiseErrors=False)
         if rsp[1] and rsp[1] > 0:
             logging.error("Bulk insert had %s errors, check response for details.", rsp[1])
-        logging.info("Bulk inserted %s queue entries, %s succeeded, %s failed", len(wrk), rsp[0], rsp[1])
+        logging.info("Bulk sent %s queue entries (%s new, %s priority update(s)), %s succeeded, %s failed",
+                     len(bdocs), len(wrk), updates, rsp[0], rsp[1])
 
     #region Priority system (not fully implemented yet)
 

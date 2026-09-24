@@ -1189,13 +1189,38 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             }
         }
 
+        // Markdown stores attachment images as absolute URLs built from the public base URL
+        // (the UI uses window.location.origin, ui-api uses the request-derived base URL), so
+        // they carry whatever scheme/host/port the authoring request came in on.  The job
+        // manager must not depend on reaching that public address: under rootless Podman the
+        // host's 80/443 -> 8080/8443 forward is PREROUTING-based and does not apply to
+        // container-originated traffic, so the hairpin fails and the report renders without
+        // its images.  Our own file URLs are therefore made relative, which resolves them
+        // against the internal ApiBaseUrl (http://ui-api:5001) instead.  Foreign image URLs
+        // are left alone and still fetched over the network.
+        private static readonly Regex OwnFileUrlRegex = new(
+            @"^https?://[^/]+(?:/[^/]+)*?/(File/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[^/]*(?:/attachment)?)$",
+            RegexOptions.IgnoreCase);
+
+        private string ToInternalFileUrl(string uri)
+        {
+            var match = OwnFileUrlRegex.Match(uri);
+            if (!match.Success)
+            {
+                return uri;
+            }
+            var relative = match.Groups[1].Value;
+            Logger.LogDebug("Resolving image '{Uri}' internally as '{Relative}'", uri, relative);
+            return relative;
+        }
+
         private void MdImportSettings_ImageNodeVisited(object sender, Syncfusion.Office.Markdown.MdImageNodeVisitedEventArgs args)
         {
             if (args.Uri.StartsWith("https://") || args.Uri.StartsWith("http://"))
             {
                 try
                 {
-                    byte[] image = UiApiClient.DownloadFile(args.Uri);
+                    byte[] image = UiApiClient.DownloadFile(ToInternalFileUrl(args.Uri));
 
                     Stream stream = new MemoryStream(image);
                     args.ImageStream = stream;

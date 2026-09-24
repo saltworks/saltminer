@@ -1,6 +1,6 @@
 {
   "_Comment": "Settings for SaltMiner DataClient connection to DataApi",
-  "ApiUrl": "http://api",
+  "ApiUrl": "http://api:5000",
   "ApiKey": "agentsecret",
   "ManagerApiKey": "",
   "SslVerify": true,

@@ -38,8 +38,11 @@ ISSUE_COUNT_RECHECK_DELAY_SEC = 5
 
 # How hard to chase the sync stage's expected issue count before giving up and letting the pull run
 # short (the guard then reports it).  One refresh, then this many counts spaced by the delay.
-ISSUE_VISIBILITY_ATTEMPTS = 3
-ISSUE_VISIBILITY_DELAY_SEC = 2
+# Defaults for the per-source SyncVisibilityAttempts / SyncVisibilityDelaySeconds settings.
+SYNC_VISIBILITY_ATTEMPTS = 3
+SYNC_VISIBILITY_DELAY_SEC = 2
+# Fixed settling period after the last-resort index refresh, before the final count.
+SYNC_VISIBILITY_FINAL_WAIT_SEC = 10
 
 
 class AppVulsProcessor(object):
@@ -50,8 +53,8 @@ class AppVulsProcessor(object):
         :heartbeat: optional zero-arg callable invoked as work progresses.  Supplied by SyncWorker
         so the agent can tell a slow refresh from a defunct worker; None (the default) for standalone runs.
         :agent_mode: set by SyncWorker.  Marks a run that handles one app version per invocation, so
-        per-run costs the batch runners amortise over a whole queue are paid every item instead - see
-        SmApiClient's refresh_indices.
+        per-run costs the batch runners amortise over a whole queue are paid every item instead, and the
+        queue scans it produces are claimed for its own manager hand-off - see SmApiClient's agent_mode.
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
@@ -69,7 +72,8 @@ class AppVulsProcessor(object):
         self.__NullUnsetAttributes = appSettings.GetSource(sourceName, "NullUnsetAttributes", True)
         self.__SourceName = sourceName
         self.__SourceNameField = "sourceName"
-        self.__IssueCountMismatch = None  # set by __CheckIssueCounts when a pull came up short
+        self.__IssueCountMismatch = None  # set by __CheckIssueCounts / __WaitForExpectedCount (scans or
+                                  # issues) when a count came up short; read by PopulateVulsOne
         self.__ExpectedIssueCount = None  # set per run by PopulateVulsOne, from the sync stage
         self.__ExpectedScanCount = None   # ditto - scan history is built from these
         self.__Logger.info(f"Unset attributes will {'be' if self.__NullUnsetAttributes else 'not be'} set to null (control with NullUnsetAttributes setting in source config).")
@@ -82,7 +86,7 @@ class AppVulsProcessor(object):
         #
         self.__SmApiClientEnabled = appSettings.Get(smv3ConfigName, "ApiClientEnabled", False)
         if self.__SmApiClientEnabled:
-            self.__SmApiClient = SmApiClient(appSettings, sourceName, smv3ConfigName, refresh_indices=not agent_mode)
+            self.__SmApiClient = SmApiClient(appSettings, sourceName, smv3ConfigName, agent_mode=agent_mode)
         self.__DisableSM2Indices = appSettings.Get(sourceName, "DisableSM2Indices", False)
         
         clientCode = appSettings.Get(mainConfigName, 'CustomerCode', 'SW')
@@ -94,9 +98,12 @@ class AppVulsProcessor(object):
         self.__AppVulsCustom = appVulsCustomFactory(appSettings, sourceName)
 
         self.__AssessmentTypeMap = appSettings.GetSource(sourceName, 'AssessmentTypeMap', {})
+        # How much to wait for sync data to become searchable before giving up on issues and scans
+        self.__VisibilityAttempts = max(3, int(appSettings.GetSource(sourceName, "SyncVisibilityAttempts", SYNC_VISIBILITY_ATTEMPTS)))
+        self.__VisibilityDelaySecs = max(3, int(appSettings.GetSource(sourceName, "SyncVisibilityDelaySeconds", SYNC_VISIBILITY_DELAY_SEC)))
 
         if not len(self.__AssessmentTypeMap.keys()):
-            self.__Logger.warn("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
+            self.__Logger.warning("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
 
         self.__Logger.info("AppVulsFOD init complete, connected to Elastic")
 
@@ -511,40 +518,63 @@ class AppVulsProcessor(object):
 
     def __WaitForExpectedCount(self, index, query, appVerId, expected, label='issue'):
         '''
-        Blocks until the source index shows the number of documents the sync stage said it wrote.
+        Waits for the number of documents the sync stage said it wrote to become searchable.
 
         The sync bulk-loads with refresh='wait_for', but that only refreshes the shards its final
-        request wrote to - '{index}' has more than one, so a small final batch can leave another shard's
-        documents unsearchable.  Rather than refresh the whole index on every app version, count first
-        and only refresh when the count is short: the healthy majority costs one _count, and the
-        stragglers cost the refresh they actually need.
-
-        Never raises.  A count that never arrives is left to __CheckIssueCounts to report, with the
-        numbers, once the pull has actually happened.
+        request wrote to - these indices have more than one, so a small final batch can leave another
+        shard's documents unsearchable.  The sequence is: count, then a recount after each of
+        SyncVisibility* waits, and only if all of those come up short is the index refreshed and one
+        last look taken after SYNC_VISIBILITY_FINAL_WAIT_SEC.  Refreshing is left to the end on
+        purpose - it is index-wide and every worker pays for it, so it is the last resort rather than
+        the first move.
         '''
         if expected is None:
             return
+        started = time.monotonic()
+        elapsed = lambda: time.monotonic() - started
         try:
             count = self.__Es.Count(index, self.__CountSafeQuery(query))
             if count == expected:
                 return
-            self.__Logger.warning("Sync wrote %s %s(s) for %s but only %s are visible - refreshing '%s' and re-counting...",
-                                  expected, label, appVerId, count, index)
-            self.__Es.RefreshIndex(index)
-            for attempt in range(ISSUE_VISIBILITY_ATTEMPTS):
-                count = self.__Es.Count(index, self.__CountSafeQuery(query))
-                if count == expected:
-                    self.__Logger.info("All %s %s(s) for %s visible after refresh%s.", expected, label, appVerId,
-                                       f" and {attempt} recheck(s)" if attempt else "")
-                    return
-                if attempt < ISSUE_VISIBILITY_ATTEMPTS - 1:
-                    time.sleep(ISSUE_VISIBILITY_DELAY_SEC)
-            # Still short.  Not a visibility problem any more - the pull runs and the guard reports it.
-            self.__Logger.error("Only %s of %s %s(s) for %s are visible after a refresh and %s recheck(s) - the read will be short.",
-                                count, expected, label, appVerId, ISSUE_VISIBILITY_ATTEMPTS)
-        except Exception as ex:
-            self.__Logger.warning("Could not verify %s visibility for %s: [%s] %s", label, appVerId, type(ex).__name__, ex)
+            self.__Logger.info("Sync wrote %s %s(s) for %s but only %s are visible in '%s' - waiting %ss between "
+                               "up to %s recount(s)...", expected, label, appVerId, count, index,
+                               self.__VisibilityDelaySecs, self.__VisibilityAttempts)
 
+            for attempt in range(1, self.__VisibilityAttempts + 1):
+                time.sleep(self.__VisibilityDelaySecs)
+                count = self.__Es.Count(index, self.__CountSafeQuery(query))
+                self.__Logger.info("Recount %s of %s for %s in '%s': %s of %s %s(s) visible (%.1fs elapsed).",
+                                   attempt, self.__VisibilityAttempts, appVerId, index, count, expected, label, elapsed())
+                if count == expected:
+                    self.__Logger.info("All %s %s(s) for %s visible after %s recount(s) (%.1fs elapsed).",
+                                       expected, label, appVerId, attempt, elapsed())
+                    return
+
+            # Last resort - an index-wide refresh, then one final look after a fixed settling period.
+            self.__Logger.info("Still short for %s after %s recount(s) - refreshing '%s' and waiting %ss for a final count...",
+                               appVerId, self.__VisibilityAttempts, index, SYNC_VISIBILITY_FINAL_WAIT_SEC)
+            self.__Es.RefreshIndex(index)
+            time.sleep(SYNC_VISIBILITY_FINAL_WAIT_SEC)
+            count = self.__Es.Count(index, self.__CountSafeQuery(query))
+            waits = self.__VisibilityAttempts + 1
+            self.__Logger.info("Final count for %s in '%s': %s of %s %s(s) visible (%.1fs elapsed).",
+                               appVerId, index, count, expected, label, elapsed())
+            if count == expected:
+                self.__Logger.info("All %s %s(s) for %s visible after %s wait(s) and an index refresh (%.1fs elapsed).",
+                                   expected, label, appVerId, waits, elapsed())
+                return
+
+            self.__IssueCountMismatch = (
+                f"Unexpected {label} count ({count}, expected {expected}) in {index} for {appVerId} after "
+                f"{waits} waits and an index refresh."
+            )
+            self.__Logger.error(self.__IssueCountMismatch)
+        except Exception as ex:
+            # A failure to verify is itself a reason not to trust the load - record it the same way.
+            self.__IssueCountMismatch = (
+                f"Could not verify {label} count for {appVerId} in {index}: [{type(ex).__name__}] {ex}"
+            )
+            self.__Logger.error(self.__IssueCountMismatch, exc_info=ex)
 
     @staticmethod
     def __CountSafeQuery(query):
@@ -1042,15 +1072,35 @@ class AppVulsProcessor(object):
         if not release:
             return RelAttributes
         appId = release['applicationId']
-        appResult = self.__Es.Search('fodapplications', { "query": { "term": { "applicationId": appId }}})
-        relResult = self.__Es.Search('fodreleases', { "query": { "term": { "releaseId": appVerId }}})
+        # Scoped to this source.  Application and release ids are unique per FOD tenant, not across
+        # them, so without the source term a second FOD source sharing an id makes every lookup below
+        # return 2 and fail permanently.
+        appResult = self.__Es.Search('fodapplications', { "query": { "bool": { "must": [
+            { "term": { "applicationId": { "value": appId } } },
+            { "term": { self.__SourceNameField: { "value": self.__SourceName } } } ] } } })
+        relResult = self.__Es.Search('fodreleases', { "query": { "bool": { "must": [
+            { "term": { "releaseId": { "value": appVerId } } },
+            { "term": { self.__SourceNameField: { "value": self.__SourceName } } } ] } } })
 
-        # should only have one application returned
-        if not appResult or not len(appResult) == 1:
-            self.__Logger.critical("[DATA] FOD Application id %s not found in fodapplications, skipping release %s", appId, appVerId)
+        # Exactly one of each, and anything else is fatal for this release - including duplicates.
+        # Too many is as wrong as none: it means the index has diverged and there is no way to know
+        # which copy is current, so the attributes below would be a coin toss.  The count is reported
+        # because "not found" and "found 35" need completely different fixes, and a message that
+        # cannot tell them apart sends the next person looking in the wrong place.
+        appCount = len(appResult) if appResult else 0
+        if appCount != 1:
+            self.__Logger.critical(
+                "[DATA] Expected exactly 1 fodapplications document for FOD application id %s (source '%s'), found %s - skipping release %s.%s",
+                appId, self.__SourceName, appCount, appVerId,
+                "  Duplicates indicate divergence in fodapplications - it is upserted per application by"
+                " SyncExtractor.__ProcessOne, so extra copies are stale rows needing cleanup." if appCount > 1 else "")
             return {}
-        if not relResult or not len(relResult) == 1:
-            self.__Logger.critical("[DATA] FOD Release id %s not found in fodreleases, skipping release", appVerId)
+        relCount = len(relResult) if relResult else 0
+        if relCount != 1:
+            self.__Logger.critical(
+                "[DATA] Expected exactly 1 fodreleases document for FOD release id %s (source '%s'), found %s - skipping release.%s",
+                appVerId, self.__SourceName, relCount,
+                "  Duplicates indicate divergence in fodreleases." if relCount > 1 else "")
             return {}
 
         FODApplication = appResult[0]['_source']

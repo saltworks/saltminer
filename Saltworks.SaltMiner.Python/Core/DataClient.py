@@ -438,6 +438,25 @@ class DataClient:
         self._verify_response(f"Error deleting asset '{asset_id}'", r)
         logging.debug("[DataClient] Deleted asset '%s' (%s/%s/%s)", asset_id, asset_type, source_type, instance)
 
+    def asset_delete_all(self, source_id, source_type, instance):
+        '''
+        Deletes an asset by source id, source type and instance, along with every scan and issue
+        associated with it - the api resolves them by the same three fields.  Requires manager API key.
+
+        Full removal for one source id, for sources that reload everything they own (Fortify SSC and
+        FOD do): safe there because the next sync rebuilds the asset, its scans and its issues from
+        scratch.  Do not use it for a source that only ever sends deltas.
+        '''
+        return self._run_async(self.asset_delete_all_async(source_id, source_type, instance))
+
+    async def asset_delete_all_async(self, source_id, source_type, instance):
+        '''Async version of asset_delete_all.'''
+        self._require_manager('asset_delete_all')
+        r = await self.manager_client.Delete(f'asset/all/{source_id}/{source_type}/{instance}')
+        self._verify_response(f"Error deleting all data for source id '{source_id}'", r)
+        logging.debug("[DataClient] Deleted asset, scans and issues for source id '%s' (%s/%s)",
+                      source_id, source_type, instance)
+
     # ------------------------------------------------------------------
     # Issue endpoints  (manager key required)
     # ------------------------------------------------------------------

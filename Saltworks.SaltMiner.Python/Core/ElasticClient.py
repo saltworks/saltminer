@@ -1070,6 +1070,67 @@ class ElasticClient(object):
         '''
         self.DeleteByQuery(index, { "query": { "match_all": {} } }, wait=False, timeout=timeout, ignoreMissingIndex=ignoreMissingIndex)
     
+    # Field on every v3 asset/scan/issue document holding the source's own id for the app version
+    # (SSC project version id / FOD release id).  Mapped keyword, so terms queries match on it.
+    V3_SOURCE_ID_FIELD = "saltminer.asset.source_id"
+    # Children before parents: an interrupted run then leaves orphaned parents (recoverable, and the
+    # next pass finishes them) rather than orphaned issues with no scan or asset to find them by.
+    V3_INDEX_KINDS = ("issues", "assets", "scans")
+
+    @staticmethod
+    def V3IndexName(kind, sourceType, sourceName):
+        '''
+        Name of a v3 index for one source, e.g. ("issues", "Saltworks.FOD", "FOD1") ->
+        "issues_app_saltworks.fod_fod1".
+        '''
+        return f"{kind}_app_{sourceType.lower()}_{sourceName.lower()}"
+
+    def DeleteV3BySourceIds(self, sourceType, sourceName, sourceIds, batchSize=10000, dryRun=False):
+        '''
+        Removes every v3 issue, asset and scan belonging to the given source ids (SSC project version
+        ids / FOD release ids) for one source.  Returns {index: ids submitted}.
+
+        Submitted with wait=False: these are bulk cleanups of app versions that are already gone, and
+        nothing downstream reads the indices back in this pass, so there is no reason to hold a worker
+        open while elasticsearch works through them.  It also means no deleted-document count comes
+        back - the counts returned are ids submitted, not documents removed.
+
+        Deleting by query in batches rather than per-asset through the api: dropping thousands of app
+        versions one round trip at a time is the slow path, and nothing here needs the api's
+        per-asset bookkeeping - the whole app version is going away.
+
+        :sourceIds: iterable of ids; duplicates and non-string values are fine.
+        :batchSize: ids per terms clause.  10k is well inside elasticsearch's 65,536 terms ceiling and
+        keeps each request's body small enough to stay clear of http.max_content_length.
+        :dryRun: log what would be deleted and delete nothing.
+        '''
+        ids = [str(i) for i in dict.fromkeys(sourceIds) if i is not None and str(i) != '']
+        results = {}
+        if not ids:
+            return results
+        for kind in ElasticClient.V3_INDEX_KINDS:
+            index = ElasticClient.V3IndexName(kind, sourceType, sourceName)
+            submitted = 0
+            for start in range(0, len(ids), batchSize):
+                batch = ids[start:start + batchSize]
+                query = { "query": { "terms": { ElasticClient.V3_SOURCE_ID_FIELD: batch } } }
+                if dryRun:
+                    logging.info("[DRYRUN] Would delete from '%s' where %s matches %s id(s).",
+                                 index, ElasticClient.V3_SOURCE_ID_FIELD, len(batch))
+                    continue
+                # ignoreMissingIndex: a source that has never loaded a given kind has no such index,
+                # and that is not an error.  ignoreConflictError: concurrent writes to the same
+                # documents are expected under the agent; the next pass picks up whatever was missed.
+                # wait=False - fire and forget; ignoreConflictError - concurrent writes to the same
+                # documents are expected under the agent, and a conflict just means the next pass
+                # picks up whatever this one missed.
+                self.DeleteByQuery(index, query, wait=False, ignoreMissingIndex=True, ignoreConflictError=True)
+                submitted += len(batch)
+            results[index] = submitted
+            if not dryRun:
+                logging.info("Submitted delete of %s source id(s) against '%s'.", submitted, index)
+        return results
+
     def DeleteByQuery(self, index, queryBody, refreshAfter=False, flushAfter=False, wait=True, timeout=None, ignoreMissingIndex=False, ignoreConflictError=False, slices=None):
         '''
         Deletes from specified index using specified query body

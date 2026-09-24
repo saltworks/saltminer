@@ -19,12 +19,9 @@
 '''
 
 import json
-import sys
-import time
 import logging
 import weakref
 
-from urllib3.exceptions import ReadTimeoutError
 import urllib3
 import urllib.parse
 import requests
@@ -60,7 +57,7 @@ class FodClient(object):
         # Coerced to int, and floored at 1 retry: config values arrive as whatever JSON held, and
         # these bound a retry loop - a string ("3") or a 0 would silently make the bound unreachable.
         self.__MaxRetries = max(1, int(appSettings.GetSource(sourceName, 'ServerErrorMaxRetries', 3)))
-        self.__RetrySec = int(appSettings.GetSource(sourceName, 'ServerErrorRetrySeconds', 300))
+        self.__RetrySec = int(appSettings.GetSource(sourceName, 'ServerErrorRetrySeconds', 30))
         self.__DefaultTimeout = appSettings.GetSource(sourceName, 'RequestDefaultTimeoutSeconds', 30)
         self.__ApiMaxLimit = appSettings.GetSource(sourceName, 'MaxResultsLimit', 50)
         proxy = appSettings.GetSource(sourceName, 'Proxy', '')
@@ -93,34 +90,66 @@ class FodClient(object):
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             self.__Logger.warning("SSL verification has been disabled in config.  This is insecure and should be enabled in production systems.")
 
-        # body for auth request
+        # Re-authenticate on a 401 rather than letting every subsequent call fail.
+        self.__ClientId = clientId
+        self.__ClientSecret = clientSecret
+        self.__Token = None
+        self.__DefaultHeaders = None
+
+        self.__Authenticate(initial=True)
+        self.__Logger.info("FodClient initialized. BaseAddress: '%s', ClientId: '%s', Proxy? %s", self.__BaseAddress, clientId, len(proxy) > 0)
+
+    def __Authenticate(self, initial=False):
+        '''
+        Fetches a bearer token and rebuilds the default headers.  Called once at construction and
+        again by __Request whenever FOD rejects the current token with a 401.
+
+        :initial: only changes the wording of the failure - a bad credential at construction is a
+        configuration problem, while a failure later means a token could not be renewed.
+        '''
         body = urllib.parse.urlencode({
             'grant_type': 'client_credentials',
             'scope': 'api-tenant',
-            'client_id': clientId,
-            'client_secret': clientSecret
+            'client_id': self.__ClientId,
+            'client_secret': self.__ClientSecret
         })
-
-        # headers for auth request
         headers = {
             'Accept': 'application/json',
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
         }
-        response = self.__Post('/oauth/token', data=body, headers=headers, timeout=5)
+        # isAuth stops __Request treating a 401 on this call as "refresh and retry" - the refresh
+        # IS this call, and retrying it would recurse.
+        response = self.__Request("post", '/oauth/token', data=body, headers=headers, timeout=5, isAuth=True)
         auth = response.Content if response.Content else {}
 
         try:
-            self.__Token = auth["access_token"]
-        except (KeyError, AttributeError):
-            self.__Logger.error("FodClient initialization failure (auth): (%s) %s", response.Status, response.Reason)
-            raise FodClientAuthenticationException(f"FodClient initialization failure (auth): ({response.Status}) {response.Reason}")
+            token = auth["access_token"]
+        except (KeyError, AttributeError, TypeError):
+            stage = "initialization" if initial else "token refresh"
+            self.__Logger.error("FodClient %s failure (auth): (%s) %s", stage, response.Status, response.Reason)
+            raise FodClientAuthenticationException(f"FodClient {stage} failure (auth): ({response.Status}) {response.Reason}")
 
-        # default headers used for all data requests
+        self.__Token = token
+        # Replaced wholesale rather than mutated, so nothing can observe a half-updated header set.
         self.__DefaultHeaders = {
-            'Authorization': f"Bearer {self.__Token}",
+            'Authorization': f"Bearer {token}",
             'Accept': 'application/json'
         }
-        self.__Logger.info("FodClient initialized. BaseAddress: '%s', ClientId: '%s', Proxy? %s", self.__BaseAddress, clientId, len(proxy) > 0)
+        if not initial:
+            self.__Logger.info("FOD access token renewed.")
+        return token
+
+    def __RefreshToken(self):
+        '''
+        Renews the token.  Returns True when a usable one is in place.  Never raises - a failed
+        renewal has to leave the original 401 to flow back to the caller rather than replacing it.
+        '''
+        try:
+            self.__Authenticate()
+            return True
+        except Exception as ex:
+            self.__Logger.error("FOD token renewal failed: %s", ex)
+            return False
 
     @property
     def ApiMaxLimit(self):
@@ -147,11 +176,19 @@ class FodClient(object):
             except Exception:
                 self.__Logger.debug("Heartbeat delegate raised; ignoring.", exc_info=True)
 
+    def __RetryDelay(self, attempt):
+        '''
+        Delay before retry `attempt` (1-based).  Linear backoff off ServerErrorRetrySeconds, so
+        the configured value is the FIRST wait rather than every wait: 30s default gives
+        30 / 60 / 90.  Retune ServerErrorRetrySeconds if that total is too long for a stage.
+        '''
+        return self.__RetrySec * max(1, attempt)
+
     #region Requests Mini-Client
     # ***********************************************************************************************************
     # Requests mini-client
     # ***********************************************************************************************************
-    def __Request(self, method, url, json=None, data=None, headers=None, verify=None, timeout=None):
+    def __Request(self, method, url, json=None, data=None, headers=None, verify=None, timeout=None, isAuth=False):
         if self.__BaseAddress is not None and not url.startswith("http:") and not url.startswith("https:"):
             _url = self.__BaseAddress + ("/" if not url.startswith("/") else "") + url
         else:
@@ -162,13 +199,17 @@ class FodClient(object):
             verify = True
         if str(verify).lower() == "false":
             verify = False
-        if headers is None:
+        # Tracked so a token refresh can rebuild them.  Caller-supplied headers are left alone -
+        # they carry their own auth by contract, so refreshing ours would not help them.
+        useDefaultHeaders = headers is None
+        if useDefaultHeaders:
             headers = self.__DefaultHeaders
         if not timeout:
             timeout = self.__DefaultTimeout
         endpoint = ApiThrottle.endpoint_key(_url)
         retryCount = 0
         rateLimitCount = 0
+        authRetried = False
 
         while True:
             # Waits out any cooldown this endpoint is in (set by this thread or another worker's
@@ -180,22 +221,45 @@ class FodClient(object):
                 else:
                     resp = requests.request(method, _url, json=json, data=data, headers=headers, timeout=timeout, verify=verify)
 
-            except (ConnectionError, ReadTimeoutError) as e:
+            # requests wraps every transport failure in its own exception tree.  The builtin
+            # ConnectionError and urllib3's ReadTimeoutError that used to be caught here are
+            # neither base classes nor subclasses of what requests actually raises
+            # (requests.exceptions.ConnectionError derives from RequestException/OSError, and a
+            # timeout surfaces as ConnectTimeout/ReadTimeout), so nothing was ever retried.
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
                 retryCount += 1
                 if retryCount >= self.__MaxRetries:
                     self.__Logger.error("Max retry count (%s) reached, api call '%s' failed.", self.__MaxRetries, url)
                     raise
-                self.__Logger.warning("Server error attempting api call ('%s'), attempt %s/%s, will retry after %s sec delay...", e.__str__(), retryCount, self.__MaxRetries, self.__RetrySec)
-                BeatingSleep(self.__RetrySec, self._Beat)
+                delay = self.__RetryDelay(retryCount)
+                self.__Logger.warning("Connection error attempting api call ('%s'), attempt %s/%s, will retry after %s sec delay...", e.__str__(), retryCount, self.__MaxRetries, delay)
+                BeatingSleep(delay, self._Beat)
                 continue
 
-            # Records the rate limit headers; returns a wait if the call was throttled (429).
-            # The wait itself happens in acquire() on the next pass, so all clients sharing this
-            # credential hold off on the endpoint, not just this one.
+            # Expired or revoked token
+            if resp.status_code == 401 and not isAuth and useDefaultHeaders and not authRetried:
+                authRetried = True
+                self.__Logger.warning("FOD returned 401 for '%s' - access token appears expired, renewing and retrying once.", url)
+                if self.__RefreshToken():
+                    headers = self.__DefaultHeaders
+                    continue
+
+            # Server-side failures come back as responses, not exceptions, so they need retrying
+            # here as well as in the except clause above.
+            if resp.status_code >= 500 and not isAuth:
+                retryCount += 1
+                if retryCount < self.__MaxRetries:
+                    delay = self.__RetryDelay(retryCount)
+                    self.__Logger.warning("Server error (%s) on api call '%s', attempt %s/%s, will retry after %s sec delay...", resp.status_code, url, retryCount, self.__MaxRetries, delay)
+                    BeatingSleep(delay, self._Beat)
+                    continue
+                self.__Logger.error("Max retry count (%s) reached after server error (%s), api call '%s' failed.", self.__MaxRetries, resp.status_code, url)
+
+            # observe() returns None unless the call was throttled (429) - so None means a valid
+            # response and the loop ends here.  A wait is deliberately NOT slept on at this point:
+            # it is recorded as an endpoint cooldown and served by acquire() at the top of the next
+            # pass, so every client sharing this credential holds off, not just this one.
             wait = self.__Throttle.observe(endpoint, resp.status_code, resp.headers)
-            # Unless the response was throttled (429) observe() will return None.
-            # This means we have a valid response, so we can break out of the retry loop
-            # and pass the response to the caller.
             if wait is None:
                 break
             rateLimitCount += 1
@@ -205,6 +269,14 @@ class FodClient(object):
 
         msg = f"FodClient {method} called. Url: '{_url}', Headers: {headers}.  Response: ({resp.status_code}) {resp.reason}"
         self.__Logger.debug(msg)
+        # Everything FOD documents that is not success and not already handled above is permanent
+        # for this request: 400/422 (malformed), 403 (authenticated but not entitled to this
+        # object) and 404 (really absent).  None are worth retrying, but all were previously
+        # invisible at default log level - callers see only a missing field and report their own
+        # guess at the cause.  Log them once here, with the body, so the real status is on record.
+        if not getattr(resp, 'ok', True):
+            self.__Logger.warning("FOD %s '%s' returned (%s) %s: %s", method.upper(), url, resp.status_code, resp.reason,
+                                  (getattr(resp, 'text', '') or '')[:500])
         return FodClientResponse(resp)
 
     def Get(self, url, json=None, headers=None):
@@ -277,6 +349,9 @@ class FodClient(object):
         offset: Starting offset.  Defaults to 0 (first result)
         headers: Optional override headers (must include auth)
         logPrefix: If present, will cause an info severity log message with the prefix and a progress suffix
+
+        A FAILED call is returned as-is, with its real status and error body.
+        Check .Ok before trusting ['items'].
         '''
         batchSize = self.__BatchSize
         returnResponse = None
@@ -294,8 +369,14 @@ class FodClient(object):
             if (batchSize > limit and limit > 0):
                 batchSize = limit
             returnResponse = self.Get(myurl, headers=headers)
+            if not returnResponse.Ok:
+                # Hand the failure back intact - status, reason and FOD's error body.
+                self.__Logger.error("GetPaged failed for url %s: (%s) %s", url,
+                                    returnResponse.Status, returnResponse.Reason)
+                return returnResponse
             dto = returnResponse.Content
             if not dto or not isinstance(dto, dict):
+                # Successful call, unusable body - genuinely nothing to page through.
                 returnResponse.Content = { "items": [] }
                 return returnResponse
             else:
@@ -313,6 +394,12 @@ class FodClient(object):
                     batchSize = limit - offset
                 myurl = f"{url}{op}offset={offset}&limit={batchSize}"
                 response = self.Get(myurl, headers=headers)
+                if not response.Ok or not isinstance(response.Content, dict) or 'items' not in response.Content:
+                    # Partial results are worse than none here: the caller would write a subset and
+                    # have no way to know it was short.  Fail the whole call.
+                    self.__Logger.error("GetPaged failed on page at offset %s for url %s: (%s) %s",
+                                        offset, url, response.Status, response.Reason)
+                    return response
                 dto = response.Content
                 returnContent['items'].extend(dto['items'])
                 offset += len(dto['items'])
@@ -329,29 +416,6 @@ class FodClient(object):
             response.Text = f"Error getting multi-call data.  Last response: {response.Text if response.Text else '[not available]'}"
             self.__Logger.error("Get_Paged: %s", ex, exc_info=ex)
             return response
-
-    def ManageError(self, postData, response):
-
-        if response.status_code == 429:
-            timeToPause = int(response.headers['X-Rate-Limit-Reset']) + 2
-            self.__Logger.info("Rate limit hit, pausing: {}".format(timeToPause))
-            BeatingSleep(timeToPause, self._Beat)
-
-        elif response.status_code == 500:
-            self.__Logger.info("Error 500 returned, pausing for 30 seconds for system reset.")
-            self.__Logger.info(response)
-            BeatingSleep(30, self._Beat)
-
-        elif response.status_code == 400:
-            # Bad Request
-            self.__Logger.info("Error 400, bad request.")
-            self.__Logger.info(postData)
-            sys.exit()
-
-        else:
-            self.__Logger.info("Unknown state, exiting")
-            self.__Logger.info(response)
-            sys.exit()
 
     #endregion
 
@@ -850,7 +914,15 @@ class FodScroller(object):
 class FodClientResponse(object):
     def __init__(self, response=None):
         if response is not None:
-            self.__Content = response.json() if response and callable(getattr(response, "json", None)) else None
+            # 'response is not None', not 'response': requests.Response.__bool__ returns .ok, so a
+            # plain truthiness test discards the body of every 4xx/5xx - leaving Content None while
+            # Text held FOD's error json.  Parse it for failures too; the error body is the single
+            # most useful thing a caller has when something goes wrong.  Non-json bodies (proxy
+            # error pages, gateway html) stay None and remain available via Text.
+            try:
+                self.__Content = response.json() if callable(getattr(response, "json", None)) else None
+            except ValueError:
+                self.__Content = None
             self.__Status = getattr(response, "status_code", 200)
             self.__Text = getattr(response, "text", None)
             self.__Reason = getattr(response, "reason", "Ok")
