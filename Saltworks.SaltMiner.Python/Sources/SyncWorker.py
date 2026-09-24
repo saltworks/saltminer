@@ -421,6 +421,12 @@ class SyncWorker(Worker):
             # queueRefresh off - we run the refresh for this ID ourselves below, so an
             # sscupdatequeue record would only queue the same work a second time.
             sync_result = sync.ProcessOne(data.target_id, data.force, queueRefresh=False)
+            # Sync result indicates whether any changes were detected.
+            # --force on the queue item bypasses change detection
+            if not sync_result.synced:
+                self.logger.info("No changes for SSC project version %s - skipping refresh and manager.", data.target_id)
+                self.agent.complete(item, stage="", is_error=False)
+                return
             self.agent.update(item, SyncQueueStage.REFRESH, data.to_dto())
             refresh = self._get_ssc_refresh(data.target_instance)
             # race_retry on - the sync stage above just wrote this doc, and elasticsearch's
