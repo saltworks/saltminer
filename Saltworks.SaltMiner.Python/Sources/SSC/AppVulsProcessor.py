@@ -86,7 +86,7 @@ class AppVulsProcessor(object):
         self.__SmApiClientEnabled = appSettings.Get(smv3ConfigName, "ApiClientEnabled", False)
         if self.__SmApiClientEnabled:
             self.__SmApiClient = SmApiClient(appSettings, sourceName, smv3ConfigName, agent_mode=agent_mode)
-            self.__HistoryV3Enable =  appSettings.GetSource(sourceName, "EnableHistoryImportToV3", False)
+            self.__ImportFullHistory =  appSettings.GetSource(sourceName, "EnableImportFullHistory", False)
         self.__DisableSM2Indices = appSettings.GetSource(sourceName, "DisableSM2Indices", False)
         
         clientCode = appSettings.Get(mainConfigName, 'CustomerCode', 'SW')
@@ -944,7 +944,7 @@ class AppVulsProcessor(object):
                             # Submit queue issue to SM API
                             #
                             if self.__SmApiClientEnabled and _app_vul and not cancel:
-                                self.__SmApiClient.map_everything(_app_vul, issueAssetKeys, issueKeys, self.__HistoryV3Enable)
+                                self.__SmApiClient.map_everything(_app_vul, issueAssetKeys, issueKeys, self.__ImportFullHistory)
 
                             #
                             # Bulk insert the array of documents.

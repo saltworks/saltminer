@@ -421,6 +421,13 @@ class SyncWorker(Worker):
             # queueRefresh off - we run the refresh for this ID ourselves below, so an
             # sscupdatequeue record would only queue the same work a second time.
             sync_result = sync.ProcessOne(data.target_id, data.force, queueRefresh=False)
+            # Sync result indicates whether any changes were detected.
+            # --force on the queue item bypasses change detection
+            if not sync_result.synced:
+                self.logger.info("No changes for SSC project version %s - skipping refresh and manager.", data.target_id)
+                self.agent.complete(item, stage="", is_error=False)
+                return
+
             self.agent.update(item, SyncQueueStage.REFRESH, data.to_dto())
             refresh = self._get_ssc_refresh(data.target_instance)
             # race_retry on - the sync stage above just wrote this doc, and elasticsearch's
@@ -452,6 +459,16 @@ class SyncWorker(Worker):
             # queueRefresh off - we run the refresh for this ID ourselves below, so a
             # fodupdatequeue record would only queue the same work a second time.
             sync_result = sync.ProcessOne(data.target_id, data.force, queueRefresh=False)
+            # Nothing changed upstream, so this run wrote nothing and there is nothing new for the
+            # refresh or the manager to do - the data already in elasticsearch is from the run that
+            # did write it.  Going on would rebuild scan history and re-run the manager over
+            # unchanged data on every pass, which is the bulk of the work for none of the benefit.
+            # --force on the queue item bypasses change detection when a rebuild is wanted anyway.
+            if not sync_result.synced:
+                self.logger.info("No changes for FOD release %s - skipping refresh and manager.", data.target_id)
+                self.agent.complete(item, stage="", is_error=False)
+                return
+
             self.agent.update(item, SyncQueueStage.REFRESH, data.to_dto())
             refresh = self._get_fod_refresh(data.target_instance)
             # race_retry on - the sync stage above just wrote this doc, and elasticsearch's

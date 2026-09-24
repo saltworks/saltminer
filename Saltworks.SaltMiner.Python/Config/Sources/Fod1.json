@@ -11,6 +11,7 @@
   "BatchSize": 50,
   "SyncVisibilityAttempts": 3,
   "SyncVisibilityDelaySeconds": 5,
+  "EnableImportFullHistory": false,
   "DisableSM2Indices": false,
   "InventoryAssetKeyAttribute": "",
   "AssessmentTypeMap": {

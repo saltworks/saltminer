@@ -24,7 +24,7 @@
   "IssueDetailsUseBulkApi": true,
   "IssueCustomTagsToCustomAttributes": true,
   "EnableSyncTagCounts": false,
-  "EnableHistoryImportToV3": false,
+  "EnableImportFullHistory": false,
   "ImportPurgedScans": true,
   "InventoryAssetKeyAttribute": "",
   "AssessmentTypeMap": {

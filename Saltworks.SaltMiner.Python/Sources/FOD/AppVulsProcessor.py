@@ -70,6 +70,12 @@ class AppVulsProcessor(object):
         self.__Attributes = appSettings.Get(mainConfigName, 'Attributes')
         self.__UpdateQHelper = UpdateQueueHelper(appSettings, sourceName)
         self.__NullUnsetAttributes = appSettings.GetSource(sourceName, "NullUnsetAttributes", True)
+        # Off: import scan history from the last scan v3 already holds onwards.  On: import the
+        # release's ENTIRE FOD scan history, which for a long-lived release is hundreds of scan
+        # documents - and is what is needed to backfill a release whose history predates the point
+        # SaltMiner started tracking it, since the incremental path skips anything older than what
+        # v3 already has.  Same setting name and meaning as the SSC source.
+        self.__ImportFullHistory = appSettings.GetSource(sourceName, "EnableImportFullHistory", False)
         self.__SourceName = sourceName
         self.__SourceNameField = "sourceName"
         self.__IssueCountMismatch = None  # set by __CheckIssueCounts / __WaitForExpectedCount (scans or
@@ -870,7 +876,7 @@ class AppVulsProcessor(object):
                             # Submit queue issue to SM API
                             #
                             if self.__SmApiClientEnabled and _app_vul and not cancel:
-                                self.__SmApiClient.map_everything(_app_vul, issueAssetKeys, issueKeys)
+                                self.__SmApiClient.map_everything(_app_vul, issueAssetKeys, issueKeys, self.__ImportFullHistory)
 
 
                             if not self.__DisableSM2Indices and not cancel:

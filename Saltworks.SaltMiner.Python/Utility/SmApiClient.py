@@ -678,9 +678,9 @@ class SmApiClient(object):
             except Exception as ex:
                 logging.error("Error!", exc_info=ex)
 
-    def map_everything(self, issue, issue_asset_keys, issue_keys, ssc_history_enable=False):
+    def map_everything(self, issue, issue_asset_keys, issue_keys, full_history_enable=False):
         try:
-            self.map_and_add_scan_and_asset(issue, issue_asset_keys, ssc_history_enable)
+            self.map_and_add_scan_and_asset(issue, issue_asset_keys, full_history_enable)
             self.map_and_add_issue(issue, issue_keys)
         except Exception:
             logging.error("Failed to map queue resource", exc_info=True)
@@ -689,9 +689,9 @@ class SmApiClient(object):
         q_scan = self._build_scan_doc(source, atype, ptype, scan_id, timestamp, issue, ssc_v2_scan, ssc_v3_scan_id)
         return self.add_queue_scan(q_scan, ssc_v3_scan_id)
 
-    def _build_scan_doc(self, source, atype, ptype, scan_id, timestamp, issue=None, ssc_v2_scan=None, ssc_v3_scan_id=None):
+    def _build_scan_doc(self, source, atype, ptype, scan_id, timestamp, issue=None, ssc_v2_scan=None, ssc_v3_scan_id=None, fod_scan=None):
         '''Builds a queue scan document without submitting it to the API.'''
-        scan_date = self._get_scan_date(issue, source, ssc_v2_scan)
+        scan_date = self._get_scan_date(issue, source, ssc_v2_scan, fod_scan)
         q_scan = {
             "Timestamp": timestamp,
             "Saltminer": {
@@ -731,7 +731,7 @@ class SmApiClient(object):
                 })
         return q_scan
 
-    def map_and_add_scan_and_asset(self, issue, issue_asset_keys, ssc_all_history_enable=False):
+    def map_and_add_scan_and_asset(self, issue, issue_asset_keys, full_history_enable=False):
         avid = str(issue['application_version_id'])
         atype = self._map_assessment_type(issue['assessment_type'])
         key = f"{avid}|{atype}"
@@ -755,11 +755,14 @@ class SmApiClient(object):
             qsid = q_scan['id']
             is_prod = True
             if 'SSC' in source.upper() and key not in self._history_done:
-                self._map_and_add_ssc_scan_history(avid, atype, issue['engine_type'], product, q_scan, ssc_all_history_enable)
+                self._map_and_add_ssc_scan_history(avid, atype, issue['engine_type'], product, q_scan, full_history_enable)
                 self._history_done.add(key)  # don't re-send history if a later mapping step fails and this key is retried
             else:
                 if 'sdlc_status' in issue.keys() and issue['sdlc_status'] != 'Production':
                     is_prod = False
+                if 'FOD' in source.upper() and key not in self._history_done:
+                    self._map_and_add_fod_scan_history(avid, atype, issue['engine_type'], product, q_scan, full_history_enable)
+                    self._history_done.add(key)
             section = "queue asset"
             q_asset = {
                 "Saltminer": {
@@ -950,7 +953,83 @@ class SmApiClient(object):
             logging.error("[SMAPI] Error adding issue with local id '%s' to local scan id '%s' (queue scan id %s): [%s] %s", issue['scanner_id'], scan_id, q_scan_id, type(ex).__name__, ex)
             logging.warning("[SMAPI] Scan with local id '%s' may be out of sync with queue scan id '%s'.", avid, q_scan_id)
 
-    def _map_and_add_ssc_scan_history(self, avid, atype, etype, product, ssc_v3_queue_scan, ssc_all_history_enable=False):
+    def _map_and_add_fod_scan_history(self, avid, atype, etype, product, fod_v3_queue_scan, full_history_enable=False):
+        '''
+        FOD counterpart of _map_and_add_ssc_scan_history - the same shape, against fodscans.
+
+        The queue scan built by the caller covers the CURRENT scan for this assessment type; every
+        older FOD scan of the same type becomes its own queue scan here, created straight into
+        Pending (they need no finalization, so they are sent in bulk rather than one POST each).
+        Without this, a release's scan history exists only in app_scan_history_fod and never reaches
+        the v3 scans index.
+
+        Differences from the SSC version, all of them source shape rather than logic:
+          - reads fodscans (releaseId + sourceName) rather than sscprojscans (projectVersionId)
+          - dates come from completedDateTime rather than artifactUploadDate
+          - the scan type field is scanType rather than type
+          - the report id is FOD's own scanId, which is already unique per scan, so it needs none of
+            SSC's date+id formatting (that exists to tell repeat uploads of one artifact apart)
+        '''
+        q = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {"term": {"releaseId": {"value": str(avid)}}},
+                        {"term": {"sourceName": {"value": self._source_name}}},
+                        {"term": {"scanType": {"value": etype}}}
+                    ]
+                }
+            },
+            "sort": [{"completedDateTime": {"order": "desc"}}]
+        }
+        scan_scroller = self._es.SearchScroll("fodscans", q, 200)
+        timestamp = SmApiClient.clean_date_string(datetime.datetime.now(datetime.timezone.utc).isoformat())
+        source = self.fod_source_type
+        v3_last_scan = self.search_last_scan(avid, atype, source)
+        v3_last_scan_date = datetime.datetime.fromisoformat('1900-01-01') if not v3_last_scan else v3_last_scan['saltminer']['scan']['scanDate']
+        count = 0
+        history_batch = []
+        while scan_scroller.Results:
+            for scan_cont in scan_scroller.Results:
+                scan = scan_cont['_source']
+                h_scan_date = scan.get('completedDateTime')
+                if not h_scan_date:
+                    # Matches the refresh stage, which skips scans with no completed date.
+                    logging.debug("[SMAPI] FOD scan %s for release %s has no completed date, skipping history record.",
+                                  scan.get('scanId'), avid)
+                    continue
+                h_scan_date = SmApiClient.clean_date_string(h_scan_date)
+                try:
+                    v3_last_scan_date = dtparse(v3_last_scan_date)
+                except Exception:
+                    pass
+                if not v3_last_scan_date or 'datetime.datetime' not in str(type(v3_last_scan_date)):
+                    logging.error("Invalid v3 last scan date '%s' for app version id %s and assessment type '%s'. Skipping scan history record", v3_last_scan_date, avid, atype)
+                    continue
+                # Only history newer than what v3 already holds, unless a full re-import was asked for.
+                if not full_history_enable and v3_last_scan_date.date() > dtparse(h_scan_date).date():
+                    continue
+                v3_scan_id_current = fod_v3_queue_scan['saltminer']['scan']['reportId']
+                v3_scan_id_new = str(scan['scanId'])
+                if v3_scan_id_new == str(v3_scan_id_current) or etype != scan.get('scanType'):
+                    continue
+                doc = self._build_scan_doc(source, atype, product, v3_scan_id_new, timestamp, None, None,
+                                           fod_v3_queue_scan['id'], fod_scan=scan)
+                doc['Saltminer']['Internal']['QueueStatus'] = "Pending"
+                doc['Id'] = str(uuid.uuid4())
+                history_batch.append(doc)
+                count += 1
+                if len(history_batch) >= self.batch_size:
+                    self._data_client.queue_scans_add_update_bulk(history_batch)
+                    self._queue_scan_ids.extend(d['Id'] for d in history_batch)
+                    history_batch = []
+            scan_scroller.GetNext()
+        if history_batch:
+            self._data_client.queue_scans_add_update_bulk(history_batch)
+            self._queue_scan_ids.extend(d['Id'] for d in history_batch)
+        logging.info("[SMAPI] Processed FOD scan history for release %s and assessment type %s - %s history scan(s).", avid, atype, count)
+
+    def _map_and_add_ssc_scan_history(self, avid, atype, etype, product, ssc_v3_queue_scan, full_history_enable=False):
         q = {
             "query": {
                 "bool": {
@@ -981,7 +1060,7 @@ class SmApiClient(object):
                     logging.error("Invalid v3 last scan date '%s' for app version id %s and assessment type '%s'. Skipping scan history record", v3_last_scan_date, avid, atype)
                     continue
                 # changed to > instead of >= so can catch multiple same day scans
-                if not ssc_all_history_enable and v3_last_scan_date.date() > dtparse(h_scan_date).date():
+                if not full_history_enable and v3_last_scan_date.date() > dtparse(h_scan_date).date():
                     continue
                 v3_scan_id_current = ssc_v3_queue_scan['saltminer']['scan']['reportId']
                 v3_scan_id_new = SmApiClient._format_scan_id(scan['artifactUploadDate'], scan['id'])
@@ -1044,9 +1123,9 @@ class SmApiClient(object):
         return sev_map[sev] if sev in sev_map else "Info"
 
     @staticmethod
-    def _get_scan_date(issue, source, v2_ssc_scan):
-        if not issue and not v2_ssc_scan:
-            raise SmApiClientException("Invalid call to _get_scan_date, must include non-null issue or v2_ssc_scan")
+    def _get_scan_date(issue, source, v2_ssc_scan, fod_scan=None):
+        if not issue and not v2_ssc_scan and not fod_scan:
+            raise SmApiClientException("Invalid call to _get_scan_date, must include non-null issue, v2_ssc_scan or fod_scan")
         if not issue:
             last_scan_date = None
             found_date = None
@@ -1058,8 +1137,15 @@ class SmApiClient(object):
         upload_date = None if not v2_ssc_scan else v2_ssc_scan['artifactUploadDate']
         if 'SSC' in source.upper():
             scan_date = SmApiClient.clean_date_string(upload_date) if upload_date else scan_date
+        # FOD's equivalent of the SSC upload date: the scan record's own completion date.  A history
+        # scan has no issue to take a date from - the issue that triggered this mapping belongs to
+        # the CURRENT scan, so using it would stamp every history record with today's scan date.
+        elif fod_scan:
+            completed_date = fod_scan.get('completedDateTime')
+            scan_date = SmApiClient.clean_date_string(completed_date) if completed_date else scan_date
         if not scan_date:
-            raise SmApiClientException(f"ScanDate cannot be null (last_scan_date: {last_scan_date}, found_date: {found_date}, artifactUploadDate (SSC): {upload_date}")
+            raise SmApiClientException(f"ScanDate cannot be null (last_scan_date: {last_scan_date}, found_date: {found_date}, "
+                                       f"artifactUploadDate (SSC): {upload_date}, completedDateTime (FOD): {None if not fod_scan else fod_scan.get('completedDateTime')})")
         return scan_date
 
     @staticmethod
