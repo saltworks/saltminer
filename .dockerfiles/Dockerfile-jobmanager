@@ -8,7 +8,9 @@ LABEL vendor="Saltworks Security, LLC"
 # fails with "The type initializer for 'SkiaSharp.SKImageInfo' threw an
 # exception".  DocIO also needs real font files present to render glyphs.
 # Liberation is metric-compatible with Arial/Times New Roman/Courier New.
-RUN apk add --no-cache fontconfig freetype font-dejavu font-liberation
+# Carlito is metric-compatible with Calibri, the report template's body font.
+RUN apk add --no-cache fontconfig freetype font-dejavu font-liberation font-carlito \
+    && fc-cache -f
 
 # Optional Microsoft core fonts (Arial, Times New Roman, Verdana, ...).
 # msttcorefonts-installer downloads the original Microsoft .exe cabs at build
