@@ -87,6 +87,7 @@ class ShippedTemplate(unittest.TestCase):
                 size = None if rpr is None else rpr.find(qn("w:sz"))
                 return None if size is None else size.get(qn("w:val"))
         self.fail(f"no run with text {text}")
+        raise AssertionError(f"no run with text {text}")
 
     def test_run_sizes_kept(self):
         self.assertEqual(self._size_of("ENG-NAME"), "44")
