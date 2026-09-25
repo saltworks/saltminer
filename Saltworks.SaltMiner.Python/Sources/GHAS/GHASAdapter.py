@@ -526,7 +526,14 @@ class GHASAdapter:
         vuln["FoundDate"] = alert.get("created_at") or self._now()
         vuln["Name"] = self._alert_name(alert, engine)
         vuln["Severity"] = self._normalize_severity(alert, engine)
-        vuln["IsRemoved"] = False
+        # RETIRE-001: IsRemoved is a computed, read-only property on the C#
+        # side (IsRemoved => RemovedDate != null), so we set RemovedDate
+        # instead. get_alerts_async already pulls every state (dismissed/
+        # fixed/resolved/auto_dismissed included), so without this a closed
+        # alert would be ingested and shown as permanently open.
+        removed_date = self._removed_date(alert, engine)
+        if removed_date:
+            vuln["RemovedDate"] = removed_date
         vuln["Id"] = self._alert_ids(alert, engine)
         vuln["ReportId"] = report_id
 
@@ -707,6 +714,47 @@ class GHASAdapter:
                     cwes.append(tag.replace("external/cwe/", "").upper())
             return cwes
         return []
+
+    # States that mean "this alert is no longer live at GitHub", and the
+    # per-engine field carrying the moment it closed. Order matters: the first
+    # present, non-null field wins. updated_at is the last-resort fallback --
+    # code-scanning "fixed" alerts carry no dedicated closure timestamp at all.
+    _CLOSED_STATES = {
+        "code_scanning": {"dismissed", "fixed"},
+        "dependabot": {"dismissed", "fixed", "auto_dismissed"},
+        "secret_scanning": {"resolved"},
+    }
+    _CLOSURE_DATE_FIELDS = {
+        "code_scanning": ("dismissed_at",),
+        "dependabot": ("dismissed_at", "fixed_at", "auto_dismissed_at"),
+        "secret_scanning": ("resolved_at",),
+    }
+
+    @classmethod
+    def _removed_date(cls, alert, engine):
+        """
+        Return the canonical closure timestamp for a closed alert, or None
+        when the alert is still open (RETIRE-001).
+
+        None is the meaningful "still open" signal -- the caller omits
+        RemovedDate entirely rather than sending it as null, since map_scan's
+        ReplaceIssues=True rebuilds every issue from this fetch each sync
+        anyway, so there's no stale prior value to worry about clearing.
+
+        Falls back to updated_at when the engine-specific closure field is
+        absent or null -- notably code_scanning state="fixed", which GitHub
+        reports with no dedicated timestamp.
+        """
+        state = (alert.get("state") or "").lower()
+        if state not in cls._CLOSED_STATES.get(engine, frozenset()):
+            return None
+
+        for field in cls._CLOSURE_DATE_FIELDS.get(engine, ()):
+            value = alert.get(field)
+            if value:
+                return value
+
+        return alert.get("updated_at")
 
     @staticmethod
     def _tool_name(alert, engine):
