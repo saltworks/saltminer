@@ -22,11 +22,19 @@
 # ruled in PBI-049. The converter is a separately shipped binary, invoked over `subprocess`, never
 # imported: `pandoc` is GPL and `docx2pdf` needs Microsoft Word.
 #
-# Conversion runs a small Basic macro pre-seeded into a fresh per-call user profile rather than a
-# plain `--convert-to`, because `--convert-to` never refreshes a document's fields or table-of-
-# contents page numbers (requirement 12). The macro loads the document hidden, runs the field and
-# index refresh twice (a TOC refresh can move the headings that follow it onto other pages, so one
-# pass is not enough), exports to PDF, and writes any Basic error to a file Python reads back.
+# Conversion runs a small Basic macro rather than a plain `--convert-to`, because `--convert-to`
+# never refreshes a document's fields or table-of-contents page numbers (requirement 12). The
+# macro loads the document hidden, runs the field and index refresh twice (a TOC refresh can move
+# the headings that follow it onto other pages, so one pass is not enough), exports to PDF, and
+# writes any Basic error to a file Python reads back.
+#
+# Dispatching that macro takes two soffice calls, not one. A single call against a profile
+# pre-seeded with the macro before LibreOffice's own first start never runs it: the first start
+# sets OfficeRestartInProgress and restarts internally, the command-line macro argument is not
+# re-dispatched after that restart, and first-start initialisation also rewrites script.xlb to
+# list only the profile's own default module, unregistering whatever was seeded ahead of time.
+# So the profile is built first, with --terminate_after_init and no macro argument, and only
+# once it exists is the macro module written and script.xlb updated to list it.
 
 from __future__ import annotations
 
@@ -76,33 +84,15 @@ class ConverterFailed(ConverterError):
         super().__init__(message)
 
 
-# The Standard library's catalogue entries. A fresh LibreOffice user profile has no Basic macros
-# until these five files exist under <profile>/user/basic/, so every call seeds its own throwaway
-# profile with them rather than depending on a profile built ahead of time.
-_SCRIPT_XLC = '''<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE library:libraries PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "libraries.dtd">
-<library:libraries xmlns:library="http://openoffice.org/2000/library" xmlns:xlink="http://www.w3.org/1999/xlink">
- <library:library library:name="Standard" xlink:href="$(USER)/basic/Standard/script.xlb/" xlink:type="simple" library:link="false"/>
-</library:libraries>
-'''
-
-_DIALOG_XLC = '''<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE library:libraries PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "libraries.dtd">
-<library:libraries xmlns:library="http://openoffice.org/2000/library" xmlns:xlink="http://www.w3.org/1999/xlink">
- <library:library library:name="Standard" xlink:href="$(USER)/basic/Standard/dialog.xlb/" xlink:type="simple" library:link="false"/>
-</library:libraries>
-'''
-
+# Overwrites the profile's own first-start script.xlb (which lists only its default `Module1`)
+# to also list the seeded `SaltMinerPdf` module. Written only after the profile-init call has
+# already created this file; writing it any earlier is the failure mode the module docstring
+# describes.
 _STANDARD_SCRIPT_XLB = '''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE library:library PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "library.dtd">
 <library:library xmlns:library="http://openoffice.org/2000/library" library:name="Standard" library:readonly="false" library:passwordprotected="false">
+ <library:element library:name="Module1"/>
  <library:element library:name="SaltMinerPdf"/>
-</library:library>
-'''
-
-_STANDARD_DIALOG_XLB = '''<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE library:library PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "library.dtd">
-<library:library xmlns:library="http://openoffice.org/2000/library" library:name="Standard" library:readonly="false" library:passwordprotected="false">
 </library:library>
 '''
 
@@ -162,24 +152,52 @@ End Sub
 '''
 
 
-def _seed_basic_library(profile_dir: Path) -> None:
-    basic_dir = profile_dir / "user" / "basic"
-    standard_dir = basic_dir / "Standard"
-    standard_dir.mkdir(parents=True)
-    (basic_dir / "script.xlc").write_text(_SCRIPT_XLC, encoding="utf-8")
-    (basic_dir / "dialog.xlc").write_text(_DIALOG_XLC, encoding="utf-8")
-    (standard_dir / "script.xlb").write_text(_STANDARD_SCRIPT_XLB, encoding="utf-8")
-    (standard_dir / "dialog.xlb").write_text(_STANDARD_DIALOG_XLB, encoding="utf-8")
+def _seed_saltminer_module(profile_dir: Path) -> None:
+    """Write the macro module and register it, into a profile the caller has already initialised."""
+    standard_dir = profile_dir / "user" / "basic" / "Standard"
     (standard_dir / "SaltMinerPdf.xba").write_text(_SALTMINER_PDF_XBA, encoding="utf-8")
+    (standard_dir / "script.xlb").write_text(_STANDARD_SCRIPT_XLB, encoding="utf-8")
+
+
+def _soffice_base_argv(soffice: str, profile_dir: Path) -> list[str]:
+    return [
+        soffice, "--headless", "--norestore", "--nodefault",
+        f"-env:UserInstallation={profile_dir.as_uri()}",
+    ]
+
+
+def _run_soffice(argv: list[str], env: dict, timeout: float) -> tuple[int, str]:
+    """Run one soffice call, returning (returncode, decoded stderr).
+
+    Raises `ConverterUnavailable` if the OS could not exec it, or lets `subprocess.TimeoutExpired`
+    propagate (with the process group already killed) for the caller to turn into a
+    `ConverterFailed(timed_out=True)` carrying its own `source`.
+    """
+    try:
+        process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    env=env, start_new_session=True)
+    except (FileNotFoundError, PermissionError) as exc:
+        raise ConverterUnavailable(argv[0]) from exc
+
+    try:
+        _, stderr_bytes = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        raise
+    return process.returncode, stderr_bytes.decode(errors="replace")
 
 
 def convert_to_pdf(docx_path: Path, output_dir: Path,
                     timeout: float = DEFAULT_TIMEOUT_SECONDS) -> Path:
     """Convert `docx_path` to a PDF written under `output_dir`, returning its path.
 
-    Raises `ConverterUnavailable` when `soffice` is not on PATH, `ConverterFailed` when it exits
-    non-zero, writes no PDF, or exceeds `timeout`. Never lets `FileNotFoundError` or
-    `CalledProcessError` escape unwrapped.
+    Two soffice calls under one `timeout` budget: initialise a fresh profile, then seed and
+    dispatch the refresh-and-export macro (see the module docstring for why one call cannot do
+    this). Raises `ConverterUnavailable` when `soffice` is not on PATH, `ConverterFailed` when
+    either call exits non-zero, profile initialisation leaves no script.xlb, no PDF is produced,
+    or the combined budget is exceeded. Never lets `FileNotFoundError` or `CalledProcessError`
+    escape unwrapped.
     """
     docx_path = Path(docx_path)
     output_dir = Path(output_dir)
@@ -194,42 +212,49 @@ def convert_to_pdf(docx_path: Path, output_dir: Path,
         out_dir = root / "out"
         error_path = root / "error.txt"
         out_dir.mkdir()
-        _seed_basic_library(profile_dir)
+        staged_docx = root / "in.docx"
+        shutil.copyfile(docx_path, staged_docx)
 
-        stem = docx_path.stem
-        produced_path = out_dir / f"{stem}.pdf"
-        macro = (
-            f'macro:///Standard.SaltMinerPdf.Export("{docx_path.as_uri()}",'
-            f'"{produced_path.as_uri()}","{error_path.as_uri()}")'
-        )
-        argv = [
-            soffice, "--headless", "--norestore", "--nodefault",
-            f"-env:UserInstallation={profile_dir.as_uri()}",
-            macro,
-        ]
         env = dict(os.environ)
         env["HOME"] = str(root)
+        env["TMPDIR"] = str(root)
 
         try:
-            process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                        env=env, start_new_session=True)
-        except (FileNotFoundError, PermissionError) as exc:
-            raise ConverterUnavailable(soffice) from exc
-
-        try:
-            _, stderr_bytes = process.communicate(timeout=timeout)
+            profile_rc, profile_stderr = _run_soffice(
+                _soffice_base_argv(soffice, profile_dir) + ["--terminate_after_init"],
+                env, timeout,
+            )
         except subprocess.TimeoutExpired as exc:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.communicate()
             raise ConverterFailed(docx_path, timed_out=True, timeout=timeout) from exc
 
-        stderr_text = stderr_bytes.decode(errors="replace")
-        if process.returncode != 0 or not produced_path.exists():
-            detail = error_path.read_text(encoding="utf-8", errors="replace") if error_path.exists() else ""
-            raise ConverterFailed(docx_path, returncode=process.returncode, stderr=stderr_text,
-                                   detail=detail)
+        script_xlb = profile_dir / "user" / "basic" / "Standard" / "script.xlb"
+        if profile_rc != 0 or not script_xlb.exists():
+            raise ConverterFailed(docx_path, returncode=profile_rc, stderr=profile_stderr,
+                                   detail="profile initialisation failed")
 
-        final_path = output_dir / f"{stem}.pdf"
+        _seed_saltminer_module(profile_dir)
+
+        produced_path = out_dir / "in.pdf"
+        macro = (
+            f'macro:///Standard.SaltMinerPdf.Export("{staged_docx.as_uri()}",'
+            f'"{produced_path.as_uri()}","{error_path.as_uri()}")'
+        )
+        remaining = timeout - (time.monotonic() - started)
+        if remaining <= 0:
+            raise ConverterFailed(docx_path, timed_out=True, timeout=timeout)
+
+        try:
+            macro_rc, macro_stderr = _run_soffice(
+                _soffice_base_argv(soffice, profile_dir) + [macro], env, remaining,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ConverterFailed(docx_path, timed_out=True, timeout=timeout) from exc
+
+        if macro_rc != 0 or not produced_path.exists():
+            detail = error_path.read_text(encoding="utf-8", errors="replace") if error_path.exists() else ""
+            raise ConverterFailed(docx_path, returncode=macro_rc, stderr=macro_stderr, detail=detail)
+
+        final_path = output_dir / f"{docx_path.stem}.pdf"
         output_dir.mkdir(parents=True, exist_ok=True)
         shutil.move(str(produced_path), str(final_path))
         logging.info("[PdfConverter][convert_to_pdf] converted %s in %.1f s", docx_path.name,
