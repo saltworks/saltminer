@@ -201,6 +201,29 @@ class Renderer(unittest.TestCase):
         paragraphs = [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
         self.assertEqual(paragraphs, ["BLOCK-x"])
 
+    def test_single_run_result_replaces_only_the_fields_own_runs(self):
+        # PBI-048: a renderer that needs its own run formatting (a colour override, for example)
+        # returns a single w:r instead of a list, so a field sharing its paragraph with static
+        # text keeps that text, unlike the block-splice path above which replaces the paragraph.
+        from docx.oxml import OxmlElement
+
+        def stub(ctx):
+            run = OxmlElement("w:r")
+            text = OxmlElement("w:t")
+            text.text = f"COLORED-{ctx.value}"
+            run.append(text)
+            return run
+
+        document = _blank_document()
+        add_field(document.add_paragraph(), "TableStart:Section1")
+        paragraph = document.add_paragraph()
+        paragraph.add_run("Label: ")
+        add_field(paragraph, "Body")
+        add_field(document.add_paragraph(), "TableEnd:Section1")
+        merge_document(document, bind_roots({"Body": "x"}), renderer=stub)
+        paragraphs = [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
+        self.assertEqual(paragraphs, ["Label: COLORED-x"])
+
     def test_block_result_in_last_cell_paragraph_keeps_cell_valid(self):
         from docx.oxml import OxmlElement
 

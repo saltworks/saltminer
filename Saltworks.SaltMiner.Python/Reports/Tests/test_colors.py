@@ -21,9 +21,11 @@ import unittest
 
 from Reports.Colors import COLOR_NAMES, resolve_color
 
-# JobManagerConfig.FieldValueColorCustomizations, as a deployment would set it: the seven names
-# the shipped configuration uses (Spikes/PBI-025-report-merge/fixture.py FIELD_VALUE_COLORS).
-SHIPPED_FIELD_VALUE_COLORS = {
+# JobManagerConfig.FieldValueColorCustomizations has no shipped default (it is `{}` in
+# JobManagerConfig.cs:82; no branch's appsettings-default.json sets it). This is the spike's own
+# reference test input (Spikes/PBI-025-report-merge/fixture.py FIELD_VALUE_COLORS), used here to
+# prove the seven names it exercises resolve, not as a claim that a deployment ships with it.
+REFERENCE_FIELD_VALUE_COLORS = {
     "critical": "Red",
     "high": "OrangeRed",
     "medium": "Goldenrod",
@@ -38,8 +40,8 @@ class ColorTable(unittest.TestCase):
     def test_full_known_color_table(self):
         self.assertEqual(len(COLOR_NAMES), 141)
 
-    def test_shipped_names_are_covered(self):
-        for name in SHIPPED_FIELD_VALUE_COLORS.values():
+    def test_reference_config_names_are_covered(self):
+        for name in REFERENCE_FIELD_VALUE_COLORS.values():
             self.assertIsNotNone(resolve_color(name), name)
         self.assertEqual(resolve_color("Red"), "FF0000")
         self.assertEqual(resolve_color("Green"), "008000")
