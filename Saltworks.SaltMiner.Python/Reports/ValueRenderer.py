@@ -76,7 +76,7 @@ def _colored_run(text: str, rpr_source, hex_color: str):
 def make_value_renderer(
     markdown_fields: Iterable[str],
     field_value_colors: dict,
-) -> tuple[Callable[[FieldContext], "str | list"], ValueRenderResult]:
+) -> tuple[Callable[[FieldContext], "str | object | list"], ValueRenderResult]:
     """A `Renderer` for PBI-047's merge engine, and the result object it fills in as it runs.
 
     `markdown_fields` names the fields whose value is markdown. `field_value_colors` is the

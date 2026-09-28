@@ -82,7 +82,7 @@ class FieldContext:
 # staying inline in the same paragraph, for a renderer that needs to set its own run formatting,
 # such as colouring one value without disturbing the rest of the paragraph), or a list of block
 # elements to splice in place of the field's whole paragraph.
-Renderer = Callable[[FieldContext], "str | list"]
+Renderer = Callable[[FieldContext], "str | object | list"]
 
 
 def plain_text_renderer(ctx: FieldContext) -> str:
