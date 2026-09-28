@@ -26,7 +26,7 @@ import docx
 from docx.oxml.ns import qn
 
 from Reports.Tests.sample_record import sample_record
-from Reports.Tests.synthetic import paragraph_text
+from Reports.Tests.synthetic import add_field, paragraph_text
 from Reports.ValueRenderer import make_value_renderer
 from Reports.WordMerge import bind_roots, merge_document
 
@@ -57,6 +57,13 @@ def _run_with_text(document, text):
     return None
 
 
+def _enclosing_cell(element):
+    parent = element.getparent()
+    while parent is not None and parent.tag != qn("w:tc"):
+        parent = parent.getparent()
+    return parent
+
+
 def _runs_with_color(document, hex_value):
     found = []
     for run in document.element.body.iter(qn("w:r")):
@@ -65,6 +72,13 @@ def _runs_with_color(document, hex_value):
         if color is not None and color.get(qn("w:val")) == hex_value:
             found.append(run)
     return found
+
+
+def _blank_document():
+    document = docx.Document()
+    for paragraph in list(document.paragraphs):
+        paragraph._p.getparent().remove(paragraph._p)
+    return document
 
 
 class MarkdownField(unittest.TestCase):
@@ -84,9 +98,13 @@ class MarkdownField(unittest.TestCase):
         self.assertIsNotNone(bold_run)
         self.assertIsNotNone(bold_run.find(qn("w:rPr")).find(qn("w:b")))
 
-        paragraphs = [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
+        # AC-5 names "the Details cell": scope the rest of the check to the table cell the
+        # markdown actually rendered into, not just anywhere in the document.
+        details_cell = _enclosing_cell(bold_run)
+        self.assertIsNotNone(details_cell)
+        cell_paragraphs = [paragraph_text(p) for p in details_cell.iter(qn("w:p"))]
         for word in ("one", "two", "three"):
-            self.assertTrue(any(t.strip().startswith(f"• {word}") for t in paragraphs), word)
+            self.assertTrue(any(t.strip().startswith(f"• {word}") for t in cell_paragraphs), word)
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "out.docx")
@@ -113,23 +131,34 @@ class FieldValueColoring(unittest.TestCase):
         self.assertEqual(colour_result.unknown_colors, [])
 
     def test_colored_value_keeps_shared_static_text_inline(self):
-        # Regression: colouring used to splice a whole new paragraph, dropping any static text
-        # ("Product: ") that shared the field's paragraph. Product is not one of the two
-        # colour-driven fields the shipped template uses alone (Severity, TestStatus), but
-        # colouring matches on VALUE, not field name (ReportProcessor.cs:924-938), so any field
-        # can trigger it.
-        record = sample_record()
-        record["IssueDetails"][0]["Product"] = "High"
+        # AC-9, regression: colouring used to splice a whole new paragraph, dropping any static
+        # text ("Product: ") sharing the field's paragraph. Colouring matches on VALUE, not field
+        # name (ReportProcessor.cs:924-938), so any field can trigger it, not only Severity and
+        # TestStatus, the two the shipped template happens to colour alone in their own paragraph.
+        document = _blank_document()
+        add_field(document.add_paragraph(), "TableStart:Section1")
+        paragraph = document.add_paragraph()
+        paragraph.add_run("Product: ")
+        add_field(paragraph, "Product", result_text="«Product»")
+        add_field(document.add_paragraph(), "TableEnd:Section1")
 
         renderer, colour_result = make_value_renderer(
             markdown_fields=set(), field_value_colors={"high": "OrangeRed"})
-        document = docx.Document(TEMPLATE)
-        merge_document(document, bind_roots(record), renderer=renderer)
+        merge_document(document, bind_roots({"Product": "High"}), renderer=renderer)
 
         self.assertEqual(colour_result.colored_values, 1)
-        paragraphs = [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
-        self.assertTrue(any(t.strip() == "Product: High" for t in paragraphs), paragraphs)
-        self.assertTrue(_runs_with_color(document, "FF4500"))
+        paragraphs = [p for p in document.element.body.iter(qn("w:p"))]
+        matching = [p for p in paragraphs if paragraph_text(p).strip() == "Product: High"]
+        self.assertEqual(len(matching), 1, [paragraph_text(p) for p in paragraphs])
+        value_run = next(
+            r for r in matching[0].iter(qn("w:r"))
+            if "".join(t.text or "" for t in r.iter(qn("w:t"))) == "High"
+        )
+        rpr = value_run.find(qn("w:rPr"))
+        self.assertIsNotNone(rpr)
+        color = rpr.find(qn("w:color"))
+        self.assertIsNotNone(color)
+        self.assertEqual(color.get(qn("w:val")), "FF4500")
 
     def test_unknown_color_name_is_reported_and_left_plain(self):
         record = sample_record()
