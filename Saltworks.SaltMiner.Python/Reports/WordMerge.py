@@ -45,6 +45,7 @@ from docx.oxml.ns import qn
 from Reports.WordFields import (
     GROUP_MARKER,
     P,
+    R,
     RPR,
     group_marker,
     iter_merge_fields,
@@ -76,9 +77,12 @@ class FieldContext:
     in_table_cell: bool
 
 
-# A renderer returns a str (inline text) or a list of block elements to splice in place of the
-# field's paragraph.
-Renderer = Callable[[FieldContext], "str | list"]
+# A renderer returns one of three shapes: a str (inline text, built into a run with the field's
+# own cached formatting), a single `w:r` element (spliced in place of just the field's own runs,
+# staying inline in the same paragraph, for a renderer that needs to set its own run formatting,
+# such as colouring one value without disturbing the rest of the paragraph), or a list of block
+# elements to splice in place of the field's whole paragraph.
+Renderer = Callable[[FieldContext], "str | object | list"]
 
 
 def plain_text_renderer(ctx: FieldContext) -> str:
@@ -225,6 +229,10 @@ def _fill_fields(element, scope: list, keep_unmatched: bool, renderer, result: M
             elif isinstance(rendered, list):
                 replace_field(field, [])
                 block_results.extend(rendered)
+            elif getattr(rendered, "tag", None) == R:
+                # A single run, built with its own formatting (for example a colour override):
+                # stays inline in place of just the field's own runs, not a paragraph splice.
+                replace_field(field, [rendered])
             else:
                 raise TypeError(f"renderer for field {field.name} returned {type(rendered).__name__}")
 
