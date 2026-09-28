@@ -44,6 +44,8 @@ from docx.oxml.ns import qn
 P = qn("w:p")
 R = qn("w:r")
 RPR = qn("w:rPr")
+TR = qn("w:tr")
+TBL = qn("w:tbl")
 FLDCHAR = qn("w:fldChar")
 FLDCHARTYPE = qn("w:fldCharType")
 INSTRTEXT = qn("w:instrText")
@@ -158,6 +160,33 @@ def group_marker(block_el):
         )
     match = hits[0][1]
     return ("start" if match.group(1) == "Start" else "end"), match.group(2)
+
+
+def row_paragraphs(tr) -> list:
+    """The row's own paragraphs, in document order, excluding any inside a nested table."""
+    paragraphs = []
+    for paragraph in tr.iter(P):
+        ancestor = paragraph.getparent()
+        nested = False
+        while ancestor is not None and ancestor is not tr:
+            if ancestor.tag == TBL:
+                nested = True
+                break
+            ancestor = ancestor.getparent()
+        if not nested:
+            paragraphs.append(paragraph)
+    return paragraphs
+
+
+def row_markers(tr) -> list[tuple[str, str]]:
+    """('start'|'end', group name) pairs found in the row's own paragraphs, document order."""
+    markers = []
+    for paragraph in row_paragraphs(tr):
+        for field in iter_merge_fields(paragraph):
+            match = GROUP_MARKER.match(field.name)
+            if match:
+                markers.append(("start" if match.group(1) == "Start" else "end", match.group(2)))
+    return markers
 
 
 def make_run(text: str, rpr_source=None):

@@ -120,12 +120,56 @@ def _blank_document():
 
 
 class Unsupported(unittest.TestCase):
-    def test_marker_in_cell_reported(self):
+    def test_split_across_two_tables_reported(self):
         document = _blank_document()
-        table = document.add_table(rows=1, cols=1)
-        add_field(table.cell(0, 0).paragraphs[0], "TableStart:Rows")
+        table_a = document.add_table(rows=1, cols=1)
+        add_field(table_a.cell(0, 0).paragraphs[0], "TableStart:Split")
+        table_b = document.add_table(rows=1, cols=1)
+        add_field(table_b.cell(0, 0).paragraphs[0], "TableEnd:Split")
+
         result = merge_document(document, bind_roots({}))
-        self.assertIn("TableStart:Rows", result.unsupported_markers)
+
+        self.assertIn("TableStart:Split", result.unsupported_markers)
+        tables = document.tables
+        self.assertEqual(len(tables[0].rows), 1)
+        self.assertEqual(len(tables[1].rows), 1)
+
+    def test_split_table_and_body_reported(self):
+        document = _blank_document()
+        add_field(document.add_paragraph(), "TableStart:X")
+        table = document.add_table(rows=1, cols=1)
+        add_field(table.cell(0, 0).paragraphs[0], "TableEnd:X")
+
+        result = merge_document(document, bind_roots({}))
+
+        self.assertIn("TableStart:X", result.unsupported_markers)
+        self.assertIn("TableEnd:X", result.unsupported_markers)
+        self.assertEqual(len(document.tables[0].rows), 1)
+
+    def test_marker_in_nested_table_reported(self):
+        document = _blank_document()
+        outer = document.add_table(rows=1, cols=1)
+        inner = outer.cell(0, 0).add_table(rows=1, cols=1)
+        add_field(inner.cell(0, 0).paragraphs[0], "TableStart:Nested")
+
+        result = merge_document(document, bind_roots({}))
+
+        self.assertIn("TableStart:Nested", result.unsupported_markers)
+        self.assertEqual(len(document.tables[0].rows), 1)
+
+    def test_crossing_row_groups_raise(self):
+        document = _blank_document()
+        table = document.add_table(rows=1, cols=2)
+        add_field(table.cell(0, 0).paragraphs[0], "TableStart:A")
+        add_field(table.cell(0, 0).paragraphs[0], "TableStart:B")
+        add_field(table.cell(0, 1).paragraphs[0], "TableEnd:A")
+        add_field(table.cell(0, 1).paragraphs[0], "TableEnd:B")
+
+        with self.assertRaises(TemplateStructureError) as caught:
+            merge_document(document, bind_roots({}))
+        message = str(caught.exception)
+        self.assertIn("TableEnd:A", message)
+        self.assertIn("TableStart:B", message)
 
     def test_unclosed_raises(self):
         document = _blank_document()

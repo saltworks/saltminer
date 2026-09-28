@@ -23,7 +23,13 @@ import docx
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-from Reports.WordFields import iter_merge_fields, make_run, parse_field_name, replace_field
+from Reports.WordFields import (
+    iter_merge_fields,
+    make_run,
+    parse_field_name,
+    replace_field,
+    row_markers,
+)
 from Reports.Tests.synthetic import add_field, paragraph_text
 
 
@@ -53,6 +59,20 @@ class IterMergeFieldsTests(unittest.TestCase):
         self.assertEqual(paragraph_text(paragraph._p), "value")
         self.assertEqual(len(paragraph._p.findall(qn("w:r"))), 1)
         self.assertEqual(iter_merge_fields(paragraph._p), [])
+
+
+class RowMarkersTests(unittest.TestCase):
+    def test_skips_nested_table_marker_and_keeps_document_order(self):
+        document = docx.Document()
+        table = document.add_table(rows=1, cols=2)
+        add_field(table.cell(0, 0).paragraphs[0], "TableStart:Rows")
+        nested = table.cell(0, 0).add_table(rows=1, cols=1)
+        add_field(nested.cell(0, 0).paragraphs[0], "TableStart:Nested")
+        add_field(table.cell(0, 1).paragraphs[0], "TableEnd:Rows")
+
+        markers = row_markers(table.rows[0]._tr)
+
+        self.assertEqual(markers, [("start", "Rows"), ("end", "Rows")])
 
 
 class MakeRunTests(unittest.TestCase):

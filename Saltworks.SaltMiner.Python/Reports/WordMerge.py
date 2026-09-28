@@ -22,19 +22,26 @@
 #
 # Reproduces the DocIO behaviours the shipped SaltMiner template depends on:
 #   * TableStart:<Group> / TableEnd:<Group> regions, each repeated once per record and nested to
-#     any depth (ReportProcessor.CreateWordReport, MailMerge.ExecuteNestedGroup).
+#     any depth (ReportProcessor.CreateWordReport, MailMerge.ExecuteNestedGroup), including a
+#     region whose markers sit in table rows: the same row when both markers share it, or the
+#     rows from the start row to the end row inclusive otherwise.
 #   * a group's records come from the record directly around it, so the same group name under two
 #     parents resolves to each parent's own list.
 #   * a field's value resolves against the innermost record first, then outwards.
 #   * the merged text inherits the cached result run's formatting (w:rPr).
+#   * every root-level group named Section<digits> is bound to the same root record and rendered
+#     once, whatever the document's Word section count.
 #
-# Group markers inside a table, and merge fields in headers and footers, are not merged. They are
-# reported on the MergeResult by name.
+# A group marker split across two tables or between a table and the body, or sitting inside a
+# nested table, is not merged. Neither are merge fields in headers and footers. All are reported
+# on the MergeResult by name.
 
 from __future__ import annotations
 
 import copy
 import logging
+import re
+from collections import Counter
 from dataclasses import dataclass, field as dc_field
 from typing import Callable
 
@@ -52,18 +59,23 @@ from Reports.WordFields import (
     make_run,
     parse_field_name,
     replace_field,
+    row_markers,
+    row_paragraphs,
 )
 
 W14 = "http://schemas.microsoft.com/office/word/2010/wordml"
 _SCRUB_ATTRS = (f"{{{W14}}}paraId", f"{{{W14}}}textId")
 _BOOKMARKS = (qn("w:bookmarkStart"), qn("w:bookmarkEnd"))
 _TC = qn("w:tc")
+_TR = qn("w:tr")
+_TBL = qn("w:tbl")
 _PPR = qn("w:pPr")
 _SECTPR = qn("w:sectPr")
 _FLDSIMPLE = qn("w:fldSimple")
 _INSTR_ATTR = qn("w:instr")
 
 ROOT_GROUP = "Section1"
+SECTION_ROOT = re.compile(r"^Section\d+$")
 
 
 @dataclass(frozen=True)
@@ -105,9 +117,21 @@ class TemplateStructureError(ValueError):
     """A mismatched, unclosed or mixed group marker. The message names the marker."""
 
 
-def bind_roots(record: dict) -> dict:
-    """The root groups a record is merged against. Only Section1 is bound today."""
-    return {ROOT_GROUP: [record]}
+class SectionRoots(dict):
+    """{'Section1': [record]} as stored; any Section<digits> name answers with the same list."""
+
+    def __contains__(self, name) -> bool:
+        return super().__contains__(name) or bool(SECTION_ROOT.match(name))
+
+    def __missing__(self, name):
+        if SECTION_ROOT.match(name):
+            return self[ROOT_GROUP]
+        raise KeyError(name)
+
+
+def bind_roots(record: dict) -> SectionRoots:
+    """The root groups a record is merged against: every Section<digits> name resolves to it."""
+    return SectionRoots({ROOT_GROUP: [record]})
 
 
 def _add_once(items: list, item: str) -> None:
@@ -115,17 +139,71 @@ def _add_once(items: list, item: str) -> None:
         items.append(item)
 
 
+def _parse_table(tbl):
+    """A body-level w:tbl -> ({'table': tbl, 'children': [...]}, set()) when its row markers pair
+    up by name, or ({'block': tbl}, names) when they do not (requirement 7: reported, not raised).
+    """
+    rows = [child for child in tbl if child.tag == _TR]
+    row_marker_list = [row_markers(row) for row in rows]
+
+    starts: Counter = Counter()
+    ends: Counter = Counter()
+    for markers in row_marker_list:
+        for kind, name in markers:
+            (starts if kind == "start" else ends)[name] += 1
+
+    names = set(starts) | set(ends)
+    if any(starts[name] != ends[name] for name in names):
+        return {"block": tbl}, names
+
+    root: list = []
+    stack = [root]
+    open_groups: list[str] = []
+    for row, markers in zip(rows, row_marker_list):
+        for kind, name in markers:
+            if kind == "start":
+                node = {"group": name, "children": []}
+                stack[-1].append(node)
+                stack.append(node["children"])
+                open_groups.append(name)
+        stack[-1].append({"block": row})
+        for kind, name in markers:
+            if kind == "end":
+                if not open_groups or open_groups[-1] != name:
+                    closes = f"TableStart:{open_groups[-1]}" if open_groups else "no open group"
+                    raise TemplateStructureError(f"TableEnd:{name} does not close {closes}")
+                stack.pop()
+                open_groups.pop()
+
+    return {"table": tbl, "children": root}, set()
+
+
 def _parse_tree(blocks: list) -> list:
-    """Body blocks -> nested nodes: {'block': el} or {'group': name, 'children': [...]}."""
+    """Body blocks -> nested nodes: {'block': el}, {'table': el, 'children': [...]} or
+    {'group': name, 'children': [...]}."""
+    table_nodes: dict = {}
+    orphans: set[str] = set()
+    for block in blocks:
+        if block.tag == _TBL:
+            node, names = _parse_table(block)
+            table_nodes[id(block)] = node
+            if "block" in node:
+                orphans |= names
+
     root: list = []
     stack = [root]
     open_groups: list[str] = []
 
     for block in blocks:
+        if block.tag == _TBL:
+            stack[-1].append(table_nodes[id(block)])
+            continue
         try:
             marker = group_marker(block)
         except ValueError as exc:
             raise TemplateStructureError(str(exc)) from exc
+        if marker and marker[1] in orphans:
+            marker = None
         if marker and marker[0] == "start":
             node = {"group": marker[1], "children": []}
             stack[-1].append(node)
@@ -174,6 +252,22 @@ def _scrub_copy(element) -> None:
     for node in element.iter():
         for attr in _SCRUB_ATTRS:
             node.attrib.pop(attr, None)
+
+
+def _strip_markers(row) -> None:
+    """Remove the row's own group marker fields, leaving the rest of each cell's content."""
+    for paragraph in row_paragraphs(row):
+        for field in iter_merge_fields(paragraph):
+            if GROUP_MARKER.match(field.name):
+                replace_field(field, [])
+
+
+def _table_shell(tbl):
+    """A copy of `tbl` with its properties and grid but no rows, ready for rendered rows."""
+    shell = copy.deepcopy(tbl)
+    for row in list(shell.findall(_TR)):
+        shell.remove(row)
+    return shell
 
 
 def _apply_blocks(paragraph, blocks: list) -> None:
@@ -250,12 +344,21 @@ def _render(nodes: list, scope: list, roots: dict, keep_unmatched: bool, rendere
             if id(source) in seen:
                 _scrub_copy(element)
             seen.add(id(source))
+            if element.tag == _TR:
+                _strip_markers(element)
             # A holder gives a top-level paragraph a parent, so a renderer's blocks can be
             # spliced in beside it.
             holder = OxmlElement("w:body")
             holder.append(element)
             _fill_fields(element, scope, keep_unmatched, renderer, result)
             out.extend(list(holder))
+            continue
+        if "table" in node:
+            shell = _table_shell(node["table"])
+            for row in _render(node["children"], scope, roots, keep_unmatched, renderer, result, seen):
+                shell.append(row)
+            if shell.find(_TR) is not None:
+                out.append(shell)
             continue
         name = node["group"]
         records = _group_records(scope, roots, name, result)

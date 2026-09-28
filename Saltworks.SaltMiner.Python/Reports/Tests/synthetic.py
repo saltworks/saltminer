@@ -87,6 +87,20 @@ def _bookmark_end(paragraph, bookmark_id):
     paragraph._p.append(node)
 
 
+def add_complex_field(paragraph, instr, cached=""):
+    """Append a generic (non-MERGEFIELD) complex field: `instr` is the instruction text as Word
+    stores it, `cached` its cached result text. For TOC, PAGEREF, DOCPROPERTY, PAGE and NUMPAGES
+    fields, which the merge engine leaves untouched."""
+    element = paragraph._p
+    element.append(_fld_run("begin"))
+    element.append(_instr_text_run(f" {instr} "))
+    element.append(_fld_run("separate"))
+    if cached:
+        element.append(_text_run(cached))
+    element.append(_fld_run("end"))
+    return element
+
+
 def add_pageref_field(paragraph, bookmark_name, cached_page):
     """Append a PAGEREF complex field whose cached result is `cached_page`, deliberately wrong
     until an index update recalculates it against `bookmark_name`'s real page."""
