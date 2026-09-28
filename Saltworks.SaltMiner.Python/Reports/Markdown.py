@@ -79,6 +79,12 @@ def _inline_spans(token, *, bold: bool = False, italic: bool = False) -> list[Sp
     italic_depth = 1 if italic else 0
     strike_depth = 0
     link: str | None = None
+    # A literal `<br>` already stands for one line break. A source newline immediately after it
+    # (the shape a WYSIWYG markdown editor emits, `<br>\n`) is not a second one: the .NET path's
+    # own pre-pass only adds a break before a newline that is not already preceded by `<br>`
+    # (`ReportProcessor.cs:968`, `(?<!<br>)\n`), so an explicit `<br>` followed by a raw newline
+    # collapses to the one break the `<br>` already carries.
+    suppress_next_break = False
 
     for child in token.children or []:
         kind = child.type
@@ -86,26 +92,39 @@ def _inline_spans(token, *, bold: bool = False, italic: bool = False) -> list[Sp
             if child.content:
                 spans.append(Span(child.content, bool(bold_depth), bool(italic_depth),
                                    bool(strike_depth), False, link))
+            suppress_next_break = False
         elif kind == "code_inline":
             spans.append(Span(child.content, bool(bold_depth), bool(italic_depth),
                                bool(strike_depth), True, link))
+            suppress_next_break = False
         elif kind == "strong_open":
             bold_depth += 1
+            suppress_next_break = False
         elif kind == "strong_close":
             bold_depth = max(0, bold_depth - 1)
+            suppress_next_break = False
         elif kind == "em_open":
             italic_depth += 1
+            suppress_next_break = False
         elif kind == "em_close":
             italic_depth = max(0, italic_depth - 1)
+            suppress_next_break = False
         elif kind == "s_open":
             strike_depth += 1
+            suppress_next_break = False
         elif kind == "s_close":
             strike_depth = max(0, strike_depth - 1)
+            suppress_next_break = False
         elif kind == "link_open":
             link = child.attrGet("href")
+            suppress_next_break = False
         elif kind == "link_close":
             link = None
+            suppress_next_break = False
         elif kind in ("softbreak", "hardbreak"):
+            if suppress_next_break:
+                suppress_next_break = False
+                continue
             spans.append(Span("\n", bool(bold_depth), bool(italic_depth), bool(strike_depth),
                                False, link))
         elif kind == "html_inline":
@@ -113,9 +132,13 @@ def _inline_spans(token, *, bold: bool = False, italic: bool = False) -> list[Sp
             if child.content.lower().replace(" ", "").rstrip("/>").endswith("<br"):
                 spans.append(Span("\n", bool(bold_depth), bool(italic_depth), bool(strike_depth),
                                    False, link))
+                suppress_next_break = True
+            else:
+                suppress_next_break = False
         elif kind == "image":
             alt = child.content or child.attrGet("alt") or "image"
             spans.append(Span(f"[{alt}]", bool(bold_depth), True, bool(strike_depth), False, None))
+            suppress_next_break = False
     return spans
 
 
@@ -247,8 +270,21 @@ def _block_spans(block: Block) -> list[Span]:
 
 def _block_to_paragraph(block: Block, rpr_source, ppr_source) -> object:
     paragraph = OxmlElement("w:p")
-    if ppr_source is not None:
-        paragraph.append(copy.deepcopy(ppr_source))
+    ppr = copy.deepcopy(ppr_source) if ppr_source is not None else None
+    if block.kind == "li":
+        # No numbering definition ships with the template for an ordered list, so a real
+        # w:numPr is not universally correct; the "ListParagraph" style the template does define
+        # is the style-based half of "numbering or style marks them as list items". The bullet or
+        # "N. " prefix text carries the visible mark and tells bullet from ordered apart.
+        ppr = ppr if ppr is not None else OxmlElement("w:pPr")
+        existing_style = ppr.find(qn("w:pStyle"))
+        if existing_style is not None:
+            ppr.remove(existing_style)
+        style = OxmlElement("w:pStyle")
+        style.set(qn("w:val"), "ListParagraph")
+        ppr.insert(0, style)
+    if ppr is not None:
+        paragraph.append(ppr)
     for span in _block_spans(block):
         if span.text:
             paragraph.append(_run_for_span(span, rpr_source))

@@ -50,6 +50,8 @@ class BoldAndLists(unittest.TestCase):
             joined = "".join(_text(r) for r in _runs(paragraph))
             self.assertTrue(joined.strip().startswith("•"), joined)
             self.assertIn(word, joined)
+            pstyle = paragraph.find(qn("w:pPr")).find(qn("w:pStyle"))
+            self.assertEqual(pstyle.get(qn("w:val")), "ListParagraph")
 
 
 class FencedCode(unittest.TestCase):
@@ -78,6 +80,17 @@ class BreaksAndEscapes(unittest.TestCase):
         run = _runs(paragraphs[0])[0]
         self.assertEqual(_text(run), "*not emphasis*")
         self.assertFalse(_has_flag(run, "w:i"))
+
+    def test_explicit_br_then_newline_is_still_one_break(self):
+        # The markdown editor emits this exact shape for a carriage return. A literal <br>
+        # already carries one break; the .NET pre-pass this mirrors never adds a second one for
+        # the newline straight after it (ReportProcessor.cs:968, `(?<!<br>)\n`).
+        paragraphs = render_markdown("line one<br>\nline two")
+        self.assertEqual(len(paragraphs), 1)
+        runs = _runs(paragraphs[0])
+        breaks = [r for r in runs if list(r.iter(qn("w:br")))]
+        self.assertEqual(len(breaks), 1)
+        self.assertEqual("".join(_text(r) for r in runs), "line oneline two")
 
 
 class Table(unittest.TestCase):

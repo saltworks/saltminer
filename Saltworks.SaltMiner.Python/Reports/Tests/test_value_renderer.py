@@ -18,7 +18,9 @@
 * ----
 '''
 import os
+import tempfile
 import unittest
+import zipfile
 
 import docx
 from docx.oxml.ns import qn
@@ -67,7 +69,7 @@ class MarkdownField(unittest.TestCase):
     def test_details_field_renders_markdown_in_the_shipped_template(self):
         record = sample_record()
         for issue in record["IssueDetails"]:
-            issue["Details"] = "**bold** text\n- one\n- two"
+            issue["Details"] = "**bold** text\n- one\n- two\n- three"
 
         renderer, colour_result = make_value_renderer(markdown_fields={"Details"},
                                                         field_value_colors={})
@@ -81,8 +83,15 @@ class MarkdownField(unittest.TestCase):
         self.assertIsNotNone(bold_run.find(qn("w:rPr")).find(qn("w:b")))
 
         paragraphs = [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
-        self.assertTrue(any(t.strip().startswith("• one") for t in paragraphs))
-        self.assertTrue(any(t.strip().startswith("• two") for t in paragraphs))
+        for word in ("one", "two", "three"):
+            self.assertTrue(any(t.strip().startswith(f"• {word}") for t in paragraphs), word)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "out.docx")
+            document.save(path)
+            with zipfile.ZipFile(path) as z:
+                xml = z.read("word/document.xml").decode("utf-8")
+        self.assertEqual(xml.count("MERGEFIELD"), 0)
 
 
 class FieldValueColoring(unittest.TestCase):
