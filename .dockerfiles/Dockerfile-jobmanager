@@ -1,4 +1,8 @@
-FROM mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64
+# Which OS layer the app stage builds on: "plain" (default, every deployment pulls this) or
+# "pdf" (adds headless LibreOffice, published as the jobmanager-<ver>-pdf tag; PBI-049).
+ARG VARIANT=plain
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64 AS os-plain
 
 LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
@@ -26,6 +30,44 @@ RUN if [ "$INSTALL_MS_FONTS" = "true" ]; then \
       && update-ms-fonts </dev/null \
       && fc-cache -f; \
     fi
+
+# PDF conversion variant (PBI-049): headless LibreOffice, invoked by the Python report package
+# to render a filled .docx to PDF. Built only when --build-arg VARIANT=pdf selects this stage; a
+# plain build never sees it, so the everyday image stays the size it is today. Trimmed in the
+# same layer as the install: Alpine's libreoffice-writer pulls in Qt6, GTK3/4, GStreamer and
+# Mesa's software GL drivers (libLLVM, gallium) for VCL backends a headless converter never
+# selects. Measured on this base 2026-09-22 (PBI-049): untrimmed +964 MB, trimmed +554 MB, same
+# byte-comparable PDF. SAL_USE_VCLPLUGIN=svp makes LibreOffice pick the headless plugin directly
+# rather than probing for the GUI ones this layer removes.
+FROM os-plain AS os-pdf
+ENV SAL_USE_VCLPLUGIN=svp
+RUN apk add --no-cache libreoffice-writer \
+    && rm -rf /usr/lib/libreoffice/program/libvclplug_qt6* \
+              /usr/lib/libreoffice/program/libvclplug_gtk* \
+              /usr/lib/libreoffice/program/libvclplug_kf* \
+              /usr/lib/libLLVM.so.* \
+              /usr/lib/gallium-pipe \
+              /usr/lib/libgallium*.so* \
+              /usr/lib/qt6 \
+              /usr/lib/libQt6* \
+              /usr/lib/libgtk-3.so* \
+              /usr/lib/libgtk-4.so* \
+              /usr/lib/gstreamer-1.0 \
+              /usr/lib/libgst* \
+              /usr/lib/libreoffice/share/gallery \
+              /usr/lib/libreoffice/share/template \
+              /usr/lib/libreoffice/share/wizards \
+              /usr/lib/libreoffice/share/Scripts \
+              /usr/lib/libreoffice/CREDITS.fodt \
+              /usr/lib/libreoffice/help \
+              /usr/lib/libreoffice/readmes \
+              /usr/share/X11 \
+    && printf x > /tmp/s.txt \
+    && soffice --headless --norestore -env:UserInstallation=file:///tmp/sp --convert-to pdf --outdir /tmp /tmp/s.txt \
+    && test -s /tmp/s.pdf \
+    && rm -rf /tmp/s.* /tmp/sp
+
+FROM os-${VARIANT}
 
 ENV APP_ROOT=/opt/saltworks/saltminer
 WORKDIR ${APP_ROOT}/app/jobmanager

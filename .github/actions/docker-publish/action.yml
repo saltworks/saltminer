@@ -79,6 +79,10 @@ inputs:
     description: 'Enable diagnostic output'
     required: false
     default: 'false'
+  tag-suffix:
+    description: 'Suffix appended to every tag this action emits, e.g. -pdf for the JobManager PDF-converter variant'
+    required: false
+    default: ''
 
   ghcr-image:
     description: 'GHCR image name'
@@ -162,6 +166,8 @@ runs:
         type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}.${{ github.run_number }},enable=${{ inputs.prerelease == 'none' }}
         type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}-release,enable=${{ steps.vars.outputs.is-release == 'true' }}
         type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}
+      flavor: |
+        suffix=${{ inputs.tag-suffix }},onlatest=false
       labels: |
         org.opencontainers.image.title=${{ inputs.title }}
         org.opencontainers.image.description=${{ inputs.description }}
@@ -180,6 +186,8 @@ runs:
         type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}.${{ github.run_number }},enable=${{ steps.vars.outputs.is-release == 'true' }}
         type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }}-release,enable=${{ steps.vars.outputs.is-release == 'true' }}
         type=raw,value=${{ inputs.app }}-${{ steps.vars.outputs.version }},enable=${{ steps.vars.outputs.is-release == 'true' }}
+      flavor: |
+        suffix=${{ inputs.tag-suffix }},onlatest=false
 
   - name: Build and push Docker images
     id: build-push

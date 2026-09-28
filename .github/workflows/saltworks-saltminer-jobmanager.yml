@@ -81,6 +81,31 @@ jobs:
         ls -lah ${{ steps.paths.outputs.artifact-path }} --group-directories-first
       if: env.DIAGNOSTIC_MODE == 'true'
 
+    # Runs before the plain leg (PBI-049 requirement 8): the converter install is the fragile
+    # part of this build, so a failure here fails the whole run before the plain tag publishes,
+    # rather than leaving jobmanager-3.6 ahead of jobmanager-3.6-pdf. Steps do not run after a
+    # failed step by default, so no explicit success() gate is needed on the step that follows.
+    - name: Tag, build and publish PDF variant
+      id: publish-pdf
+      uses: ./.github/actions/docker-publish
+      with:
+        app: jobmanager
+        title: saltminer-jobmanager-pdf
+        description: SaltMiner JobManager, PDF converter variant
+        dockerfile: .dockerfiles/Dockerfile-jobmanager
+        context: ${{ github.workspace }}
+        build-args: |
+          ARTIFACT_PATH=${{ steps.paths.outputs.docker-artifact-path }}
+          DEPLOY_PATH=${{ env.DEPLOY_ARTIFACT_PATH }}
+          VARIANT=pdf
+        tag-suffix: -pdf
+        prerelease: ${{ env.PRERELEASE }}
+        push-to-docker-hub: ${{ env.PUSH_TO_DOCKER_HUB }}
+        diagnostic-mode: ${{ env.DIAGNOSTIC_MODE }}
+        ghcr-token: ${{ secrets.GITHUB_TOKEN }}
+        dockerhub-username: ${{ secrets.DOCKER_USERNAME }}
+        dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}
+
     - name: Tag, build and publish
       id: publish
       uses: ./.github/actions/docker-publish
