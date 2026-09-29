@@ -72,7 +72,6 @@ public class JobManagerConfig : ConfigBase
     public int ReportImageMaxHeight { get; set; } = 288;  // In points. 1 inch = 72 pts. 288 = 4 inches in height
     public string ReportStaticImageAltText { get; set; } = "StaticImage";
     public string ReportAttachmentType { get; set; } = "Word"; // Options: "Word", "Pdf", "All".  Either word or pdf or both...
-    public Dictionary<string, FontInfo> ReportFontSubstitutions { get; set; } = [];
     public bool ReportIncludeSystemComments { get; set; } = false;
     public string AppVersion { get; } = "3.0.1";
     public int ReportRetentionDays { get; set; } = 1;
@@ -84,17 +83,4 @@ public class JobManagerConfig : ConfigBase
     public string ReportCommentTemplate { get; set; } = "[{Date:d}] {User}: {Message}";
     public int ReportMaxIssueComments { get; set; } = 3;
     public bool ReportIssueCommentSortLatestFirst { get; set; } = false;
-}
-
-public class FontInfo
-{
-    public FontInfo(string font, string bold, string italic)
-    {
-        Bold = bold;
-        Italic = italic;
-        Font = font;
-    }
-    public string Bold { get; set; }
-    public string Italic { get; set; }
-    public string Font { get; set; }
 }

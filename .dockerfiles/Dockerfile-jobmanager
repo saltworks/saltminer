@@ -7,10 +7,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64 AS os-plain
 LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
-# SkiaSharp -- pulled in by Syncfusion.DocIORenderer for Word->PDF -- links
-# libfontconfig.so.1 at load time.  Without it the first touch of SkiaSharp
-# fails with "The type initializer for 'SkiaSharp.SKImageInfo' threw an
-# exception".  DocIO also needs real font files present to render glyphs.
+# fontconfig and real font files for headless LibreOffice's Word->PDF conversion (the -pdf
+# variant below, PBI-049) and its field/index refresh. Installed in the shared base so both
+# variants carry the same fonts; only the -pdf variant carries the LibreOffice binary itself.
 # Liberation is metric-compatible with Arial/Times New Roman/Courier New.
 # Carlito is metric-compatible with Calibri, the report template's body font.
 RUN apk add --no-cache fontconfig freetype font-dejavu font-liberation font-carlito \
@@ -77,6 +76,20 @@ ENV ARTIFACT_PATH=$ARTIFACT_PATH
 ARG DEPLOY_PATH=invalid
 ENV DEPLOY_PATH=$DEPLOY_PATH
 COPY $ARTIFACT_PATH .
+
+# The Python report generator (PBI-051) the EngagementReport job invokes as a subprocess.
+# PY_SOURCE_PATH is repo-root-relative like the workflow's build context (github.workspace),
+# so this needs no workflow change. Reports/Tests/ is test-only and never ships.
+ARG PY_SOURCE_PATH=Saltworks.SaltMiner.Python
+COPY $PY_SOURCE_PATH/Core/ ${APP_ROOT}/app/jobmanager/python/Core/
+COPY $PY_SOURCE_PATH/Reports/ ${APP_ROOT}/app/jobmanager/python/Reports/
+RUN rm -rf ${APP_ROOT}/app/jobmanager/python/Reports/Tests \
+    && apk add --no-cache py3-pip \
+    && pip install --no-cache-dir --break-system-packages \
+         -r ${APP_ROOT}/app/jobmanager/python/Reports/requirements.txt \
+         -r ${APP_ROOT}/app/jobmanager/python/Reports/requirements-core.txt
+ENV PYTHONPATH=${APP_ROOT}/app/jobmanager/python
+ENV PYTHONDONTWRITEBYTECODE=1
 
 ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
 ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config/jobmanager/

@@ -22,12 +22,9 @@
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
       <_Parameter1>$(AssemblyName).IntegrationTests</_Parameter1>
     </AssemblyAttribute>
-  </ItemGroup>
-	
-  <ItemGroup>
-	<PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.8" />
-	<PackageReference Include="Syncfusion.DocIO.Net.Core" Version="27.1.53" />
-	<PackageReference Include="Syncfusion.DocIORenderer.Net.Core" Version="27.1.53" />
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>$(AssemblyName).UnitTests</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 	
   <ItemGroup>
