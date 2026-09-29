@@ -144,7 +144,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
     /// <summary>
     /// Runs the Python report generator (Saltworks.SaltMiner.Python/Reports/Generate.py) as a subprocess
-    /// in the same container. PBI-051: the JobManager report job cuts over from Syncfusion DocIO.
+    /// in the same container. PBI-051: the JobManager report job's merge and rendering work moves here.
     /// </summary>
     public class ReportGenerator(JobManagerConfig config, ILogger<ReportGenerator> logger, IProcessRunner processRunner)
     {
