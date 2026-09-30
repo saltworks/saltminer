@@ -25,6 +25,13 @@ namespace Saltworks.SaltMiner.JobManager.Helpers
 {
     public static class ReportFileName
     {
+        /// <summary>
+        /// Appends "_" and the generation time in Unix seconds, so every report on an engagement
+        /// has a distinct name and earlier reports stay attached as history (PBI-077).
+        /// </summary>
+        public static string AppendTimestamp(string reportName, DateTimeOffset generatedAt)
+            => $"{reportName}_{generatedAt.ToUnixTimeSeconds()}";
+
         public static string GetReportName(string template, EngagementSummary engagement)
         {
             var fileName = template;
