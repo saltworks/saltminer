@@ -24,7 +24,9 @@ using Saltworks.SaltMiner.UiApiClient;
 namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 {
     /// <summary>
-    /// Uploads a generated report file and attaches it to its engagement (PBI-077).
+    /// Uploads a generated report file and attaches it to its engagement (PBI-077). The record
+    /// attached is found by the file id the upload returned, never by file name, so an earlier
+    /// report of the same name is never re-linked in place of the new one. Nothing is removed.
     /// </summary>
     public class ReportAttacher(IReportAttachmentClient client, ILogger logger)
     {
@@ -35,13 +37,17 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
         {
             using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read);
             var fileName = Path.GetFileName(path);
-            Client.UploadFile(fileStream, fileName);
-            var attachment = Client.GetEngagementAttachment(fileName);
+            var fileId = Client.UploadFile(fileStream, fileName);
+            if (string.IsNullOrEmpty(fileId))
+            {
+                throw new JobManagerException($"Report upload returned no file id for '{fileName}'");
+            }
+            var attachment = Client.GetReportAttachmentByFileId(fileId);
             if (attachment?.Data == null)
             {
                 throw new JobManagerException($"Report Attachment was not created for '{fileName}'");
             }
-            Logger.LogInformation("Attaching report file '{FileName}' to Engagement", fileName);
+            Logger.LogInformation("Attaching report file '{FileName}' ({FileId}) to Engagement", fileName, fileId);
             Client.AddEngagementAttachment(engagementId, attachment.Data);
         }
     }

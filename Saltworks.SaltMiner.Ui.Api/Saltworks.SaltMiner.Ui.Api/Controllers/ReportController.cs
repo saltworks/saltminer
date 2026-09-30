@@ -179,5 +179,17 @@ namespace Saltworks.SaltMiner.Ui.Api.Controllers
             Logger.LogInformation("Get Attachment action called");
             return Ok(ReportContext.GetReportAttachment(fileName));
         }
+
+        /// <summary>
+        /// Get Report Attachment by FileId
+        /// </summary>
+        /// <response code="200">Returns response indicating success</response>
+        [ProducesResponseType(200, Type = typeof(UiDataItemResponse<UiAttachmentInfo>))]
+        [HttpGet("attachment/file-id/{fileId}")]
+        public ActionResult<UiDataItemResponse<UiAttachmentInfo>> GetReportAttachmentByFileId(string fileId)
+        {
+            Logger.LogInformation("Get Attachment by FileId action called");
+            return Ok(ReportContext.GetReportAttachmentByFileId(fileId));
+        }
     }
 }

@@ -29,25 +29,35 @@ namespace Saltworks.SaltMiner.JobManager.UnitTests;
 
 /// <summary>
 /// Stands in for the UI API's attachments index (PBI-077). Holds records in insertion order;
-/// the name lookup takes the first match, as ContextBase.GetAttachmentByFileName does.
+/// the name lookup takes the first match, as ContextBase.GetAttachmentByFileName does. The name
+/// lookup is off IReportAttachmentClient, so ReportAttacher cannot reach it; the counter backs that.
 /// </summary>
 internal class FakeReportAttachmentClient : IReportAttachmentClient
 {
     public List<UiAttachmentInfo> Records { get; } = [];
     public List<string> Calls { get; } = [];
     public string NextFileId { get; set; } = "new-id.docx";
+    public bool LoseRecords { get; set; }
+    public int GetEngagementAttachmentCalls { get; private set; }
     public string AttachedEngagementId { get; private set; }
     public UiAttachmentInfo Attached { get; private set; }
 
-    public void UploadFile(Stream file, string fileName)
+    public string UploadFile(Stream file, string fileName)
     {
         Calls.Add("upload");
         Records.Add(new UiAttachmentInfo { FileName = fileName, FileId = NextFileId });
+        return NextFileId;
+    }
+
+    public DataItemResponse<UiAttachmentInfo> GetReportAttachmentByFileId(string fileId)
+    {
+        Calls.Add("get-by-id");
+        return new DataItemResponse<UiAttachmentInfo>(LoseRecords ? null : Records.FirstOrDefault(r => r.FileId == fileId));
     }
 
     public DataItemResponse<UiAttachmentInfo> GetEngagementAttachment(string fileName)
     {
-        Calls.Add("get-by-name");
+        GetEngagementAttachmentCalls++;
         return new DataItemResponse<UiAttachmentInfo>(Records.FirstOrDefault(r => r.FileName == fileName));
     }
 
@@ -92,5 +102,92 @@ public class ReportAttacherTests
         {
             tmp.Delete(true);
         }
+    }
+
+    [TestMethod]
+    public void Attach_AttachesRecordForReturnedFileId()
+    {
+        var tmp = Directory.CreateTempSubdirectory();
+        try
+        {
+            var client = new FakeReportAttachmentClient();
+            var path = WriteReport(tmp, "Acme_7f67_1790694810.docx");
+
+            new ReportAttacher(client, NullLogger.Instance).Attach(EngagementId, path);
+
+            Assert.AreEqual(EngagementId, client.AttachedEngagementId);
+            Assert.AreEqual("new-id.docx", client.Attached.FileId);
+            Assert.AreEqual("Acme_7f67_1790694810.docx", client.Attached.FileName);
+        }
+        finally
+        {
+            tmp.Delete(true);
+        }
+    }
+
+    [TestMethod]
+    public void Attach_NeverCallsGetEngagementAttachment()
+    {
+        var tmp = Directory.CreateTempSubdirectory();
+        try
+        {
+            var client = new FakeReportAttachmentClient();
+            client.Records.Add(new UiAttachmentInfo { FileName = "Acme_7f67.docx", FileId = "old-id.docx" });
+            var path = WriteReport(tmp, "Acme_7f67.docx");
+
+            new ReportAttacher(client, NullLogger.Instance).Attach(EngagementId, path);
+
+            Assert.AreEqual(0, client.GetEngagementAttachmentCalls);
+        }
+        finally
+        {
+            tmp.Delete(true);
+        }
+    }
+
+    [TestMethod]
+    public void Attach_ThrowsWhenRecordMissing()
+    {
+        var tmp = Directory.CreateTempSubdirectory();
+        try
+        {
+            var client = new FakeReportAttachmentClient { LoseRecords = true };
+            var path = WriteReport(tmp, "Acme_7f67.docx");
+
+            Assert.ThrowsExactly<JobManagerException>(() => new ReportAttacher(client, NullLogger.Instance).Attach(EngagementId, path));
+            Assert.IsNull(client.Attached);
+            CollectionAssert.DoesNotContain(client.Calls, "attach");
+        }
+        finally
+        {
+            tmp.Delete(true);
+        }
+    }
+
+    [TestMethod]
+    public void Attach_RemovesNothing()
+    {
+        var tmp = Directory.CreateTempSubdirectory();
+        try
+        {
+            var client = new FakeReportAttachmentClient();
+            client.Records.Add(new UiAttachmentInfo { FileName = "Acme_7f67.docx", FileId = "old-id.docx" });
+            var path = WriteReport(tmp, "Acme_7f67.docx");
+
+            new ReportAttacher(client, NullLogger.Instance).Attach(EngagementId, path);
+
+            CollectionAssert.AreEqual(new[] { "upload", "get-by-id", "attach" }, client.Calls);
+            Assert.AreEqual(2, client.Records.Count);
+        }
+        finally
+        {
+            tmp.Delete(true);
+        }
+    }
+
+    [TestMethod]
+    public void FileIdFromUploadResponse_StripsRepository()
+    {
+        Assert.AreEqual("abc.pdf", UiApiClient.UiApiClient.FileIdFromUploadResponse("\"../ui-files/uploads/abc.pdf\""));
     }
 }

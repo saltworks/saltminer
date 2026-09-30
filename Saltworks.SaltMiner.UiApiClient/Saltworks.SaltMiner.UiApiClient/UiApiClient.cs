@@ -25,6 +25,7 @@ using Saltworks.SaltMiner.UiApiClient.Requests;
 using Saltworks.SaltMiner.UiApiClient.ViewModels;
 using Saltworks.Utility.ApiHelper;
 using System.Net;
+using System.Text.Json;
 
 namespace Saltworks.SaltMiner.UiApiClient
 {
@@ -64,6 +65,11 @@ namespace Saltworks.SaltMiner.UiApiClient
         public DataItemResponse<UiAttachmentInfo> GetEngagementAttachment(string fileName)
         {
             return CheckRetry(() => UiApi.Get<DataItemResponse<UiAttachmentInfo>>($"report/attachment/{fileName}")).Content;
+        }
+
+        public DataItemResponse<UiAttachmentInfo> GetReportAttachmentByFileId(string fileId)
+        {
+            return CheckRetry(() => UiApi.Get<DataItemResponse<UiAttachmentInfo>>($"report/attachment/file-id/{fileId}")).Content;
         }
 
         #endregion
@@ -134,9 +140,29 @@ namespace Saltworks.SaltMiner.UiApiClient
 
         #region Report File
 
-        public void UploadFile(Stream file, string fileName)
+        /// <summary>
+        /// Uploads a file and returns the file id the UI API stored it under.
+        /// </summary>
+        public string UploadFile(Stream file, string fileName)
         {
-            UiApi.PostFileAsync($"report/file/upload", file, fileName).Wait();
+            var response = UiApi.PostFileAsync($"report/file/upload", file, fileName).Result;
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new UiApiClientException($"File upload failed for '{fileName}' with status {(int)response.StatusCode}");
+            }
+            return FileIdFromUploadResponse(response.RawContent);
+        }
+
+        /// <summary>
+        /// The upload action returns a JSON string "{FileRepository}/{file id}"; returns the file id.
+        /// </summary>
+        public static string FileIdFromUploadResponse(string rawContent)
+        {
+            if (string.IsNullOrWhiteSpace(rawContent))
+            {
+                return string.Empty;
+            }
+            return Path.GetFileName(JsonSerializer.Deserialize<string>(rawContent));
         }
 
         public byte[] DownloadFile(string url)

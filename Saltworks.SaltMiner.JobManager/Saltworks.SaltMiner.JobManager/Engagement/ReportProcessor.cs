@@ -135,11 +135,12 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
         {
             var engagementSummary = UiApiClient.EngagementSummaryGet(JobQueue.TargetId).Data;
 
-            var reportName = $"Report-{engagementSummary.Id}-{DateTime.UtcNow:MM_dd_yyyy_HH_mm_ss}";
-            if (!string.IsNullOrEmpty(Config.EngagementReportNameTemplate))
-            {
-                reportName = ReportFileName.GetReportName(Config.EngagementReportNameTemplate, engagementSummary);
-            }
+            // Read once per run so the .docx and .pdf share the stamp (PBI-077).
+            var generatedAt = DateTimeOffset.UtcNow;
+            var baseName = string.IsNullOrEmpty(Config.EngagementReportNameTemplate)
+                ? $"Report-{engagementSummary.Id}"
+                : ReportFileName.GetReportName(Config.EngagementReportNameTemplate, engagementSummary);
+            var reportName = ReportFileName.AppendTimestamp(baseName, generatedAt);
 
             Logger.LogInformation("Filling report template '{Template}'", template.Template);
 

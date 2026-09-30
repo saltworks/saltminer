@@ -29,8 +29,8 @@ namespace Saltworks.SaltMiner.UiApiClient
     /// </summary>
     public interface IReportAttachmentClient
     {
-        void UploadFile(Stream file, string fileName);
-        DataItemResponse<UiAttachmentInfo> GetEngagementAttachment(string fileName);
+        string UploadFile(Stream file, string fileName);
+        DataItemResponse<UiAttachmentInfo> GetReportAttachmentByFileId(string fileId);
         NoDataResponse AddEngagementAttachment(string id, UiAttachmentInfo attachment);
     }
 }
