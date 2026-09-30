@@ -28,7 +28,7 @@ using System.Net;
 
 namespace Saltworks.SaltMiner.UiApiClient
 {
-    public class UiApiClient : IDisposable
+    public class UiApiClient : IReportAttachmentClient, IDisposable
     {
         public ApiClient UiApi { get; }
         private ILogger Logger { get; }

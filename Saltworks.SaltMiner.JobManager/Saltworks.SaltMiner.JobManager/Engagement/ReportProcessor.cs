@@ -187,16 +187,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
         private void UploadAndAttach(string path)
         {
-            using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read);
-            var fileName = Path.GetFileName(path);
-            UiApiClient.UploadFile(fileStream, fileName);
-            var attachment = UiApiClient.GetEngagementAttachment(fileName);
-            if (attachment?.Data == null)
-            {
-                throw new JobManagerException($"Report Attachment was not created for '{fileName}'");
-            }
-            Logger.LogInformation("Attaching report file '{FileName}' to Engagement", fileName);
-            UiApiClient.AddEngagementAttachment(JobQueue.TargetId, attachment.Data);
+            new ReportAttacher(UiApiClient, Logger).Attach(JobQueue.TargetId, path);
         }
 
         private WordTemplate GetWordTemplate(string template)
