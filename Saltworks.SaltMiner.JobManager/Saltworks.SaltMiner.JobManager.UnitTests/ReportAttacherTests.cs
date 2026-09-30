@@ -18,6 +18,7 @@
 * ----
 */
 
+using System.Reflection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Data;
@@ -28,9 +29,7 @@ using Saltworks.SaltMiner.UiApiClient.ViewModels;
 namespace Saltworks.SaltMiner.JobManager.UnitTests;
 
 /// <summary>
-/// Stands in for the UI API's attachments index (PBI-077). Holds records in insertion order;
-/// the name lookup takes the first match, as ContextBase.GetAttachmentByFileName does. The name
-/// lookup is off IReportAttachmentClient, so ReportAttacher cannot reach it; the counter backs that.
+/// Stands in for the UI API's attachments index (PBI-077). Holds records in insertion order.
 /// </summary>
 internal class FakeReportAttachmentClient : IReportAttachmentClient
 {
@@ -38,7 +37,6 @@ internal class FakeReportAttachmentClient : IReportAttachmentClient
     public List<string> Calls { get; } = [];
     public string NextFileId { get; set; } = "new-id.docx";
     public bool LoseRecords { get; set; }
-    public int GetEngagementAttachmentCalls { get; private set; }
     public string AttachedEngagementId { get; private set; }
     public UiAttachmentInfo Attached { get; private set; }
 
@@ -53,12 +51,6 @@ internal class FakeReportAttachmentClient : IReportAttachmentClient
     {
         Calls.Add("get-by-id");
         return new DataItemResponse<UiAttachmentInfo>(LoseRecords ? null : Records.FirstOrDefault(r => r.FileId == fileId));
-    }
-
-    public DataItemResponse<UiAttachmentInfo> GetEngagementAttachment(string fileName)
-    {
-        GetEngagementAttachmentCalls++;
-        return new DataItemResponse<UiAttachmentInfo>(Records.FirstOrDefault(r => r.FileName == fileName));
     }
 
     public NoDataResponse AddEngagementAttachment(string id, UiAttachmentInfo attachment)
@@ -125,24 +117,45 @@ public class ReportAttacherTests
         }
     }
 
+    // Reads the compiled report path itself, so it fails if either method calls the by-name
+    // lookup on any type, including UiApiClient directly, which a fake cannot observe.
     [TestMethod]
     public void Attach_NeverCallsGetEngagementAttachment()
     {
-        var tmp = Directory.CreateTempSubdirectory();
-        try
+        var reportPath = new[]
         {
-            var client = new FakeReportAttachmentClient();
-            client.Records.Add(new UiAttachmentInfo { FileName = "Acme_7f67.docx", FileId = "old-id.docx" });
-            var path = WriteReport(tmp, "Acme_7f67.docx");
+            typeof(ReportAttacher).GetMethod(nameof(ReportAttacher.Attach)),
+            typeof(ReportProcessor).GetMethod("UploadAndAttach", BindingFlags.Instance | BindingFlags.NonPublic),
+        };
 
-            new ReportAttacher(client, NullLogger.Instance).Attach(EngagementId, path);
-
-            Assert.AreEqual(0, client.GetEngagementAttachmentCalls);
-        }
-        finally
+        foreach (var method in reportPath)
         {
-            tmp.Delete(true);
+            Assert.IsNotNull(method);
+            var called = CalledMethodNames(method);
+            Assert.IsTrue(called.Count > 0, $"No calls read from {method.Name}");
+            CollectionAssert.DoesNotContain(called, "GetEngagementAttachment", $"{method.DeclaringType.Name}.{method.Name}");
         }
+
+        CollectionAssert.Contains(CalledMethodNames(reportPath[0]), nameof(IReportAttachmentClient.GetReportAttachmentByFileId));
+    }
+
+    /// <summary>Names of the methods a method's IL calls through call, callvirt or newobj.</summary>
+    private static List<string> CalledMethodNames(MethodInfo method)
+    {
+        var il = method.GetMethodBody().GetILAsByteArray();
+        var names = new List<string>();
+        for (var i = 0; i + 4 < il.Length; i++)
+        {
+            if (il[i] is not (0x28 or 0x6F or 0x73)) continue;
+            try
+            {
+                var callee = method.Module.ResolveMethod(BitConverter.ToInt32(il, i + 1),
+                    method.DeclaringType.GetGenericArguments(), method.GetGenericArguments());
+                if (callee != null) names.Add(callee.Name);
+            }
+            catch (ArgumentException) { }
+        }
+        return names;
     }
 
     [TestMethod]
