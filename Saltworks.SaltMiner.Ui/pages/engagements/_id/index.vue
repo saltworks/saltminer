@@ -615,6 +615,7 @@ import SlideModal from '../../../components/controls/SlideModal.vue'
 import CancelEngagement from '../../../components/CancelEngagement.vue'
 import LogHistory from '../../../components/LogHistory.vue'
 import helpers from '../../../components/Utility/helpers'
+import attachmentOrder from '../../../components/Utility/attachmentOrder'
 import AlertComponent from '../../../components/AlertComponent'
 import isValidUser from '../../../middleware/is-valid-user'
 import LoadingComponent from '../../../components/LoadingComponent'
@@ -1896,11 +1897,13 @@ export default {
               this.engagement.customer = r.data.customer
               this.engagement.subtype = r.data.subtype
               this.engagement.draftEngagementId = r.data.draftEngagementId
-              this.engagement.attachments = 
+              this.engagement.attachments =
                 r.data.attachments !== null ?
-                r.data.attachments.map(function(attachment) { 
-                  return attachment.attachment; 
-                }) : []
+                attachmentOrder.sortAttachmentsNewestFirst(
+                  r.data.attachments.map(function(attachment) {
+                    return { ...attachment.attachment, timestamp: attachment.timestamp };
+                  })
+                ) : []
               this.engagement.status = r.data.status
 
               // need the scanid to filter log history if 'published' status.
