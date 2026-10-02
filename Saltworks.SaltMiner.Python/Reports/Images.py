@@ -243,7 +243,8 @@ def resize_pictures(document, max_width_pt: float = 216, max_height_pt: float = 
                 cx, cy = int(new_w * EMU_PER_POINT), int(new_h * EMU_PER_POINT)
                 extent.set("cx", str(cx))
                 extent.set("cy", str(cy))
-                for ext in shape.iter(qn("a:ext")):
+                # Only the transform's own extent, never an `a:ext` in an extension list.
+                for ext in shape.xpath(".//a:xfrm/a:ext"):
                     ext.set("cx", str(cx))
                     ext.set("cy", str(cy))
                 resized += 1

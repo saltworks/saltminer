@@ -81,6 +81,23 @@ class Resize(unittest.TestCase):
         ext = next(inline.iter(qn("a:ext")))
         self.assertEqual((ext.get("cx"), ext.get("cy")), (extent.get("cx"), extent.get("cy")))
 
+    def test_extension_list_entries_are_left_alone(self):
+        # Word writes `a:extLst/a:ext uri=...` on most pictures; those are not sizes.
+        document = _document_with_pictures()
+        inline = next(document.element.body.iter(qn("wp:inline")))
+        blip = next(inline.iter(qn("a:blip")))
+        ext_lst = blip.makeelement(qn("a:extLst"), {})
+        entry = ext_lst.makeelement(qn("a:ext"), {"uri": "{28A0092B-C50C-407E-A947-70E740481C1C}"})
+        ext_lst.append(entry)
+        blip.append(ext_lst)
+
+        resize_pictures(document)
+
+        self.assertEqual(dict(entry.attrib), {"uri": "{28A0092B-C50C-407E-A947-70E740481C1C}"})
+        extent = inline.find(qn("wp:extent"))
+        xfrm_ext = next(inline.iter(qn("a:xfrm"))).find(qn("a:ext"))
+        self.assertEqual((xfrm_ext.get("cx"), xfrm_ext.get("cy")), (extent.get("cx"), extent.get("cy")))
+
     def test_static_alt_text_is_read_from_the_setting(self):
         document = _document_with_pictures()
         resize_pictures(document, static_alt="wide")
