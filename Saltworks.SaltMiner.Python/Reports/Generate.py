@@ -27,6 +27,7 @@
 #   python3 -m Reports.Generate check  --attachment-type <ReportAttachmentType>
 #
 #   env SM_REPORT_DATA_API_KEY=<JobManagerConfig.DataApiKey>   (never on argv, never in a file)
+#   env SM_REPORT_UI_API_KEY=<JobManagerConfig.ApiKey>         (same rule; for markdown images)
 #   exit 0 success or check passed | 1 report failed | 2 usage error (argparse) | 3 check failed
 #
 # Logging goes to stderr only: .NET reads stdout for nothing and relays stderr into the job's
@@ -43,12 +44,15 @@ import traceback
 from pathlib import Path
 
 from Core.DataClient import DataClient
+from Reports.Images import (ImageEmbedder, ImageResolver, UiApiFileClient, http_transport,
+                            resize_pictures)
 from Reports.EngagementData import DataApiSource, assemble_engagement, load_report_settings
 from Reports.PdfConverter import check_pdf_converter, write_attachments
 from Reports.ValueRenderer import make_value_renderer
 from Reports.WordMerge import fill_template
 
 DATA_API_KEY_ENV_VAR = "SM_REPORT_DATA_API_KEY"
+UI_API_KEY_ENV_VAR = "SM_REPORT_UI_API_KEY"
 
 EXIT_OK = 0
 EXIT_REPORT_FAILED = 1
@@ -108,10 +112,25 @@ def _run_report(request_path: Path) -> int:
         report_name = request["report_name"]
         work_docx = work_dir / f"{report_name}.docx"
 
+        ui = request.get("ui_api") or {}
+        timeout = ui.get("timeout_sec", 3)
+        ui_client = UiApiFileClient(
+            ui["url"], ui.get("key_header", "ReportingAuthorization"),
+            os.environ.get(UI_API_KEY_ENV_VAR, ""),
+            http_transport(ui.get("verify_ssl", True), timeout)) if ui.get("url") else None
+        # A foreign image host never gets the setting meant for the internal certificate.
+        embedder = ImageEmbedder(ImageResolver(ui_client, foreign=http_transport(True, timeout)))
         renderer, render_result = make_value_renderer(markdown_fields,
-                                                       request.get("field_value_colors") or {})
-        merge_result = fill_template(request["template_path"], work_docx, record,
-                                     keep_unmatched=False, renderer=renderer)
+                                                       request.get("field_value_colors") or {},
+                                                       images=embedder)
+        image_settings = request.get("settings") or {}
+        merge_result = fill_template(
+            request["template_path"], work_docx, record, keep_unmatched=False, renderer=renderer,
+            on_open=embedder.bind,
+            before_save=lambda doc: resize_pictures(
+                doc, image_settings.get("ReportImageMaxWidth", 216),
+                image_settings.get("ReportImageMaxHeight", 288),
+                image_settings.get("ReportStaticImageAltText", "StaticImage")))
 
         written = write_attachments(work_docx, output_dir, request.get("attachment_type"))
 
@@ -124,6 +143,7 @@ def _run_report(request_path: Path) -> int:
             "unsupported_fields": merge_result.unsupported_fields,
             "groups_missing": merge_result.groups_missing,
             "unknown_colors": render_result.unknown_colors,
+            "warnings": render_result.warnings,
         }), encoding="utf-8")
         return EXIT_OK
     finally:

@@ -19,6 +19,9 @@
 '''
 # Helpers that build small synthetic Word documents and read text back out of them.
 
+import struct
+import zlib
+
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
@@ -150,3 +153,16 @@ def add_heading_with_bookmark(document, bookmark_id, bookmark_name, heading_text
         element.append(bookmark_start)
     _bookmark_end(paragraph, bookmark_id)
     return paragraph
+
+
+def png_bytes(width, height):
+    """A valid width x height 8-bit grey PNG with no pHYs chunk, so python-docx reads 72 DPI."""
+
+    def chunk(kind, data):
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
+    rows = b"".join(b"\x00" + bytes(width) for _ in range(height))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows))
+            + chunk(b"IEND", b""))

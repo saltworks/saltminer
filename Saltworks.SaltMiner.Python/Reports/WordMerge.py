@@ -409,11 +409,20 @@ def merge_document(document, roots: dict, *, keep_unmatched: bool = False,
 
 
 def fill_template(template_path, output_path, record: dict, *, keep_unmatched: bool = False,
-                  renderer: Renderer | None = None) -> MergeResult:
-    """Fill the Word template at `template_path` from `record` and save it at `output_path`."""
+                  renderer: Renderer | None = None, on_open=None,
+                  before_save=None) -> MergeResult:
+    """Fill the Word template at `template_path` from `record` and save it at `output_path`.
+
+    `on_open(document)` runs after the template opens and `before_save(document)` runs before it
+    is saved, for a caller that adds pictures to the document part and resizes them (PBI-083).
+    """
     document = docx.Document(str(template_path))
+    if on_open is not None:
+        on_open(document)
     result = merge_document(document, bind_roots(record), keep_unmatched=keep_unmatched,
                             renderer=renderer)
+    if before_save is not None:
+        before_save(document)
     document.save(str(output_path))
     logging.info("[WordMerge][fill_template] merged %s fields, groups %s", result.fields_merged,
                  result.groups)
