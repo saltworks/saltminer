@@ -96,6 +96,18 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
         public int TimeoutSec { get; set; }
     }
 
+    /// <summary>
+    /// Where the Python generator reaches the UI API's File endpoint for pictures in issue markdown
+    /// (PBI-083). The key itself travels in the environment, never here.
+    /// </summary>
+    public class ReportGenerateUiApi
+    {
+        public string Url { get; set; }
+        public bool VerifySsl { get; set; }
+        public int TimeoutSec { get; set; }
+        public string KeyHeader { get; set; }
+    }
+
     /// <summary>Written to the job temp folder as request.json. Field names become snake_case on the wire.</summary>
     public class ReportGenerateRequest
     {
@@ -106,6 +118,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
         public string ReportName { get; set; }
         public string AttachmentType { get; set; }
         public ReportGenerateDataApi DataApi { get; set; }
+        public ReportGenerateUiApi UiApi { get; set; }
         public Dictionary<string, object> Settings { get; set; } = [];
         public Dictionary<string, string> FieldValueColors { get; set; } = [];
     }
@@ -121,6 +134,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
         public List<string> UnsupportedFields { get; set; } = [];
         public List<string> GroupsMissing { get; set; } = [];
         public List<string> UnknownColors { get; set; } = [];
+        public List<string> Warnings { get; set; } = [];
 
         /// <summary>
         /// Whether <see cref="Files"/> carries every extension `attachmentType` needs: `.pdf` for
@@ -149,6 +163,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
     public class ReportGenerator(JobManagerConfig config, ILogger<ReportGenerator> logger, IProcessRunner processRunner)
     {
         internal const string DataApiKeyEnvVar = "SM_REPORT_DATA_API_KEY";
+        internal const string UiApiKeyEnvVar = "SM_REPORT_UI_API_KEY";
         internal const string PythonEnvVar = "SM_REPORT_PYTHON";
         internal const string PythonRootEnvVar = "SM_REPORT_PYTHON_ROOT";
         private const string DefaultPython = "python3";
@@ -176,7 +191,11 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             var requestPath = Path.Combine(request.OutputDir, "request.json");
             File.WriteAllText(requestPath, JsonSerializer.Serialize(request, JsonOptions));
 
-            var env = new Dictionary<string, string> { [DataApiKeyEnvVar] = Config.DataApiKey };
+            var env = new Dictionary<string, string>
+            {
+                [DataApiKeyEnvVar] = Config.DataApiKey,
+                [UiApiKeyEnvVar] = Config.ApiKey,
+            };
 
             var result = ProcessRunner.Run(PythonExecutable,
                 ["-m", "Reports.Generate", "report", "--request", requestPath],
@@ -200,6 +219,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             LogNonEmpty("unsupported simple fields", generated.UnsupportedFields);
             LogNonEmpty("groups with no records key", generated.GroupsMissing);
             LogNonEmpty("unknown field value colors", generated.UnknownColors);
+            LogNonEmpty("image warnings", generated.Warnings);
 
             return generated;
         }

@@ -62,9 +62,10 @@ public class ReportGeneratorTests
         ReportName = "Report-test",
         AttachmentType = "Word",
         DataApi = new ReportGenerateDataApi { Url = "http://data-api:5000", VerifySsl = true, TimeoutSec = 10 },
+        UiApi = new ReportGenerateUiApi { Url = "http://ui-api:5001", VerifySsl = true, TimeoutSec = 3, KeyHeader = "ReportingAuthorization" },
     };
 
-    private static JobManagerConfig BuildConfig() => new() { DataApiKey = "manager-secret" };
+    private static JobManagerConfig BuildConfig() => new() { DataApiKey = "manager-secret", ApiKey = "ui-secret" };
 
     // (a) request.json carries engagement id, template path and output directory, and the
     // Data API key is passed only through the environment, never on argv.
@@ -96,6 +97,13 @@ public class ReportGeneratorTests
 
             CollectionAssert.DoesNotContain(runner.Arguments, "manager-secret");
             Assert.AreEqual("manager-secret", runner.ExtraEnvironment[ReportGenerator.DataApiKeyEnvVar]);
+
+            // PBI-083: the UI API key reaches the generator the same way, and is on neither argv nor disk.
+            CollectionAssert.DoesNotContain(runner.Arguments, "ui-secret");
+            Assert.AreEqual("ui-secret", runner.ExtraEnvironment[ReportGenerator.UiApiKeyEnvVar]);
+            Assert.IsFalse(File.ReadAllText(requestPath).Contains("ui-secret"));
+            Assert.AreEqual("ReportingAuthorization", doc.RootElement.GetProperty("ui_api").GetProperty("key_header").GetString());
+            Assert.AreEqual("http://ui-api:5001", doc.RootElement.GetProperty("ui_api").GetProperty("url").GetString());
         }
         finally
         {

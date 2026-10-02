@@ -158,12 +158,22 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
                     VerifySsl = Config.DataApiVerifySsl,
                     TimeoutSec = Config.DataApiTimeoutSec,
                 },
+                UiApi = new ReportGenerateUiApi
+                {
+                    Url = Config.ApiBaseUrl,
+                    VerifySsl = Config.ApiVerifySsl,
+                    TimeoutSec = Config.ApiTimeoutSec,
+                    KeyHeader = Config.ApiAuthHeader,
+                },
                 Settings = new Dictionary<string, object>
                 {
                     ["ReportCommentTemplate"] = Config.ReportCommentTemplate,
                     ["ReportMaxIssueComments"] = Config.ReportMaxIssueComments,
                     ["ReportIssueCommentSortLatestFirst"] = Config.ReportIssueCommentSortLatestFirst,
                     ["ReportIncludeSystemComments"] = Config.ReportIncludeSystemComments,
+                    ["ReportImageMaxWidth"] = Config.ReportImageMaxWidth,
+                    ["ReportImageMaxHeight"] = Config.ReportImageMaxHeight,
+                    ["ReportStaticImageAltText"] = Config.ReportStaticImageAltText,
                 },
                 FieldValueColors = Config.FieldValueColorCustomizations,
             };

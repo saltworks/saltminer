@@ -27,6 +27,7 @@ import json
 import os
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -34,6 +35,7 @@ from Core.DataClient import DataClient
 from Reports import Generate
 from Reports.EngagementData import DataApiSource
 from Reports.Tests import data_api_fixture as fx
+from Reports.Tests.synthetic import png_bytes
 
 # Saltworks.SaltMiner.Python/Reports/Tests -> the repository root is three levels up from Python.
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -85,6 +87,51 @@ class ReportEndToEnd(unittest.TestCase):
             self.assertEqual(len(result["files"]), 1)
             self.assertTrue(result["files"][0].endswith("Report-test.docx"))
             self.assertGreater(result["fields_merged"], 0)
+
+    def _run_with_stub_transport(self, tmp_dir, stub, ui_api, settings=None):
+        request_path = self._write_request(tmp_dir, fx.ENGAGEMENT_ID)
+        request = json.loads(request_path.read_text(encoding="utf-8"))
+        request["ui_api"] = ui_api
+        request["settings"] = settings or {}
+        request_path.write_text(json.dumps(request), encoding="utf-8")
+        with mock.patch.dict(os.environ, {Generate.DATA_API_KEY_ENV_VAR: "test-key",
+                                          Generate.UI_API_KEY_ENV_VAR: "ui-key"}), \
+             mock.patch.object(Generate, "DataApiSource",
+                              lambda client: DataApiSource(None, transport=fx.FakeTransport())), \
+             mock.patch.object(Generate, "http_transport", lambda verify, timeout: stub):
+            exit_code = Generate._handle_report(
+                Generate.build_parser().parse_args(["report", "--request", str(request_path)]))
+        return exit_code, json.loads((Path(tmp_dir) / "result.json").read_text(encoding="utf-8"))
+
+    def test_report_mode_embeds_the_fixture_proof_image_and_writes_warnings(self):
+        calls = []
+
+        def stub(url, headers):
+            calls.append((url, headers))
+            return 200, png_bytes(2000, 1000)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code, result = self._run_with_stub_transport(
+                tmp_dir, stub, {"url": "http://ui-api:5001"},
+                {"ReportImageMaxWidth": 100})
+            self.assertEqual(exit_code, Generate.EXIT_OK)
+            # The fixture's other images are relative paths, which are never fetched.
+            self.assertFalse([w for w in result["warnings"] if "example.invalid" in w])
+            self.assertIn(("https://example.invalid/a.png", {}), calls)
+            with zipfile.ZipFile(result["files"][0]) as archive:
+                xml = archive.read("word/document.xml").decode("utf-8")
+            self.assertIn("<w:drawing>", xml)
+            # ReportImageMaxWidth 100 pt reached resize_pictures: 100 pt is 1270000 EMU.
+            self.assertIn('cx="1270000"', xml)
+
+    def test_a_failed_image_is_a_result_warning_not_a_failed_job(self):
+        def stub(url, headers):
+            return 404, b""
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code, result = self._run_with_stub_transport(tmp_dir, stub, {})
+            self.assertEqual(exit_code, Generate.EXIT_OK)
+            self.assertEqual(len([w for w in result["warnings"] if "example.invalid" in w]), 1)
 
     def test_report_mode_exit_1_on_an_unknown_engagement(self):
         with tempfile.TemporaryDirectory() as tmp_dir, \
