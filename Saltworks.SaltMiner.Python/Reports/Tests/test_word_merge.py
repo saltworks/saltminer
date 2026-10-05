@@ -366,11 +366,12 @@ class HyperlinkStyling(unittest.TestCase):
             rpr = run.find(qn("w:rPr"))
             self.assertTrue(rpr is None or rpr.find(qn("w:color")) is None)
 
-    def _link_document(self, run_texts):
+    def _link_document(self, run_texts, external=True):
         from docx.oxml import OxmlElement
         document = docx.Document()
         paragraph = document.add_paragraph()
         link = OxmlElement("w:hyperlink")
+        link.set(qn("r:id") if external else qn("w:anchor"), "rId8" if external else "Executive_Summary")
         for text in run_texts:
             run = OxmlElement("w:r")
             node = OxmlElement("w:t")
@@ -389,6 +390,12 @@ class HyperlinkStyling(unittest.TestCase):
 
     def test_a_hyperlink_element_over_several_runs_is_left_alone(self):
         document = self._link_document(["Introduction", " 3"])
+        merge_document(document, bind_roots({}))
+        for run in self._visible_runs(document):
+            self.assertIsNone(run.find(qn("w:rPr")))
+
+    def test_an_internal_anchor_hyperlink_is_left_alone(self):
+        document = self._link_document(["Executive Summary"], external=False)
         merge_document(document, bind_roots({}))
         for run in self._visible_runs(document):
             self.assertIsNone(run.find(qn("w:rPr")))
