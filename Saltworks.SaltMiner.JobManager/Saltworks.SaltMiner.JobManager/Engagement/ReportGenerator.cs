@@ -40,6 +40,9 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
 
     public class ProcessRunner : IProcessRunner
     {
+        private static void TraceKillFailure(Exception ex) =>
+            Trace.WriteLine($"[ProcessRunner] Could not kill the timed out process: {ex.GetType().Name}: {ex.Message}");
+
         public ProcessRunResult Run(string fileName, IEnumerable<string> arguments, string workingDirectory,
             IDictionary<string, string> extraEnvironment, TimeSpan timeout)
         {
@@ -73,10 +76,12 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
                 // ours to terminate (Win32Exception, NotSupportedException), or a child in the tree may
                 // refuse (AggregateException). Nothing else is documented for Process.Kill.
                 try { process.Kill(entireProcessTree: true); }
-                catch (InvalidOperationException) { }
-                catch (System.ComponentModel.Win32Exception) { }
-                catch (NotSupportedException) { }
-                catch (AggregateException) { }
+                // Each catch records one line and carries on; ProcessRunner has no logger, and Trace
+                // (unlike Debug) is not compiled out of a Release build.
+                catch (InvalidOperationException ex) { TraceKillFailure(ex); }
+                catch (System.ComponentModel.Win32Exception ex) { TraceKillFailure(ex); }
+                catch (NotSupportedException ex) { TraceKillFailure(ex); }
+                catch (AggregateException ex) { TraceKillFailure(ex); }
                 process.WaitForExit();
                 return new ProcessRunResult(-1, stdOut.ToString(), stdErr.ToString(), TimedOut: true);
             }
