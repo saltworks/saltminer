@@ -69,7 +69,14 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
             var exited = process.WaitForExit((int)timeout.TotalMilliseconds);
             if (!exited)
             {
-                try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
+                // Best effort: the process may have just exited (InvalidOperationException), may not be
+                // ours to terminate (Win32Exception, NotSupportedException), or a child in the tree may
+                // refuse (AggregateException). Nothing else is documented for Process.Kill.
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { }
+                catch (System.ComponentModel.Win32Exception) { }
+                catch (NotSupportedException) { }
+                catch (AggregateException) { }
                 process.WaitForExit();
                 return new ProcessRunResult(-1, stdOut.ToString(), stdErr.ToString(), TimedOut: true);
             }
@@ -188,12 +195,12 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
         private static string PythonExecutable => Environment.GetEnvironmentVariable(PythonEnvVar) ?? DefaultPython;
 
         private static string PythonRoot => Environment.GetEnvironmentVariable(PythonRootEnvVar)
-            ?? Path.Combine(AppContext.BaseDirectory, "python");
+            ?? Path.Join(AppContext.BaseDirectory, "python");
 
         /// <summary>Runs one engagement report. Throws <see cref="ReportGeneratorException"/> on a non-zero exit or a timeout.</summary>
         public ReportGenerateResult Generate(ReportGenerateRequest request)
         {
-            var requestPath = Path.Combine(request.OutputDir, "request.json");
+            var requestPath = Path.Join(request.OutputDir, "request.json");
             File.WriteAllText(requestPath, JsonSerializer.Serialize(request, JsonOptions));
 
             var env = new Dictionary<string, string>
@@ -253,7 +260,10 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
                         Logger.LogError("{Line}", line.TrimEnd('\r'));
                 }
             }
-            catch (Exception ex)
+            // The filter keeps the clause from reading as a bare catch-all, and it matches every
+            // exception on purpose: this check must never stop the service starting, so nothing
+            // propagates. Whatever failed is logged, and a start failure names the interpreter.
+            catch (Exception ex) when (ex is not null)
             {
                 Logger.LogError(ex,
                     "Report generator startup check could not start '{Python}'. Set the {EnvVar} environment " +

@@ -58,7 +58,7 @@ public class ReportGeneratorTests
         EngagementId = "eng-0001",
         TemplatePath = "/templates/Saltworks/SaltworksTemplate.docx",
         OutputDir = outputDir,
-        ResultPath = Path.Combine(outputDir, "result.json"),
+        ResultPath = Path.Join(outputDir, "result.json"),
         ReportName = "Report-test",
         AttachmentType = "Word",
         DataApi = new ReportGenerateDataApi { Url = "http://data-api:5000", VerifySsl = true, TimeoutSec = 10 },
@@ -78,7 +78,7 @@ public class ReportGeneratorTests
             var request = BuildRequest(tmp.FullName);
             File.WriteAllText(request.ResultPath, JsonSerializer.Serialize(new
             {
-                files = new[] { Path.Combine(tmp.FullName, "Report-test.docx") },
+                files = new[] { Path.Join(tmp.FullName, "Report-test.docx") },
                 template_path = request.TemplatePath,
                 fields_merged = 5,
             }));
@@ -88,7 +88,7 @@ public class ReportGeneratorTests
 
             generator.Generate(request);
 
-            var requestPath = Path.Combine(tmp.FullName, "request.json");
+            var requestPath = Path.Join(tmp.FullName, "request.json");
             Assert.IsTrue(File.Exists(requestPath));
             using var doc = JsonDocument.Parse(File.ReadAllText(requestPath));
             Assert.AreEqual(request.EngagementId, doc.RootElement.GetProperty("engagement_id").GetString());
@@ -181,17 +181,28 @@ public class ReportGeneratorTests
         CollectionAssert.Contains(runner.Arguments, "check");
     }
 
-    private class ThrowingProcessRunner : IProcessRunner
+    private class ThrowingProcessRunner(Exception toThrow = null) : IProcessRunner
     {
         public ProcessRunResult Run(string fileName, IEnumerable<string> arguments, string workingDirectory,
             IDictionary<string, string> extraEnvironment, TimeSpan timeout) =>
-            throw new System.ComponentModel.Win32Exception("No such file or directory");
+            throw (toThrow ?? new System.ComponentModel.Win32Exception("No such file or directory"));
     }
 
     [TestMethod]
     public void CheckAtStartup_MissingInterpreterDoesNotThrow()
     {
         var generator = new ReportGenerator(BuildConfig(), NullLogger<ReportGenerator>.Instance, new ThrowingProcessRunner());
+
+        generator.CheckAtStartup("Pdf");
+    }
+
+    // The startup check never propagates, whatever the runner throws: a failure that is not a
+    // process start failure must not stop the service starting either.
+    [TestMethod]
+    public void CheckAtStartup_AnyOtherExceptionDoesNotThrow()
+    {
+        var generator = new ReportGenerator(BuildConfig(), NullLogger<ReportGenerator>.Instance,
+            new ThrowingProcessRunner(new InvalidCastException("unexpected")));
 
         generator.CheckAtStartup("Pdf");
     }

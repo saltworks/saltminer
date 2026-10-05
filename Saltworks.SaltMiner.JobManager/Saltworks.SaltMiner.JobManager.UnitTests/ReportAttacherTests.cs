@@ -69,7 +69,7 @@ public class ReportAttacherTests
 
     private static string WriteReport(DirectoryInfo dir, string fileName)
     {
-        var path = Path.Combine(dir.FullName, fileName);
+        var path = Path.Join(dir.FullName, fileName);
         File.WriteAllText(path, "report");
         return path;
     }
@@ -153,7 +153,11 @@ public class ReportAttacherTests
                     method.DeclaringType.GetGenericArguments(), method.GetGenericArguments());
                 if (callee != null) names.Add(callee.Name);
             }
-            catch (ArgumentException) { }
+            catch (ArgumentException)
+            {
+                // Not a method token: these bytes only looked like a call opcode.
+                continue;
+            }
         }
         return names;
     }

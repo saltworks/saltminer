@@ -23,8 +23,8 @@ import base64
 import io
 import logging
 import unittest
+import unittest.mock
 import zipfile
-from unittest import mock
 
 import docx
 from docx.oxml.ns import qn
@@ -234,8 +234,8 @@ class Resolver(unittest.TestCase):
 
 class HttpTransport(unittest.TestCase):
     def test_redirects_are_never_followed_for_keyed_or_keyless_calls(self):
-        response = mock.Mock(status_code=200, content=b"x")
-        with mock.patch("requests.Session.get", return_value=response) as get:
+        response = unittest.mock.Mock(status_code=200, content=b"x")
+        with unittest.mock.patch("requests.Session.get", return_value=response) as get:
             transport = http_transport(False, 3)
             transport("http://a.test/File/x", {KEY_HEADER: KEY})
             transport("http://b.test/x.png", {})

@@ -27,9 +27,9 @@ import json
 import os
 import tempfile
 import unittest
+import unittest.mock
 import zipfile
 from pathlib import Path
-from unittest import mock
 
 from Core.DataClient import DataClient
 from Reports import Generate
@@ -75,8 +75,8 @@ class ReportEndToEnd(unittest.TestCase):
 
     def test_report_mode_writes_one_docx_and_a_result_file(self):
         with tempfile.TemporaryDirectory() as tmp_dir, \
-             mock.patch.dict(os.environ, {Generate.DATA_API_KEY_ENV_VAR: "test-key"}), \
-             mock.patch.object(Generate, "DataApiSource",
+             unittest.mock.patch.dict(os.environ, {Generate.DATA_API_KEY_ENV_VAR: "test-key"}), \
+             unittest.mock.patch.object(Generate, "DataApiSource",
                               lambda client: DataApiSource(None, transport=fx.FakeTransport())):
             request_path = self._write_request(tmp_dir, fx.ENGAGEMENT_ID)
             exit_code = Generate._handle_report(
@@ -94,11 +94,11 @@ class ReportEndToEnd(unittest.TestCase):
         request["ui_api"] = ui_api
         request["settings"] = settings or {}
         request_path.write_text(json.dumps(request), encoding="utf-8")
-        with mock.patch.dict(os.environ, {Generate.DATA_API_KEY_ENV_VAR: "test-key",
+        with unittest.mock.patch.dict(os.environ, {Generate.DATA_API_KEY_ENV_VAR: "test-key",
                                           Generate.UI_API_KEY_ENV_VAR: "ui-key"}), \
-             mock.patch.object(Generate, "DataApiSource",
+             unittest.mock.patch.object(Generate, "DataApiSource",
                               lambda client: DataApiSource(None, transport=fx.FakeTransport())), \
-             mock.patch.object(Generate, "http_transport", lambda verify, timeout: stub):
+             unittest.mock.patch.object(Generate, "http_transport", lambda verify, timeout: stub):
             exit_code = Generate._handle_report(
                 Generate.build_parser().parse_args(["report", "--request", str(request_path)]))
         return exit_code, json.loads((Path(tmp_dir) / "result.json").read_text(encoding="utf-8"))
@@ -135,8 +135,8 @@ class ReportEndToEnd(unittest.TestCase):
 
     def test_report_mode_exit_1_on_an_unknown_engagement(self):
         with tempfile.TemporaryDirectory() as tmp_dir, \
-             mock.patch.dict(os.environ, {Generate.DATA_API_KEY_ENV_VAR: "test-key"}), \
-             mock.patch.object(Generate, "DataApiSource",
+             unittest.mock.patch.dict(os.environ, {Generate.DATA_API_KEY_ENV_VAR: "test-key"}), \
+             unittest.mock.patch.object(Generate, "DataApiSource",
                               lambda client: DataApiSource(None, transport=fx.FakeTransport())):
             request_path = self._write_request(tmp_dir, "no-such-engagement")
             exit_code = Generate._handle_report(
@@ -147,13 +147,13 @@ class ReportEndToEnd(unittest.TestCase):
 
 class CheckMode(unittest.TestCase):
     def test_check_mode_exit_0_on_pass(self):
-        with mock.patch.object(Generate, "check_pdf_converter", lambda attachment_type: True):
+        with unittest.mock.patch.object(Generate, "check_pdf_converter", lambda attachment_type: True):
             exit_code = Generate._handle_check(
                 Generate.build_parser().parse_args(["check", "--attachment-type", "Pdf"]))
             self.assertEqual(exit_code, Generate.EXIT_OK)
 
     def test_check_mode_exit_3_on_fail(self):
-        with mock.patch.object(Generate, "check_pdf_converter", lambda attachment_type: False):
+        with unittest.mock.patch.object(Generate, "check_pdf_converter", lambda attachment_type: False):
             exit_code = Generate._handle_check(
                 Generate.build_parser().parse_args(["check", "--attachment-type", "Pdf"]))
             self.assertEqual(exit_code, Generate.EXIT_CHECK_FAILED)

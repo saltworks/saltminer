@@ -149,7 +149,7 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
                 EngagementId = JobQueue.TargetId,
                 TemplatePath = template.Template,
                 OutputDir = template.TmpDirectory,
-                ResultPath = Path.Combine(template.TmpDirectory, "result.json"),
+                ResultPath = Path.Join(template.TmpDirectory, "result.json"),
                 ReportName = reportName,
                 AttachmentType = Config.ReportAttachmentType,
                 DataApi = new ReportGenerateDataApi
