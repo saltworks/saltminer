@@ -419,6 +419,13 @@ def _style_hyperlink_fields(body) -> None:
     field's result text got `UnderlineStyle.Single` and `Color.Blue` (0000FF). An ordinary
     `w:hyperlink` element is not a field code and is left alone, as .NET left it.
     """
+    # DocIO loads a `w:hyperlink` element as a HYPERLINK field and its text then matched the loop
+    # above, but only where one run holds the whole link text; a link spread over several runs or
+    # fields (a table of contents entry) matched nothing and stayed as it was.
+    for link in body.iter(qn("w:hyperlink")):
+        text_runs = [r for r in link.findall(qn("w:r")) if r.find(qn("w:t")) is not None]
+        if len(text_runs) == 1 and len(link.findall(qn("w:r"))) == 1:
+            _blue_underline(text_runs[0])
     for paragraph in body.iter(qn("w:p")):
         stack: list[dict] = []
         for run in paragraph.findall(qn("w:r")):

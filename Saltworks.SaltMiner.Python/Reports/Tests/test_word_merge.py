@@ -365,3 +365,30 @@ class HyperlinkStyling(unittest.TestCase):
         for run in self._visible_runs(document):
             rpr = run.find(qn("w:rPr"))
             self.assertTrue(rpr is None or rpr.find(qn("w:color")) is None)
+
+    def _link_document(self, run_texts):
+        from docx.oxml import OxmlElement
+        document = docx.Document()
+        paragraph = document.add_paragraph()
+        link = OxmlElement("w:hyperlink")
+        for text in run_texts:
+            run = OxmlElement("w:r")
+            node = OxmlElement("w:t")
+            node.text = text
+            run.append(node)
+            link.append(run)
+        paragraph._p.append(link)
+        return document
+
+    def test_a_single_run_hyperlink_element_is_blue_and_underlined(self):
+        document = self._link_document(["https://www.saltworks.io/"])
+        merge_document(document, bind_roots({}))
+        run = self._visible_runs(document)[0]
+        self.assertEqual(run.find(qn("w:rPr")).find(qn("w:color")).get(qn("w:val")), "0000FF")
+        self.assertEqual(run.find(qn("w:rPr")).find(qn("w:u")).get(qn("w:val")), "single")
+
+    def test_a_hyperlink_element_over_several_runs_is_left_alone(self):
+        document = self._link_document(["Introduction", " 3"])
+        merge_document(document, bind_roots({}))
+        for run in self._visible_runs(document):
+            self.assertIsNone(run.find(qn("w:rPr")))
