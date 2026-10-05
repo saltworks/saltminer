@@ -50,5 +50,10 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
         {
             return new UiDataItemResponse<UiAttachmentInfo>(GetAttachmentByFileName(fileName));
         }
+
+        public UiDataItemResponse<UiAttachmentInfo> GetReportAttachmentByFileId(string fileId)
+        {
+            return new UiDataItemResponse<UiAttachmentInfo>(GetAttachmentByFileId(fileId));
+        }
     }
 }

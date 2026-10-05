@@ -317,3 +317,116 @@ class GroupResolution(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HyperlinkStyling(unittest.TestCase):
+    """PBI-051 AC-11: a HYPERLINK field's visible text is blue and underlined, as .NET styled it."""
+
+    @staticmethod
+    def _fld(paragraph, kind):
+        from docx.oxml import OxmlElement
+        run = OxmlElement("w:r")
+        fld = OxmlElement("w:fldChar")
+        fld.set(qn("w:fldCharType"), kind)
+        run.append(fld)
+        paragraph._p.append(run)
+
+    def _paragraph_with(self, instr):
+        from docx.oxml import OxmlElement
+        document = docx.Document()
+        paragraph = document.add_paragraph()
+        self._fld(paragraph, "begin")
+        run = OxmlElement("w:r")
+        node = OxmlElement("w:instrText")
+        node.text = instr
+        run.append(node)
+        paragraph._p.append(run)
+        self._fld(paragraph, "separate")
+        paragraph.add_run("https://www.saltworks.io/")
+        self._fld(paragraph, "end")
+        paragraph.add_run(" plain")
+        return document
+
+    def _visible_runs(self, document):
+        return [r for r in document.element.body.iter(qn("w:r")) if r.find(qn("w:t")) is not None]
+
+    def test_hyperlink_field_text_is_blue_and_underlined(self):
+        document = self._paragraph_with('HYPERLINK "https://www.saltworks.io/"')
+        merge_document(document, bind_roots({}))
+        link, other = self._visible_runs(document)
+        self.assertEqual(link.find(qn("w:rPr")).find(qn("w:color")).get(qn("w:val")), "0000FF")
+        self.assertEqual(link.find(qn("w:rPr")).find(qn("w:u")).get(qn("w:val")), "single")
+        rpr = other.find(qn("w:rPr"))
+        self.assertTrue(rpr is None or rpr.find(qn("w:color")) is None)
+
+    def test_other_field_text_is_left_alone(self):
+        document = self._paragraph_with("PAGEREF _Toc1 \\h")
+        merge_document(document, bind_roots({}))
+        for run in self._visible_runs(document):
+            rpr = run.find(qn("w:rPr"))
+            self.assertTrue(rpr is None or rpr.find(qn("w:color")) is None)
+
+    def _link_document(self, run_texts, external=True):
+        from docx.oxml import OxmlElement
+        document = docx.Document()
+        paragraph = document.add_paragraph()
+        link = OxmlElement("w:hyperlink")
+        link.set(qn("r:id") if external else qn("w:anchor"), "rId8" if external else "Executive_Summary")
+        for text in run_texts:
+            run = OxmlElement("w:r")
+            node = OxmlElement("w:t")
+            node.text = text
+            run.append(node)
+            link.append(run)
+        paragraph._p.append(link)
+        return document
+
+    def test_a_single_run_hyperlink_element_is_blue_and_underlined(self):
+        document = self._link_document(["https://www.saltworks.io/"])
+        merge_document(document, bind_roots({}))
+        run = self._visible_runs(document)[0]
+        self.assertEqual(run.find(qn("w:rPr")).find(qn("w:color")).get(qn("w:val")), "0000FF")
+        self.assertEqual(run.find(qn("w:rPr")).find(qn("w:u")).get(qn("w:val")), "single")
+
+    def test_a_hyperlink_element_over_several_runs_is_left_alone(self):
+        document = self._link_document(["Introduction", " 3"])
+        merge_document(document, bind_roots({}))
+        for run in self._visible_runs(document):
+            self.assertIsNone(run.find(qn("w:rPr")))
+
+    def test_an_internal_anchor_hyperlink_is_left_alone(self):
+        document = self._link_document(["Executive Summary"], external=False)
+        merge_document(document, bind_roots({}))
+        for run in self._visible_runs(document):
+            self.assertIsNone(run.find(qn("w:rPr")))
+
+
+class RootGroupsPastTheSectionCount(unittest.TestCase):
+    """PBI-051 AC-11: .NET ran one `Section{count}` group per Word section (ruled 2026-10-05)."""
+
+    def _document(self):
+        document = docx.Document()
+        for name in ("TableStart:Section1", "Name", "TableEnd:Section1",
+                     "TableStart:Section2", "Name", "TableEnd:Section2"):
+            add_field(document.add_paragraph(), name)
+        return document
+
+    def _texts(self, document):
+        return [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
+
+    def test_a_root_group_past_the_word_section_count_is_left_unmerged(self):
+        document = self._document()
+        self.assertEqual(len(document.sections), 1)
+        result = merge_document(document, bind_roots({"Name": "Acme"}, len(document.sections)))
+        self.assertEqual(
+            self._texts(document),
+            ["Acme", "«TableStart:Section2»", "«Name»", "«TableEnd:Section2»"],
+        )
+        self.assertEqual(result.roots_not_merged, ["Section2"])
+        self.assertEqual(result.groups, {"Section1": 1})
+        self.assertEqual(len(list(document.element.body.iter(qn("w:instrText")))), 3)
+
+    def test_without_a_section_count_every_root_group_merges(self):
+        document = self._document()
+        merge_document(document, bind_roots({"Name": "Acme"}))
+        self.assertEqual(self._texts(document), ["Acme", "Acme"])

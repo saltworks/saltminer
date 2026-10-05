@@ -224,6 +224,8 @@ public static class Program
                         services.AddSingleton<Processor.Issue.ImportProcessor>();
                         services.AddSingleton<Processor.Issue.TemplateImportProcessor>();
                         services.AddSingleton<ImportProcessor>();
+                        services.AddSingleton<IProcessRunner, ProcessRunner>();
+                        services.AddSingleton<ReportGenerator>();
                         services.AddSingleton<ReportProcessor>();
                         services.AddSingleton<ReportTemplateProcessor>();
                         services.AddSingleton<CleanUpProcessor>();

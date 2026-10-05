@@ -461,36 +461,42 @@ def _definitions_for(documents: list[dict], kind: str) -> list[_AttributeDefinit
     return []
 
 
-def _attribute_fields(attributes: Any, definitions: list[_AttributeDefinition]) -> list[tuple[str, str | None]]:
-    """The (name, value) pairs UiApiClient FieldExtensions.ToAttributeFields builds.
+def _attribute_fields(attributes: Any, definitions: list[_AttributeDefinition]) -> list[tuple[str, str | None, bool]]:
+    """The (name, value, stored) triples UiApiClient FieldExtensions.ToAttributeFields builds.
 
     A stored attribute with no definition is dropped. A hidden one reads as empty. A definition the
     document lacks is added with its default value.
     """
     stored = attributes if isinstance(attributes, dict) else {}
-    fields: list[tuple[str, str | None]] = []
+    fields: list[tuple[str, str | None, bool]] = []
     for key, value in stored.items():
         definition = next((d for d in definitions if d.name.lower() == key.lower()), None)
         if definition is None:
             continue
-        fields.append((definition.name, "" if definition.hidden else value))
+        fields.append((definition.name, "" if definition.hidden else value, True))
     for definition in definitions:
         if definition.name not in stored:
-            fields.append((definition.name, definition.default))
+            fields.append((definition.name, definition.default, False))
     return fields
 
 
-def _add_attribute_properties(target: dict, prefix: str, fields: list[tuple[str, str | None]],
+def _add_attribute_properties(target: dict, prefix: str, fields: list[tuple[str, str | None, bool]],
                               definitions: list[_AttributeDefinition]) -> None:
-    """ReportProcessor.CreateAttributeProperties, emitting both spellings of each name."""
-    for key, value in fields:
+    """ReportProcessor.CreateAttributeProperties, emitting both spellings of each name.
+
+    The pipe spelling (`Attributes|key`) is the shipped default template's; .NET never filled it, so
+    the key is present and always empty and the field stays blank (ruled 2026-10-05, PBI-051
+    AC-11, superseding PBI-046 requirement 5's both-spellings fill). The underscore spelling
+    carries the value.
+    """
+    for key, value, _stored in fields:
         text = value
         definition = next((d for d in definitions if d.name == key), None)
         if definition is not None and "multi select" in definition.type.lower():
             text = (value or "").replace("[", "").replace("]", "")
         text = _text(text)
         target[f"{prefix}Attribute_{key}"] = text
-        target[f"{prefix}Attributes|{key}"] = text
+        target[f"{prefix}Attributes|{key}"] = ""
 
 
 def _markdown_fields(engagement_defs: list[_AttributeDefinition],
@@ -695,9 +701,10 @@ def _issue_detail(issue: _Issue, definitions: list[_AttributeDefinition], commen
         "FoundDate": _format_report_date(issue.found_date, "yyyy/MM/dd"),
         "TestStatus": issue.test_status,
         "TestingInstructions": issue.testing_instructions,
-        # .NET writes issue.IsSuppressed.ToString() on a field object, which prints a type name and not the
-        # value; this port writes the value, as the field evidently intends.
-        "IsSuppressed": _text(issue.is_suppressed),
+        # .NET writes issue.IsSuppressed.ToString() on a BooleanField object, which prints its type name
+        # and not the value; the report matches .NET, so this is the same text (ruled 2026-10-05,
+        # PBI-051 AC-11, which withdrew the earlier choice to write the value).
+        "IsSuppressed": "Saltworks.SaltMiner.UiApiClient.BooleanField",
         "IsActive": _text(issue.is_active),
         "IsRemoved": _text(issue.is_removed),
         "RemovedDate": _format_report_date(issue.removed_date, "yyyy/MM/dd"),

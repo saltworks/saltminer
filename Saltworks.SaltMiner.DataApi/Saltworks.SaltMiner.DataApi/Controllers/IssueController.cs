@@ -62,7 +62,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <response code="200">Returns a batch from a search request</response>
         // Agent needs access to this so Wiz adapter (and possibly others later) can pull existing issues
         [ProducesResponseType(200, Type = typeof(DataResponse<Issue>))]
-        [Auth(Role.Manager, Role.Admin, Role.Pentester, Role.PentesterViewer, Role.Agent)]
+        [Auth(Role.Manager, Role.Admin, Role.Pentester, Role.PentesterViewer, Role.Agent, Role.JobManager)]
         [HttpPost("[action]")]
         public ActionResult<DataResponse<Issue>> Search([FromBody] SearchRequest search)
         {

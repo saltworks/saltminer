@@ -907,6 +907,12 @@
             </summary>
             <response code="200">Returns response indicating success</response>
         </member>
+        <member name="M:Saltworks.SaltMiner.Ui.Api.Controllers.ReportController.GetReportAttachmentByFileId(System.String)">
+            <summary>
+            Get Report Attachment by FileId
+            </summary>
+            <response code="200">Returns response indicating success</response>
+        </member>
         <member name="M:Saltworks.SaltMiner.Ui.Api.Controllers.ScanController.Get(System.String)">
             <summary>
             Gets an Scan

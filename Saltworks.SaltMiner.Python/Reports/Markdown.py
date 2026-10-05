@@ -61,6 +61,7 @@ class Span:
     strike: bool = False
     mono: bool = False
     link: str | None = None
+    image: tuple | None = None  # (src, alt) when this span stands for a markdown image
 
 
 @dataclass
@@ -137,7 +138,8 @@ def _inline_spans(token, *, bold: bool = False, italic: bool = False) -> list[Sp
                 suppress_next_break = False
         elif kind == "image":
             alt = child.content or child.attrGet("alt") or "image"
-            spans.append(Span(f"[{alt}]", bool(bold_depth), True, bool(strike_depth), False, None))
+            spans.append(Span(f"[{alt}]", bool(bold_depth), True, bool(strike_depth), False, None,
+                              image=(child.attrGet("src") or "", alt)))
             suppress_next_break = False
     return spans
 
@@ -177,7 +179,10 @@ def markdown_blocks(text: str) -> list[Block]:
         elif kind == "paragraph_open":
             if pending_li and list_stack:
                 top = list_stack[-1]
-                prefix = f"{top['n']}. " if top["ordered"] else "• "
+                # .NET's markdown import wrote no number for an ordered item, because the template
+                # ships no numbering definition (ruled 2026-10-05, PBI-051 AC-11), so only a bullet
+                # item carries a visible mark.
+                prefix = "" if top["ordered"] else "• "
                 if top["ordered"]:
                     top["n"] += 1
                 blocks.append(Block(kind="li", level=len(list_stack), prefix=prefix))
@@ -268,7 +273,7 @@ def _block_spans(block: Block) -> list[Span]:
     return [Span(block.prefix), *block.spans]
 
 
-def _block_to_paragraph(block: Block, rpr_source, ppr_source) -> object:
+def _block_to_paragraph(block: Block, rpr_source, ppr_source, images=None) -> object:
     paragraph = OxmlElement("w:p")
     ppr = copy.deepcopy(ppr_source) if ppr_source is not None else None
     if block.kind == "li":
@@ -286,17 +291,24 @@ def _block_to_paragraph(block: Block, rpr_source, ppr_source) -> object:
     if ppr is not None:
         paragraph.append(ppr)
     for span in _block_spans(block):
+        if span.image is not None and images is not None:
+            picture = images.run_for(span.image[0], span.image[1], rpr_source)
+            if picture is not None:
+                paragraph.append(picture)
+                continue
         if span.text:
             paragraph.append(_run_for_span(span, rpr_source))
     return paragraph
 
 
-def render_markdown(text: str, rpr_source=None, ppr_source=None) -> list:
+def render_markdown(text: str, rpr_source=None, ppr_source=None, images=None) -> list:
     """Markdown text -> a list of `w:p` elements, one per block, ready to splice in.
 
     `rpr_source` is the merge field's cached result run, copied onto every run this builds so
     paragraph-level formatting from the template survives. `ppr_source` is the field's own
-    paragraph properties, copied onto every paragraph this builds.
+    paragraph properties, copied onto every paragraph this builds. `images`, when given, is an
+    `Images.ImageEmbedder`: each markdown image becomes an inline picture, or stays the italic
+    `[alt]` text when it cannot be resolved.
     """
     blocks = markdown_blocks(text)
-    return [_block_to_paragraph(block, rpr_source, ppr_source) for block in blocks]
+    return [_block_to_paragraph(block, rpr_source, ppr_source, images) for block in blocks]

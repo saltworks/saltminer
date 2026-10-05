@@ -36,15 +36,17 @@ namespace Saltworks.SaltMiner.JobManager
         private readonly JobManagerConfig Config;
         private readonly JobService JobService;
         private readonly IServiceProvider ServiceProvider;
+        private readonly ReportGenerator ReportGenerator;
         private static IConsoleAppHostArgs HostArgs;
 
         // Dependencies are injected via dependency injection, default logging and configuration available, and any customs specified in the builder
-        public JobManager(ILogger<JobManager> logger, JobManagerConfig config, JobService jobService, IServiceProvider serviceProvider)
+        public JobManager(ILogger<JobManager> logger, JobManagerConfig config, JobService jobService, IServiceProvider serviceProvider, ReportGenerator reportGenerator)
         {
             Logger = logger;
             Config = config;
             JobService = jobService;
             ServiceProvider = serviceProvider;
+            ReportGenerator = reportGenerator;
             Logger.LogInformation("Initialized...");
         }
 
@@ -60,6 +62,7 @@ namespace Saltworks.SaltMiner.JobManager
                 if (args.Args[0] == OperationType.Service.ToString("g"))
                 {
                     Logger.LogInformation("Service starting.  Data API client is using base url '{dataApiBaseUrl}'", Config.DataApiBaseUrl);
+                    ReportGenerator.CheckAtStartup(Config.ReportAttachmentType);
                     var runConfig = ServiceRuntimeConfig.FromArgs(args);
                     ExecuteAsync(runConfig.CancelToken).Wait();
                 }

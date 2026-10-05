@@ -51,6 +51,7 @@ class ValueRenderResult:
     markdown_fields_rendered: int = 0
     colored_values: int = 0
     unknown_colors: list = dc_field(default_factory=list)
+    warnings: list = dc_field(default_factory=list)  # the image embedder's own list
 
 
 def _add_once(items: list, item: str) -> None:
@@ -76,6 +77,7 @@ def _colored_run(text: str, rpr_source, hex_color: str):
 def make_value_renderer(
     markdown_fields: Iterable[str],
     field_value_colors: dict,
+    images=None,
 ) -> tuple[Callable[[FieldContext], "str | object | list"], ValueRenderResult]:
     """A `Renderer` for PBI-047's merge engine, and the result object it fills in as it runs.
 
@@ -88,10 +90,13 @@ def make_value_renderer(
     """
     markdown_names = frozenset(markdown_fields)
     result = ValueRenderResult()
+    if images is not None:
+        result.warnings = images.warnings
 
     def render(ctx: FieldContext):
         if ctx.name in markdown_names:
-            blocks = render_markdown(ctx.value, ctx.run_properties, ctx.paragraph_properties)
+            blocks = render_markdown(ctx.value, ctx.run_properties, ctx.paragraph_properties,
+                                     images)
             if blocks:
                 result.markdown_fields_rendered += 1
             return blocks
