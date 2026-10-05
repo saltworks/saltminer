@@ -461,36 +461,41 @@ def _definitions_for(documents: list[dict], kind: str) -> list[_AttributeDefinit
     return []
 
 
-def _attribute_fields(attributes: Any, definitions: list[_AttributeDefinition]) -> list[tuple[str, str | None]]:
-    """The (name, value) pairs UiApiClient FieldExtensions.ToAttributeFields builds.
+def _attribute_fields(attributes: Any, definitions: list[_AttributeDefinition]) -> list[tuple[str, str | None, bool]]:
+    """The (name, value, stored) triples UiApiClient FieldExtensions.ToAttributeFields builds.
 
     A stored attribute with no definition is dropped. A hidden one reads as empty. A definition the
     document lacks is added with its default value.
     """
     stored = attributes if isinstance(attributes, dict) else {}
-    fields: list[tuple[str, str | None]] = []
+    fields: list[tuple[str, str | None, bool]] = []
     for key, value in stored.items():
         definition = next((d for d in definitions if d.name.lower() == key.lower()), None)
         if definition is None:
             continue
-        fields.append((definition.name, "" if definition.hidden else value))
+        fields.append((definition.name, "" if definition.hidden else value, True))
     for definition in definitions:
         if definition.name not in stored:
-            fields.append((definition.name, definition.default))
+            fields.append((definition.name, definition.default, False))
     return fields
 
 
-def _add_attribute_properties(target: dict, prefix: str, fields: list[tuple[str, str | None]],
+def _add_attribute_properties(target: dict, prefix: str, fields: list[tuple[str, str | None, bool]],
                               definitions: list[_AttributeDefinition]) -> None:
-    """ReportProcessor.CreateAttributeProperties, emitting both spellings of each name."""
-    for key, value in fields:
+    """ReportProcessor.CreateAttributeProperties, emitting both spellings of each name.
+
+    The pipe spelling (`Attributes|key`) is the shipped default template's; .NET never filled it, so
+    a definition default for an attribute the record does not store is not written into it (ruled
+    2026-10-05, PBI-051 AC-11): the key is present and empty, so the field stays blank. The underscore spelling still carries it.
+    """
+    for key, value, stored in fields:
         text = value
         definition = next((d for d in definitions if d.name == key), None)
         if definition is not None and "multi select" in definition.type.lower():
             text = (value or "").replace("[", "").replace("]", "")
         text = _text(text)
         target[f"{prefix}Attribute_{key}"] = text
-        target[f"{prefix}Attributes|{key}"] = text
+        target[f"{prefix}Attributes|{key}"] = text if stored else ""
 
 
 def _markdown_fields(engagement_defs: list[_AttributeDefinition],

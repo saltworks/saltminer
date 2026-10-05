@@ -359,6 +359,14 @@ class AttributeSpellings(unittest.TestCase):
         critical = issue_by_name(self.record, "Broken Access Control")
         self.assertEqual(critical["IssueAttribute_developer_note"], "none recorded")
 
+    def test_the_pipe_spelling_does_not_take_a_definition_default(self):
+        # .NET never filled the pipe spelling, so an unstored attribute's default stays out of it
+        # (PBI-051 AC-11, ruled 2026-10-05); a stored attribute still fills it.
+        critical = issue_by_name(self.record, "Broken Access Control")
+        self.assertEqual(critical["IssueAttributes|developer_note"], "")
+        high = issue_by_name(self.record, "SQL Injection")
+        self.assertEqual(high["IssueAttributes|tested_by"], "aringrose")
+
     def test_a_hidden_attribute_reads_empty(self):
         definitions = copy.deepcopy(fx.ATTRIBUTE_DEFINITIONS_DOCS)
         definitions[1]["values"][0]["hidden"] = True
