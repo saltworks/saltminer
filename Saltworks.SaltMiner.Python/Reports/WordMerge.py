@@ -29,8 +29,10 @@
 #     parents resolves to each parent's own list.
 #   * a field's value resolves against the innermost record first, then outwards.
 #   * the merged text inherits the cached result run's formatting (w:rPr).
-#   * every root-level group named Section<digits> is bound to the same root record and rendered
-#     once, whatever the document's Word section count.
+#   * a root-level group named Section<digits> is bound to the same root record and rendered once
+#     when its number is within the document's Word section count (`fill_template` passes it; a
+#     caller that passes none gets every Section<digits>). A root group numbered past the count is
+#     written back unmerged, markers and fields as the template had them, as .NET left it.
 #
 # A group marker split across two tables or between a table and the body, or sitting inside a
 # nested table, is not merged. Neither are merge fields in headers and footers. All are reported
@@ -110,6 +112,7 @@ class MergeResult:
     unsupported_markers: list = dc_field(default_factory=list)
     unsupported_fields: list = dc_field(default_factory=list)
     groups_missing: list = dc_field(default_factory=list)
+    roots_not_merged: list = dc_field(default_factory=list)  # Section<digits> groups past the Word section count
     fields_merged: int = 0
 
 
@@ -118,20 +121,38 @@ class TemplateStructureError(ValueError):
 
 
 class SectionRoots(dict):
-    """{'Section1': [record]} as stored; any Section<digits> name answers with the same list."""
+    """{'Section1': [record]} as stored; a Section<digits> name answers with the same list.
+
+    With `section_count` set, only Section1 to Section<section_count> answer, as .NET ran one
+    `Section{count}` group per Word section; any other Section<digits> group is not merged.
+    """
+
+    section_count: int | None = None
+
+    def _bound(self, name) -> bool:
+        match = SECTION_ROOT.match(name)
+        return bool(match) and (self.section_count is None or int(name[7:]) <= self.section_count)
 
     def __contains__(self, name) -> bool:
-        return super().__contains__(name) or bool(SECTION_ROOT.match(name))
+        return super().__contains__(name) or self._bound(name)
 
     def __missing__(self, name):
-        if SECTION_ROOT.match(name):
+        if self._bound(name):
             return self[ROOT_GROUP]
         raise KeyError(name)
 
 
-def bind_roots(record: dict) -> SectionRoots:
-    """The root groups a record is merged against: every Section<digits> name resolves to it."""
-    return SectionRoots({ROOT_GROUP: [record]})
+def bind_roots(record: dict, section_count: int | None = None) -> SectionRoots:
+    """The root groups a record is merged against.
+
+    `section_count` is the template's Word section count. When it is given, `Section1` to
+    `Section<section_count>` resolve to the record and no other Section<digits> group does, which
+    is what `ReportProcessor.CreateWordReport` did at `5d5a651` (one `Section{count}` group per Word
+    section). Without it every Section<digits> name resolves, the earlier behaviour.
+    """
+    roots = SectionRoots({ROOT_GROUP: [record]})
+    roots.section_count = section_count
+    return roots
 
 
 def _add_once(items: list, item: str) -> None:
@@ -193,6 +214,7 @@ def _parse_tree(blocks: list) -> list:
     root: list = []
     stack = [root]
     open_groups: list[str] = []
+    open_nodes: list[dict] = []
 
     for block in blocks:
         if block.tag == _TBL:
@@ -205,16 +227,20 @@ def _parse_tree(blocks: list) -> list:
         if marker and marker[1] in orphans:
             marker = None
         if marker and marker[0] == "start":
-            node = {"group": marker[1], "children": []}
+            # The marker blocks stay on the node so a root group the merge does not run can be
+            # written back exactly as it was (see `_render`).
+            node = {"group": marker[1], "children": [], "start_block": block}
             stack[-1].append(node)
             stack.append(node["children"])
             open_groups.append(marker[1])
+            open_nodes.append(node)
         elif marker and marker[0] == "end":
             if not open_groups or open_groups[-1] != marker[1]:
                 closes = f"TableStart:{open_groups[-1]}" if open_groups else "no open group"
                 raise TemplateStructureError(f"TableEnd:{marker[1]} does not close {closes}")
             stack.pop()
             open_groups.pop()
+            open_nodes.pop()["end_block"] = block
         else:
             stack[-1].append({"block": block})
 
@@ -334,6 +360,23 @@ def _fill_fields(element, scope: list, keep_unmatched: bool, renderer, result: M
             _apply_blocks(paragraph, block_results)
 
 
+def _raw(nodes: list) -> list:
+    """Nodes written back as the template had them: markers, fields and rows untouched."""
+    out = []
+    for node in nodes:
+        if "block" in node:
+            out.append(copy.deepcopy(node["block"]))
+        elif "table" in node:
+            out.append(copy.deepcopy(node["table"]))
+        else:
+            if "start_block" in node:
+                out.append(copy.deepcopy(node["start_block"]))
+            out.extend(_raw(node["children"]))
+            if "end_block" in node:
+                out.append(copy.deepcopy(node["end_block"]))
+    return out
+
+
 def _render(nodes: list, scope: list, roots: dict, keep_unmatched: bool, renderer,
             result: MergeResult, seen: set) -> list:
     out = []
@@ -361,6 +404,13 @@ def _render(nodes: list, scope: list, roots: dict, keep_unmatched: bool, rendere
                 out.append(shell)
             continue
         name = node["group"]
+        if not scope and SECTION_ROOT.match(name) and name not in roots:
+            # .NET ran one `Section{count}` group per Word section, so a root group numbered past
+            # the Word section count was never merged: its markers and fields stayed as the
+            # template had them (ruled 2026-10-05, PBI-051 AC-11).
+            _add_once(result.roots_not_merged, name)
+            out.extend(_raw([node]))
+            continue
         records = _group_records(scope, roots, name, result)
         result.groups[name] = result.groups.get(name, 0) + len(records)
         for record in records:
@@ -473,7 +523,8 @@ def fill_template(template_path, output_path, record: dict, *, keep_unmatched: b
     document = docx.Document(str(template_path))
     if on_open is not None:
         on_open(document)
-    result = merge_document(document, bind_roots(record), keep_unmatched=keep_unmatched,
+    result = merge_document(document, bind_roots(record, len(document.sections)),
+                            keep_unmatched=keep_unmatched,
                             renderer=renderer)
     if before_save is not None:
         before_save(document)
@@ -488,6 +539,9 @@ def fill_template(template_path, output_path, record: dict, *, keep_unmatched: b
     if result.unsupported_fields:
         logging.warning("[WordMerge][fill_template] unsupported simple fields: %s",
                         result.unsupported_fields)
+    if result.roots_not_merged:
+        logging.warning("[WordMerge][fill_template] root groups past the Word section count, left "
+                        "unmerged as .NET left them: %s", result.roots_not_merged)
     if result.groups_missing:
         logging.warning("[WordMerge][fill_template] groups with no records key: %s",
                         result.groups_missing)

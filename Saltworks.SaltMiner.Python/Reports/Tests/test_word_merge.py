@@ -399,3 +399,34 @@ class HyperlinkStyling(unittest.TestCase):
         merge_document(document, bind_roots({}))
         for run in self._visible_runs(document):
             self.assertIsNone(run.find(qn("w:rPr")))
+
+
+class RootGroupsPastTheSectionCount(unittest.TestCase):
+    """PBI-051 AC-11: .NET ran one `Section{count}` group per Word section (ruled 2026-10-05)."""
+
+    def _document(self):
+        document = docx.Document()
+        for name in ("TableStart:Section1", "Name", "TableEnd:Section1",
+                     "TableStart:Section2", "Name", "TableEnd:Section2"):
+            add_field(document.add_paragraph(), name)
+        return document
+
+    def _texts(self, document):
+        return [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
+
+    def test_a_root_group_past_the_word_section_count_is_left_unmerged(self):
+        document = self._document()
+        self.assertEqual(len(document.sections), 1)
+        result = merge_document(document, bind_roots({"Name": "Acme"}, len(document.sections)))
+        self.assertEqual(
+            self._texts(document),
+            ["Acme", "«TableStart:Section2»", "«Name»", "«TableEnd:Section2»"],
+        )
+        self.assertEqual(result.roots_not_merged, ["Section2"])
+        self.assertEqual(result.groups, {"Section1": 1})
+        self.assertEqual(len(list(document.element.body.iter(qn("w:instrText")))), 3)
+
+    def test_without_a_section_count_every_root_group_merges(self):
+        document = self._document()
+        merge_document(document, bind_roots({"Name": "Acme"}))
+        self.assertEqual(self._texts(document), ["Acme", "Acme"])

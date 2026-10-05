@@ -485,17 +485,18 @@ def _add_attribute_properties(target: dict, prefix: str, fields: list[tuple[str,
     """ReportProcessor.CreateAttributeProperties, emitting both spellings of each name.
 
     The pipe spelling (`Attributes|key`) is the shipped default template's; .NET never filled it, so
-    a definition default for an attribute the record does not store is not written into it (ruled
-    2026-10-05, PBI-051 AC-11): the key is present and empty, so the field stays blank. The underscore spelling still carries it.
+    the key is present and always empty and the field stays blank (ruled 2026-10-05, PBI-051
+    AC-11, superseding PBI-046 requirement 5's both-spellings fill). The underscore spelling
+    carries the value.
     """
-    for key, value, stored in fields:
+    for key, value, _stored in fields:
         text = value
         definition = next((d for d in definitions if d.name == key), None)
         if definition is not None and "multi select" in definition.type.lower():
             text = (value or "").replace("[", "").replace("]", "")
         text = _text(text)
         target[f"{prefix}Attribute_{key}"] = text
-        target[f"{prefix}Attributes|{key}"] = text if stored else ""
+        target[f"{prefix}Attributes|{key}"] = ""
 
 
 def _markdown_fields(engagement_defs: list[_AttributeDefinition],
@@ -700,9 +701,10 @@ def _issue_detail(issue: _Issue, definitions: list[_AttributeDefinition], commen
         "FoundDate": _format_report_date(issue.found_date, "yyyy/MM/dd"),
         "TestStatus": issue.test_status,
         "TestingInstructions": issue.testing_instructions,
-        # .NET writes issue.IsSuppressed.ToString() on a field object, which prints a type name and not the
-        # value; this port writes the value, as the field evidently intends.
-        "IsSuppressed": _text(issue.is_suppressed),
+        # .NET writes issue.IsSuppressed.ToString() on a BooleanField object, which prints its type name
+        # and not the value; the report matches .NET, so this is the same text (ruled 2026-10-05,
+        # PBI-051 AC-11, which withdrew the earlier choice to write the value).
+        "IsSuppressed": "Saltworks.SaltMiner.UiApiClient.BooleanField",
         "IsActive": _text(issue.is_active),
         "IsRemoved": _text(issue.is_removed),
         "RemovedDate": _format_report_date(issue.removed_date, "yyyy/MM/dd"),

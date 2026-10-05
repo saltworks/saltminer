@@ -177,7 +177,7 @@ class GroupsAndShape(unittest.TestCase):
         self.assertEqual(high["Vendor"], "Example Vendor")
         self.assertEqual(high["Product"], "Example Scanner")
         self.assertEqual(high["SeverityLevel"], "2")
-        self.assertEqual((high["IsActive"], high["IsRemoved"], high["IsSuppressed"]), ("True", "False", "False"))
+        self.assertEqual((high["IsActive"], high["IsRemoved"], high["IsSuppressed"]), ("True", "False", "Saltworks.SaltMiner.UiApiClient.BooleanField"))
         self.assertEqual(high["AssetId"], fx.ASSET_ZULU)
         self.assertEqual(high["EngagementId"], fx.ENGAGEMENT_ID)
         self.assertEqual(high["Id"], fx.ISSUE_HIGH)
@@ -341,18 +341,17 @@ class AttributeSpellings(unittest.TestCase):
     def test_attribute_spellings(self):
         record = self.record
         self.assertEqual(record["EngagementAttribute_tester"], "A. Ringrose")
-        self.assertEqual(record["EngagementAttributes|tester"], "A. Ringrose")
+        self.assertEqual(record["EngagementAttributes|tester"], "")
         for issue in record["IssueDetailsAll"]:
             for key in ("tested_by", "influencers", "developer_note", "comments"):
                 self.assertIn(f"IssueAttribute_{key}", issue)
-                # the same value, or empty where only a definition default fills the underscore
-                # spelling (test_the_pipe_spelling_does_not_take_a_definition_default pins that case)
-                self.assertIn(issue[f"IssueAttributes|{key}"], (issue[f"IssueAttribute_{key}"], ""))
+                # .NET never filled the pipe spelling: the key is there and always empty
+                self.assertEqual(issue[f"IssueAttributes|{key}"], "")
 
     def test_multi_select_brackets_are_stripped(self):
         high = issue_by_name(self.record, "SQL Injection")
         self.assertEqual(high["IssueAttribute_influencers"], "alice,bob")
-        self.assertEqual(high["IssueAttributes|influencers"], "alice,bob")
+        self.assertEqual(high["IssueAttributes|influencers"], "")
         self.assertEqual(high["IssueAttribute_tested_by"], "aringrose")
 
     def test_an_attribute_without_a_definition_is_dropped_and_a_missing_one_takes_its_default(self):
@@ -361,13 +360,14 @@ class AttributeSpellings(unittest.TestCase):
         critical = issue_by_name(self.record, "Broken Access Control")
         self.assertEqual(critical["IssueAttribute_developer_note"], "none recorded")
 
-    def test_the_pipe_spelling_does_not_take_a_definition_default(self):
-        # .NET never filled the pipe spelling, so an unstored attribute's default stays out of it
-        # (PBI-051 AC-11, ruled 2026-10-05); a stored attribute still fills it.
+    def test_the_pipe_spelling_is_never_filled(self):
+        # .NET never wrote the pipe spelling (PBI-051 AC-11, ruled 2026-10-05, superseding PBI-046
+        # requirement 5's both-spellings fill): stored or default, the key is present and empty.
         critical = issue_by_name(self.record, "Broken Access Control")
         self.assertEqual(critical["IssueAttributes|developer_note"], "")
         high = issue_by_name(self.record, "SQL Injection")
-        self.assertEqual(high["IssueAttributes|tested_by"], "aringrose")
+        self.assertEqual(high["IssueAttributes|tested_by"], "")
+        self.assertEqual(high["IssueAttribute_tested_by"], "aringrose")
 
     def test_a_hidden_attribute_reads_empty(self):
         definitions = copy.deepcopy(fx.ATTRIBUTE_DEFINITIONS_DOCS)
