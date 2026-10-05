@@ -54,6 +54,18 @@ class BoldAndLists(unittest.TestCase):
             self.assertEqual(pstyle.get(qn("w:val")), "ListParagraph")
 
 
+class OrderedList(unittest.TestCase):
+    def test_ordered_items_carry_no_number_and_keep_list_style(self):
+        # .NET wrote no number for an ordered item (PBI-051 AC-11, ruled 2026-10-05).
+        paragraphs = render_markdown("1. first step\n2. second step")
+        self.assertEqual(len(paragraphs), 2)
+        for paragraph, word in zip(paragraphs, ("first step", "second step")):
+            joined = "".join(_text(r) for r in _runs(paragraph))
+            self.assertEqual(joined, word)
+            pstyle = paragraph.find(qn("w:pPr")).find(qn("w:pStyle"))
+            self.assertEqual(pstyle.get(qn("w:val")), "ListParagraph")
+
+
 class FencedCode(unittest.TestCase):
     def test_two_lines_courier_new(self):
         paragraphs = render_markdown("```\nline one\nline two\n```")

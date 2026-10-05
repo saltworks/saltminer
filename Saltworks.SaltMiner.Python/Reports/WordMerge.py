@@ -405,7 +405,52 @@ def merge_document(document, roots: dict, *, keep_unmatched: bool = False,
             sect_pr.addprevious(element)
         else:
             body.append(element)
+    _style_hyperlink_fields(body)
     return result
+
+
+_HYPERLINK_INSTR = re.compile(r'HYPERLINK\s+"([^"]+)"')
+
+
+def _style_hyperlink_fields(body) -> None:
+    """Underline and colour blue the visible text of every `HYPERLINK "..."` complex field.
+
+    ReportProcessor.cs 257-292 on the base did this after the merge: the run whose text equals the
+    field's result text got `UnderlineStyle.Single` and `Color.Blue` (0000FF). An ordinary
+    `w:hyperlink` element is not a field code and is left alone, as .NET left it.
+    """
+    for paragraph in body.iter(qn("w:p")):
+        stack: list[dict] = []
+        for run in paragraph.findall(qn("w:r")):
+            fld = run.find(qn("w:fldChar"))
+            kind = None if fld is None else fld.get(qn("w:fldCharType"))
+            if kind == "begin":
+                stack.append({"instr": "", "separated": False, "runs": []})
+            elif kind == "separate" and stack:
+                stack[-1]["separated"] = True
+            elif kind == "end" and stack:
+                state = stack.pop()
+                if _HYPERLINK_INSTR.search(state["instr"]):
+                    for result_run in state["runs"]:
+                        _blue_underline(result_run)
+            elif stack:
+                if not stack[-1]["separated"]:
+                    stack[-1]["instr"] += "".join(i.text or "" for i in run.findall(qn("w:instrText")))
+                elif run.find(qn("w:t")) is not None:
+                    stack[-1]["runs"].append(run)
+
+
+def _blue_underline(run) -> None:
+    rpr = run.find(qn("w:rPr"))
+    if rpr is None:
+        rpr = OxmlElement("w:rPr")
+        run.insert(0, rpr)
+    for tag, attr, value in (("w:color", "w:val", "0000FF"), ("w:u", "w:val", "single")):
+        el = rpr.find(qn(tag))
+        if el is None:
+            el = OxmlElement(tag)
+            rpr.append(el)
+        el.set(qn(attr), value)
 
 
 def fill_template(template_path, output_path, record: dict, *, keep_unmatched: bool = False,

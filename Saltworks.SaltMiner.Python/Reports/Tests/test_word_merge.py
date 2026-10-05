@@ -317,3 +317,51 @@ class GroupResolution(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HyperlinkStyling(unittest.TestCase):
+    """PBI-051 AC-11: a HYPERLINK field's visible text is blue and underlined, as .NET styled it."""
+
+    @staticmethod
+    def _fld(paragraph, kind):
+        from docx.oxml import OxmlElement
+        run = OxmlElement("w:r")
+        fld = OxmlElement("w:fldChar")
+        fld.set(qn("w:fldCharType"), kind)
+        run.append(fld)
+        paragraph._p.append(run)
+
+    def _paragraph_with(self, instr):
+        from docx.oxml import OxmlElement
+        document = docx.Document()
+        paragraph = document.add_paragraph()
+        self._fld(paragraph, "begin")
+        run = OxmlElement("w:r")
+        node = OxmlElement("w:instrText")
+        node.text = instr
+        run.append(node)
+        paragraph._p.append(run)
+        self._fld(paragraph, "separate")
+        paragraph.add_run("https://www.saltworks.io/")
+        self._fld(paragraph, "end")
+        paragraph.add_run(" plain")
+        return document
+
+    def _visible_runs(self, document):
+        return [r for r in document.element.body.iter(qn("w:r")) if r.find(qn("w:t")) is not None]
+
+    def test_hyperlink_field_text_is_blue_and_underlined(self):
+        document = self._paragraph_with('HYPERLINK "https://www.saltworks.io/"')
+        merge_document(document, bind_roots({}))
+        link, other = self._visible_runs(document)
+        self.assertEqual(link.find(qn("w:rPr")).find(qn("w:color")).get(qn("w:val")), "0000FF")
+        self.assertEqual(link.find(qn("w:rPr")).find(qn("w:u")).get(qn("w:val")), "single")
+        rpr = other.find(qn("w:rPr"))
+        self.assertTrue(rpr is None or rpr.find(qn("w:color")) is None)
+
+    def test_other_field_text_is_left_alone(self):
+        document = self._paragraph_with("PAGEREF _Toc1 \\h")
+        merge_document(document, bind_roots({}))
+        for run in self._visible_runs(document):
+            rpr = run.find(qn("w:rPr"))
+            self.assertTrue(rpr is None or rpr.find(qn("w:color")) is None)

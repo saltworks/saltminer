@@ -179,7 +179,10 @@ def markdown_blocks(text: str) -> list[Block]:
         elif kind == "paragraph_open":
             if pending_li and list_stack:
                 top = list_stack[-1]
-                prefix = f"{top['n']}. " if top["ordered"] else "• "
+                # .NET's markdown import wrote no number for an ordered item, because the template
+                # ships no numbering definition (ruled 2026-10-05, PBI-051 AC-11), so only a bullet
+                # item carries a visible mark.
+                prefix = "" if top["ordered"] else "• "
                 if top["ordered"]:
                     top["n"] += 1
                 blocks.append(Block(kind="li", level=len(list_stack), prefix=prefix))
