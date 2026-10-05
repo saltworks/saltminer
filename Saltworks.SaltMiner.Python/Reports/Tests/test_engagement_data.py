@@ -345,7 +345,9 @@ class AttributeSpellings(unittest.TestCase):
         for issue in record["IssueDetailsAll"]:
             for key in ("tested_by", "influencers", "developer_note", "comments"):
                 self.assertIn(f"IssueAttribute_{key}", issue)
-                self.assertEqual(issue[f"IssueAttribute_{key}"], issue[f"IssueAttributes|{key}"])
+                # the same value, or empty where only a definition default fills the underscore
+                # spelling (test_the_pipe_spelling_does_not_take_a_definition_default pins that case)
+                self.assertIn(issue[f"IssueAttributes|{key}"], (issue[f"IssueAttribute_{key}"], ""))
 
     def test_multi_select_brackets_are_stripped(self):
         high = issue_by_name(self.record, "SQL Injection")
