@@ -74,6 +74,11 @@ namespace Saltworks.SaltMiner.JobManager.Processor.Engagement
                 return new ProcessRunResult(-1, stdOut.ToString(), stdErr.ToString(), TimedOut: true);
             }
 
+            // WaitForExit(int) returns once the process exits, before the async stdout and stderr
+            // handlers have drained; the parameterless overload waits for end of stream, so the
+            // generator's last stderr lines are not lost from the job error.
+            process.WaitForExit();
+
             return new ProcessRunResult(process.ExitCode, stdOut.ToString(), stdErr.ToString(), TimedOut: false);
         }
     }
