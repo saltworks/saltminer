@@ -430,3 +430,55 @@ class RootGroupsPastTheSectionCount(unittest.TestCase):
         document = self._document()
         merge_document(document, bind_roots({"Name": "Acme"}))
         self.assertEqual(self._texts(document), ["Acme", "Acme"])
+
+
+class EverySectionRootMerges(unittest.TestCase):
+    """PBI-099: every Section<N> root binds to the record, whatever the Word section count, and a
+    body-level group marker paragraph stays as an empty paragraph, as .NET leaves it."""
+
+    def _texts(self, document):
+        return [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
+
+    def _template(self, path):
+        document = docx.Document()
+        document.add_section()
+        self.assertEqual(len(document.sections), 2)
+        for name in ("Section1", "Section2", "Section3"):
+            add_field(document.add_paragraph(), f"TableStart:{name}")
+            add_field(document.add_paragraph(), "Name")
+            add_field(document.add_paragraph(), f"TableEnd:{name}")
+        document.save(path)
+
+    def test_a_two_section_template_merges_section1_to_section3(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, target = os.path.join(tmp, "in.docx"), os.path.join(tmp, "out.docx")
+            self._template(source)
+            result = fill_template(source, target, {"Name": "Acme"})
+            texts = self._texts(docx.Document(target))
+        self.assertEqual(result.roots_not_merged, [])
+        self.assertEqual(result.groups, {"Section1": 1, "Section2": 1, "Section3": 1})
+        self.assertEqual([t for t in texts if t], ["Acme", "Acme", "Acme"])
+        self.assertFalse([t for t in texts if "«" in t])
+
+    def test_a_body_level_marker_paragraph_comes_out_as_an_empty_paragraph_per_repetition(self):
+        document = docx.Document()
+        start = document.add_paragraph(style="Heading 1")
+        add_field(start, "TableStart:Items")
+        add_field(document.add_paragraph(), "Name")
+        add_field(document.add_paragraph(), "TableEnd:Items")
+        merge_document(document, bind_roots({"Items": [{"Name": "a"}, {"Name": "b"}, {"Name": "c"}]}))
+        paragraphs = list(document.element.body.iter(qn("w:p")))
+        self.assertEqual([paragraph_text(p) for p in paragraphs],
+                         ["", "a", "", "", "b", "", "", "c", ""])
+        for index in (0, 3, 6):
+            style = paragraphs[index].find(qn("w:pPr")).find(qn("w:pStyle"))
+            self.assertEqual(style.get(qn("w:val")), "Heading1")
+        self.assertIsNone(paragraphs[1].find(qn("w:pPr")))
+
+    def test_an_unknown_root_group_is_reported_in_groups_missing(self):
+        document = docx.Document()
+        add_field(document.add_paragraph(), "TableStart:NotAKey")
+        add_field(document.add_paragraph(), "Name")
+        add_field(document.add_paragraph(), "TableEnd:NotAKey")
+        result = merge_document(document, bind_roots({"Name": "Acme"}))
+        self.assertEqual(result.groups_missing, ["NotAKey"])
