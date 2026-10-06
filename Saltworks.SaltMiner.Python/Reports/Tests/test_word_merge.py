@@ -243,7 +243,8 @@ class Renderer(unittest.TestCase):
         self.assertEqual(seen[0].name, "Body")
         self.assertFalse(seen[0].in_table_cell)
         paragraphs = [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
-        self.assertEqual(paragraphs, ["BLOCK-x"])
+        # The group's two marker paragraphs stay as empty paragraphs (PBI-099).
+        self.assertEqual(paragraphs, ["", "BLOCK-x", ""])
 
     def test_single_run_result_replaces_only_the_fields_own_runs(self):
         # PBI-048: a renderer that needs its own run formatting (a colour override, for example)
@@ -266,7 +267,7 @@ class Renderer(unittest.TestCase):
         add_field(document.add_paragraph(), "TableEnd:Section1")
         merge_document(document, bind_roots({"Body": "x"}), renderer=stub)
         paragraphs = [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
-        self.assertEqual(paragraphs, ["Label: COLORED-x"])
+        self.assertEqual(paragraphs, ["", "Label: COLORED-x", ""])
 
     def test_block_result_in_last_cell_paragraph_keeps_cell_valid(self):
         from docx.oxml import OxmlElement
@@ -302,7 +303,10 @@ class GroupResolution(unittest.TestCase):
         }
         result = merge_document(document, bind_roots(record))
         texts = [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
-        self.assertEqual(texts, ["a1", "a2", "b1"])
+        self.assertEqual([t for t in texts if t], ["a1", "a2", "b1"])
+        # Each repetition of Section1, A, B and Items keeps an empty line at its start and end
+        # marker (PBI-099): 3 data lines, 6 for Items, 2 each for A, B and Section1.
+        self.assertEqual(len(texts), 15)
         self.assertEqual(result.groups["Items"], 3)
 
     def test_group_key_absent_renders_zero_times_and_is_reported(self):
@@ -401,37 +405,6 @@ class HyperlinkStyling(unittest.TestCase):
             self.assertIsNone(run.find(qn("w:rPr")))
 
 
-class RootGroupsPastTheSectionCount(unittest.TestCase):
-    """PBI-051 AC-11: .NET ran one `Section{count}` group per Word section (ruled 2026-10-05)."""
-
-    def _document(self):
-        document = docx.Document()
-        for name in ("TableStart:Section1", "Name", "TableEnd:Section1",
-                     "TableStart:Section2", "Name", "TableEnd:Section2"):
-            add_field(document.add_paragraph(), name)
-        return document
-
-    def _texts(self, document):
-        return [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
-
-    def test_a_root_group_past_the_word_section_count_is_left_unmerged(self):
-        document = self._document()
-        self.assertEqual(len(document.sections), 1)
-        result = merge_document(document, bind_roots({"Name": "Acme"}, len(document.sections)))
-        self.assertEqual(
-            self._texts(document),
-            ["Acme", "«TableStart:Section2»", "«Name»", "«TableEnd:Section2»"],
-        )
-        self.assertEqual(result.roots_not_merged, ["Section2"])
-        self.assertEqual(result.groups, {"Section1": 1})
-        self.assertEqual(len(list(document.element.body.iter(qn("w:instrText")))), 3)
-
-    def test_without_a_section_count_every_root_group_merges(self):
-        document = self._document()
-        merge_document(document, bind_roots({"Name": "Acme"}))
-        self.assertEqual(self._texts(document), ["Acme", "Acme"])
-
-
 class EverySectionRootMerges(unittest.TestCase):
     """PBI-099: every Section<N> root binds to the record, whatever the Word section count, and a
     body-level group marker paragraph stays as an empty paragraph, as .NET leaves it."""
@@ -466,7 +439,7 @@ class EverySectionRootMerges(unittest.TestCase):
         add_field(start, "TableStart:Items")
         add_field(document.add_paragraph(), "Name")
         add_field(document.add_paragraph(), "TableEnd:Items")
-        merge_document(document, bind_roots({"Items": [{"Name": "a"}, {"Name": "b"}, {"Name": "c"}]}))
+        merge_document(document, {"Items": [{"Name": "a"}, {"Name": "b"}, {"Name": "c"}]})
         paragraphs = list(document.element.body.iter(qn("w:p")))
         self.assertEqual([paragraph_text(p) for p in paragraphs],
                          ["", "a", "", "", "b", "", "", "c", ""])

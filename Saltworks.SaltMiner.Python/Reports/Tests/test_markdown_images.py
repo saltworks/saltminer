@@ -110,6 +110,23 @@ class AppAndForeignImages(unittest.TestCase):
         ids = [d.find(".//" + qn("wp:docPr")).get("id") for d in _drawings(document)]
         self.assertEqual(len(set(ids)), 2)
 
+    def test_a_picture_in_a_table_cell_stays_in_the_cell_and_the_cell_ends_with_a_paragraph(self):
+        # PBI-099 AC-3: an uploaded template puts the issue Details field in a table cell.
+        document = _blank_document()
+        add_field(document.add_paragraph(), "TableStart:Section1")
+        table = document.add_table(rows=1, cols=1)
+        add_field(table.cell(0, 0).paragraphs[0], "Details")
+        add_field(document.add_paragraph(), "TableEnd:Section1")
+        embedder = _embedder(RecordingTransport())
+        embedder.bind(document)
+        renderer, _ = make_value_renderer({"Details"}, {}, images=embedder)
+        merge_document(document, bind_roots({"Details": "![shot](https://x.test/a.png)"}),
+                       renderer=renderer)
+        cell = document.element.body.find(qn("w:tbl")).find(qn("w:tr")).find(qn("w:tc"))
+        self.assertEqual(len(list(cell.iter(qn("w:drawing")))), 1)
+        self.assertEqual(cell[-1].tag, qn("w:p"))
+        self.assertEqual(len(_drawings(document)), 1)
+
     def test_attachment_suffix_is_dropped_from_the_app_route(self):
         transport = RecordingTransport()
         _render(_blank_document(), _embedder(transport),
