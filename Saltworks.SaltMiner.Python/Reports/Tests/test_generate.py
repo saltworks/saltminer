@@ -133,6 +133,30 @@ class ReportEndToEnd(unittest.TestCase):
             self.assertEqual(exit_code, Generate.EXIT_OK)
             self.assertEqual(len([w for w in result["warnings"] if "example.invalid" in w]), 1)
 
+    def test_a_root_group_with_no_records_key_is_written_to_the_result_file(self):
+        # PBI-099 AC-10: the JobManager logs this list as "groups with no records key".
+        import docx
+        from Reports.Tests.synthetic import add_field
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             unittest.mock.patch.dict(os.environ, {Generate.DATA_API_KEY_ENV_VAR: "test-key"}), \
+             unittest.mock.patch.object(Generate, "DataApiSource",
+                              lambda client: DataApiSource(None, transport=fx.FakeTransport())):
+            template = Path(tmp_dir) / "not-a-key.docx"
+            document = docx.Document()
+            for name in ("TableStart:NotAKey", "Name", "TableEnd:NotAKey"):
+                add_field(document.add_paragraph(), name)
+            document.save(str(template))
+            request_path = self._write_request(tmp_dir, fx.ENGAGEMENT_ID)
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+            request["template_path"] = str(template)
+            request_path.write_text(json.dumps(request), encoding="utf-8")
+            exit_code = Generate._handle_report(
+                Generate.build_parser().parse_args(["report", "--request", str(request_path)]))
+
+            self.assertEqual(exit_code, Generate.EXIT_OK)
+            result = json.loads((Path(tmp_dir) / "result.json").read_text(encoding="utf-8"))
+            self.assertIn("NotAKey", result["groups_missing"])
+
     def test_report_mode_exit_1_on_an_unknown_engagement(self):
         with tempfile.TemporaryDirectory() as tmp_dir, \
              unittest.mock.patch.dict(os.environ, {Generate.DATA_API_KEY_ENV_VAR: "test-key"}), \

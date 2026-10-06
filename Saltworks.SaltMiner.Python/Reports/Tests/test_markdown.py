@@ -39,31 +39,52 @@ def _has_flag(run, tag: str) -> bool:
 
 class BoldAndLists(unittest.TestCase):
     def test_bold_then_two_list_items(self):
+        # PBI-099: .NET leaves one empty paragraph before and one after a list, and gives the
+        # items no list style.
         paragraphs = render_markdown("**bold** text\n- one\n- two")
-        self.assertEqual(len(paragraphs), 3)
+        self.assertEqual(len(paragraphs), 5)
 
         first_run = _runs(paragraphs[0])[0]
         self.assertEqual(_text(first_run), "bold")
         self.assertTrue(_has_flag(first_run, "w:b"))
 
-        for paragraph, word in zip(paragraphs[1:], ("one", "two")):
+        self.assertEqual(_runs(paragraphs[1]), [])
+        self.assertEqual(_runs(paragraphs[4]), [])
+        for paragraph, word in zip(paragraphs[2:4], ("one", "two")):
             joined = "".join(_text(r) for r in _runs(paragraph))
-            self.assertTrue(joined.strip().startswith("•"), joined)
+            self.assertTrue(joined.strip().startswith("\u2022"), joined)
             self.assertIn(word, joined)
-            pstyle = paragraph.find(qn("w:pPr")).find(qn("w:pStyle"))
-            self.assertEqual(pstyle.get(qn("w:val")), "ListParagraph")
+            self.assertIsNone(paragraph.find(qn("w:pPr")))
 
 
 class OrderedList(unittest.TestCase):
-    def test_ordered_items_carry_no_number_and_keep_list_style(self):
-        # .NET wrote no number for an ordered item (PBI-051 AC-11, ruled 2026-10-05).
+    def test_ordered_items_carry_no_number_and_no_list_style(self):
+        # .NET wrote no number for an ordered item (PBI-051 AC-11, ruled 2026-10-05), and no
+        # list style, with one empty paragraph either side (PBI-099).
         paragraphs = render_markdown("1. first step\n2. second step")
-        self.assertEqual(len(paragraphs), 2)
-        for paragraph, word in zip(paragraphs, ("first step", "second step")):
+        self.assertEqual(len(paragraphs), 4)
+        self.assertEqual(_runs(paragraphs[0]), [])
+        self.assertEqual(_runs(paragraphs[3]), [])
+        for paragraph, word in zip(paragraphs[1:3], ("first step", "second step")):
             joined = "".join(_text(r) for r in _runs(paragraph))
             self.assertEqual(joined, word)
-            pstyle = paragraph.find(qn("w:pPr")).find(qn("w:pStyle"))
-            self.assertEqual(pstyle.get(qn("w:val")), "ListParagraph")
+            self.assertIsNone(paragraph.find(qn("w:pPr")))
+
+    def test_blank_paragraphs_keep_the_field_paragraph_properties(self):
+        from docx.oxml import OxmlElement
+        ppr = OxmlElement("w:pPr")
+        spacing = OxmlElement("w:spacing")
+        spacing.set(qn("w:after"), "160")
+        ppr.append(spacing)
+        paragraphs = render_markdown("- a", ppr_source=ppr)
+        self.assertEqual(len(paragraphs), 3)
+        for paragraph in paragraphs:
+            self.assertIsNotNone(paragraph.find(qn("w:pPr")).find(qn("w:spacing")))
+            self.assertIsNone(paragraph.find(qn("w:pPr")).find(qn("w:pStyle")))
+
+    def test_a_nested_list_adds_no_further_blank_paragraphs(self):
+        paragraphs = render_markdown("- a\n  - b\n- c")
+        self.assertEqual(len(paragraphs), 5)
 
 
 class FencedCode(unittest.TestCase):
