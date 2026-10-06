@@ -162,12 +162,17 @@ def markdown_blocks(text: str) -> list[Block]:
         kind = token.type
 
         if kind in ("bullet_list_open", "ordered_list_open"):
+            if not list_stack:
+                # .NET leaves one empty paragraph before a list and one after it (PBI-099).
+                blocks.append(Block(kind="blank"))
             list_stack.append(
                 {"ordered": kind == "ordered_list_open", "n": int(token.attrGet("start") or 1)}
             )
         elif kind in ("bullet_list_close", "ordered_list_close"):
             if list_stack:
                 list_stack.pop()
+                if not list_stack:
+                    blocks.append(Block(kind="blank"))
         elif kind == "list_item_open":
             pending_li = True
         elif kind == "blockquote_open":
@@ -223,7 +228,7 @@ def markdown_blocks(text: str) -> list[Block]:
         elif kind == "hr":
             blocks.append(Block(kind="p", spans=[Span("-" * 40)]))
 
-    return [b for b in blocks if b.spans or b.prefix]
+    return [b for b in blocks if b.spans or b.prefix or b.kind == "blank"]
 
 
 def _run_for_span(span: Span, rpr_source) -> object:
@@ -276,18 +281,6 @@ def _block_spans(block: Block) -> list[Span]:
 def _block_to_paragraph(block: Block, rpr_source, ppr_source, images=None) -> object:
     paragraph = OxmlElement("w:p")
     ppr = copy.deepcopy(ppr_source) if ppr_source is not None else None
-    if block.kind == "li":
-        # No numbering definition ships with the template for an ordered list, so a real
-        # w:numPr is not universally correct; the "ListParagraph" style the template does define
-        # is the style-based half of "numbering or style marks them as list items". The bullet or
-        # "N. " prefix text carries the visible mark and tells bullet from ordered apart.
-        ppr = ppr if ppr is not None else OxmlElement("w:pPr")
-        existing_style = ppr.find(qn("w:pStyle"))
-        if existing_style is not None:
-            ppr.remove(existing_style)
-        style = OxmlElement("w:pStyle")
-        style.set(qn("w:val"), "ListParagraph")
-        ppr.insert(0, style)
     if ppr is not None:
         paragraph.append(ppr)
     for span in _block_spans(block):
