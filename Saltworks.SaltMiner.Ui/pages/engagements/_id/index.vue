@@ -402,8 +402,10 @@
                 Please select a template to use.
               </p>
               <DropdownControl
+                :key="reportTemplateDropdownKey"
                 theme="solid"
                 :options="reportTemplateDropdownOptions"
+                :value="reportTemplate"
                 @update="handleTemplateUpdate"
               />
               <div class="report-submit" @click="reportEngagement">
@@ -616,6 +618,7 @@ import CancelEngagement from '../../../components/CancelEngagement.vue'
 import LogHistory from '../../../components/LogHistory.vue'
 import helpers from '../../../components/Utility/helpers'
 import attachmentOrder from '../../../components/Utility/attachmentOrder'
+import reportTemplateDefault from '../../../components/Utility/reportTemplateDefault'
 import AlertComponent from '../../../components/AlertComponent'
 import isValidUser from '../../../middleware/is-valid-user'
 import LoadingComponent from '../../../components/LoadingComponent'
@@ -835,6 +838,7 @@ export default {
       stateDropdownOptions: [],
       reportTemplateDropdownOptions: [],
       reportTemplate: '',
+      reportTemplateDropdownKey: 0,
       statusFilters: [],
       defaultFilter: {
         display: 'All Fields',
@@ -1546,7 +1550,11 @@ export default {
     },
     handleReportToggle() {
       this.toggleReport = !this.toggleReport
-      this.reportTemplate = this.reportTemplateDropdownOptions[0].value
+      this.reportTemplate = reportTemplateDefault.defaultReportTemplate(
+        this.reportTemplateDropdownOptions
+      )
+      // DropdownControl reads `value` only when it mounts, so remount it to show the default.
+      this.reportTemplateDropdownKey++
     },
     handleUpdateEngagement(field = '', value = '') {
       if (this.isDisabled) return
@@ -1824,7 +1832,10 @@ export default {
             r.data?.reportTemplateDropdown.sort((a, b) => {
               return a.display.localeCompare(b.display)
             }) ?? []
-          this.reportTemplate = this.reportTemplateDropdownOptions[0]?.value ?? ""
+          this.reportTemplate = reportTemplateDefault.defaultReportTemplate(
+            this.reportTemplateDropdownOptions
+          )
+          this.reportTemplateDropdownKey++
           this.search.facets =
             r.data?.searchFilters?.map((facet) => {
               return {
