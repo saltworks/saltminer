@@ -380,16 +380,22 @@ def _render(nodes: list, scope: list, roots: dict, keep_unmatched: bool, rendere
         name = node["group"]
         records = _group_records(scope, roots, name, result)
         result.groups[name] = result.groups.get(name, 0) + len(records)
-        for record in records:
-            out.extend(_marker_line(node.get("start_block"), seen))
+        for index, record in enumerate(records):
+            # n repetitions leave n+1 empty paragraphs, as .NET does: one before the first, one
+            # at each boundary between two, one after the last (PBI-099).
+            if index == 0:
+                out.extend(_marker_line(node.get("start_block"), seen))
+            else:
+                out.extend(_marker_line(node.get("end_block"), seen))
             out.extend(_render(node["children"], [record, *scope], roots, keep_unmatched,
                                renderer, result, seen))
+        if records:
             out.extend(_marker_line(node.get("end_block"), seen))
     return out
 
 
 def _marker_line(block, seen: set) -> list:
-    """The empty paragraph .NET leaves where a body-level group marker stood, once per repetition.
+    """The empty paragraph .NET leaves where a body-level group marker stood: n+1 for n repetitions.
 
     It keeps the marker paragraph's properties (style, spacing, alignment), so the layout around
     the group is the template's own. A section break the marker paragraph carried is kept on its

@@ -304,9 +304,9 @@ class GroupResolution(unittest.TestCase):
         result = merge_document(document, bind_roots(record))
         texts = [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
         self.assertEqual([t for t in texts if t], ["a1", "a2", "b1"])
-        # Each repetition of Section1, A, B and Items keeps an empty line at its start and end
-        # marker (PBI-099): 3 data lines, 6 for Items, 2 each for A, B and Section1.
-        self.assertEqual(len(texts), 15)
+        # n repetitions of a group leave n+1 empty lines (PBI-099): 3 data lines, 3 for Items
+        # under A (2 reps), 2 for Items under B (1 rep), 2 each for A, B and Section1.
+        self.assertEqual(len(texts), 14)
         self.assertEqual(result.groups["Items"], 3)
 
     def test_group_key_absent_renders_zero_times_and_is_reported(self):
@@ -433,7 +433,7 @@ class EverySectionRootMerges(unittest.TestCase):
         self.assertEqual([t for t in texts if t], ["Acme", "Acme", "Acme"])
         self.assertFalse([t for t in texts if "«" in t])
 
-    def test_a_body_level_marker_paragraph_comes_out_as_an_empty_paragraph_per_repetition(self):
+    def test_a_body_level_marker_paragraph_comes_out_as_n_plus_one_empty_paragraphs_for_n_repetitions(self):
         document = docx.Document()
         start = document.add_paragraph(style="Heading 1")
         add_field(start, "TableStart:Items")
@@ -442,10 +442,13 @@ class EverySectionRootMerges(unittest.TestCase):
         merge_document(document, {"Items": [{"Name": "a"}, {"Name": "b"}, {"Name": "c"}]})
         paragraphs = list(document.element.body.iter(qn("w:p")))
         self.assertEqual([paragraph_text(p) for p in paragraphs],
-                         ["", "a", "", "", "b", "", "", "c", ""])
-        for index in (0, 3, 6):
-            style = paragraphs[index].find(qn("w:pPr")).find(qn("w:pStyle"))
-            self.assertEqual(style.get(qn("w:val")), "Heading1")
+                         ["", "a", "", "b", "", "c", ""])
+        # The line before the first repetition keeps the start marker's properties; the lines at
+        # each boundary and after the last keep the end marker's.
+        style = paragraphs[0].find(qn("w:pPr")).find(qn("w:pStyle"))
+        self.assertEqual(style.get(qn("w:val")), "Heading1")
+        for index in (2, 4, 6):
+            self.assertIsNone(paragraphs[index].find(qn("w:pPr")))
         self.assertIsNone(paragraphs[1].find(qn("w:pPr")))
 
     def test_an_unknown_root_group_is_reported_in_groups_missing(self):
