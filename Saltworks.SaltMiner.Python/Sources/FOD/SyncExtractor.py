@@ -542,6 +542,7 @@ class SyncExtractor(object):
         scansWritten = 0
         self._Beat()
         needsReset = False
+        resetReasons = ["force refresh requested"] if forceRefresh else []
         checkStaticDate = True
         checkDynamicDate = True
         checkMobileDate = True
@@ -582,6 +583,7 @@ class SyncExtractor(object):
         if not foundRelease:
             self.__Logger.debug('not in table - need to reset - get next release')
             needsReset = True
+            resetReasons.append("release not found in elastic")
         else:
             self.__Logger.debug('found it in table')
             self.__Logger.debug(json.dumps(foundRelease))
@@ -591,6 +593,7 @@ class SyncExtractor(object):
             if foundRelease['releaseName'] != release['releaseName'] or foundRelease['applicationName'] != release['applicationName']:
                 self.__Logger.debug('Release or application name changed, needs reset')
                 needsReset = True
+                resetReasons.append("release or application name changed")
 
         if not needsReset:
                 
@@ -624,6 +627,7 @@ class SyncExtractor(object):
 
                 logging.debug ('one or more dates are off - need to reset')
                 needsReset = True
+                resetReasons.append("scan date changed")
 
             else:
 
@@ -651,15 +655,18 @@ class SyncExtractor(object):
                         else:
                             self.__Logger.debug('fixed or suppressed is off - need to reset')
                             needsReset = True
+                            resetReasons.append("fixed/suppressed counts changed")
 
                     else:
                         self.__Logger.debug('no fixed or suppressed counts found - need to reset')
                         needsReset = True
+                        resetReasons.append("fixed/suppressed counts not found in elastic")
 
                 else:
 
                     self.__Logger.debug('something off in counts - need to reset')
                     needsReset = True
+                    resetReasons.append("severity counts changed")
 
         if not needsReset and self.__CheckAttributes:
             # Check attributes
@@ -670,6 +677,7 @@ class SyncExtractor(object):
             if len(fAttr) != len(eAttr):
                 self.__Logger.debug("Application ID %s attributes count doesn't match in release %s, need to reset", release['applicationId'], release['releaseId'])
                 needsReset = True
+                resetReasons.append("application attribute count changed")
             if not needsReset:
                 eAttrList = {}
                 for a in eAttr:
@@ -677,6 +685,7 @@ class SyncExtractor(object):
                 for a in fAttr:
                     if a['name'] not in eAttrList.keys() or eAttrList[a['name']] != a['value']:
                         needsReset = True
+                        resetReasons.append("application attributes changed")
                         self.__Logger.debug("Application ID %s attributes don't match in release %s, need to reset", release['applicationId'], release['releaseId'])
                         break
 
@@ -757,9 +766,10 @@ class SyncExtractor(object):
 
             issuesWritten = self.__BulkLoadVulns(holdReleaseId) or 0
 
+            syncReason = SyncResult.build_reason(SyncResult.SYNCED, resetReasons)
             if not queueRefresh:
                 self.__Logger.debug("Skipping fodupdatequeue record for release %s (queueRefresh off).", holdReleaseId)
-                return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten)
+                return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten, reason=syncReason)
             queueInfo = {
                 'releaseId': holdReleaseId,
                 'updateType': 'U',
@@ -768,7 +778,7 @@ class SyncExtractor(object):
                 'sourceName': self.__SourceName
             }
             self.__Es.Index('fodupdatequeue', json.dumps(queueInfo))
-            return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten)
+            return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten, reason=syncReason)
 
         # Nothing needed re-loading, so there is no expectation to hand on - what is in the index
         # belongs to an earlier run.

@@ -34,11 +34,24 @@ class SyncResult(object):
 
     Both counts are used the same way by the refresh stage: an authoritative number to wait for and to
     check against, instead of comparing two figures that are both still settling.
+    :reason: why the sync did or didn't re-load, recorded as the queue item's status_reason.  Always
+    starts with one of the prefixes below so the outcomes can be counted from the queue or the logs.
     '''
-    def __init__(self, synced:bool=False, issue_count:int=0, scan_count:int=0):
+    SYNCED = "Synced"
+    NO_CHANGES = "No changes"
+    SKIPPED = "Skipped"
+
+    def __init__(self, synced:bool=False, issue_count:int=0, scan_count:int=0, reason:str=None):
         self.synced = synced
         self.issue_count = issue_count
         self.scan_count = scan_count
+        self.reason = reason or (SyncResult.SYNCED if synced else SyncResult.NO_CHANGES)
+
+    @staticmethod
+    def build_reason(prefix:str, details:list) -> str:
+        '''"<prefix>: detail; detail", or just the prefix when there are no details.'''
+        details = [d for d in details if d]
+        return f"{prefix}: {'; '.join(details)}" if details else prefix
 
     @property
     def expected_issue_count(self):
@@ -51,4 +64,4 @@ class SyncResult(object):
         return self.scan_count if self.synced else None
 
     def __repr__(self):
-        return f"SyncResult(synced={self.synced}, issue_count={self.issue_count}, scan_count={self.scan_count})"
+        return f"SyncResult(synced={self.synced}, issue_count={self.issue_count}, scan_count={self.scan_count}, reason='{self.reason}')"

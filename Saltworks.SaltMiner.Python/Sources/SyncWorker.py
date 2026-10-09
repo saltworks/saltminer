@@ -424,8 +424,8 @@ class SyncWorker(Worker):
             # Sync result indicates whether any changes were detected.
             # --force on the queue item bypasses change detection
             if not sync_result.synced:
-                self.logger.info("No changes for SSC project version %s - skipping refresh and manager.", data.target_id)
-                self.agent.complete(item, stage="", is_error=False)
+                self.logger.info("No changes for SSC project version %s - skipping refresh and manager (%s).", data.target_id, sync_result.reason)
+                self.agent.complete(item, stage="", is_error=False, reason=sync_result.reason)
                 return
             self.agent.update(item, SyncQueueStage.REFRESH, data.to_dto())
             refresh = self._get_ssc_refresh(data.target_instance)
@@ -441,8 +441,8 @@ class SyncWorker(Worker):
             self.agent.update(item, SyncQueueStage.FINALIZE, data.to_dto())
             self._run_manager(queue_scan_ids, f"SSC project version {data.target_id} ('{data.target_instance}')",
                               cancel_fn=refresh.CancelQueueScan)
-            self.agent.complete(item, stage="", is_error=False)
-            self.logger.info("Worker %s completed processing SSC project version %s", self.id, data.target_id)
+            self.agent.complete(item, stage="", is_error=False, reason=sync_result.reason)
+            self.logger.info("Worker %s completed processing SSC project version %s (%s)", self.id, data.target_id, sync_result.reason)
         except Exception as ex:
             self.logger.error("Error processing SSC ID '%s' ('%s'), stage %s: %s", data.target_id, data.target_instance, item.doc.stage, str(ex))
             try:
@@ -471,8 +471,8 @@ class SyncWorker(Worker):
             self.agent.update(item, SyncQueueStage.FINALIZE, data.to_dto())
             self._run_manager(queue_scan_ids, f"FOD release {data.target_id} ('{data.target_instance}')",
                               cancel_fn=refresh.CancelQueueScan)
-            self.agent.complete(item, stage="", is_error=False)
-            self.logger.info("Worker %s completed processing FOD release %s", self.id, data.target_id)
+            self.agent.complete(item, stage="", is_error=False, reason=sync_result.reason)
+            self.logger.info("Worker %s completed processing FOD release %s (%s)", self.id, data.target_id, sync_result.reason)
         except Exception as ex:
             self.logger.error("Error processing FOD ID '%s' ('%s'), stage %s: %s", data.target_id, data.target_instance, item.doc.stage, str(ex))
             try:

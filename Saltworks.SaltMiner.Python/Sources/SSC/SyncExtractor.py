@@ -791,12 +791,12 @@ class SyncExtractor(object):
 
         if self.__SscUtils.IsIncompleteProjectVersion(projid):
             self.__Logger.warning(f"ProjectVersion {projid} appears to not be setup correctly in SSC and will be skipped.")
-            return SyncResult()
+            return SyncResult(reason=SyncResult.build_reason(SyncResult.SKIPPED, ["project version not set up correctly in SSC"]))
 
         projectFilterSet = self.__SscUtils.getProjectVersionFilterSet(projid)
         if not projectFilterSet:
-            self.__Logger.error("Invalid/missing filterset from SSC API for project version %s.  Skipping...")
-            return SyncResult()
+            self.__Logger.error("Invalid/missing filterset from SSC API for project version %s.  Skipping...", projid)
+            return SyncResult(reason=SyncResult.build_reason(SyncResult.SKIPPED, ["invalid/missing filterset from SSC API"]))
         projectDefFilter = None
         for projectFilter in projectFilterSet['data']:
             if projectFilter['defaultFilterSet'] == True:
@@ -1037,7 +1037,7 @@ class SyncExtractor(object):
                     self.__Logger.warning("[DATA WARNING] SSC project version %s may have no or incorrect issue counts", projid)
                     # Partial load - synced=False so the refresh stage doesn't wait on a count that will
                     # never arrive.  The issue-count guard still checks what it pulls.
-                    return SyncResult()
+                    return SyncResult(reason=SyncResult.build_reason(SyncResult.SKIPPED, ["SSC audit session out of date, issue load incomplete"]))
                 else:
                     # Raise any other flavor of 409 conflict exception
                     raise
@@ -1060,9 +1060,10 @@ class SyncExtractor(object):
                     issuesWritten += 1
 
             # STEP 8 - Add to refresh queue
+            syncReason = SyncResult.build_reason(SyncResult.SYNCED, [updateReason.strip(", ")])
             if not queueRefresh:
                 self.__Logger.debug("%s, skipping sscupdatequeue record (queueRefresh off).", pvMessage)
-                return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten)
+                return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten, reason=syncReason)
             queueInfo = {
                 'processedDateTime' : datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S"),
                 'projectVersionId': projid,
@@ -1071,11 +1072,11 @@ class SyncExtractor(object):
                 'completedDateTime' : '1900-01-01T00:00:00.000-0000'
             }
             self.__ElasticClient.Index('sscupdatequeue', json.dumps(queueInfo))
-            return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten)
+            return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten, reason=syncReason)
 
         # needsReset was False - nothing was re-loaded, so there is no expectation to hand on.  What is
         # in the index belongs to an earlier run.
-        return SyncResult()
+        return SyncResult(reason=SyncResult.build_reason(SyncResult.NO_CHANGES, ["attributes updated" if attributesUpdated else None]))
 
     def __UpdateAttributes(self, projid:int, pvMessage:str, attributeDefs:dict, sscRawAttributes:dict, queueRefresh:bool = True):
         self.__Logger.info('%s, syncing SSC attributes', pvMessage)
