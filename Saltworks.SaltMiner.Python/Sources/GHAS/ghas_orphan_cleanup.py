@@ -45,6 +45,17 @@ SAFETY
   closure history the retirement change exists to preserve. This guard applies
   to issue indices only; asset and scan indices are purged as before.
 
+- PBI-102: findings of an ARCHIVED repository are NEVER deleted. The adapter
+  keeps them on purpose, marked vulnerability.is_suppressed=true and
+  saltminer.attributes.issue_status=archived, and they carry a stale run-tag
+  (the adapter queues nothing for an archived repository), so without this
+  guard they would match the stale-tag selection. The marker is read from each
+  document's _source, not by a query, so the guard does not depend on the index
+  mapping the attribute. The archived repository's ASSET document is kept too:
+  an asset is kept when any issue in the sibling issue index is marked archived
+  for its source id. The issue index is therefore processed before the asset
+  index of the same instance.
+
   Deliberate consequence: a scope whose alerts GitHub deleted outright leaves
   stale issues that were never retired. Those have no removed_date, so this
   script still collects them — which is what keeps that case covered now that
@@ -170,6 +181,16 @@ class ESRest:
         return val
 
     @staticmethod
+    def is_asset_index(index):
+        """True for the asset indices (assets_app_saltworks.ghas_<instance>)."""
+        return index.startswith("assets")
+
+    @staticmethod
+    def sibling_issue_index(asset_index):
+        """issues_... index of the same instance as an assets_... index."""
+        return "issues" + asset_index[len("assets"):]
+
+    @staticmethod
     def is_issue_index(index):
         """True for the issue indices (issues_app_saltworks.ghas_<instance>).
 
@@ -201,6 +222,101 @@ class ESRest:
                 {"exists": {"field": "vulnerability.removed_date"}}
             ]
         return query
+
+    # ── PBI-102: archived findings and assets are kept ─────────────────────
+
+    def scan(self, index, query, source_fields, page_size=1000):
+        """Yield every hit (dict with _id and _source) for `query`, paging with a
+        point in time and search_after, so the 10,000-result window never applies."""
+        pit = self._req("POST", f"/{index}/_pit", params={"keep_alive": "2m"})["id"]
+        try:
+            after = None
+            while True:
+                body = {
+                    "size": page_size,
+                    "query": query,
+                    "_source": source_fields,
+                    "pit": {"id": pit, "keep_alive": "2m"},
+                    "sort": [{"_shard_doc": "asc"}],
+                }
+                if after is not None:
+                    body["search_after"] = after
+                res = self._req("POST", "/_search", body=body)
+                pit = res.get("pit_id", pit)
+                hits = res.get("hits", {}).get("hits", [])
+                for h in hits:
+                    yield h
+                if len(hits) < page_size:
+                    return
+                after = hits[-1].get("sort")
+        finally:
+            try:
+                self._req("DELETE", "/_pit", body={"id": pit})
+            except Exception:
+                pass
+
+    def candidate_ids(self, index, cutoff_iso, protect_retired=False):
+        """Issue-index orphan candidates, minus archived findings.
+
+        Returns (ids_to_delete, archived_kept, repo_counts). The archived marker
+        is read from _source, which works whether or not the index maps it.
+        """
+        ids, kept, repos = [], 0, {}
+        for h in self.scan(index, self._orphan_query(cutoff_iso, protect_retired),
+                           [ISSUE_STATUS_FIELD, REPO_FIELD]):
+            src = h.get("_source") or {}
+            if _dig(src, ISSUE_STATUS_FIELD) == ARCHIVED:
+                kept += 1
+                continue
+            ids.append(h["_id"])
+            repo = _dig(src, REPO_FIELD)
+            repos[repo] = repos.get(repo, 0) + 1
+        return ids, kept, repos
+
+    def archived_source_ids(self, issue_index):
+        """Source ids (GitHub repo ids) that have at least one finding marked
+        issue_status=archived. Uses mapped fields only for the filter (source_type
+        and is_suppressed; every archived finding is suppressed), then reads the
+        marker from _source. Independent of the cutoff and of removed_date, so a
+        repository whose archived findings are all closed still keeps its asset."""
+        query = {"bool": {"filter": [
+            {"term": {"saltminer.asset.source_type": "Saltworks.GHAS"}},
+            {"term": {"vulnerability.is_suppressed": True}},
+        ]}}
+        found = set()
+        for h in self.scan(issue_index, query, [SOURCE_ID_FIELD, ISSUE_STATUS_FIELD]):
+            src = h.get("_source") or {}
+            if _dig(src, ISSUE_STATUS_FIELD) == ARCHIVED:
+                sid = _dig(src, SOURCE_ID_FIELD)
+                if sid not in (None, ""):
+                    found.add(str(sid))
+        return found
+
+    def candidate_assets(self, index, cutoff_iso, protected_source_ids):
+        """Asset-index orphan candidates, minus assets of archived repositories.
+        Returns (ids_to_delete, archived_assets_kept, name_counts)."""
+        ids, kept, names = [], 0, {}
+        for h in self.scan(index, self._orphan_query(cutoff_iso, False),
+                           [SOURCE_ID_FIELD, ASSET_NAME_FIELD]):
+            src = h.get("_source") or {}
+            sid = _dig(src, SOURCE_ID_FIELD)
+            if sid is not None and str(sid) in protected_source_ids:
+                kept += 1
+                continue
+            ids.append(h["_id"])
+            name = _dig(src, ASSET_NAME_FIELD)
+            names[name] = names.get(name, 0) + 1
+        return ids, kept, names
+
+    def delete_ids(self, index, ids, chunk=1000):
+        """Delete documents by _id, in chunks. Returns the number deleted."""
+        deleted = 0
+        for i in range(0, len(ids), chunk):
+            res = self._req("POST", f"/{index}/_delete_by_query",
+                            body={"query": {"ids": {"values": ids[i:i + chunk]}}},
+                            params={"conflicts": "proceed", "refresh": "true"})
+            deleted += res.get("deleted", 0)
+        return deleted
 
     def count_older_than(self, index, cutoff_iso, protect_retired=False):
         body = {"query": self._orphan_query(cutoff_iso, protect_retired)}
@@ -244,6 +360,27 @@ class ESRest:
 
 # ── Core logic ──────────────────────────────────────────────────────────────
 
+ARCHIVED = "archived"
+ISSUE_STATUS_FIELD = "saltminer.attributes.issue_status"
+REPO_FIELD = "saltminer.attributes.ghas_repo_full_name"
+SOURCE_ID_FIELD = "saltminer.asset.source_id"
+ASSET_NAME_FIELD = "saltminer.asset.name"
+
+
+def _dig(src, dotted):
+    """Read a dotted path from a nested _source, or a literal dotted key."""
+    if not isinstance(src, dict):
+        return None
+    if dotted in src:
+        return src[dotted]
+    cur = src
+    for part in dotted.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return None
+        cur = cur[part]
+    return cur
+
+
 def parse_iso(ts):
     if not ts:
         return None
@@ -253,7 +390,7 @@ def parse_iso(ts):
         return None
 
 
-def process_index(es, index, instance_filter, min_age_minutes, apply):
+def process_index(es, index, instance_filter, min_age_minutes, apply, protected_source_ids=None):
     if instance_filter and not index.endswith(instance_filter.lower()):
         return None
 
@@ -272,9 +409,22 @@ def process_index(es, index, instance_filter, min_age_minutes, apply):
     # RETIRE-001: issue indices exclude retired issues from deletion so that
     # closure history survives the adapter no longer re-queueing them.
     protect_retired = es.is_issue_index(index)
+    is_asset = es.is_asset_index(index)
 
-    count = es.count_older_than(index, cutoff_iso, protect_retired)
     retired_skipped = es.count_retired_skipped(index, cutoff_iso) if protect_retired else 0
+    archived_kept = 0
+    ids = None
+    if protect_retired:
+        ids, archived_kept, repos = es.candidate_ids(index, cutoff_iso, protect_retired)
+        count = len(ids)
+        sample = sorted(repos.items(), key=lambda kv: -kv[1])[:25]
+    elif is_asset:
+        ids, archived_kept, names = es.candidate_assets(index, cutoff_iso, protected_source_ids or set())
+        count = len(ids)
+        sample = sorted(names.items(), key=lambda kv: -kv[1])[:25]
+    else:
+        count = es.count_older_than(index, cutoff_iso, protect_retired)
+        sample = es.sample_orphan_repos(index, cutoff_iso, protect_retired) if count else []
 
     print(f"  [{index}]")
     print(f"      latest run ts : {latest}")
@@ -283,22 +433,56 @@ def process_index(es, index, instance_filter, min_age_minutes, apply):
     if protect_retired:
         print(f"      retired kept  : {retired_skipped}  "
               f"(stale run-tag but removed_date set — closure history, not orphans)")
+        print(f"      archived kept : {archived_kept}  "
+              f"(issue_status=archived — suppressed on purpose, not orphans)")
+    if is_asset:
+        print(f"      archived assets kept : {archived_kept}  "
+              f"(repository has findings marked issue_status=archived)")
 
+    result = {"index": index, "orphans": count, "deleted": 0,
+              "retired_skipped": retired_skipped, "archived_kept": archived_kept}
     if count == 0:
-        return {"index": index, "orphans": 0, "deleted": 0,
-                "retired_skipped": retired_skipped}
+        return result
 
-    for repo, n in es.sample_orphan_repos(index, cutoff_iso, protect_retired):
+    for repo, n in sample:
         print(f"        - {repo or '(no repo attr)'}: {n}")
 
-    deleted = 0
     if apply:
-        deleted = es.delete_older_than(index, cutoff_iso, protect_retired)
-        print(f"      DELETED       : {deleted}")
+        if ids is not None:
+            result["deleted"] = es.delete_ids(index, ids)
+        else:
+            result["deleted"] = es.delete_older_than(index, cutoff_iso, protect_retired)
+        print(f"      DELETED       : {result['deleted']}")
     else:
         print(f"      DRY RUN       : would delete {count} (pass --apply to delete)")
-    return {"index": index, "orphans": count, "deleted": deleted,
-            "retired_skipped": retired_skipped}
+    return result
+
+
+def order_indices(indices):
+    """Group by instance and run the issue index before the asset index (then
+    anything else), so the archived guard for an asset is decided from the
+    issue index of the same instance. Plain sorting would put assets_ first."""
+    def key(idx):
+        suffix = idx.split("saltworks.ghas", 1)[-1]
+        rank = 0 if idx.startswith("issues") else 1 if idx.startswith("assets") else 2
+        return (suffix, rank, idx)
+    return sorted(indices, key=key)
+
+
+def run_all(es, indices, instance, min_age_minutes, apply):
+    results = []
+    for idx in order_indices(indices):
+        try:
+            protected = None
+            if es.is_asset_index(idx):
+                sibling = es.sibling_issue_index(idx)
+                protected = es.archived_source_ids(sibling) if sibling in indices else set()
+            r = process_index(es, idx, instance, min_age_minutes, apply, protected)
+            if r:
+                results.append(r)
+        except Exception as exc:
+            print(f"  [{idx}] ERROR: {exc}")
+    return results
 
 
 def main():
@@ -336,14 +520,7 @@ def main():
         print("No GHAS indices found (looked for *saltworks.ghas*). Nothing to do.")
         return
 
-    results = []
-    for idx in indices:
-        try:
-            r = process_index(es, idx, args.instance, args.min_age_minutes, args.apply)
-            if r:
-                results.append(r)
-        except Exception as exc:
-            print(f"  [{idx}] ERROR: {exc}")
+    results = run_all(es, indices, args.instance, args.min_age_minutes, args.apply)
 
     print("=" * 64)
     total_orphans = sum(r["orphans"] for r in results)
@@ -351,6 +528,9 @@ def main():
     total_retired_kept = sum(r.get("retired_skipped", 0) for r in results)
     if total_retired_kept:
         print(f"  Retired issues preserved (not orphans): {total_retired_kept}")
+    total_archived_kept = sum(r.get("archived_kept", 0) for r in results)
+    if total_archived_kept:
+        print(f"  Archived findings and assets preserved (not orphans): {total_archived_kept}")
     if args.apply:
         print(f"  DONE — deleted {total_deleted} orphan doc(s) across {len(results)} index(es).")
     else:

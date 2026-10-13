@@ -5,7 +5,7 @@ SaltMiner source adapter for GitHub Advanced Security (GHAS).
 
 Implements the two-phase sync model:
   Phase 1 — Cheap change detection via local watermark (one API call per repo/engine)
-  Phase 2 — Full alert fetch + ReplaceIssues=True for changed scopes only
+  Phase 2 — Full alert fetch for changed scopes only
 
 Clean-scan visibility (ENH-004, Option B):
   When an engine is enabled on a repo but produces zero alerts, the adapter still
@@ -41,13 +41,127 @@ import re
 import tempfile
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Iterator, List, Optional
 
 from Sources.GHAS.GHASClient import GHASClient, GHASEngineInaccessibleError, GHASRateLimitError
 from Core.SmDocsAndDTOs import SnykDocs, MapAssetDocDTO, MapIssueDocDTO, MapScanDocDTO
 from Core.SmDataClient import SmDataClient
+from Core.RestClient import RestClient
 
 logger = logging.getLogger(__name__)
+
+# ── Archived-scope writer ─────────────────────────────────────────────────────
+
+class ArchivedWriteError(Exception):
+    """Raised when marking an archived repository's findings fails.
+
+    The archived path keeps the scope's watermark when this is raised, so the
+    next run retries. Carries the ids the DataApi rejected, when it named any.
+    """
+
+    def __init__(self, message: str, rejected_ids: Optional[list] = None):
+        super().__init__(message)
+        self.rejected_ids = rejected_ids or []
+
+
+class _SmIssueWriter:
+    """Small DataApi client for the archived-repository path only (PBI-102).
+
+    Reads an archived scope's existing issues and writes them back marked
+    suppressed, through the DataApi so it stamps last_updated. Both calls need
+    the Manager key (issue/bulk accepts Manager or Admin only).
+
+    This is a one-off exception to the rule that a GHAS-style adapter does no
+    SaltMiner-side read: it is used only for archived repositories and only to
+    find findings already marked issue_status=archived. Do not use it for
+    active repositories.
+    """
+
+    PAGE_SIZE = 500
+
+    def __init__(self, settings, config_name: str = "SMv3"):
+        baseurl = settings.Get(config_name, "ApiUrl")
+        mgrkey = settings.Get(config_name, "ManagerApiKey", "")
+        verify = settings.Get(config_name, "SslVerify", True)
+        vcert = settings.Get(config_name, "SslVerifyCert")
+        timeout = settings.Get(config_name, "TimeoutSec", 240)
+        self.batch_size = int(settings.Get(config_name, "BatchSize", 100) or 100)
+
+        if not baseurl or not mgrkey:
+            raise ArchivedWriteError(
+                f"archived suppression needs {config_name}.ManagerApiKey (and {config_name}.ApiUrl)"
+            )
+        if verify and vcert:
+            verify = tuple(vcert.split(",")[:2]) if "," in vcert else vcert
+        else:
+            verify = ""
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json;charset=UTF-8",
+            "Authorization": mgrkey,
+        }
+        self._client = RestClient(baseurl, sslVerify=verify, defaultHeaders=headers,
+                                  timeout=timeout, retryConnectionErrors=True)
+
+    def search_scope_issues(self, search: dict) -> Iterator[dict]:
+        """Yield every issue matching `search`, following the DataApi paging
+        contract (PagingInfo.NextPage): page + 1, the previous response's
+        nextAfterKeys as currentAfterKeys, and the pitPagingToken sent back."""
+        paging = {"page": 1, "size": self.PAGE_SIZE, "enablePit": True}
+        previous_first = None
+        while True:
+            body = dict(search)
+            body["pagingInfo"] = paging
+            r = self._client.Post("issue/search", body)
+            if r.status_code != 200:
+                raise ArchivedWriteError(f"issue/search returned HTTP {r.status_code}: {r.text[:300]}")
+            resp = json.loads(r.text)
+            data = resp.get("data") or []
+            info = resp.get("pagingInfo") or {}
+            if data:
+                first = data[0].get("id")
+                if previous_first is not None and first == previous_first:
+                    raise ArchivedWriteError(
+                        f"issue/search page {paging['page']} repeated the previous page (first id {first}); "
+                        "paging is not advancing"
+                    )
+                previous_first = first
+            for doc in data:
+                yield doc
+            next_keys = info.get("nextAfterKeys")
+            if not next_keys or len(data) < self.PAGE_SIZE:
+                return
+            paging = {
+                "page": (info.get("page") or paging["page"]) + 1,
+                "size": self.PAGE_SIZE,
+                "enablePit": info.get("enablePit", True),
+                "pitPagingToken": info.get("pitPagingToken"),
+                "currentAfterKeys": next_keys,
+                "nextAfterKeys": None,
+            }
+
+    def bulk_update(self, docs: List[dict]) -> None:
+        """POST issue/bulk. A batch succeeded only if the status is 202 and the
+        body reports no error and affected == len(docs): the DataApi answers
+        202 even when it rejected some documents."""
+        r = self._client.Post("issue/bulk", {"Documents": docs})
+        if r.status_code != 202:
+            raise ArchivedWriteError(f"issue/bulk returned HTTP {r.status_code}: {r.text[:300]}")
+        try:
+            resp = json.loads(r.text)
+        except ValueError as exc:
+            raise ArchivedWriteError(f"issue/bulk returned an unreadable body: {exc}") from exc
+        bulk_errors = resp.get("bulkErrors") or {}
+        messages = resp.get("errorMessages") or []
+        if (resp.get("errorType") or messages or bulk_errors
+                or resp.get("affected") != len(docs)):
+            first = next(iter(bulk_errors.values()), None) or (messages[0] if messages else "")
+            raise ArchivedWriteError(
+                f"issue/bulk rejected documents (errorType={resp.get('errorType')}, "
+                f"affected={resp.get('affected')} of {len(docs)}): {first}",
+                rejected_ids=list(bulk_errors.keys()),
+            )
+
 
 # ── State Manager ─────────────────────────────────────────────────────────────
 
@@ -153,8 +267,8 @@ class GHASStateManager:
         return len(self._data.get("watermarks", {}))
 
     def clear_watermark(self, repo_full_name: str, engine: str):
-        """Remove a scope's watermark (used after tombstoning an archived repo
-        so the empty-replacement is not re-fired every subsequent run)."""
+        """Remove a scope's watermark (used after marking an archived repo's
+        findings suppressed so the marking is not re-fired every incremental run)."""
         key = f"{repo_full_name}/{engine}"
         if key in self._data.get("watermarks", {}):
             del self._data["watermarks"][key]
@@ -241,6 +355,9 @@ class GHASAdapter:
         # SmDataClient takes (appSettings, sourceName) and reads connection
         # config from the platform-level "SMv3" section.
         self._data_client = SmDataClient(app.Settings, source_name)
+        self._settings = app.Settings
+        # Built on first use: only the archived path needs it (PBI-102).
+        self._issue_writer = None
 
         self.instance = app.Settings.GetSource(source_name, "SourceName") or source_name
         self.org = app.Settings.GetSource(source_name, "Org")
@@ -277,7 +394,7 @@ class GHASAdapter:
         # INACCESSIBLE ones (the misclassification this fix exists to correct).
         self._inaccessible_scopes: list = []   # permission/enablement 403/404
         self._rate_limited_scopes: list = []   # secondary-rate-limit exhaustion
-        self._archived_purged_scopes: list = []  # tombstoned this run
+        self._archived_suppressed_scopes: list = []  # (scope, marked, already_marked) this run
         self._ingested_scopes: list = []       # (scope, open_count, retired_count)
         self._clean_scopes: list = []          # clean/heartbeat scans
         # Scopes whose WRITE to SaltMiner raised (e.g. a bulk issue batch
@@ -313,8 +430,8 @@ class GHASAdapter:
             self._is_rebaseline = (self._state.watermark_count() == 0)
             if self._is_rebaseline:
                 logger.warning(
-                    "[%s] Empty state file → RE-BASELINE run. Archived repos will be "
-                    "tombstoned (findings purged) and the client will use "
+                    "[%s] Empty state file → RE-BASELINE run. Archived repos will have "
+                    "their findings marked suppressed and the client will use "
                     "rate-limit-safe code-scanning settings.",
                     self.instance,
                 )
@@ -335,7 +452,7 @@ class GHASAdapter:
     async def get_sync_async(self):
         """
         Discover all repos, apply exclusions, divert archived repos to the
-        tombstone/purge path, then run concurrent repo/engine sync for the
+        suppression path, then run concurrent repo/engine sync for the
         active repos.
         """
         logger.info("[%s] Starting GHAS sync for org '%s'.", self.instance, self.org)
@@ -344,7 +461,7 @@ class GHASAdapter:
         repos = self._apply_exclusions(repos)
 
         # Split archived from active. Archived repos are handled by the
-        # tombstone path (purge findings) and are NEVER sent through the alert
+        # suppression path (findings kept, marked suppressed) and are NEVER sent through the alert
         # fetch — so an archived repo can never produce a 403/404 that would be
         # misread as "engine inaccessible". `archived` comes straight from the
         # repo metadata (get_repos_async uses type=all and includes archived).
@@ -372,21 +489,21 @@ class GHASAdapter:
             for engine in self.engines
         ]
 
-        # ── Archived repos: tombstone (purge) fan-out ──────────────────────
-        # On a re-baseline run, tombstone every archived repo unconditionally
-        # (no watermark exists to gate on, and the point is to scrub stale
-        # findings). On a normal incremental run, the tombstone is watermark-
-        # gated inside _tombstone_archived_async (only purge scopes we actually
-        # collected before), so never-collected archived repos stay untouched.
+        # ── Archived repos: suppression fan-out ────────────────────────────
+        # On a re-baseline run, every archived repo is handled unconditionally
+        # (no watermark exists to gate on). On a normal incremental run, the
+        # suppression is watermark-gated inside _suppress_archived_async (only
+        # scopes we actually collected before), so never-collected archived
+        # repos stay untouched.
         archived_tasks = [
-            self._tombstone_with_semaphore(sem, repo, engine)
+            self._suppress_with_semaphore(sem, repo, engine)
             for repo in archived_repos
             for engine in self.engines
         ]
 
         all_tasks = active_tasks + archived_tasks
         logger.info(
-            "[%s] Dispatching %d task(s): %d active sync + %d archived-tombstone "
+            "[%s] Dispatching %d task(s): %d active sync + %d archived-suppression "
             "(concurrency limit: %d%s).",
             self.instance, len(all_tasks), len(active_tasks), len(archived_tasks),
             self.concurrency_limit,
@@ -409,7 +526,9 @@ class GHASAdapter:
         """
         ingested = len(self._ingested_scopes)
         clean = len(self._clean_scopes)
-        archived_purged = len(self._archived_purged_scopes)
+        archived_scopes = len(self._archived_suppressed_scopes)
+        archived_marked = sum(m for _, m, _ in self._archived_suppressed_scopes)
+        archived_already = sum(a for _, _, a in self._archived_suppressed_scopes)
         rate_limited = len(self._rate_limited_scopes)
         inaccessible = len(self._inaccessible_scopes)
         failed = len(failures)
@@ -426,11 +545,12 @@ class GHASAdapter:
             f"  GHAS SYNC SUMMARY — {self.instance} (org: {self.org})",
             f"  Mode: {'RE-BASELINE (cold full pull)' if self._is_rebaseline else 'incremental'}",
             bar,
-            f"  Tasks dispatched     : {total_tasks:>6}   (active sync: {active_tasks}, archived tombstone: {archived_tasks})",
+            f"  Tasks dispatched     : {total_tasks:>6}   (active sync: {active_tasks}, archived suppression: {archived_tasks})",
             f"    ingested w/ alerts : {ingested:>6}   ({open_total + retired_total} queued: "
             f"{open_total} open, {retired_total} retired)",
             f"    clean (heartbeat)  : {clean:>6}   (zero open alerts, scan recorded)",
-            f"    archived (purged)  : {archived_purged:>6}   (findings tombstoned via ReplaceIssues)",
+            f"    archived (suppressed): {archived_scopes:>4}   ({archived_marked} findings marked is_suppressed + issue_status=archived, "
+            f"{archived_already} already marked)",
             f"    RATE-LIMITED       : {rate_limited:>6}   {'← retried next run; data IS reachable' if rate_limited else ''}",
             f"    INACCESSIBLE       : {inaccessible:>6}   {'← permission/enablement; see note below' if inaccessible else ''}",
             f"    failed (error)     : {failed:>6}   {'← unhandled errors; check traceback logs' if failed else ''}",
@@ -500,9 +620,9 @@ class GHASAdapter:
         async with sem:
             await self.sync_repo_engine_async(repo, engine)
 
-    async def _tombstone_with_semaphore(self, sem: asyncio.Semaphore, repo: dict, engine: str):
+    async def _suppress_with_semaphore(self, sem: asyncio.Semaphore, repo: dict, engine: str):
         async with sem:
-            await self._tombstone_archived_async(repo, engine)
+            await self._suppress_archived_async(repo, engine)
 
     # ── Repo/engine sync ───────────────────────────────────────────────────
 
@@ -805,8 +925,9 @@ class GHASAdapter:
                     HARD-DELETES any prior issues for this scope. Since
                     RETIRE-001 every caller of this method passes False: an
                     empty queue is a NON-destructive visibility heartbeat.
-                    The parameter is retained because _tombstone_archived_async
-                    still needs the purge, and it calls map_scan directly.
+                    PBI-102: the archived-repository path no longer asks for
+                    the purge, so nothing passes True now. The parameter is
+                    kept, defaulting to False.
 
         The three callers (all replace=False since RETIRE-001):
 
@@ -915,90 +1036,98 @@ class GHASAdapter:
         )
         self._clean_scopes.append(f"{full_name}/{engine}")
 
-    async def _tombstone_archived_async(self, repo: dict, engine: str):
+    def _get_issue_writer(self) -> "_SmIssueWriter":
+        if self._issue_writer is None:
+            self._issue_writer = _SmIssueWriter(self._settings)
+        return self._issue_writer
+
+    async def _suppress_archived_async(self, repo: dict, engine: str):
         """
-        Purge a SaltMiner scope for an ARCHIVED GitHub repository by queueing an
-        empty Scan+Asset with ReplaceIssues=True (the tombstone), via the same
-        _queue_lock + asyncio.to_thread serialised SmDataClient dispatch used by
-        the alerts-present path (SmDataClient's internal __IssueBatch is not
-        thread-safe). SaltMiner removes the scope's prior alerts by absence.
+        Mark a SaltMiner scope's findings for an ARCHIVED GitHub repository as
+        suppressed instead of deleting them (PBI-102).
+
+        For each issue in the scope that is not yet marked, set
+        vulnerability.isSuppressed = true and add the attribute
+        saltminer.attributes.issue_status = "archived", then write it back
+        through the DataApi (issue/bulk), which stamps last_updated. Nothing
+        else on the issue changes: the closure date, the found date and
+        ghas_alert_state are written back exactly as read. No scan, asset or
+        queue document is sent, so nothing is replaced or deleted.
 
         Firing policy (driven by the is_rebaseline snapshot):
-          - RE-BASELINE run: tombstone EVERY archived repo/engine unconditionally
-            (no watermark to gate on; goal is to scrub all stale findings).
-          - INCREMENTAL run: tombstone ONLY scopes with a watermark (previously
+          - RE-BASELINE run: every archived repo/engine is handled.
+          - INCREMENTAL run: only scopes with a watermark (previously
             collected), so never-collected archived repos stay untouched.
 
-        ScanDate uses run-clock now() (a tombstone is a delete instruction; its
-        date is irrelevant and must never be suppressed by null evidence).
+        Issues already carrying issue_status=archived are skipped (read from
+        the document, not queried), so a repeat run does not move last_updated
+        and the date stays the day the archiving was first detected. Findings
+        suppressed for another reason (SARIF) are marked too.
 
-        After success the watermark is cleared so we don't re-tombstone forever.
+        The watermark is cleared only after every batch succeeded. On any
+        failure the scope is recorded as write-failed, the watermark is kept
+        and the next run retries; nothing is deleted.
         """
         full_name = repo["full_name"]
+        scope = f"{full_name}/{engine}"
 
         if not self._is_rebaseline:
             if self._state.get_watermark(full_name, engine) is None:
                 logger.debug(
                     "Archived repo %s/%s has no watermark (never collected) — "
-                    "nothing to purge, skipping tombstone.",
+                    "nothing to mark, skipping.",
                     full_name, engine,
                 )
                 return
 
         try:
-            run_id = str(uuid.uuid4())
-            report_id = f"{full_name}/{engine}/{run_id}"  # full_name already includes the org (org/repo)
-            scan_date = self._now()
-
-            logger.info(
-                "Tombstoning archived repo %s/%s (purging findings via empty "
-                "ReplaceIssues, ScanDate=%s).",
-                full_name, engine, scan_date,
-            )
+            logger.info("Marking archived repo %s as suppressed (findings are kept).", scope)
+            search = {
+                "assetType": "app",
+                "sourceType": "Saltworks.GHAS",
+                "instance": self.instance,
+                "filter": {"filterMatches": {
+                    "Saltminer.Asset.SourceId": str(repo.get("id", "")),
+                    "Saltminer.Asset.SourceType": "Saltworks.GHAS",
+                    "Saltminer.Asset.Instance": self.instance,
+                    "Saltminer.Scan.AssessmentType": self._assessment_type(engine),
+                }},
+            }
 
             async with self._queue_lock:
-                # RETIRE-001: map_scan now defaults to ReplaceIssues=False, so
-                # the tombstone must ask for the purge EXPLICITLY. It is the
-                # only remaining True caller. An empty batch under
-                # ReplaceIssues=False would be a silent no-op: the Manager's
-                # diff loop is nested inside the queue-issue batch generator,
-                # so with zero issues queued it never runs, and the adapter
-                # sends no Zero-severity sentinel to trigger ProcessZeroIssue.
-                # Archiving a repo is a scope-level purge instruction, not a
-                # per-alert closure event, so hard delete remains correct here.
-                mapped_scan = self.map_scan(repo, engine, report_id, scan_date,
-                                            replace=True)
-                queue_scan = await asyncio.to_thread(
-                    self._data_client.AddQueueScan,
-                    json.loads(mapped_scan.model_dump_json())
-                )
-
-                mapped_asset = self.map_asset(repo, queue_scan["id"], engine, None)
-                await asyncio.to_thread(
-                    self._data_client.AddQueueAsset,
-                    json.loads(mapped_asset.model_dump_json())
-                )
-
-                # No issues queued. SendAllBatchIssues is a no-op on an empty
-                # buffer; FinalizeQueue flips Loading→Pending. The empty
-                # replacement set + ReplaceIssues=True removes prior alerts.
-                await asyncio.to_thread(self._data_client.SendAllBatchIssues)
-                await asyncio.to_thread(
-                    self._data_client.FinalizeQueue, queue_scan["id"]
-                )
+                writer = self._get_issue_writer()
+                # Read every page before any write, so the writes cannot
+                # change the order of the pages being read.
+                issues = await asyncio.to_thread(lambda: list(writer.search_scope_issues(search)))
+                pending = [i for i in issues if not self._is_archived_marked(i)]
+                already = len(issues) - len(pending)
+                for issue in pending:
+                    issue.setdefault("vulnerability", {})["isSuppressed"] = True
+                    saltminer = issue.setdefault("saltminer", {})
+                    if not isinstance(saltminer.get("attributes"), dict):
+                        saltminer["attributes"] = {}
+                    saltminer["attributes"]["issue_status"] = "archived"
+                size = max(1, int(getattr(writer, "batch_size", 100)))
+                for start in range(0, len(pending), size):
+                    await asyncio.to_thread(writer.bulk_update, pending[start:start + size])
 
             async with self._state_lock:
                 self._state.clear_watermark(full_name, engine)
                 await self._state.save_async()
 
-            self._archived_purged_scopes.append(f"{full_name}/{engine}")
+            self._archived_suppressed_scopes.append((scope, len(pending), already))
 
         except Exception as exc:
             logger.error(
-                "Failed to tombstone archived %s/%s: %s",
-                full_name, engine, exc, exc_info=True,
+                "Failed to mark archived %s as suppressed (watermark kept, will retry next run): %s",
+                scope, exc, exc_info=True,
             )
-            raise
+            self._write_failed_scopes.append((scope, str(exc)))
+
+    @staticmethod
+    def _is_archived_marked(issue: dict) -> bool:
+        attrs = (issue.get("saltminer") or {}).get("attributes") or {}
+        return attrs.get("issue_status") == "archived"
 
     async def _get_latest_analysis_async(self, full_name: str) -> Optional[dict]:
         """
@@ -1176,9 +1305,9 @@ class GHASAdapter:
         # adapter must queue the FULL alert set for every scope it syncs —
         # a delta batch would retire everything it omitted.
         #
-        # The one remaining True caller is the archived-repo tombstone, which
-        # is a deliberate purge and has no issue batch to diff against; see
-        # _tombstone_archived_async.
+        # PBI-102: no caller passes True any more. An archived repo's findings
+        # are kept and marked suppressed (see _suppress_archived_async), not
+        # purged.
         #
         # It MUST stay False for a plain clean-scan heartbeat: a heartbeat is a
         # visibility tick, not proof the scope is empty. Setting it True on a
