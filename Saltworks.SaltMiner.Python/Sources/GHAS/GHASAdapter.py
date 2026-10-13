@@ -186,8 +186,13 @@ class GHASStateManager:
         "schema_version": 2,
         "last_updated": "<ISO8601>",
         "watermarks":      {"<org>/<repo>/<engine>": "<ISO8601>", ...},
-        "last_scan_dates": {"<org>/<repo>/<engine>": "<ISO8601>", ...}
+        "last_scan_dates": {"<org>/<repo>/<engine>": "<ISO8601>", ...},
+        "archived_pending": {"<org>/<repo>/<engine>": "<ISO8601>", ...}   (optional)
     }
+
+    archived_pending (PBI-102) records an archived scope whose suppression write
+    failed, so the next run retries it even though a re-baseline run leaves such
+    a scope with no watermark. It is cleared only after the write succeeds.
 
     Schema v1 files (no last_scan_dates) load successfully and gain an empty
     last_scan_dates map. On first save the file is rewritten as v2.
@@ -205,6 +210,7 @@ class GHASStateManager:
             "schema_version": self.SCHEMA_VERSION,
             "watermarks": {},
             "last_scan_dates": {},
+            "archived_pending": {},
         }
         self._loaded = False
 
@@ -238,6 +244,8 @@ class GHASStateManager:
             data["last_scan_dates"] = {}
         if "watermarks" not in data:
             data["watermarks"] = {}
+        if "archived_pending" not in data:
+            data["archived_pending"] = {}
 
         if version != self.SCHEMA_VERSION:
             logger.info(
@@ -281,6 +289,27 @@ class GHASStateManager:
             self._data["watermarks"] = {}
         self._data["watermarks"][key] = timestamp
         self._data["last_updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # ── Archived-suppression retry marker (PBI-102) ────────────────────────
+
+    def is_archived_pending(self, repo_full_name: str, engine: str) -> bool:
+        """True when an earlier run failed to mark this archived scope suppressed."""
+        return f"{repo_full_name}/{engine}" in self._data.get("archived_pending", {})
+
+    def set_archived_pending(self, repo_full_name: str, engine: str):
+        """Record a failed archived marking. Call save_async() to persist."""
+        if "archived_pending" not in self._data:
+            self._data["archived_pending"] = {}
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._data["archived_pending"][f"{repo_full_name}/{engine}"] = now
+        self._data["last_updated"] = now
+
+    def clear_archived_pending(self, repo_full_name: str, engine: str):
+        """Remove the retry marker once the marking succeeded."""
+        key = f"{repo_full_name}/{engine}"
+        if key in self._data.get("archived_pending", {}):
+            del self._data["archived_pending"][key]
+            self._data["last_updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # ── Last-scan-date accessors (clean-scan re-queue mitigation) ──────────
 
@@ -1065,14 +1094,18 @@ class GHASAdapter:
         suppressed for another reason (SARIF) are marked too.
 
         The watermark is cleared only after every batch succeeded. On any
-        failure the scope is recorded as write-failed, the watermark is kept
-        and the next run retries; nothing is deleted.
+        failure the scope is recorded as write-failed and an explicit retry
+        marker (state file "archived_pending") is saved, so the next run
+        retries it even when the failing run was a re-baseline, where an
+        archived scope has no watermark. The marker is cleared only after the
+        marking succeeds; nothing is deleted.
         """
         full_name = repo["full_name"]
         scope = f"{full_name}/{engine}"
 
         if not self._is_rebaseline:
-            if self._state.get_watermark(full_name, engine) is None:
+            if (self._state.get_watermark(full_name, engine) is None
+                    and not self._state.is_archived_pending(full_name, engine)):
                 logger.debug(
                     "Archived repo %s/%s has no watermark (never collected) — "
                     "nothing to mark, skipping.",
@@ -1113,16 +1146,26 @@ class GHASAdapter:
 
             async with self._state_lock:
                 self._state.clear_watermark(full_name, engine)
+                self._state.clear_archived_pending(full_name, engine)
                 await self._state.save_async()
 
             self._archived_suppressed_scopes.append((scope, len(pending), already))
 
         except Exception as exc:
             logger.error(
-                "Failed to mark archived %s as suppressed (watermark kept, will retry next run): %s",
+                "Failed to mark archived %s as suppressed (retry marker saved, will retry next run): %s",
                 scope, exc, exc_info=True,
             )
             self._write_failed_scopes.append((scope, str(exc)))
+            try:
+                async with self._state_lock:
+                    self._state.set_archived_pending(full_name, engine)
+                    await self._state.save_async()
+            except Exception as save_exc:
+                logger.error(
+                    "Could not save the retry marker for archived %s: %s. A re-baseline "
+                    "run is the only retry until it can be saved.", scope, save_exc,
+                )
 
     @staticmethod
     def _is_archived_marked(issue: dict) -> bool:

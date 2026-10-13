@@ -308,15 +308,58 @@ class ESRest:
             names[name] = names.get(name, 0) + 1
         return ids, kept, names
 
-    def delete_ids(self, index, ids, chunk=1000):
-        """Delete documents by _id, in chunks. Returns the number deleted."""
-        deleted = 0
+    def fetch_sources(self, index, ids, fields):
+        """Re-read the current _source of `ids` (a point-in-time-free, live read)."""
+        body = {"size": len(ids), "query": {"ids": {"values": list(ids)}}, "_source": fields}
+        res = self._req("POST", f"/{index}/_search", body=body)
+        return {h["_id"]: (h.get("_source") or {}) for h in res.get("hits", {}).get("hits", [])}
+
+    def delete_ids(self, index, ids, is_protected=None, guard_suppressed=False, chunk=500):
+        """Delete documents by _id, in chunks, re-checking protection at delete time.
+
+        The ids were chosen from an earlier snapshot, and the adapter may mark a
+        finding archived (or a repository may become archived) after that. So,
+        chunk by chunk, immediately before each delete: re-read the current
+        _source of the chunk, drop every document `is_protected(source)` now
+        reports as protected, and delete the rest.
+
+        guard_suppressed (issue index): the delete query itself also excludes
+        vulnerability.is_suppressed=true, a mapped field, so a finding the
+        adapter marks archived between the re-read and the delete is still
+        spared, atomically. Documents the re-read found suppressed but not
+        archived (SARIF suppressed findings, which the cleanup always removed
+        when orphaned) are deleted by a second request without that exclusion.
+
+        Returns (deleted, skipped_at_delete_time).
+        """
+        deleted = skipped = 0
+        params = {"conflicts": "proceed", "refresh": "true"}
         for i in range(0, len(ids), chunk):
-            res = self._req("POST", f"/{index}/_delete_by_query",
-                            body={"query": {"ids": {"values": ids[i:i + chunk]}}},
-                            params={"conflicts": "proceed", "refresh": "true"})
-            deleted += res.get("deleted", 0)
-        return deleted
+            part = ids[i:i + chunk]
+            if is_protected is None:
+                current = None
+                keep = part
+            else:
+                current = self.fetch_sources(index, part, [ISSUE_STATUS_FIELD, SOURCE_ID_FIELD, SUPPRESSED_FIELD])
+                keep = [d for d in part if d in current and not is_protected(current[d])]
+                skipped += len(part) - len(keep)
+            if not keep:
+                continue
+            if guard_suppressed and current is not None:
+                plain = [d for d in keep if _dig(current[d], SUPPRESSED_FIELD) is True]
+                guarded = [d for d in keep if d not in set(plain)]
+            else:
+                plain, guarded = keep, []
+            if guarded:
+                res = self._req("POST", f"/{index}/_delete_by_query", body={"query": {"bool": {
+                    "filter": [{"ids": {"values": guarded}}],
+                    "must_not": [{"term": {SUPPRESSED_FIELD: True}}]}}}, params=params)
+                deleted += res.get("deleted", 0)
+            if plain:
+                res = self._req("POST", f"/{index}/_delete_by_query",
+                                body={"query": {"ids": {"values": plain}}}, params=params)
+                deleted += res.get("deleted", 0)
+        return deleted, skipped
 
     def count_older_than(self, index, cutoff_iso, protect_retired=False):
         body = {"query": self._orphan_query(cutoff_iso, protect_retired)}
@@ -365,6 +408,7 @@ ISSUE_STATUS_FIELD = "saltminer.attributes.issue_status"
 REPO_FIELD = "saltminer.attributes.ghas_repo_full_name"
 SOURCE_ID_FIELD = "saltminer.asset.source_id"
 ASSET_NAME_FIELD = "saltminer.asset.name"
+SUPPRESSED_FIELD = "vulnerability.is_suppressed"
 
 
 def _dig(src, dotted):
@@ -390,7 +434,8 @@ def parse_iso(ts):
         return None
 
 
-def process_index(es, index, instance_filter, min_age_minutes, apply, protected_source_ids=None):
+def process_index(es, index, instance_filter, min_age_minutes, apply, protected_source_ids=None,
+                  refresh_protected=None):
     if instance_filter and not index.endswith(instance_filter.lower()):
         return None
 
@@ -448,11 +493,27 @@ def process_index(es, index, instance_filter, min_age_minutes, apply, protected_
         print(f"        - {repo or '(no repo attr)'}: {n}")
 
     if apply:
-        if ids is not None:
-            result["deleted"] = es.delete_ids(index, ids)
+        if ids is not None and protect_retired:
+            result["deleted"], skipped = es.delete_ids(
+                index, ids,
+                is_protected=lambda src: _dig(src, ISSUE_STATUS_FIELD) == ARCHIVED,
+                guard_suppressed=True)
+            result["archived_kept"] += skipped
+        elif ids is not None:
+            # Re-derive the protected repositories now, not from the earlier
+            # snapshot, then re-check each asset against them at delete time.
+            fresh = refresh_protected() if refresh_protected else set(protected_source_ids or ())
+            result["deleted"], skipped = es.delete_ids(
+                index, ids,
+                is_protected=lambda src: str(_dig(src, SOURCE_ID_FIELD)) in fresh
+                if _dig(src, SOURCE_ID_FIELD) is not None else False)
+            result["archived_kept"] += skipped
         else:
             result["deleted"] = es.delete_older_than(index, cutoff_iso, protect_retired)
         print(f"      DELETED       : {result['deleted']}")
+        if result.get("archived_kept", 0) > archived_kept:
+            print(f"      spared at delete time : {result['archived_kept'] - archived_kept}  "
+                  f"(became archived after the candidates were selected)")
     else:
         print(f"      DRY RUN       : would delete {count} (pass --apply to delete)")
     return result
@@ -474,10 +535,15 @@ def run_all(es, indices, instance, min_age_minutes, apply):
     for idx in order_indices(indices):
         try:
             protected = None
+            refresh = None
             if es.is_asset_index(idx):
                 sibling = es.sibling_issue_index(idx)
-                protected = es.archived_source_ids(sibling) if sibling in indices else set()
-            r = process_index(es, idx, instance, min_age_minutes, apply, protected)
+                if sibling in indices:
+                    protected = es.archived_source_ids(sibling)
+                    refresh = lambda sibling=sibling: es.archived_source_ids(sibling)
+                else:
+                    protected = set()
+            r = process_index(es, idx, instance, min_age_minutes, apply, protected, refresh)
             if r:
                 results.append(r)
         except Exception as exc:

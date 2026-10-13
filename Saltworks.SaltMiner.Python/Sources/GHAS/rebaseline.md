@@ -153,8 +153,13 @@ ones are left alone). It engages automatically when the state file is empty.
 > 2. Then deploy this change and re-baseline normally.
 >
 > The old build also hard-deletes the findings of archived repos, so step 1
-> removes those too. The new build cannot bring them back; only a re-baseline
-> restores what GitHub still returns.
+> removes those too. The new build cannot bring them back, and a re-baseline
+> does not either while the repository stays archived: an archived repository's
+> findings are only marked suppressed, never re-collected. To recover findings
+> an old build deleted, restore them from a backup of the issue index taken
+> before the deletion, or un-archive the repository on GitHub so the next
+> re-baseline ingests its alerts again (then archive it again; the findings
+> are marked suppressed on the next run that sees it archived).
 >
 > Skipping step 1 leaves those rows retired-but-present forever.
 
@@ -184,6 +189,9 @@ python3 -m Sources.GHAS.RunGHASAdapter --instance ghas2 --log-level INFO 2>&1 | 
   Reports decide how to count them. Needs `SMv3.ManagerApiKey` on the adapter
   host; without it each archived scope is listed as WRITE-FAILED and nothing
   is deleted.
+  A failed scope is also recorded in the state file (`archived_pending`) and
+  retried on the next run, including an incremental one; the record is
+  cleared only when the marking succeeds.
 - **The summary is the verdict.** Read the `GHAS SYNC SUMMARY` block at the end:
 
 ```
@@ -285,6 +293,10 @@ are kept on purpose (marked suppressed) and would otherwise match the stale
 run-tag selection. The dry run and `--apply` print `archived kept` for issues
 and `archived assets kept` for assets. The script reads the marker from each
 document's `_source`, so it works whether or not the index maps the attribute.
+Just before each `--apply` delete it re-reads the documents and re-derives which
+repositories are archived, and spares any that became archived after the
+candidates were selected (printed as `spared at delete time`). The issue delete
+also excludes `is_suppressed: true` in the query itself.
 
 > Note: orphan cleanup only has effect once at least one run has stamped the new
 > run-tag. The first post-deploy run establishes the baseline tag; orphans from

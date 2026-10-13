@@ -50,6 +50,7 @@ def make_issue(n, status=None, suppressed=False, alert_state="open", removed=Non
 class FakeState:
     def __init__(self, watermarks=None):
         self.watermarks = dict(watermarks or {})
+        self.pending = set()
         self.saved = 0
 
     def get_watermark(self, full_name, engine):
@@ -57,6 +58,15 @@ class FakeState:
 
     def clear_watermark(self, full_name, engine):
         self.watermarks.pop(f"{full_name}/{engine}", None)
+
+    def is_archived_pending(self, full_name, engine):
+        return f"{full_name}/{engine}" in self.pending
+
+    def set_archived_pending(self, full_name, engine):
+        self.pending.add(f"{full_name}/{engine}")
+
+    def clear_archived_pending(self, full_name, engine):
+        self.pending.discard(f"{full_name}/{engine}")
 
     async def save_async(self):
         self.saved += 1
@@ -195,6 +205,56 @@ class ArchivedPathTests(unittest.TestCase):
         self.assertEqual([len(b) for b in a._issue_writer.sent], [2, 2, 1])
         print(f"[TEST SUCCESS] {module}:test_batches_follow_batch_size")
 
+    def test_rebaseline_failure_is_retried_by_the_next_incremental_run(self):
+        # Re-baseline: no watermark for the archived scope, and the write fails.
+        first = make_adapter([make_issue(1)], rebaseline=True, watermark=False,
+                             fail_bulk=ArchivedWriteError("ManagerApiKey missing"))
+        run(first._suppress_archived_async(REPO, "code_scanning"))
+        self.assertEqual(len(first._write_failed_scopes), 1)
+        self.assertTrue(first._state.is_archived_pending("acme/old-repo", "code_scanning"))
+        self.assertGreaterEqual(first._state.saved, 1, "the retry marker must be saved to the state file")
+
+        # Next run is incremental (active scopes now have watermarks); the same state.
+        second = make_adapter([make_issue(1)], rebaseline=False, watermark=False)
+        second._state = first._state
+        run(second._suppress_archived_async(REPO, "code_scanning"))
+        self.assertEqual(len(second._issue_writer.sent), 1)
+        self.assertFalse(second._state.is_archived_pending("acme/old-repo", "code_scanning"))
+        self.assertEqual(second._write_failed_scopes, [])
+        print(f"[TEST SUCCESS] {module}:test_rebaseline_failure_is_retried_by_the_next_incremental_run")
+
+    def test_retry_marker_kept_while_the_retry_keeps_failing(self):
+        a = make_adapter([make_issue(1)], rebaseline=False, watermark=False,
+                         fail_bulk=ArchivedWriteError("HTTP 500"))
+        a._state.set_archived_pending("acme/old-repo", "code_scanning")
+        run(a._suppress_archived_async(REPO, "code_scanning"))
+        self.assertTrue(a._state.is_archived_pending("acme/old-repo", "code_scanning"))
+        print(f"[TEST SUCCESS] {module}:test_retry_marker_kept_while_the_retry_keeps_failing")
+
+    def test_no_marker_no_watermark_incremental_still_skips(self):
+        a = make_adapter([make_issue(1)], rebaseline=False, watermark=False)
+        run(a._suppress_archived_async(REPO, "code_scanning"))
+        self.assertEqual(a._issue_writer.sent, [])
+        self.assertFalse(a._state.is_archived_pending("acme/old-repo", "code_scanning"))
+        print(f"[TEST SUCCESS] {module}:test_no_marker_no_watermark_incremental_still_skips")
+
+    def test_state_file_round_trips_the_retry_marker(self):
+        import tempfile
+        from Sources.GHAS.GHASAdapter import GHASStateManager
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "state.json")
+            st = GHASStateManager(path)
+            st.load()
+            st.set_archived_pending("acme/old-repo", "code_scanning")
+            run(st.save_async())
+            again = GHASStateManager(path)
+            again.load()
+            self.assertTrue(again.is_archived_pending("acme/old-repo", "code_scanning"))
+            self.assertEqual(again.watermark_count(), 0)
+            again.clear_archived_pending("acme/old-repo", "code_scanning")
+            self.assertFalse(again.is_archived_pending("acme/old-repo", "code_scanning"))
+        print(f"[TEST SUCCESS] {module}:test_state_file_round_trips_the_retry_marker")
+
 
 class FakeResponse:
     def __init__(self, status, body):
@@ -327,6 +387,11 @@ class FakeES(oc.ESRest):
         self.issue_candidates = issue_candidates
         self.asset_candidates_hits = asset_candidates
         self.deletes = []
+        self.delete_queries = []
+        # What a live re-read at delete time returns; a test mutates it to
+        # simulate the adapter marking a finding archived after selection.
+        self.current = {h["_id"]: copy.deepcopy(h["_source"])
+                        for h in list(issue_candidates) + list(asset_candidates)}
 
     def scan(self, index, query, source_fields, page_size=1000):
         if index.startswith("issues") and "is_suppressed" in json.dumps(query):
@@ -336,9 +401,16 @@ class FakeES(oc.ESRest):
         return iter(self.asset_candidates_hits)
 
     def _req(self, method, path, body=None, params=None):
+        if path.endswith("/_search"):
+            wanted = body["query"]["ids"]["values"]
+            return {"hits": {"hits": [{"_id": d, "_source": self.current[d]}
+                                      for d in wanted if d in self.current]}}
         if path.endswith("_delete_by_query"):
-            self.deletes.append((path, body["query"]["ids"]["values"]))
-            return {"deleted": len(body["query"]["ids"]["values"])}
+            self.delete_queries.append(body["query"])
+            q = body["query"]
+            ids = q["ids"]["values"] if "ids" in q else q["bool"]["filter"][0]["ids"]["values"]
+            self.deletes.append((path, ids))
+            return {"deleted": len(ids)}
         raise AssertionError(f"unexpected request {method} {path}")
 
     def latest_run_ts(self, index):
@@ -441,6 +513,70 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual([d for d in es.deletes if "assets" in d[0]], [])
         print(f"[TEST SUCCESS] {module}:test_asset_protection_failure_deletes_nothing")
 
+
+    def test_finding_archived_after_selection_is_not_deleted(self):
+        index = "issues_app_saltworks.ghas_ghas1"
+        es = FakeES([], [ihit("a"), ihit("b"), ihit("c")], [])
+        # After the candidates were selected, the adapter marks "b" archived.
+        es.current["b"]["saltminer"]["attributes"]["issue_status"] = "archived"
+        es.current["b"]["vulnerability"] = {"is_suppressed": True}
+        r = oc.process_index(es, index, None, 120, True)
+        deleted_ids = [i for _, ids in es.deletes for i in ids]
+        self.assertEqual(sorted(deleted_ids), ["a", "c"])
+        self.assertEqual(r["deleted"], 2)
+        self.assertEqual(r["archived_kept"], 1)
+        print(f"[TEST SUCCESS] {module}:test_finding_archived_after_selection_is_not_deleted")
+
+    def test_issue_delete_query_itself_excludes_suppressed(self):
+        es = FakeES([], [ihit("a")], [])
+        oc.process_index(es, "issues_app_saltworks.ghas_ghas1", None, 120, True)
+        text = json.dumps(es.delete_queries[0])
+        self.assertIn("must_not", text)
+        self.assertIn("vulnerability.is_suppressed", text)
+        print(f"[TEST SUCCESS] {module}:test_issue_delete_query_itself_excludes_suppressed")
+
+    def test_suppressed_but_not_archived_orphan_is_still_deleted(self):
+        es = FakeES([], [ihit("s")], [])
+        es.current["s"]["vulnerability"] = {"is_suppressed": True}
+        oc.process_index(es, "issues_app_saltworks.ghas_ghas1", None, 120, True)
+        self.assertEqual([i for _, ids in es.deletes for i in ids], ["s"])
+        self.assertNotIn("must_not", json.dumps(es.delete_queries))
+        print(f"[TEST SUCCESS] {module}:test_suppressed_but_not_archived_orphan_is_still_deleted")
+
+    def test_asset_of_repo_archived_after_selection_is_not_deleted(self):
+        issues = "issues_app_saltworks.ghas_ghas1"
+        assets = "assets_app_saltworks.ghas_ghas1"
+
+        class Racing(FakeES):
+            """No archived finding at the first protection read; one by the second."""
+            reads = 0
+
+            def archived_source_ids(self, issue_index):
+                Racing.reads += 1
+                return set() if Racing.reads == 1 else {"Y"}
+        es = Racing([], [], [ahit("aX", "X"), ahit("aY", "Y")])
+        results = oc.run_all(es, [assets, issues], None, 120, True)
+        self.assertEqual([i for _, ids in es.deletes for i in ids], ["aX"])
+        asset_result = [r for r in results if r["index"] == assets][0]
+        self.assertEqual(asset_result["deleted"], 1)
+        print(f"[TEST SUCCESS] {module}:test_asset_of_repo_archived_after_selection_is_not_deleted")
+
+    def test_refresh_failure_at_delete_time_deletes_no_asset(self):
+        issues = "issues_app_saltworks.ghas_ghas1"
+        assets = "assets_app_saltworks.ghas_ghas1"
+
+        class Flaky(FakeES):
+            reads = 0
+
+            def archived_source_ids(self, issue_index):
+                Flaky.reads += 1
+                if Flaky.reads > 1:
+                    raise RuntimeError("ES down")
+                return set()
+        es = Flaky([], [], [ahit("aY", "Y")])
+        oc.run_all(es, [assets, issues], None, 120, True)
+        self.assertEqual(es.deletes, [])
+        print(f"[TEST SUCCESS] {module}:test_refresh_failure_at_delete_time_deletes_no_asset")
 
 
 class _State:
