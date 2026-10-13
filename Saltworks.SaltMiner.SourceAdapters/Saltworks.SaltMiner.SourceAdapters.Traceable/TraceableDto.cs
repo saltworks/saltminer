@@ -107,7 +107,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
         public FloatDto CvssScore { get; set; }
         public StringDto VulnerabilitySubCategory { get; set; }
         public StringDto DisplayName { get; set; }
-        public StringDto OwaspApiTop10 { get; set; }
+        public StringListDto OwaspApiTop10 { get; set; }
         public ApiEntityDto ApiEntity { get; set; }
     }
 
