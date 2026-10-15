@@ -61,6 +61,7 @@ namespace Saltworks.SaltMiner.Manager.IntegrationTests
             var assetIndex = Asset.GenerateIndex(assetType, sourceType, instance);
             var issueIndex = Issue.GenerateIndex(assetType, sourceType, instance);
             var scanIndex = Scan.GenerateIndex(assetType, sourceType, instance);
+            var snapshotIndex = Snapshot.GenerateIndex(assetType, true);
 
             try
             {
@@ -118,31 +119,43 @@ namespace Saltworks.SaltMiner.Manager.IntegrationTests
 
                 var sent = lines.Where(l => l.Contains("sending batch")).ToList();
                 // The Data API aggregates every active issue in the datastore and ignores the SourceId filter, so a shared
-                // datastore adds groups of its own: require at least the 3 batches our 250 groups need, each batch number once,
-                // and a normal end. A paging loop would repeat batches until the time limit and fail the checks above.
+                // datastore adds groups of its own and may need more than 3 batches. Batch numbers must be consecutive from 1,
+                // each once, with the highest at least 3. A paging loop would repeat batches until the time limit.
                 Assert.IsTrue(sent.Count >= 3, "Expected at least batches 1 to 3: " + string.Join(" | ", sent));
                 for (var n = 1; n <= sent.Count; n++)
                     Assert.AreEqual(1, sent.Count(l => l.Contains($"sending batch {n} to datastore")), $"batch {n}");
 
-                // Every seeded group was read exactly once: one bucket log line per group. (The snapshots go to the daily
-                // index, which the search endpoint does not read, so the log is the evidence of what was paged.)
-                Assert.AreEqual(groups, lines.Count(l => l.Contains("Bucket values") && l.Contains(sourceId)), "One bucket line per seeded group");
+                // The daily snapshots go to the "current" index. Exactly one document per seeded group, found by the seeded source id.
+                client.RefreshIndex(snapshotIndex);
+                Assert.AreEqual(groups, CountSnapshots(client, snapshotIndex, sourceId), "Snapshot documents for the seeded source id");
             }
             finally
             {
+                // No existing client call deletes by query on the daily index (SnapshotDelete reads the monthly one), so this
+                // run's documents can only go with the index. Drop it only when every document in it is this run's (a clean
+                // datastore); the index is rebuilt by every snapshot run. In a shared datastore it is left alone.
                 try
                 {
-                    client.SnapshotDelete(new SearchRequest
-                    {
-                        AssetType = assetType,
-                        Filter = new Filter { FilterMatches = new Dictionary<string, string> { { "Saltminer.Asset.SourceId", sourceId } } }
-                    });
+                    client.RefreshIndex(snapshotIndex);
+                    var all = client.IndexSearch<Snapshot>(new SearchRequest { PagingInfo = new PagingInfo(1) { TotalHitsCanBeTruncated = false } }, snapshotIndex);
+                    if (all.PagingInfo?.TotalHits == groups && CountSnapshots(client, snapshotIndex, sourceId) == groups)
+                        client.DeleteIndex(snapshotIndex);
                 }
                 catch (Exception) { /* best effort */ }
                 try { client.DeleteIndex(assetIndex); } catch (Exception) { /* best effort */ }
                 try { client.DeleteIndex(issueIndex); } catch (Exception) { /* best effort */ }
                 try { client.DeleteIndex(scanIndex); } catch (Exception) { /* best effort */ }
             }
+        }
+
+        private static long CountSnapshots(DataClient.DataClient client, string index, string sourceId)
+        {
+            var request = new SearchRequest
+            {
+                Filter = new Filter { FilterMatches = new Dictionary<string, string> { { "Saltminer.Asset.SourceId", sourceId } } },
+                PagingInfo = new PagingInfo(1) { TotalHitsCanBeTruncated = false }
+            };
+            return client.IndexSearch<Snapshot>(request, index).PagingInfo?.TotalHits ?? 0;
         }
     }
 }
