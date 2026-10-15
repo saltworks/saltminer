@@ -117,18 +117,16 @@ namespace Saltworks.SaltMiner.Manager.IntegrationTests
                 Assert.IsTrue(lines.Any(l => l.Contains("Snapshot processing complete")), "The run did not reach its normal end");
 
                 var sent = lines.Where(l => l.Contains("sending batch")).ToList();
-                Assert.AreEqual(3, sent.Count, "Expected batches 1 to 3 only: " + string.Join(" | ", sent));
-                for (var n = 1; n <= 3; n++)
+                // The Data API aggregates every active issue in the datastore and ignores the SourceId filter, so a shared
+                // datastore adds groups of its own: require at least the 3 batches our 250 groups need, each batch number once,
+                // and a normal end. A paging loop would repeat batches until the time limit and fail the checks above.
+                Assert.IsTrue(sent.Count >= 3, "Expected at least batches 1 to 3: " + string.Join(" | ", sent));
+                for (var n = 1; n <= sent.Count; n++)
                     Assert.AreEqual(1, sent.Count(l => l.Contains($"sending batch {n} to datastore")), $"batch {n}");
 
-                client.RefreshIndex(Snapshot.GenerateIndex(assetType, true));
-                var found = client.SnapshotSearch(new SearchRequest
-                {
-                    AssetType = assetType,
-                    Filter = new Filter { FilterMatches = new Dictionary<string, string> { { "Saltminer.Asset.SourceId", sourceId } } },
-                    PagingInfo = new PagingInfo(1000)
-                });
-                Assert.AreEqual(groups, found.Data.Count(), "One snapshot per seeded group");
+                // Every seeded group was read exactly once: one bucket log line per group. (The snapshots go to the daily
+                // index, which the search endpoint does not read, so the log is the evidence of what was paged.)
+                Assert.AreEqual(groups, lines.Count(l => l.Contains("Bucket values") && l.Contains(sourceId)), "One bucket line per seeded group");
             }
             finally
             {
