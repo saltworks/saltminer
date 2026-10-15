@@ -225,10 +225,14 @@ namespace Saltworks.SaltMiner.DataApi.Data
                         PagingInfo = null
                 };
             }
+            // Hand the composite after-key back so the caller can request the next page. Without it every request re-reads the first page.
             return new ElasticAggResponse()
             {
                 Results = result.Results.Select(agg => new ElasticAggResult(agg.Document)).ToList(),
-                    PagingInfo = null
+                PagingInfo = new PagingInfo
+                {
+                    AggregateKeys = result.PagingInfo?.AggregateKeys
+                }
             };
         }
 
