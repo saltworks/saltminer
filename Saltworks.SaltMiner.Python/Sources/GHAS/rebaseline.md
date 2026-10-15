@@ -28,13 +28,15 @@ What changed:
    state and is retried, and it is reported separately in the summary.
 3. **Re-baseline mode** — when the state file is empty, the client automatically
    uses gentler code-scanning settings so a cold full pull completes in one pass.
-4. **Archived-repo tombstone** — archived repos are purged from SaltMiner
-   (empty Scan+Asset with `ReplaceIssues=True`) instead of leaving phantom rows.
+4. **Archived-repo suppression** (PBI-102) — an archived repo's findings are
+   kept and marked `vulnerability.is_suppressed: true` plus
+   `saltminer.attributes.issue_status: archived`, once, on the run that first
+   detects the archiving. Nothing is deleted and no `removed_date` is set.
 5. **FIX-003** — FoundDate `+00:00Z` double-suffix corrected.
 6. **Run-tag** on every queued doc + a companion orphan-cleanup script for
    repos deleted/renamed at GitHub (which the adapter can't enumerate to purge).
 7. **Rewritten, categorized run summary** — rate-limited vs inaccessible vs
-   archived-purged vs ingested vs clean, so the failure mode is never again
+   archived-suppressed vs ingested vs clean, so the failure mode is never again
    misread.
 
 All new config fields are **optional**; existing `ghas1`/`ghas2` configs run
@@ -129,9 +131,9 @@ rm -f /etc/saltworks/saltminer-2.5.0/Sources/ghas3.json /tmp/ghas-test-state.jso
 
 ## 4. Re-baseline (full resync)
 
-A re-baseline forces every scope to first-sync and re-queue, AND tombstones
-every archived repo (purging the phantom rows). It engages automatically when
-the state file is empty.
+A re-baseline forces every scope to first-sync and re-queue, AND marks every
+archived repo's findings suppressed (findings not yet marked; already marked
+ones are left alone). It engages automatically when the state file is empty.
 
 > **Changed by RETIRE-001.** A re-baseline is no longer a clean rebuild via
 > hard delete. Active-repo scans now carry `ReplaceIssues=False`, so the
@@ -139,7 +141,9 @@ the state file is empty.
 > updated in place, and any existing issue absent from the batch is **retired**
 > (`RemovedDate = ScanDate`) rather than removed. Malformed or duplicate rows
 > are therefore no longer scrubbed by re-baselining — they are retired, and
-> they persist. Archived-repo tombstones still purge (`ReplaceIssues=True`).
+> they persist. Archived repos are no longer purged: their findings are kept, marked
+> suppressed (`is_suppressed: true`, `issue_status: archived`), and their
+> `last_updated` keeps the day the archiving was first detected.
 >
 > **One-time cutover.** Because of the above, purge before you deploy:
 >
@@ -147,6 +151,15 @@ the state file is empty.
 >    `ReplaceIssues=True`) to hard-delete the malformed rows left by the
 >    under-reporting incident.
 > 2. Then deploy this change and re-baseline normally.
+>
+> The old build also hard-deletes the findings of archived repos, so step 1
+> removes those too. The new build cannot bring them back, and a re-baseline
+> does not either while the repository stays archived: an archived repository's
+> findings are only marked suppressed, never re-collected. To recover findings
+> an old build deleted, restore them from a backup of the issue index taken
+> before the deletion, or un-archive the repository on GitHub so the next
+> re-baseline ingests its alerts again (then archive it again; the findings
+> are marked suppressed on the next run that sees it archived).
 >
 > Skipping step 1 leaves those rows retired-but-present forever.
 
@@ -171,14 +184,20 @@ python3 -m Sources.GHAS.RunGHASAdapter --instance ghas2 --log-level INFO 2>&1 | 
   empty) runs. This is intended — it's the cost of staying under the secondary
   limit. Plan for the run to take substantially longer than the ~25 min the old
   Onbe run took, and prefer off-peak hours for the first one.
-- **Archived repos tombstoned.** Every archived repo is purged (all engines).
-  This clears the known phantom rows (e.g. `OnbeEast/demoaccessibilitytesting`).
+- **Archived repos suppressed.** Every archived repo's findings (all engines)
+  are marked `is_suppressed: true` and `issue_status: archived`, and kept.
+  Reports decide how to count them. Needs `SMv3.ManagerApiKey` on the adapter
+  host; without it each archived scope is listed as WRITE-FAILED and nothing
+  is deleted.
+  A failed scope is also recorded in the state file (`archived_pending`) and
+  retried on the next run, including an incremental one; the record is
+  cleared only when the marking succeeds.
 - **The summary is the verdict.** Read the `GHAS SYNC SUMMARY` block at the end:
 
 ```
   ingested w/ alerts : <n>   (<N> alerts queued)
   clean (heartbeat)  : <n>
-  archived (purged)  : <n>
+  archived (suppressed): <n>   (<M> findings marked, <K> already marked)
   RATE-LIMITED       : 0     ← want zero; if >0 see §5
   INACCESSIBLE       : <n>   ← genuine permission/enablement only now
   failed (error)     : 0
@@ -235,14 +254,14 @@ adapter now preserves as closure history, and they carry `RemovedDate` so they
 sit outside the `is_active` alias the UI and dashboards read.
 
 They should match closely (small differences can be archived repos, which
-GitHub's org endpoint excludes but which you've now tombstoned, or alerts that
+GitHub's org endpoint excludes but whose findings are now suppressed, or alerts that
 changed state between the pull and the run).
 
 ---
 
 ## 7. Purge orphaned repos (deleted / renamed / transferred)
 
-The adapter cannot tombstone a repo it can no longer see in the org listing.
+The adapter cannot mark or clean a repo it can no longer see in the org listing.
 Those leftover docs are cleaned out of band with the run-tag the adapter now
 stamps on every document. Run from the **host** (where the `.env` is):
 
@@ -268,6 +287,17 @@ retirement change exists to preserve. The dry-run reports these as
 `retired kept`; expect that number to be non-zero and rising, and expect
 zero retired issues among the deletion candidates.
 
+PBI-102: it also **never deletes an issue marked `issue_status: archived`, nor
+the asset document of a repository that has such issues**. Archived findings
+are kept on purpose (marked suppressed) and would otherwise match the stale
+run-tag selection. The dry run and `--apply` print `archived kept` for issues
+and `archived assets kept` for assets. The script reads the marker from each
+document's `_source`, so it works whether or not the index maps the attribute.
+Just before each `--apply` delete it re-reads the documents and re-derives which
+repositories are archived, and spares any that became archived after the
+candidates were selected (printed as `spared at delete time`). The issue delete
+also excludes `is_suppressed: true` in the query itself.
+
 > Note: orphan cleanup only has effect once at least one run has stamped the new
 > run-tag. The first post-deploy run establishes the baseline tag; orphans from
 > before the deploy are cleaned on the first `--apply` after that run.
@@ -280,8 +310,8 @@ The state file is currently **not** bind-mounted, so it does not survive
 container recreation. Consequences:
 
 - If the container is recreated, the next run sees an empty state file and
-  performs a **full re-baseline automatically** (slower run, re-fires archived
-  tombstones). This is correct but expensive and unintended if it happens
+  performs a **full re-baseline automatically** (slower run, re-checks archived
+  repos; ones already marked are skipped). This is correct but expensive and unintended if it happens
   silently.
 - Therefore: treat the re-baseline you perform here as a **snapshot**, not a
   durable steady state, until a bind mount is added.
@@ -299,6 +329,6 @@ If anything misbehaves, restore the previous `GHASClient.py` / `GHASAdapter.py`
 and re-run. The state file format is unchanged (schema v2; the new code only
 *reads* `watermark_count` and *adds* `clear_watermark`, both backward
 compatible), so rolling the code back does not require touching state. Note
-that any archived-repo tombstones already applied remain applied (the phantom
-rows stay purged), which is the desired outcome regardless.
+that archived findings already marked suppressed stay marked, and the orphan
+cleanup script leaves them (and their repository's asset) alone.
 ```
