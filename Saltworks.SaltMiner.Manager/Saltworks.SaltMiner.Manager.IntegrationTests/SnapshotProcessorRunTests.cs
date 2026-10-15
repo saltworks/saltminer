@@ -53,8 +53,9 @@ namespace Saltworks.SaltMiner.Manager.IntegrationTests
             var client = factory.GetClient();
 
             var assetType = EnumExtensions.GetDescription(AssetType.App);
-            var run = Guid.NewGuid().ToString("N")[..8];
-            var sourceType = "pbi115" + run;
+            // Source type accepts letters and dots only, so the run suffix is letters, not hex.
+            var run = new string(Guid.NewGuid().ToString("N")[..8].Select(c => (char)('a' + Convert.ToInt32(c.ToString(), 16))).ToArray());
+            var sourceType = "snapshotpaging" + run;
             var sourceId = "pbi115-" + run;
             var instance = sourceType;
             var assetIndex = Asset.GenerateIndex(assetType, sourceType, instance);
