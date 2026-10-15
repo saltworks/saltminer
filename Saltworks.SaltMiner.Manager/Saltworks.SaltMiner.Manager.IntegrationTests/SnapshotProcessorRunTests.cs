@@ -1,0 +1,135 @@
+/* --[auto-generated, do not modify this block]--
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
+
+using Microsoft.Extensions.Logging;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Saltworks.SaltMiner.Core.Data;
+using Saltworks.SaltMiner.Core.Entities;
+using Saltworks.SaltMiner.Core.Extensions;
+using Saltworks.SaltMiner.Core.Util;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Saltworks.SaltMiner.Manager.IntegrationTests
+{
+    /// <summary>
+    /// PBI-115: needs Elasticsearch, a running Data API and settings.json (TestCategory Live).
+    /// </summary>
+    [TestClass]
+    public class SnapshotProcessorRunTests
+    {
+        private const int BatchSize = 100;
+
+
+
+        [TestMethod]
+        [TestCategory("Live")]
+        public void Run_MoreGroupsThanOneBatch_PagesThroughAllAndEnds()
+        {
+            const int groups = 250;
+            var config = Helpers.GetConfig();
+            var options = Helpers.GetDataClientOptions(config);
+            var factory = Helpers.CreateDataClientFactory<Manager>(options);
+            var client = factory.GetClient();
+
+            var assetType = EnumExtensions.GetDescription(AssetType.App);
+            var run = Guid.NewGuid().ToString("N")[..8];
+            var sourceType = "pbi115" + run;
+            var sourceId = "pbi115-" + run;
+            var instance = sourceType;
+            var assetIndex = Asset.GenerateIndex(assetType, sourceType, instance);
+            var issueIndex = Issue.GenerateIndex(assetType, sourceType, instance);
+
+            try
+            {
+                var asset = Mock.Asset(sourceType);
+                asset.Id = string.Empty;
+                asset.Saltminer.Engagement = null;
+                asset.Saltminer.Asset.AssetType = assetType;
+                asset.Saltminer.Asset.Instance = instance;
+                asset.Saltminer.Asset.SourceId = sourceId;
+                asset = client.AssetAddUpdate(asset).Data;
+
+                var issues = Enumerable.Range(0, groups).Select(i =>
+                {
+                    var issue = Mock.Issue(sourceType);
+                    issue.Id = string.Empty;
+                    issue.Saltminer.Asset.Id = asset.Id;
+                    issue.Saltminer.Asset.AssetType = assetType;
+                    issue.Saltminer.Asset.Instance = instance;
+                    issue.Saltminer.Asset.SourceId = sourceId;
+                    issue.Saltminer.IsHistorical = false;
+                    issue.Vulnerability.Name = $"pbi115-vuln-{i:D4}";
+                    return issue;
+                }).ToList();
+                client.IssuesAddUpdateBulk(issues);
+                client.RefreshIndex(assetIndex);
+                client.RefreshIndex(issueIndex);
+                Task.Delay(2000).Wait();
+
+                var logger = new CapturingLogger();
+                var managerConfig = new ManagerConfig { SnapshotProcessorApiBatchSize = BatchSize };
+                var processor = new SnapshotProcessor(logger, factory, managerConfig);
+                using var cts = new CancellationTokenSource();
+                var limit = TimeSpan.FromMinutes(5);
+                cts.CancelAfter(limit);
+
+                var runTask = Task.Run(() => processor.Run(new SnapshotRuntimeConfig(sourceType, sourceId, 0, false, cts.Token)));
+                var finished = runTask.Wait(limit + TimeSpan.FromSeconds(30));
+
+                string[] lines;
+                lock (logger.Lines) lines = logger.Lines.Select(l => l.Message).ToArray();
+                Assert.IsTrue(finished, "The run did not end within its time limit");
+                Assert.IsTrue(lines.Any(l => l.Contains("Snapshot processing complete")), "The run did not reach its normal end");
+
+                var sent = lines.Where(l => l.Contains("sending batch")).ToList();
+                Assert.AreEqual(3, sent.Count, "Expected batches 1 to 3 only: " + string.Join(" | ", sent));
+                for (var n = 1; n <= 3; n++)
+                    Assert.AreEqual(1, sent.Count(l => l.Contains($"sending batch {n} to datastore")), $"batch {n}");
+
+                client.RefreshIndex(Snapshot.GenerateIndex(assetType, true));
+                var found = client.SnapshotSearch(new SearchRequest
+                {
+                    AssetType = assetType,
+                    Filter = new Filter { FilterMatches = new Dictionary<string, string> { { "Saltminer.Asset.SourceId", sourceId } } },
+                    PagingInfo = new PagingInfo(1000)
+                });
+                Assert.AreEqual(groups, found.Data.Count(), "One snapshot per seeded group");
+            }
+            finally
+            {
+                try
+                {
+                    client.SnapshotDelete(new SearchRequest
+                    {
+                        AssetType = assetType,
+                        Filter = new Filter { FilterMatches = new Dictionary<string, string> { { "Saltminer.Asset.SourceId", sourceId } } }
+                    });
+                }
+                catch (Exception) { /* best effort */ }
+                try { client.DeleteIndex(assetIndex); } catch (Exception) { /* best effort */ }
+                try { client.DeleteIndex(issueIndex); } catch (Exception) { /* best effort */ }
+            }
+        }
+    }
+}
