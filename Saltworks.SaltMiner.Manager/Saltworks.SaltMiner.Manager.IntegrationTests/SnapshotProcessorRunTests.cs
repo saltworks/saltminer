@@ -60,6 +60,7 @@ namespace Saltworks.SaltMiner.Manager.IntegrationTests
             var instance = sourceType;
             var assetIndex = Asset.GenerateIndex(assetType, sourceType, instance);
             var issueIndex = Issue.GenerateIndex(assetType, sourceType, instance);
+            var scanIndex = Scan.GenerateIndex(assetType, sourceType, instance);
 
             try
             {
@@ -71,6 +72,16 @@ namespace Saltworks.SaltMiner.Manager.IntegrationTests
                 asset.Saltminer.Asset.SourceId = sourceId;
                 asset = client.AssetAddUpdate(asset).Data;
 
+                // The Data API rejects issues whose scan does not exist, so seed a scan for the same asset first.
+                var scan = Mock.Scan(sourceType);
+                scan.Id = string.Empty;
+                scan.Saltminer.Engagement = null;
+                scan.Saltminer.Asset.Id = asset.Id;
+                scan.Saltminer.Asset.AssetType = assetType;
+                scan.Saltminer.Asset.Instance = instance;
+                scan.Saltminer.Asset.SourceId = sourceId;
+                scan = client.ScanAddUpdate(scan).Data;
+
                 var issues = Enumerable.Range(0, groups).Select(i =>
                 {
                     var issue = Mock.Issue(sourceType);
@@ -79,6 +90,8 @@ namespace Saltworks.SaltMiner.Manager.IntegrationTests
                     issue.Saltminer.Asset.AssetType = assetType;
                     issue.Saltminer.Asset.Instance = instance;
                     issue.Saltminer.Asset.SourceId = sourceId;
+                    issue.Saltminer.Scan.Id = scan.Id;
+                    issue.Saltminer.Engagement = null;
                     issue.Saltminer.IsHistorical = false;
                     issue.Vulnerability.Name = $"pbi115-vuln-{i:D4}";
                     return issue;
@@ -130,6 +143,7 @@ namespace Saltworks.SaltMiner.Manager.IntegrationTests
                 catch (Exception) { /* best effort */ }
                 try { client.DeleteIndex(assetIndex); } catch (Exception) { /* best effort */ }
                 try { client.DeleteIndex(issueIndex); } catch (Exception) { /* best effort */ }
+                try { client.DeleteIndex(scanIndex); } catch (Exception) { /* best effort */ }
             }
         }
     }
