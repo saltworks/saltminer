@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -32,15 +36,17 @@ namespace Saltworks.SaltMiner.JobManager
         private readonly JobManagerConfig Config;
         private readonly JobService JobService;
         private readonly IServiceProvider ServiceProvider;
+        private readonly ReportGenerator ReportGenerator;
         private static IConsoleAppHostArgs HostArgs;
 
         // Dependencies are injected via dependency injection, default logging and configuration available, and any customs specified in the builder
-        public JobManager(ILogger<JobManager> logger, JobManagerConfig config, JobService jobService, IServiceProvider serviceProvider)
+        public JobManager(ILogger<JobManager> logger, JobManagerConfig config, JobService jobService, IServiceProvider serviceProvider, ReportGenerator reportGenerator)
         {
             Logger = logger;
             Config = config;
             JobService = jobService;
             ServiceProvider = serviceProvider;
+            ReportGenerator = reportGenerator;
             Logger.LogInformation("Initialized...");
         }
 
@@ -56,6 +62,7 @@ namespace Saltworks.SaltMiner.JobManager
                 if (args.Args[0] == OperationType.Service.ToString("g"))
                 {
                     Logger.LogInformation("Service starting.  Data API client is using base url '{dataApiBaseUrl}'", Config.DataApiBaseUrl);
+                    ReportGenerator.CheckAtStartup(Config.ReportAttachmentType);
                     var runConfig = ServiceRuntimeConfig.FromArgs(args);
                     ExecuteAsync(runConfig.CancelToken).Wait();
                 }

@@ -1,30 +1,43 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Util;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.DataClient.IntegrationTests
 {
     public static class Helpers
     {
+        private static readonly ConcurrentBag<string> _indicesToDelete = new();
 
         public static DataClient GetDataClient<T>(DataClientOptions options) where T: class
         {
@@ -64,7 +77,7 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
 
         public static Config GetConfig(bool admin = false, bool manager = false)
         {
-            var config = System.Text.Json.JsonSerializer.Deserialize<Config>(System.IO.File.ReadAllText("settings.json"));
+            var config = JsonSerializer.Deserialize<Config>(File.ReadAllText("settings.json"));
             
             if (manager)
             {
@@ -107,37 +120,72 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
             };
         }
 
-        public static void CleanIndex(DataClient Client, string indexType)
+        /// <summary>
+        /// Bulk adds/updates TestEntity documents to the specified index.
+        /// </summary>
+        /// <param name="client">DataClient instance to use for the operation.</param>
+        /// <param name="index">The index where the entities will be added or updated.</param>
+        /// <param name="count">The number of entities to add or update.</param>
+        /// <param name="category">The category to assign to all entities.</param>
+        public static NoDataResponse BulkAddUpdateTestEntities(DataClient client, string index, int count, string category = "") =>
+            BulkAddUpdateTestEntities(client, index, count, x => category);
+
+        /// <summary>
+        /// Bulk adds/updates TestEntity documents to the specified index.
+        /// </summary>
+        /// <param name="client">DataClient instance to use for the operation.</param>
+        /// <param name="index">The index where the entities will be added or updated.</param>
+        /// <param name="count">The number of entities to add or update.</param>
+        /// <param name="categoryFn">Function to assign category to entities based on their index.</param>
+        public static NoDataResponse BulkAddUpdateTestEntities(DataClient client, string index, int count, Func<int, string> categoryFn = null)
         {
-            var assetType = AssetType.Mocked.ToString();
-            var sourceType = "DataClient";
-            var instance = "UnitTest";
-
-            switch (indexType)
+            var entities = new List<TestItem>();
+            for (int i = 0; i < count; i++)
             {
-                case "asset":
-                    Client.DeleteIndex(Asset.GenerateIndex(assetType, sourceType));
-                    break;
-                case "scan":
-                    Client.DeleteIndex(Scan.GenerateIndex(assetType, sourceType));
-                    break;
-                case "issue":
-                    Client.DeleteIndex(Issue.GenerateIndex(assetType, sourceType));
-                    break;
+                entities.Add(new TestItem
+                {
+                    Name = $"Test Item {i + 1}",
+                    Value = i + 1,
+                    Date = DateTime.UtcNow.AddDays(-i),
+                    Category = categoryFn != null ? categoryFn(i) : "",
+                    Id = $"{i:D4}"
+                });
             }
+            return client.IndexBulk(new JsonDataRequest 
+            { 
+                TypeName = typeof(TestItem).FullName, 
+                Documents = entities.Select(e => JsonSerializer.SerializeToNode(e).AsObject())
+            }, index);
+        }
 
-            sourceType = "Mocked";
-            switch (indexType)
+        /// <summary>
+        /// Register an index for deletion at the end of the test run.
+        /// </summary>
+        public static void RegisterDeleteIndex(string index)
+        {
+            if (!string.IsNullOrWhiteSpace(index))
+                _indicesToDelete.Add(index);
+        }
+
+        /// <summary>
+        /// Deletes all indices registered via RegisterDeleteIndex. Safe to call multiple times.
+        /// </summary>
+        public static void CleanupRegisteredIndices()
+        {
+            var config = GetConfig(admin: true);
+            var options = GetDataClientOptions(config);
+            var client = GetDataClient<AssemblyHooks>(options);
+
+            while (_indicesToDelete.TryTake(out var idx))
             {
-                case "asset":
-                    Client.DeleteIndex(Asset.GenerateIndex(assetType, sourceType));
-                    break;
-                case "scan":
-                    Client.DeleteIndex(Scan.GenerateIndex(assetType, sourceType));
-                    break;
-                case "issue":
-                    Client.DeleteIndex(Issue.GenerateIndex(assetType, sourceType));
-                    break;
+                try
+                {
+                    client.DeleteIndex(idx);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error deleting index {idx}: {ex.Message}");
+                }
             }
         }
     }

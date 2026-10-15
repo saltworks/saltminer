@@ -139,7 +139,6 @@ if [ "$ok" == y ]; then
   echo "tail -f $smlog3/smapi-$date.log"
   echo "Watch for \"Application started. Press Ctrl+C to shut down.\" in the log to indicate API upgrade is complete."
   
-  cmd="pip install -r $smapp2/requirements.txt"
   read -p "No errors in API, and upgrade complete (y/n)? [y] " ok
   if [ -z "$ok" ]; then ok="y"; fi
   if [ "$ok" == y ]; then
@@ -148,7 +147,9 @@ if [ "$ok" == y ]; then
     echo "sudo systemctl start kestrel-saltminer-ui-api"
     echo "sudo systemctl start saltminer-service-manager"
     echo "sudo systemctl start saltminer-job-manager"
-    echo "$cmd"
+    echo "cd $smapp2"
+    echo "source .venv/bin/activate"
+    echo "pip install -r requirements.txt"
   fi
 # TODO: add grep error checking, ask before proceeding
 
@@ -158,14 +159,19 @@ if [ "$ok" == y ]; then
   sudo systemctl start saltminer-job-manager
       
   if [ "$os" == "U" ]; then
-    echo "Running pip install for SM25 dependencies"
+    echo "Setting up python dependencies..."
+    cmd="source $smapp2/.venv/bin/activate"
     sudo su svc-saltminer -c "$cmd"
+    cmd="pip install -r $smapp2/requirements.txt"
+    sudo su svc-saltminer -c "$cmd"
+    sudo su svc-saltminer -c "deactivate"
   else
-    echo "Attempting pip install for SM25 dependencies, only supports python 3.9 right now on this OS because of the versioned calls (pip3.9, python3.9)"
-    cmd="pip3.9 install -r $smapp2/requirements.txt"
-    sudo su svc-saltminer -c "$cmd"
-  fi
-  
+    echo "Use the following commands to setup python's virtual environment and dependencies"
+    echo "cd $smapp2"
+    echo "python3 -m venv .venv"
+    echo "source .venv/bin/activate"
+    echo "pip install -r requirements.txt"
+  fi 
 fi
 
 echo ""

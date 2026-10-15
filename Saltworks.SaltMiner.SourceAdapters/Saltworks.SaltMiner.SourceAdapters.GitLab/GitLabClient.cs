@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
@@ -38,7 +42,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
 
         public async Task<GraphQLResponse<ProjectGroupDto>> GetProjectsByGroupAsync(string projectGroupFullPath, string nextBatchLink = "", int batchSize = 100)
         {
-            var request = @"{""query"": ""query { group(fullPath: \""~3~\"") { projects (first: ~1~ ~2~) { pageInfo { hasNextPage endCursor hasPreviousPage startCursor } nodes { id  name nameWithNamespace description  fullPath openIssuesCount path repository { diskPath empty exists rootRef } createdAt group {fullName fullPath name} lastActivityAt topics updatedAt} } } }""}";
+            var request = @"{""query"": ""query { group(fullPath: \""~3~\"") { projects (first: ~1~ ~2~) { pageInfo { hasNextPage endCursor hasPreviousPage startCursor } nodes { id  name nameWithNamespace description  fullPath openIssuesCount path archived repository { diskPath empty exists rootRef } createdAt group {fullName fullPath name} lastActivityAt topics updatedAt} } } }""}";
             var result = await RequestAsync<GraphQLResponse<ProjectGroupDto>>(SetRequestOptions(request, nextBatchLink, batchSize, projectGroupFullPath));
             return CheckContent(result);
         }
@@ -91,7 +95,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
 
         public SourceMetric GetSourceMetric(ProjectNodeDto project, DateTime? latestScanDate = null)
         {
-            var issueCounts = 0; // project.Meta.LatestIssueCounts;
             return new SourceMetric
             {
                 LastScan = latestScanDate,
@@ -100,11 +103,11 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                 SourceType = Config.SourceType,
                 SourceId = project.Id,
                 VersionId = "",
-                Attributes = new Dictionary<string, string>(),
+                Attributes = [],
             };
         }
 
-        private string SetRequestOptions(string request, string nextBatchLink, int batchSize, string projectFullPath = "")
+        private static string SetRequestOptions(string request, string nextBatchLink, int batchSize, string projectFullPath = "")
         {
             request = request.Replace("~1~", Convert.ToString(batchSize));
             var afterOption = !string.IsNullOrEmpty(nextBatchLink) ? $@", after: \""{nextBatchLink}\""" : string.Empty;
@@ -116,7 +119,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
             return request;
         }
 
-        private string SetRequestOptions(string request, string projectFullPath)
+        private static string SetRequestOptions(string request, string projectFullPath)
         {
             request = request.Replace("~1~", projectFullPath);
             return request;
@@ -135,24 +138,24 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                     var rc = r.RawContent.Length > 1000 ? r.RawContent[..999] : r.RawContent;
                     if (retries > Config.ApiRetryCount)
                     {
-                        Logger.LogError("API call failure (http 500 response) - first 1000 chars of raw content: {rc}", rc);
+                        Logger.LogError("API call failure (http 500 response) - first 1000 chars of raw content: {Rc}", rc);
                         throw new GitLabException($"API call failed with 500 server error, max retries of {retries} reached.");
                     }
                     else
                     {
-                        Logger.LogWarning("API call failure (http 500 response), will retry in 90 sec - first 1000 chars of raw content: {rc}", rc);
+                        Logger.LogWarning("API call failure (http 500 response), will retry in 90 sec - first 1000 chars of raw content: {Rc}", rc);
                         await Task.Delay(90000);
                         return await RequestAsync<T>(jsonRequestBody, retries + 1);
                     }
                 }
             }
-            catch (ApiClientUnauthorizedException)
+            catch (ApiClientUnauthorizedException ex)
             {
                 if (retries > 0)
                 {
                     throw new GitLabClientAuthenticationException("Failed authentication retry.");
                 }
-                Logger.LogWarning("Token invalid/missing, attempting to obtain new token");
+                Logger.LogWarning(ex, "Token invalid/missing, attempting to obtain new token");
                 return await RequestAsync<T>(jsonRequestBody, retries + 1);
             }
             catch (TimeoutException)

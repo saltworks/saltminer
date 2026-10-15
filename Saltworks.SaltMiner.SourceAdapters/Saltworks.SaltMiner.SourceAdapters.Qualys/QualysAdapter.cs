@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Extensions;
@@ -156,14 +160,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
                 throw new QualysValidationException("Invalid configuration - source type");
             }
 
+            // We don't currently track where we are in processing, just start and complete.  Would be good to add it
             SyncRecord.State = SyncState.InProgress;
             SyncRecord.Data = DateToString(DateTime.UtcNow);
             LocalData.AddUpdate(SyncRecord, true);
             try
             {
                 await Task.WhenAll(SyncHostsAsync(startDate), SyncScansAsync(startDate));
-                SyncRecord.State = SyncState.Completed;
-                LocalData.AddUpdate(SyncRecord);
+                SyncComplete(SyncRecord);
                 Logger.LogInformation("[Sync] Sync complete.");
             }
             catch (TaskCanceledException)
@@ -531,7 +535,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
         {
             try
             {
-                return DateTime.ParseExact(date, Config.SyncRecordDateFormat, new CultureInfo("en-US"));
+                return DateTime.ParseExact(date, Config.SyncRecordDateFormat, CultureInfo.InvariantCulture);
             }
             catch (Exception ex)
             {
@@ -732,6 +736,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Qualys
                     },
                     Saltminer = new()
                     {
+                        IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
                         Attributes = new() { 
                             { "type", issue.Type },
                             { "status", issue.Status },

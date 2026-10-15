@@ -1,15 +1,19 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
@@ -21,16 +25,16 @@ from requests.auth import HTTPBasicAuth
 from datetime import timedelta
 
 from Core.RestClient import RestClient
-from Core.Application import ElasticClient
+from Core.ElasticClient import ElasticClient
 
 from jira import JIRA
 
 class JiraClient:
     def __init__(self, settings):
         self._Es = ElasticClient(settings)
-        self.url = settings.Get('JiraImport', 'Url')
-        self.userName = settings.Get('JiraImport', 'UserName')
-        self.apiKey = settings.Get('JiraImport', 'ApiKey')
+        self.url = settings.GetSource('JiraImport', 'Url')
+        self.userName = settings.GetSource('JiraImport', 'UserName')
+        self.apiKey = settings.GetSource('JiraImport', 'ApiKey')
         self.jira = JIRA(self.url, basic_auth=(self.userName, self.apiKey))
         #self.jira_task_ids = self.getCurrentJiraIssues()
 
@@ -65,11 +69,12 @@ class JiraClient:
         return update_list
 
     def addNewIssue(self, key, issuetype, project, issue, formattedIssue, addLabel= None, attachement = None, directClose = False, cve = None):
+        priority = str(issue.get('priority') or "Info")
         fields = {
             "project":{"key": project},
             "summary": "SM-" + issue['summary'],
             "description": formattedIssue,
-            "priority": {'name': str(issue['priority'])},
+            "priority": {'name': priority},
             "duedate": issue['due_date'],
             "issuetype": {'name': issuetype}
         }

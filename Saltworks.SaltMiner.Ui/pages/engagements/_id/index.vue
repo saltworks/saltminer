@@ -41,7 +41,7 @@
         </div>
         <div v-click-outside="handleSettingsToggle" class="header-right">
           <span class="last-modified">{{ lastModified }}</span>
-          <template v-if="engagement.status === 'Error'">
+          <template v-if="allowReset(engagement.status)">
             <ButtonComponent
             label="Reset to Draft"
             :theme="`danger`"
@@ -402,8 +402,10 @@
                 Please select a template to use.
               </p>
               <DropdownControl
+                :key="reportTemplateDropdownKey"
                 theme="solid"
                 :options="reportTemplateDropdownOptions"
+                :value="reportTemplate"
                 @update="handleTemplateUpdate"
               />
               <div class="report-submit" @click="reportEngagement">
@@ -615,6 +617,8 @@ import SlideModal from '../../../components/controls/SlideModal.vue'
 import CancelEngagement from '../../../components/CancelEngagement.vue'
 import LogHistory from '../../../components/LogHistory.vue'
 import helpers from '../../../components/Utility/helpers'
+import attachmentOrder from '../../../components/Utility/attachmentOrder'
+import reportTemplateDefault from '../../../components/Utility/reportTemplateDefault'
 import AlertComponent from '../../../components/AlertComponent'
 import isValidUser from '../../../middleware/is-valid-user'
 import LoadingComponent from '../../../components/LoadingComponent'
@@ -834,6 +838,7 @@ export default {
       stateDropdownOptions: [],
       reportTemplateDropdownOptions: [],
       reportTemplate: '',
+      reportTemplateDropdownKey: 0,
       statusFilters: [],
       defaultFilter: {
         display: 'All Fields',
@@ -1069,6 +1074,9 @@ export default {
     checkRequiredValue(val) {
       return val == null || (typeof val === 'string' ? val.replace(/<br\s*\/?>/gi, "").replace(/\s+/g, "").trim() === '' : val === '' || JSON.stringify(val) === "[]") || val === []
     },
+    allowReset(status) {
+      return status === 'Error' || status === 'Queued' || status === 'Processing'
+    },
     allRequiredFieldsComplete() {
       const requiredList = this.attributeCustomizations.filter((v) => v.isRequired && Object.entries(this.engagement.attributes).find(([key, value]) => key === v.name && this.checkRequiredValue(value)))
 
@@ -1301,7 +1309,16 @@ export default {
         }
       }
       if (action === 'Checkout') {
-        this.handleCheckout()
+        if (this.engagement.draftEngagementId) {
+          const confirm = await this.$refs.confirmDialog.show("This engagement is already checked out. Would you like to view it?", "Already Checked Out");
+          if (confirm) {
+            this.$router.push({
+              path: `/engagements/${this.engagement.draftEngagementId}`,
+            })
+          }
+        } else {
+          this.handleCheckout()
+        }
       }
     },
     handleReport() {
@@ -1533,7 +1550,11 @@ export default {
     },
     handleReportToggle() {
       this.toggleReport = !this.toggleReport
-      this.reportTemplate = this.reportTemplateDropdownOptions[0].value
+      this.reportTemplate = reportTemplateDefault.defaultReportTemplate(
+        this.reportTemplateDropdownOptions
+      )
+      // DropdownControl reads `value` only when it mounts, so remount it to show the default.
+      this.reportTemplateDropdownKey++
     },
     handleUpdateEngagement(field = '', value = '') {
       if (this.isDisabled) return
@@ -1741,10 +1762,6 @@ export default {
         value: this.search.query,
       }
 
-      if(JSON.stringify(this.sortFilters) === "{}") {
-        this.sortFilters.name = true
-      }
-
       const body = {
         searchFilters: [searchFilter],
         engagementId: `${this.id}`,
@@ -1815,7 +1832,10 @@ export default {
             r.data?.reportTemplateDropdown.sort((a, b) => {
               return a.display.localeCompare(b.display)
             }) ?? []
-          this.reportTemplate = this.reportTemplateDropdownOptions[0]?.value ?? ""
+          this.reportTemplate = reportTemplateDefault.defaultReportTemplate(
+            this.reportTemplateDropdownOptions
+          )
+          this.reportTemplateDropdownKey++
           this.search.facets =
             r.data?.searchFilters?.map((facet) => {
               return {
@@ -1887,11 +1907,14 @@ export default {
               this.engagement.summary = r.data.summary
               this.engagement.customer = r.data.customer
               this.engagement.subtype = r.data.subtype
-              this.engagement.attachments = 
+              this.engagement.draftEngagementId = r.data.draftEngagementId
+              this.engagement.attachments =
                 r.data.attachments !== null ?
-                r.data.attachments.map(function(attachment) { 
-                  return attachment.attachment; 
-                }) : []
+                attachmentOrder.sortAttachmentsNewestFirst(
+                  r.data.attachments.map(function(attachment) {
+                    return { ...attachment.attachment, timestamp: attachment.timestamp };
+                  })
+                ) : []
               this.engagement.status = r.data.status
 
               // need the scanid to filter log history if 'published' status.
@@ -1904,7 +1927,7 @@ export default {
               this.statusStep =
                 this.engagement.status === 'Draft' ? 'Publish' : 'Checkout'
               this.isTemplate = this.engagement.subtype === "Template"
-              
+
               if(this.isTemplate)
               {
                 this.dropdownButtonOptions = this.dropdownButtonTemplateOptions

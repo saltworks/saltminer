@@ -1,20 +1,25 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
-﻿using Saltworks.SaltMiner.Core.Email;
+using Microsoft.Extensions.FileProviders.Physical;
+using Saltworks.SaltMiner.Core.Email;
 using Saltworks.SaltMiner.Ui.Api.Authentication;
 using Saltworks.SaltMiner.Ui.Api.Extensions;
 using Saltworks.SaltMiner.Ui.Api.Models;
@@ -99,7 +104,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
 
         public UiDataItemResponse<KibanaUser> GetMe(string cookie, HttpContext context = null)
         {
-            Logger.LogInformation("Get Me for cookie '{Cookie}' initiated", cookie);
+            Logger.LogInformation("Get Me for cookie '{Cookie}' initiated", cookie[^8..]);
             
             if (string.IsNullOrEmpty(cookie))
             {
@@ -130,15 +135,20 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
             KibanaUser result = null;
             try
             {
-                result = GetApiClient().GetAsync<KibanaUser>(url).Result.Content;
+                var rsp = GetApiClient().GetAsync<KibanaUser>(url);
+                Logger.LogDebug("Kibana profile response: [{StatusCode}] {Msg}", rsp.Result.StatusCode, rsp.Result.RawContent);
+                result = rsp.Result.Content;
             }
             catch (AggregateException ex)
             {
-                var inex = ex.InnerException?.InnerException;
+                var inex = ex.InnerException?.InnerException ?? ex.InnerExceptions.FirstOrDefault() ?? ex;
+                Logger.LogError("Kibana auth request error: [{Type}] {Msg}", inex.GetBaseException().GetType().Name, inex.GetBaseException().Message);
                 if (inex is System.Security.Authentication.AuthenticationException && ex.InnerException.Source == "System.Net.Http" && ex.InnerException.Message.Contains("SSL"))
-                {
-                    throw new UiApiSslException($"SSL error when attempting to call Kibana: {inex.Message}", ex.InnerException);
-                }
+                    throw new UiApiSslException($"SSL error when attempting to call Kibana: {inex.Message}", inex);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Kibana auth request error: [{Type}] {Msg}", ex.GetBaseException().GetType().Name, ex.GetBaseException().Message);
             }
             if (result == null)
             {

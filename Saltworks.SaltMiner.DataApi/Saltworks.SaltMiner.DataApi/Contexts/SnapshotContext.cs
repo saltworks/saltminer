@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Saltworks.SaltMiner.DataApi.Models;
 using Saltworks.SaltMiner.DataApi.Data;
@@ -42,7 +46,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             Logger.LogInformation("AddUpdate: Id '{id}'", request.Entity.Id ?? "[new]");
             var index = Snapshot.GenerateIndex(request.Entity.Saltminer.Asset.AssetType, isDaily);
-            ElasticClient.CreateIndex(index);
+            ElasticClient.IndexCreate(index);
 
             //Ensure Index Exists in IndexMeta Index
             CheckForIndexMeta<Snapshot>(index);
@@ -61,12 +65,12 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             if (isDaily)
             {
-                ElasticClient.DeleteIndex($"snapshots_{request.Documents.First().Saltminer.Asset.AssetType}_current");
+                ElasticClient.IndexDelete($"snapshots_{request.Documents.First().Saltminer.Asset.AssetType}_current");
             }
 
             Logger.LogInformation("AddUpdateBulk: Count '{count}'", request.Documents.Count());
             var index = Snapshot.GenerateIndex(request.Documents.First().Saltminer.Asset.AssetType, isDaily);
-            ElasticClient.CreateIndex(index);
+            ElasticClient.IndexCreate(index);
 
             foreach(var doc in request.Documents)
             {
@@ -76,7 +80,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             //Ensure Index Exists in IndexMeta Index
             CheckForIndexMeta<Snapshot>(index);
 
-            return ElasticClient.AddUpdateBulk(request.Documents, index).ToBulkResponse();
+            return ElasticClient.BulkAddUpdate(request.Documents, index).ToBulkResponse();
         }
 
         public NoDataResponse DeleteByQuery(SearchRequest request)
@@ -88,10 +92,10 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
         public DataDictionaryResponse<string, Dictionary<string, double?>> SnapshotAggregates(SearchRequest request)
         {
-            if ((request.PitPagingInfo?.AggregateKeys?.Count ?? 0) > 0)
+            if ((request.PagingInfo?.AggregateKeys?.Count ?? 0) > 0)
             {
-                Logger.LogInformation("SnapshotAggregates: {count} scroll aggregate keys passed to resume prior query", string.Join("|", request.PitPagingInfo?.AggregateKeys?.Select(v => v.ToString())));
-                Logger.LogDebug("Scroll Aggregate Keys contents: {content}", string.Join("|", request.PitPagingInfo?.AggregateKeys?.Select(v => v.ToString())));
+                Logger.LogInformation("SnapshotAggregates: {count} scroll aggregate keys passed to resume prior query", string.Join("|", request.PagingInfo?.AggregateKeys?.Select(v => v.ToString())));
+                Logger.LogDebug("Scroll Aggregate Keys contents: {content}", string.Join("|", request.PagingInfo?.AggregateKeys?.Select(v => v.ToString())));
             }
             else
             {
@@ -121,7 +125,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             var aggList = sumAggFields.Select(x => ElasticClient.BuildRequestAggregate(x, x, ElasticAggregateType.Sum)).ToList();
 
-            var response = DataRepo.SnapshotAggregates(request.PitPagingInfo ?? new PitPagingInfo(), sourceFields, aggList, request.AssetType);
+            var response = DataRepo.SnapshotAggregates(request.PagingInfo ?? new PagingInfo(), sourceFields, aggList, request.AssetType);
             var resultDict = new Dictionary<string, Dictionary<string, double?>>();
             
             foreach (var composite in response.Results)
@@ -132,8 +136,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             return new DataDictionaryResponse<string, Dictionary<string, double?>>()
             {
                 Results = resultDict,
-                UIPagingInfo = response.UIPagingInfo,
-                PitPagingInfo = response.PitPagingInfo
+                PagingInfo = response.PagingInfo
             };
         }
     }

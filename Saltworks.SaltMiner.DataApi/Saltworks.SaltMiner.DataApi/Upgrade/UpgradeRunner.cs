@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Saltworks.SaltMiner.Core.Data;
@@ -331,27 +335,19 @@ namespace Saltworks.SaltMiner.DataApi.Upgrade
         internal static void IndexEtl<T>(SaltMinerIndexData index, string tempIndexName, IDataRepo data, IEnumerable<IUpgradeStep> steps, ILogger logger) where T : SaltMinerEntity
         {
             logger.Information("[UpgradeRunner] Starting ETL for {Index}", index.Name);
-            var request = new SearchRequest
-            {
-                UIPagingInfo = new UIPagingInfo
-                {
-                    Size = 500,
-                    Page = 1
-                }
-            };
-
-            var batchResponse = data.Search<T>(request, tempIndexName);
+            var request = new SearchRequest { PagingInfo = new(500) };
+            var batchResponse = data.Search<T>(tempIndexName, request);
             var batch = batchResponse?.Data;
             
             logger.Debug("[UpgradeRunner] Starting Batch Calls for ${Index}", tempIndexName);
-            logger.Information("[UpgradeRunner] {Index}: {Total} total records to update, {Batches} required batch calls", index.Name, batchResponse.UIPagingInfo.Total, batchResponse.UIPagingInfo.TotalPages);
+            logger.Information("[UpgradeRunner] {Index}: {Total} total records to update, {Batches} required batch calls", index.Name, batchResponse.PagingInfo.TotalHits, batchResponse.PagingInfo.TotalPages);
 
             while (batch != null && batch.Any())
             {
-                logger.Debug("[UpgradeRunner] Starting {Name} batch #{Page}", index.Name, batchResponse.UIPagingInfo.Page);
-                if(batchResponse.UIPagingInfo.Total > 10 && batchResponse.UIPagingInfo.Page % 10 == 0)
+                logger.Debug("[UpgradeRunner] Starting {Name} batch #{Page}", index.Name, batchResponse.PagingInfo.Page);
+                if (batchResponse.PagingInfo.TotalHits > 10 && batchResponse.PagingInfo.Page % 10 == 0)
                 {
-                    logger.Information("[UpgradeRunner] Working on {Name} Batch {Page} of {TotalPages}", index.Name, batchResponse.UIPagingInfo.Page, batchResponse.UIPagingInfo.TotalPages);
+                    logger.Information("[UpgradeRunner] Working on {Name} Batch {Page} of {TotalPages}", index.Name, batchResponse.PagingInfo.Page, batchResponse.PagingInfo.TotalPages);
                 }
                 foreach (var step in steps)
                 {
@@ -366,17 +362,15 @@ namespace Saltworks.SaltMiner.DataApi.Upgrade
                     }
                 }
 
-                logger.Debug("[UpgradeRunner] Updating {Name} batch #{Page}", index.Name, batchResponse.UIPagingInfo.Page);
+                logger.Debug("[UpgradeRunner] Updating {Name} batch #{Page}", index.Name, batchResponse.PagingInfo.Page);
                 var brsp = data.AddUpdateBulk(batch, index.Name);
                 if (!brsp.Success || brsp.BulkErrors.Count > 0)
                 {
                     throw new ApiUpgradeException($"Bulk operation failure during upgrade of index {index.Name}.");
                 }
 
-                request.AfterKeys = batchResponse.AfterKeys;
-                request.UIPagingInfo.Page = batchResponse.UIPagingInfo.Page + 1;
-
-                batchResponse = data.Search<T>(request, tempIndexName);
+                request.PagingInfo = batchResponse.PagingInfo.NextPage();
+                batchResponse = data.Search<T>(tempIndexName, request);
                 batch = batchResponse?.Data;
             }
 
@@ -385,22 +379,9 @@ namespace Saltworks.SaltMiner.DataApi.Upgrade
 
         internal static void UpdateIndexMeta(string finalVersion, SaltMinerIndexData index, IDataRepo data)
         {
-            var indexMeta = data.Search<IndexMeta>(new SearchRequest
-            {
-                Filter = new Filter
-                {
-                    FilterMatches = new Dictionary<string, string>
-                    {
-                        { "index", index.Name }
-                    }
-                }
-            }, IndexMeta.GenerateIndex()).Data;
-            
+            var indexMeta = data.Search<IndexMeta>(IndexMeta.GenerateIndex(), new SearchRequest("index", index.Name, 1000)).Data;
             foreach(var metaData in indexMeta)
-            {
                 metaData.Version = finalVersion;
-            }
-
             data.AddUpdateBulk(indexMeta, IndexMeta.GenerateIndex());
         }
 

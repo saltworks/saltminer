@@ -1,15 +1,19 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
@@ -22,8 +26,9 @@ import datetime
 
 class SscEsUtils:
 
-    def __init__(self, appSettings):
+    def __init__(self, appSettings, logger=None):
 
+        self.__Logger = logger or logging.getLogger(__name__)
         self.AllSscProjects = []
         self.AllSscProjectCounts = []
         self.AllSscProjectAttrs = []
@@ -39,14 +44,14 @@ class SscEsUtils:
         }
 
     def ensureSSCIndices(self):
-        logging.info('in ensureSSCIndices')
+        self.__Logger.info('in ensureSSCIndices')
         errs = []
         indices = ["sscprojects", "sscprojcounts", "sscprojattrs", "sscprojattr2", "sscprojscans", "sscprojissues"]
         for i in indices:
             if not self.__ElasticClient.IndexExists(i):
                 errs.append(i)
         for e in errs:
-            logging.error("{} index does not exist.".format(e))
+            self.__Logger.error("{} index does not exist.".format(e))
         return (len(errs) == 0)
 
 
@@ -59,15 +64,15 @@ class SscEsUtils:
         except:
             #Unable to get the 
             if response['error']['index'] == 'sscprojects':
-                logging.warning('sscprojects does not exist, cant look for old records.')
+                self.__Logger.warning('sscprojects does not exist, cant look for old records.')
                 return 0
             else:
-                logging.ERROR('Unknown error getting sscprojects from elastic, need to debug')
+                self.__Logger.error('Unknown error getting sscprojects from elastic, need to debug')
                 return 0
 
     def __ElasticGetToCollection(self, index, collection, label, scrollSize=1000):
         scroller = self.__ElasticClient.SearchScroll(index, scrollSize=scrollSize)
-        logging.info(f"Total {label} in ES: {scroller.TotalHits}")
+        self.__Logger.info(f"Total {label} in ES: {scroller.TotalHits}")
         while scroller.Results:
             for item in scroller.Results:
                 collection.append(item['_source'])
@@ -91,7 +96,7 @@ class SscEsUtils:
 
     # Finds app versions in app_vuls_ssc that do not exist in sscprojects, and adds any found to the update queue as deletes
     def FindOrphanedSscApplicationVersions(self):
-        logging.info("Starting 'Find Orphaned Ssc App Versions' process")
+        self.__Logger.info("Starting 'Find Orphaned Ssc App Versions' process")
 
         es = self.__ElasticClient
 
@@ -113,11 +118,11 @@ class SscEsUtils:
         dc = 0
         for b in buckets:
             if es.Count("sscprojects", { "query": { "term": { "id": { "value": b['key'] } } } }) == 0:
-                logging.info("App version ID %s not found, will add to update queue as a delete.", b['key'])
+                self.__Logger.info("App version ID %s not found, will add to update queue as a delete.", b['key'])
                 es.Index("sscupdatequeue", self.GetUpdateQueueDoc(datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), b['key'], 'D'))
                 dc += 1
             c += 1
             if c % 100 == 0:
-                logging.info("Processed %s of %s", c, len(buckets))
+                self.__Logger.info("Processed %s of %s", c, len(buckets))
 
-        logging.info("Processing complete.  Queued %s drop(s)", dc)
+        self.__Logger.info("Processing complete.  Queued %s drop(s)", dc)

@@ -50,6 +50,12 @@
                     "text": { "type": "text" }
                   }
                 },
+                "product_version": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
+                  }
+                },
                 "product": {
                   "type": "keyword",
                   "fields": {
@@ -128,6 +134,9 @@
                   "type": "integer"
                 },
                 "queue_status": {
+                  "type": "keyword"
+                },
+                "lock_id": {
                   "type": "keyword"
                 }
               }

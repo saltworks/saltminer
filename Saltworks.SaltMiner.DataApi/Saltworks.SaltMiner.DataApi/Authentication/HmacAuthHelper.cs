@@ -1,35 +1,50 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
-﻿using System.Reflection;
-using System;
-using System.Linq;
-using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+﻿using System.Reflection;
 
 namespace Saltworks.SaltMiner.DataApi.Authentication;
 
 public static class HmacAuthHelper
 {
-    public static bool Authenticate(string type, Dictionary<string, string> secrets, IHeaderDictionary headers, string payload, ILogger logger = null)
+    public static string GetPayload(HttpRequest request)
+    {
+        // Because body is signed, have to read directly from stream to get exact whitespace
+        request.EnableBuffering();
+        using var reader = new StreamReader(request.Body, System.Text.Encoding.UTF8, leaveOpen: true);
+        var payload = reader.ReadToEndAsync().Result;
+        request.Body.Position = 0;
+        return payload;
+    }
+
+    public static bool Authenticate(string type, Dictionary<string, string> secrets, HttpRequest request, ILogger logger = null)
     {
         try
         {
-            var ha = FindMatchingAuthenticator(headers);
+            var ha = FindMatchingAuthenticator(request.Headers);
             if (ha == null)
             {
                 logger?.LogError("Unable to find HMAC authenticator for this web hook call.");
@@ -40,11 +55,16 @@ public static class HmacAuthHelper
                 logger?.LogWarning("Web hook call matched to authenticator '{Auth}' but found no matching secret in WebhookSecrets dictionary for '{Key}'.", ha.GetType().Name, type);
                 return false;
             }
-            return ha.IsAuthentic(secret, headers, payload);
+            return ha.IsAuthentic(secret, request.Headers, GetPayload(request));
+        }
+        catch (WebhookValidationException ex)
+        {
+            logger?.LogError(ex, "Webhook validation exception thrown for '{Type}' webhook: {Msg}", type, ex.Message);
+            return false;
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Failure to perform HMAC authentication for this web hook call: [{Type}] {Msg}", ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
+            logger?.LogError(ex, "Failure to perform HMAC authentication for '{Wtype}' webhook: [{Etype}] {Msg}", type, ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
             return false;
         }
     }

@@ -1,43 +1,43 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using Saltworks.SaltMiner.DataApi.Data;
 using Saltworks.SaltMiner.DataApi.Extensions;
 using Saltworks.SaltMiner.DataApi.Models;
-using Saltworks.SaltMiner.ElasticClient;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using static Saltworks.SaltMiner.Core.Entities.QueueScan;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts
 {
-    public class QueueScanContext : ContextBase
+    public class QueueScanContext(IServiceProvider services, ILogger<QueueScanContext> logger) : ContextBase(services, logger)
     {
         private readonly string QueueScanIndex = GenerateIndex();
         private readonly string QueueIssueIndex = QueueIssue.GenerateIndex();
         private readonly string QueueAssetIndex = QueueAsset.GenerateIndex();
-
-        public QueueScanContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<QueueScanContext> logger) : base(config, dataRepository, factory, logger)
-        {
-        }
 
         public DataItemResponse<QueueScan> AddUpdate(DataItemRequest<QueueScan> request)
         {
@@ -68,7 +68,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                 item.LastUpdated = DateTime.UtcNow;
             }
 
-            return ElasticClient.AddUpdateBulk(request.Documents, QueueScanIndex).ToBulkResponse();
+            return ElasticClient.BulkAddUpdate(request.Documents, QueueScanIndex).ToBulkResponse();
         }
 
         public BulkResponse AddUpdateQueueBulk(QueueDataRequest request)
@@ -97,7 +97,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             }
 
             List<SaltMinerEntity> all = [];
-            return ElasticClient.AddUpdateBulkQueue(all
+            return ElasticClient.BulkQueueAddUpdate(all
                 .Concat(request.QueueScans)
                 .Concat(request.QueueAssets)
                 .Concat(request.QueueIssues)).ToBulkResponse();
@@ -127,24 +127,9 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
         public DataResponse<QueueScan> Search(SearchRequest request)
         {
-            Logger.LogInformation(Extensions.LoggerExtensions.SearchPagingLoggerMessage("Search", request));
-
-            if ((IsInRole(Role.Agent) || IsInRole(Role.Pentester) || IsInRole(Role.PentesterViewer)) && (request.Filter == null || request.Filter.FilterMatches == null))
-            {
-                if (request.Filter == null)
-                {
-                    request.Filter = new Filter()
-                    {
-                        FilterMatches = new Dictionary<string, string>()
-                    };
-                }
-                else if (request.Filter.FilterMatches == null)
-                {
-                    request.Filter.FilterMatches = new Dictionary<string, string>();
-                }
-            }
-
-            return DataRepo.Search<QueueScan>(request, QueueScanIndex);
+            // Cleanup Manager instance cache with each search
+            ApiCache.ManagerInstanceManager.CleanupManagerInstances(this);
+            return base.Search<QueueScan>(QueueScanIndex, request);
         }
 
         public DataItemResponse<QueueScan> Get(string id)
@@ -158,7 +143,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
         {
             Logger.LogInformation("GetByEngagement for id '{Id}'", id);
 
-            var response = Search<QueueScan>(new SearchRequest
+            var response = Search<QueueScan>(GenerateIndex(), new SearchRequest
             {
                 Filter = new Filter
                 {
@@ -167,9 +152,26 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                         { "Saltminer.Engagement.Id", id }
                     }
                 }
-            }, GenerateIndex());
+            });
 
             return new DataItemResponse<QueueScan>(response.Data.FirstOrDefault());
+        }
+
+        private static Filter GetListFilter(string field, IEnumerable<string> ids)
+        {
+            var f = new Filter();
+            f.AddTermsFilterMatch(field, ids.ToList());
+            return f;
+        }
+
+        public NoDataResponse DeleteAllQueueByQueueScan(IEnumerable<string> idList)
+        {
+            if (!IsInRole(Role.Manager) && !IsInRole(Role.Admin))
+                throw new ApiForbiddenException();
+            ElasticClient.DeleteByQuery<QueueIssue>(new() { Filter = GetListFilter("Saltminer.QueueScanId", idList) }, QueueIssueIndex, true, false);
+            ElasticClient.DeleteByQuery<QueueAsset>(new() { Filter = GetListFilter("Saltminer.Internal.QueueScanId", idList) }, QueueAssetIndex, true, false);
+            ElasticClient.DeleteByQuery<QueueScan>(new() { Filter = GetListFilter("Id", idList) }, QueueScanIndex, true, false);
+            return new(idList.Count());
         }
 
         public NoDataResponse DeleteAllQueueByQueueScan(string id)
@@ -178,8 +180,8 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             if (VerifyScanDeleteAll(id))
             {
-                ElasticClient.DeleteByQuery<QueueIssue>(new ElasticDataFilter("Saltminer.QueueScanId", id), QueueIssueIndex);
-                ElasticClient.DeleteByQuery<QueueAsset>(new ElasticDataFilter("Saltminer.Internal.QueueScanId", id), QueueAssetIndex);
+                ElasticClient.DeleteByQuery<QueueIssue>(new SearchRequest("Saltminer.QueueScanId", id), QueueIssueIndex);
+                ElasticClient.DeleteByQuery<QueueAsset>(new SearchRequest("Saltminer.Internal.QueueScanId", id), QueueAssetIndex);
 
                 return ElasticClient.Delete<QueueScan>(id, QueueScanIndex).ToNoDataResponse();
             }
@@ -189,11 +191,19 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             }
         }
 
-        public NoDataResponse UpdateStatus(string id, string status, string lockId = "")
+        public NoDataResponse UpdateStatus(string id, string fromStatus, string toStatus, string lockId = "")
         {
-            Logger.LogInformation("UpdateStatus for id '{Id}' and status '{Status}'", id, status);
+            if (!string.IsNullOrEmpty(lockId))
+                ApiCache.ManagerInstanceManager.SawManagerInstance(lockId);
 
-            ValidateStatus(status);
+            const string ANY_STATUS = "[any]";
+            if (string.IsNullOrEmpty(fromStatus) || fromStatus == QueueScanStatus.None.ToString("g"))
+                fromStatus = ANY_STATUS;
+            Logger.LogInformation("UpdateStatus for id '{Id}' from '{From}' to '{To}'", id, fromStatus, toStatus);
+
+            if (fromStatus != ANY_STATUS)
+                ValidateStatus(fromStatus);
+            ValidateStatus(toStatus);
 
             var tuple = DataRepo.GetWithLocking<QueueScan>(id, QueueScanIndex);
             if (tuple?.Item1 == null)
@@ -203,25 +213,76 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             var scan = tuple.Item1;
             var lockInfo = tuple.Item2;
+            if (fromStatus != ANY_STATUS && scan.Saltminer.Internal.QueueStatus != fromStatus)
+                throw new ApiValidationQueueStateException($"[Invalid] Cannot update queue scan status, actual current status '{scan.Saltminer.Internal.QueueStatus:g}', expected current status '{fromStatus}'.");
+            if (!string.IsNullOrEmpty(scan.Saltminer.Internal.LockId) && (scan.Saltminer.Internal.LockId != lockId || string.IsNullOrEmpty(lockId)))
+                throw new ApiValidationQueueStateException($"[Locked] Cannot update queue scan status from '{fromStatus}' to '{toStatus}', locked to process '{scan.Saltminer.Internal.LockId}', not expected '{lockId}'.");
             if (!string.IsNullOrEmpty(lockId))
-            {
-                if (!string.IsNullOrEmpty(scan.Saltminer.Internal.LockId) && scan.Saltminer.Internal.LockId != lockId)
-                    throw new ApiValidationQueueStateException($"[Locked] Cannot update queue scan status, already locked to another process.");
                 scan.Saltminer.Internal.LockId = lockId;
-            }
 
-            if (!IsOkToEditStatus(scan.Saltminer.Internal.QueueStatus, status))
+            if (!IsOkToEditStatus(scan.Saltminer.Internal.QueueStatus, toStatus))
             {
-                throw new ApiValidationQueueStateException($"[Invalid] Cannot update queue scan from '{scan.Saltminer.Internal.QueueStatus:g}' to '{status}' state, invalid transition.");
+                throw new ApiValidationQueueStateException($"[Invalid] Cannot update queue scan from '{scan.Saltminer.Internal.QueueStatus:g}' to '{toStatus}' state, invalid transition.");
             }
 
-            ValidatePendingStatus(status.ToQueueScanStatus(), scan);
+            ValidatePendingStatus(toStatus.ToQueueScanStatus(), scan);
 
-            scan.Saltminer.Internal.QueueStatus = status;
+            scan.Saltminer.Internal.QueueStatus = toStatus;
             scan.LastUpdated = DateTime.UtcNow;
-            DataRepo.UpdateWithLocking(scan, QueueScan.GenerateIndex(), lockInfo);
+            DataRepo.UpdateWithLocking(scan, QueueScanIndex, lockInfo);
 
             return new NoDataResponse(1);
+        }
+
+        public NoDataResponse Unlock(string lockId, bool resetProcessing=true, bool noFlush = false)
+        {
+            Logger.LogInformation("Unlock for lock ID '{Id}'", lockId);
+
+            if (Config.EnableManagerUnlockUpdateByQuery)
+            {
+                // Update by query approach - quicker, but no attempts to flush index first and we don't wait
+                var query = @"{ ""term"": { ""saltminer.internal.lock_id"": { ""value"": """ + lockId + @""" } } }";
+                var updateScript = $"ctx._source.saltminer.internal.lock_id = null; ctx._source.saltminer.internal.queue_status = '{QueueScanStatus.Pending:g}'; ctx._source.last_updated = {DateTime.UtcNow:O};";
+                var ubqResponse = ElasticClient.UpdateByQuery<QueueScan>(query, QueueScanIndex, updateScript, false, true);
+                if (ubqResponse == null || !ubqResponse.IsSuccessful)
+                    Logger.LogError("Unlock UpdateByQuery failed for lock ID '{Id}'. [{Status}] {Response}", lockId, ubqResponse?.HttpStatus, ubqResponse?.Message);
+                else
+                    Logger.LogInformation("Unlock (update by query) succeeded for lock ID '{Id}'. Updated {Count} documents.", lockId, ubqResponse.CountAffected);
+                return ubqResponse.ToNoDataResponse();
+            }
+
+            // Original search and bulk update approach - slower, returns count of updated docs, includes flush
+            var pagingInfo = new PagingInfo()
+            {
+                EnablePit = true,
+                Size = 1000
+            };
+            var request = new SearchRequest("Saltminer.Internal.LockId", lockId, pagingInfo);
+            var counter = 0;
+            List<QueueScan> scans = [];
+            if (!noFlush)
+            {
+                ElasticClient.IndexFlush(QueueScanIndex);
+                Task.Delay(1000).Wait(); // wait for index to flush
+            }
+            while (true)
+            {
+                var response = Search<QueueScan>(QueueScanIndex, request);
+                if (!response.Data.Any())
+                    break;
+                foreach (var item in response.Data)
+                {
+                    if (resetProcessing && item.Saltminer.Internal.QueueStatus == QueueScanStatus.Processing.ToString("g"))
+                        item.Saltminer.Internal.QueueStatus = QueueScanStatus.Pending.ToString("g");
+                    item.Saltminer.Internal.LockId = null;
+                    item.LastUpdated = DateTime.UtcNow;
+                    scans.Add(item);
+                    counter++;
+                }
+                DataRepo.AddUpdateBulk(scans, QueueScanIndex);
+                request.PagingInfo = response.PagingInfo.NextPage();
+            }
+            return new NoDataResponse(counter);
         }
 
         #region Helpers
@@ -271,55 +332,48 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
         private QueueScan Validate(QueueScan queueScan, bool isBulk = false)
         {
-            // TODO: add more basic+ validation for queuescan
-
             ValidateStatus(queueScan.Saltminer.Internal.QueueStatus);
 
-            // Update
-            if (!string.IsNullOrEmpty(queueScan.Id))
+            // Add, ID assigned on write
+            if (string.IsNullOrEmpty(queueScan.Id))
             {
-                var existing = ElasticClient.Get<QueueScan>(queueScan.Id, QueueScanIndex).ToDataItemResponse().Data;
-
-                if (existing == null && !isBulk)
-                {
-                    throw new ApiResourceNotFoundException($"Could not add queue scan with {queueScan.Id}");
-                }
-
-                if (IsInRole(Role.Agent) || IsInRole(Role.Pentester))
-                {
-                    if (existing != null)
-                    {
-                        if (!IsOkToEditStatus(existing.Saltminer.Internal.QueueStatus))
-                        {
-                            throw new ApiValidationQueueStateException($"Cannot update queue scan in '{existing.Saltminer.Internal.QueueStatus}' state");
-                        }
-
-                        if (existing.Saltminer.Internal.QueueStatus != queueScan.Saltminer.Internal.QueueStatus && !IsOkToEditStatus(existing.Saltminer.Internal.QueueStatus, queueScan.Saltminer.Internal.QueueStatus))
-                        {
-                            throw new ApiValidationQueueStateException($"Agent cannot update queue scan status from '{existing.Saltminer.Internal.QueueStatus}' to '{queueScan.Saltminer.Internal.QueueStatus}'");
-                        }
-
-                        ValidatePendingStatus(queueScan.Saltminer.Internal.QueueStatus.ToQueueScanStatus(), existing);
-                    }
-                    else
-                    {
-                        if (queueScan.Saltminer.Internal.QueueStatus != QueueScanStatus.Loading.ToString("g"))
-                        {
-                            throw new ApiValidationException($"QueueStatus should be {QueueScanStatus.Loading:g}.");
-                        }
-                    }
-                }
+                return queueScan;
             }
 
-            // TODO: rethink index field / logic, current design is complicated and not intuitive
+            var existing = ElasticClient.Get<QueueScan>(queueScan.Id, QueueScanIndex).ToDataItemResponse().Data;
+
+            // Nothing to update means this is an add with a caller-supplied ID (bulk callers pre-assign
+            // IDs so they can track the documents they sent), which follows the same rules as an add with
+            // no ID.  A single-doc caller supplying an ID always means to update, so that stays a 404.
+            if (existing == null)
+            {
+                if (!isBulk)
+                    throw new ApiResourceNotFoundException($"Could not update queue scan with ID {queueScan.Id}");
+                return queueScan;
+            }
+
+            // Update
+            if (IsInRole(Role.Agent) || IsInRole(Role.Pentester))
+            {
+                if (!IsOkToEditStatus(existing.Saltminer.Internal.QueueStatus))
+                {
+                    throw new ApiValidationQueueStateException($"Cannot update queue scan in '{existing.Saltminer.Internal.QueueStatus}' state");
+                }
+
+                if (existing.Saltminer.Internal.QueueStatus != queueScan.Saltminer.Internal.QueueStatus && !IsOkToEditStatus(existing.Saltminer.Internal.QueueStatus, queueScan.Saltminer.Internal.QueueStatus))
+                {
+                    throw new ApiValidationQueueStateException($"Agent cannot update queue scan status from '{existing.Saltminer.Internal.QueueStatus}' to '{queueScan.Saltminer.Internal.QueueStatus}'");
+                }
+
+                ValidatePendingStatus(queueScan.Saltminer.Internal.QueueStatus.ToQueueScanStatus(), existing);
+            }
+
             return queueScan;
         }
 
         private bool RelatedIssuesExist(string queueScanId)
         {
-            var request = new ElasticDataFilter("Saltminer.QueueScanId", queueScanId, new PitPagingInfo(10));
-
-            return DataRepo.Search<QueueIssue>(request, QueueScanIndex).Data.Any();
+            return Search<QueueIssue>(QueueScanIndex, new SearchRequest("Saltminer.QueueScanId", queueScanId, 10)).Data.Any();
         }
 
 
@@ -329,7 +383,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
             if (newStatus == QueueScanStatus.Pending && qScan.Saltminer.Internal.QueueStatus.ToQueueScanStatus() == QueueScanStatus.Loading)
             {
                 // Agent is moving from Loading -> Pending
-                var count = ElasticClient.Count<QueueIssue>(new ElasticDataFilter("Saltminer.QueueScanId", qScan.Id), QueueIssueIndex).ToNoDataResponse().Affected;
+                var count = ElasticClient.Count<QueueIssue>(new SearchRequest("Saltminer.QueueScanId", qScan.Id), QueueIssueIndex).ToNoDataResponse().Affected;
                 if (count != qScan.Saltminer.Internal.IssueCount && qScan.Saltminer.Internal.IssueCount != -1)
                 {
                     throw new ApiValidationException($"Counted {count} issues for scan Id '{qScan.Id}', but scan IssueCount was {qScan.Saltminer.Internal.IssueCount}.");
@@ -375,8 +429,19 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
 
             if (IsInRole(Role.Agent) || IsInRole(Role.Pentester))
             {
-                // Allow a reset of queue scan if in error state
-                if (currentScanStatus == QueueScanStatus.Error && newScanStatus == QueueScanStatus.Loading)
+                // Allow a pentest reset of queue scan if in error or processing
+                if (IsInRole(Role.Pentester) && (currentScanStatus == QueueScanStatus.Error || currentScanStatus == QueueScanStatus.Processing) && newScanStatus == QueueScanStatus.Loading)
+                {
+                    return true;
+                }
+
+                // An agent may abandon a scan that is already being processed: Processing -> Cancel.
+                // The manager locks a scan while it works on it, and if it dies mid-flight the scan is
+                // left Processing and locked - invisible to the pending search and, without this,
+                // uncancellable by the agent that queued it.  Only Cancel is allowed out of Processing;
+                // moving it forward stays the manager's job.  The lock still has to match - that check
+                // lives in UpdateStatus, so this does not let an agent cancel another instance's work.
+                if (currentScanStatus == QueueScanStatus.Processing && newScanStatus == QueueScanStatus.Cancel)
                 {
                     return true;
                 }

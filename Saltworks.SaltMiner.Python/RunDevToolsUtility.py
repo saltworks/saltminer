@@ -1,15 +1,19 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
@@ -32,17 +36,40 @@ prmFilePath = None
 hlpMsg = '''
 Syntax:
 
-python3 RunDevToolsUtility.py [Dev tools script file path]
+python3 RunDevToolsUtility.py [Dev tools script file path] [log file path] [--timeout secs]
+
+--timeout   request timeout in seconds for every statement in the script (default 30).
+            Raise it for a heavy aggregation, _reindex, _forcemerge or _delete_by_query.
 '''
 app = Application()
 
-if not len(sys.argv) >= 2:
+# pull the optional --timeout flag out before the positional args are read
+args = sys.argv[1:]
+timeoutSec = DevToolsUtility.DEFAULT_TIMEOUT_SEC
+for arg in list(args):
+    if arg.startswith("--timeout="):
+        timeoutSec = arg.split("=", 1)[1]
+        args.remove(arg)
+    elif arg == "--timeout":
+        idx = args.index(arg)
+        if idx + 1 >= len(args):
+            logging.error("--timeout requires a value.\n %s", hlpMsg)
+            exit(1)
+        timeoutSec = args[idx + 1]
+        del args[idx:idx + 2]
+try:
+    timeoutSec = int(timeoutSec)
+except ValueError:
+    logging.error("Invalid --timeout value '%s', expected a whole number of seconds.", timeoutSec)
+    exit(1)
+
+if not len(args) >= 1:
     logging.error("No file specified.\n %s", hlpMsg)
     exit(1)
-prmFilePath = sys.argv[1]
+prmFilePath = args[0]
 
-if len(sys.argv) == 3:
-    logFilePath = sys.argv[2]
+if len(args) >= 2:
+    logFilePath = args[1]
 
 else:
     logFilePath = None
@@ -70,5 +97,5 @@ prcKey = "process"
 logging.info("Dev Tools Utility starting -%s", datetime.datetime.utcnow().isoformat())
 StartTimer(prcKey)
 #add path to config file and to dev tool script.txt file 
-DevToolsUtility(app.Settings).ExecuteDevScriptFile(prmFilePath, logFilepath=logFilePath)
+DevToolsUtility(app.Settings, timeout=timeoutSec).ExecuteDevScriptFile(prmFilePath, logFilepath=logFilePath)
 EndTimer(prcKey)

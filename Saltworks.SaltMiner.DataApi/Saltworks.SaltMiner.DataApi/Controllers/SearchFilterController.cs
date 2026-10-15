@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -25,16 +29,12 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
 {
     [Route("[controller]")]
     [Produces("application/json")]
-    [Auth]
+    [Auth(Role.Admin, Role.Pentester)]
     [ApiController]
-    public class SearchFilterController : ApiControllerBase
+    public class SearchFilterController(SearchFilterContext context, ILogger<SearchFilterController> logger) : ApiControllerBase(context, logger)
     {
         private SearchFilterContext Context => ContextBase as SearchFilterContext;
-        private string SearchFilterIndex = SearchFilter.GenerateIndex();
-
-        public SearchFilterController(SearchFilterContext context, ILogger<SearchFilterController> logger) : base(context, logger)
-        {
-        }
+        private readonly string SearchFilterIndex = SearchFilter.GenerateIndex();
 
         /// <summary>
         /// Updates one or more SearchFilter(s) using update by query
@@ -74,7 +74,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         {
             Logger.LogInformation("Search action called");
 
-            return Ok(Context.Search<SearchFilter>(search, SearchFilterIndex));
+            return Ok(Context.Search<SearchFilter>(SearchFilterIndex, search));
         }
 
         /// <summary>
@@ -84,7 +84,6 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <response code="202">Returns a response object containing the updated entity</response>
         [ProducesResponseType(202, Type = typeof(DataItemResponse<SearchFilter>))]
         [HttpPost]
-        [Auth(Role.Admin)]
         public ActionResult<DataItemResponse<SearchFilter>> Post([FromBody] DataItemRequest<SearchFilter> request)
         {
             Logger.LogInformation("Post action called");
@@ -99,7 +98,6 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <response code="200">Returns response indicating success</response>
         [ProducesResponseType(200, Type = typeof(NoDataResponse))]
         [HttpDelete("{id}")]
-        [Auth(Role.Admin)]
         public ActionResult<NoDataResponse> Delete(string id)
         {
             Logger.LogInformation("Delete action called for id '{id}'", id);

@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Saltworks.SaltMiner.DataApi.Models;
 using Saltworks.SaltMiner.DataApi.Data;
@@ -21,31 +25,27 @@ using Saltworks.SaltMiner.ElasticClient;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using System.Linq;
-using System;
 using System.Collections.Generic;
 
-namespace Saltworks.SaltMiner.DataApi.Contexts
-{
-    public class FieldDefinitionContext : ContextBase
-    {
-        public FieldDefinitionContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<FieldDefinitionContext> logger) : base(config, dataRepository, factory, logger)
-        { }
+namespace Saltworks.SaltMiner.DataApi.Contexts;
 
-        public DataItemResponse<List<FieldDefinition>> GetFieldDefinitionsByType(string entity)
+public class FieldDefinitionContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<FieldDefinitionContext> logger) : ContextBase(config, dataRepository, factory, logger)
+{
+    public DataItemResponse<List<FieldDefinition>> GetFieldDefinitionsByType(string entity)
+    {
+        var search = new SearchRequest
         {
-            var search = new SearchRequest();
-            search.Filter = new()
+            Filter = new()
             {
                 FilterMatches = new()
                 {
                     {"Entity", entity }
                 }
-            };
+            }
+        };
 
-            var result = DataRepo.Search<FieldDefinition>(search, FieldDefinition.GenerateIndex()
-            );
+        var result = Search<FieldDefinition>(FieldDefinition.GenerateIndex(), search);
 
-            return new DataItemResponse<List<FieldDefinition>>(result.Data.ToList());
-        }
+        return new DataItemResponse<List<FieldDefinition>>(result.Data.ToList());
     }
 }

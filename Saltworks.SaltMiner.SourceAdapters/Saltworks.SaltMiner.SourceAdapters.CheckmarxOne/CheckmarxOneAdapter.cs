@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Extensions;
@@ -170,6 +174,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
             //Include: Check for existing Run that did not finish
             var syncRecord = LocalData.CheckSyncRecordSourceForFailure(Config.Instance, Config.SourceType);
 
+            Logger.LogInformation("[Sync] Getting Application information");
+            var apps = await GetAllApplicationsAsync(client);
+
+
             //Include: Set recoverymode based on whether not there is a prior syncrecod
             if (syncRecord != null)
             {
@@ -269,11 +277,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                         QueueAsset queueAsset = new();
                         List<QueueIssue> queueIssues = new();
 
+                        int issuecounter = 0;
+
+
                         await foreach (var issue in GetResultsAsync(lastScan.ID, client))
                         {
 
                             var currentIssue = issue;
-                           
+
                             if (FindAssessmentType(assessmentType) != FindAssessmentType(currentIssue.Type))
                             {
 
@@ -287,12 +298,25 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                                 queueScan = MapScan(queueProject, lastScan, lastScanSummary.ScansSummaries[0], currentIssue.Type);
                                 localScans++;
 
-                                queueAsset = MapAsset(queueProject, queueScan);
+                                queueAsset = MapAsset(queueProject, queueScan, lastScan, apps);
                                 localAssets++;
                                 assessmentType = currentIssue.Type;
                                 scanAssetMapped = true;
                             }
-                            var mappedIssue = MapIssue(queueProject, currentIssue, queueScan, queueAsset, queueIssues, lastScan.ID, false);
+                            var mappedIssue = MapIssue(queueProject, queueScan, queueAsset, queueIssues, lastScan.ID, false, currentIssue);
+                            localIssues++;
+                            issuecounter++;
+
+                        }
+                        if (issuecounter== 0)
+                        {
+                            queueScan = MapScan(queueProject, lastScan, lastScanSummary.ScansSummaries[0], "Zero");
+                            localScans++;
+
+                            queueAsset = MapAsset(queueProject, queueScan, lastScan, apps);
+                            localAssets++;
+
+                            var mappedIssue = MapIssue(queueProject, queueScan, queueAsset, queueIssues, lastScan.ID, true);
                             localIssues++;
 
                         }
@@ -301,7 +325,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                         //Write: End time for individual sourcemetric
                         //write a issue counter and pass it in.
                         //****************************
-
                         queueScan.Loading = false;
                         LocalData.AddUpdate(queueScan);
                         totalProjectCount++;
@@ -428,9 +451,37 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
         }
 
 
-        private QueueAsset MapAsset(ProjectDto project, QueueScan queueScan, bool isRetired = false)
+        private QueueAsset MapAsset(ProjectDto project, QueueScan queueScan, ScanDTO scan, Dictionary<string, string> apps, bool isRetired = false)
         {
             var sourceId = $"{project.ID}";
+
+            var tagsString = project.Tags != null
+                ? string.Join("; ", project.Tags.Select(kv => $"{kv.Key ?? ""}:{kv.Value ?? ""}"))
+                : string.Empty;
+
+            var appNames = new List<string>();
+
+            if (project.ApplicationIds != null && project.ApplicationIds.Any())
+            {
+                foreach (var appId in project.ApplicationIds)
+                {
+                    if (apps.TryGetValue(appId, out var name))
+                    {
+                        appNames.Add(name);
+                    }
+                }
+            }
+
+            string orgApplicationNames = appNames.Count > 0
+            ? string.Join(", ", appNames)
+            : string.Empty;
+
+            var attributes = new Dictionary<string, string>
+            {
+                { "tags", tagsString },
+                { "org_application_names", orgApplicationNames }  
+            };
+
             var queueAsset = new QueueAsset
             {
                 Entity = new()
@@ -441,13 +492,13 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                         Asset = new SaltMiner.Core.Entities.AssetInfoPolicy
                         {
                             Name = project.Name,
-                            Attributes = [],
+                            Attributes = attributes,
                             IsProduction = true,
                             Instance = Config.Instance,
                             IsSaltminerSource = CheckmarxOneConfig.IsSaltminerSource,
                             SourceType = Config.SourceType,
                             SourceId = sourceId,
-                            Version = project.Name,
+                            Version = scan.Branch,
                             AssetType = AssetType,
                             LastScanDaysPolicy = Config.LastScanDaysPolicy,
                             IsRetired = isRetired
@@ -460,12 +511,11 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                 }
             };
 
-            
             var result = LocalData.AddUpdate(queueAsset);
             return result;
         }
 
-        private QueueIssue MapIssue(ProjectDto project, ScanResultsResultDTO issue, QueueScan queueScan, QueueAsset queueAsset, List<QueueIssue> queueIssues,string scanId, bool zeroRecord = false)
+        private QueueIssue MapIssue(ProjectDto project, QueueScan queueScan, QueueAsset queueAsset, List<QueueIssue> queueIssues,string scanId, bool zeroRecord = false, ScanResultsResultDTO issue = null)
         {
             var sourceId = queueAsset.SourceId;
 
@@ -477,6 +527,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
             }
             else
             {
+                if (issue == null)
+                {
+                    throw new ArgumentNullException(nameof(issue), "Issue cannot be null when zeroRecord is false.");
+                }
 
                 var issueScannerId = issue.Id;
                 string package = null;
@@ -525,11 +579,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                         },
                         Saltminer = new()
                         {
+                            IssueType = FindIssueType(issue.Type),
                             Attributes = new()
                             {
                                 {"org_assessment_type", issue.Type},
                                 {"cmx1_issue_status", issue.Status?? " " },
-                                {"cmx1_issue_state", issue.State?? " " }
+                                {"cmx1_issue_state", issue.State?? " " },
+                                {"compliances", issue.VulnerabilityDetails?.Compliances != null ? string.Join(", ", issue.VulnerabilityDetails.Compliances) : "N/A" }
+  
                             },
                             QueueScanId = queueScan.Entity.Id,
                             QueueAssetId = queueAsset.Entity.Id,
@@ -565,10 +622,13 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
         {
             return assessmentType switch
             {
-                "sast" => Config.GuiAddress + "sast-results/" + projectId + "/" + scanId + "?resultId=" + resultId,
-                "sca" => Config.GuiAddress + "results/" + projectId + "/" + scanId + "sca?internalPath=%2Fvulnerabilities%2F" + resultId + "%253A" + package + "%2FvulnerabilityDetailsGql",
+                "sast" => Config.GuiAddress + "sast-results/" + projectId + "/" + scanId +
+                          "?resultId=" + Uri.EscapeDataString(resultId) +
+                          "&pagination=pageSize%3D10%3BcurrentPage%3D1",
+                "sca" => Config.GuiAddress + "results/" + projectId + "/" + scanId + "/sca?internalPath=%2Fvulnerabilities%2F" + resultId + "%253A" + package + "%2FvulnerabilityDetailsGql",
                 "kics" => Config.GuiAddress + "results/" + projectId + "/" + scanId + "kics?result-id=" + resultId,
                 "iac" => Config.GuiAddress + "results/" + projectId + "/" + scanId + "kics?result-id=" + resultId,
+                "containers" => Config.GuiAddress + "container-security-results/" + projectId + "/" + scanId + "/",
                 _ => "N/A"
             };
         }
@@ -590,6 +650,51 @@ namespace Saltworks.SaltMiner.SourceAdapters.CheckmarxOne
                 _ => AssessmentType.Open.ToString("g"),
             };
         }
+
+        private static string FindIssueType(string issueType)
+
+        {
+            if (issueType.Contains("sca"))
+            {
+                issueType = "sca";
+            }
+            return issueType switch
+            {
+                "sast" => IssueType.SAST.ToString("g"),
+                "sca" => IssueType.SAST.ToString("g"),
+                "kics" => IssueType.KICS.ToString("g"),
+                "apisec" => IssueType.DAST.ToString("g"),
+                "containers" => IssueType.Container.ToString("g"),
+                _ => IssueType.Open.ToString("g"),
+            };
+        }
+
+
+        public async Task<Dictionary<string, string>> GetAllApplicationsAsync(CheckmarxOneClient client)
+        {
+            int limit = 100;
+            int offset = 0;
+
+            var appDict = new Dictionary<string, string>();
+
+            while (true)
+            {
+                var response = await client.GetApplicationsAsync(limit, offset);
+
+                if (response?.Applications == null || response.Applications.Count == 0)
+                    break;
+
+                foreach (var app in response.Applications)
+                {
+                    appDict[app.Id] = app.Name;
+                }
+
+                offset += limit;
+            }
+
+            return appDict;
+        }
+
 
         public static string BuildLocationFullByType(ScanResultsResultDTO issue)
         {

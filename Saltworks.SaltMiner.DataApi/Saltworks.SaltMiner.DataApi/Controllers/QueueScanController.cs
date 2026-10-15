@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -20,6 +24,8 @@ using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using Saltworks.SaltMiner.DataApi.Contexts;
+using System;
+using System.Collections.Generic;
 
 namespace Saltworks.SaltMiner.DataApi.Controllers
 {
@@ -134,7 +140,8 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// Sets status for given id and new status value
         /// </summary>
         /// <param name="id">queue scan ID</param>
-        /// <param name="status">new status</param>
+        /// <param name="oldStatus">old status, fail update if status doesn't match (can be left empty to not check)</param>
+        /// <param name="newStatus">new status</param>
         /// <param name="lockId">if included, lock this queue scan to the provided lock ID</param>
         /// <returns>Container indicating success or failure</returns>
         /// <remarks>
@@ -142,11 +149,26 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// State transition rules will be enforced, for example Agent should only use Loading/Pending/Cancel.
         /// </remarks>
         [ProducesResponseType(200, Type = typeof(NoDataResponse))]
-        [HttpGet("[action]/{Id}/{status}")]
-        public ActionResult<NoDataResponse> Status(string id, string status, [FromQuery] string lockId = "")
+        [HttpGet("[action]/{Id}/{newStatus}")]
+        public ActionResult<NoDataResponse> Status(string id, string newStatus, [FromQuery] string lockId = "", [FromQuery] string oldStatus = "")
         {
-            Logger.LogInformation("Status action called for id '{Id}' and status '{Status}'", id, status);
-            return Ok(Context.UpdateStatus(id, status, lockId));
+            Logger.LogInformation("Status action called for id '{Id}' status '{Old}' -> '{New}'", id, oldStatus, newStatus);
+            return Ok(Context.UpdateStatus(id, oldStatus, newStatus, lockId));
+        }
+
+        /// <summary>
+        /// Clears lock ID for all queue scans currently set for the given lock ID
+        /// </summary>
+        /// <param name="lockId">Lock ID to unlock</param>
+        /// <param name="resetProcessing">If set and status is Processing, reset status to Pending</param>
+        /// <returns>Response indicating success or failure and count of affected queue scans</returns>
+        [Auth(Role.Admin, Role.Manager)]
+        [ProducesResponseType(200, Type = typeof(NoDataResponse))]
+        [HttpPost("[action]/{lockId}")]
+        public ActionResult<NoDataResponse> Unlock(string lockId, [FromQuery]bool resetProcessing=true)
+        {
+            Logger.LogInformation("Unlock action called for lock ID '{LockId}'", lockId);
+            return Ok(Context.Unlock(lockId, resetProcessing));
         }
 
         /// <summary>
@@ -180,6 +202,23 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <summary>
         /// Deletes multiple QueueScan entities by Id and all assets and issues associated with them.
         /// </summary>
+        /// <param name="ids">List of queue scan IDs to remove</param>
+        /// <returns>Non data response indicating the number of IDs attempted (results not guaranteed)</returns>
+        /// <response code="200">Returns response indicating success</response>
+        [Auth(Role.Admin, Role.Manager)]
+        [ProducesResponseType(200, Type = typeof(NoDataResponse))]
+        [HttpPost("all/deletelist")]
+        public ActionResult<NoDataResponse> DeleteAllByList([FromBody]List<string> ids)
+        {
+            Logger.LogInformation("DeleteAll action called for {Count} ids", ids.Count);
+
+            return Ok(Context.DeleteAllQueueByQueueScan(ids));
+        }
+
+        /// <summary>
+        /// Deletes multiple QueueScan entities by Id and all assets and issues associated with them.
+        /// </summary>
+        /// <param name="request">Search request that will work for all 3 queue entities</param>
         /// <returns>Non data response</returns>
         /// <response code="200">Returns response indicating success</response>
         [ProducesResponseType(200, Type = typeof(NoDataResponse))]

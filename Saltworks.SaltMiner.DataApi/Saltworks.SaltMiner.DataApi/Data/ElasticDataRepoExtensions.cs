@@ -1,47 +1,40 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
-﻿using Saltworks.SaltMiner.Core.Data;
+using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.ElasticClient;
-using System.Collections.Generic;
 using System.Linq;
 
-namespace Saltworks.SaltMiner.DataApi.Data
-{
+namespace Saltworks.SaltMiner.DataApi.Data;
+
     public static class ElasticDataRepoExtensions
     {
+        private const string ERROR = "Error";
         public static DataResponse<T> ToDataResponse<T>(this IElasticClientResponse<T> result) where T : class => new() 
         {
-            Data = result?.Results.Select(r => r.Document) ?? new List<T>(),
-            PitPagingInfo = result?.UIPagingInfo == null ? result?.PitPagingInfo : null,
-            UIPagingInfo = result?.UIPagingInfo != null ? result.UIPagingInfo : null,
-            AfterKeys = result?.AfterKeys,
+            Data = result?.Results.Select(r => r.Document) ?? [],
+            PagingInfo = result?.PagingInfo,
             Affected = result?.CountAffected ?? 0,
             Message = result?.Message,
-            ErrorMessages = !result?.IsSuccessful == true ? new List<string> { result?.Message } : null,
-            ErrorType = !result?.IsSuccessful == true ? "Elastic" : null,
-            StatusCode = result?.HttpStatus ?? 500
-        };
-
-        public static NoDataResponse ToNoDataResponse<T>(this IElasticClientResponse<T> result) where T : class => new()
-        {
-            Affected = result?.CountAffected ?? 0,
-            Message = result?.Message,
-            ErrorMessages = !result?.IsSuccessful == true ? new List<string> { result?.Message } : null,
-            ErrorType = !result?.IsSuccessful == true ? "Elastic" : null,
+            ErrorMessages = !result?.IsSuccessful == true ? new() { result?.Message } : null,
+            ErrorType = !result?.IsSuccessful == true ? ERROR : null,
             StatusCode = result?.HttpStatus ?? 500
         };
 
@@ -49,8 +42,8 @@ namespace Saltworks.SaltMiner.DataApi.Data
         {
             Affected = result?.CountAffected ?? 0,
             Message = result?.Message,
-            ErrorMessages = !result?.IsSuccessful == true ? new List<string> { result?.Message } : null,
-            ErrorType = !result?.IsSuccessful == true ? "Elastic" : null,
+            ErrorMessages = !result?.IsSuccessful == true ? new() { result?.Message } : null,
+            ErrorType = !result?.IsSuccessful == true ? ERROR : null,
             StatusCode = result?.HttpStatus ?? 500,
             Data = result?.Result?.Document
         };
@@ -59,19 +52,27 @@ namespace Saltworks.SaltMiner.DataApi.Data
         {
             Affected = result?.CountAffected ?? 0,
             Message = result?.Message,
-            ErrorMessages = !result?.IsSuccessful == true ? new List<string> { "Please see Bulk Errors" } : null,
-            ErrorType = !result?.IsSuccessful == true ? "Elastic" : null,
+            ErrorMessages = !result?.IsSuccessful == true ? new() { "Please see Bulk Errors" } : null,
+            ErrorType = !result?.IsSuccessful == true ? ERROR : null,
             StatusCode = result?.HttpStatus ?? 500,
             BulkErrors = result?.BulkErrorMessages
+        };
+
+        public static NoDataResponse ToNoDataResponse<T>(this IElasticClientResponse<T> result) where T : class => new()
+        {
+            Affected = result?.CountAffected ?? 0,
+            Message = result?.Message,
+            ErrorMessages = !result?.IsSuccessful == true ? new() { result?.Message } : null,
+            ErrorType = !result?.IsSuccessful == true ? ERROR : null,
+            StatusCode = result?.HttpStatus ?? 500
         };
 
         public static NoDataResponse ToNoDataResponse(this IElasticClientResponse result) => new()
         {
             Affected = result?.CountAffected ?? 0,
             Message = result?.Message,
-            ErrorMessages = !result?.IsSuccessful == true ? new List<string> { result?.Message } : null,
-            ErrorType = !result?.IsSuccessful == true ? "Elastic" : null,
+            ErrorMessages = !result?.IsSuccessful == true ? new() { result?.Message } : null,
+            ErrorType = !result?.IsSuccessful == true ? ERROR : null,
             StatusCode = result?.HttpStatus ?? 500
         };
     }
-}

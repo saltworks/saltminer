@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -103,6 +107,21 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
             LocalData.SetDbConnection($"Data Source={dbName}");
             MyLocalData.SetDbConnection($"Data Source={dbName}");
             await Task.Delay(1, token); // keep it async so children can have it that way
+        }
+
+        /// <summary>
+        /// Return a DateTime that has the appropriate timezone set for this source adapter.
+        /// </summary>
+        /// <param name="dateTime">DateTime to be adjusted</param>
+        /// <remarks></remarks>
+        protected virtual DateTime? FixTimezone(DateTime? dateTime)
+        {
+            if (!dateTime.HasValue)
+                return null;
+            var dt = dateTime.Value;
+            if (dt.Kind == DateTimeKind.Unspecified)
+                dt = DateTime.SpecifyKind(dt, Config.DateTimeZoneIsUtc ? DateTimeKind.Utc : DateTimeKind.Local);
+            return dt.ToUniversalTime();
         }
 
         protected virtual string GetZeroScannerId(string source, string sourceId) => $"{source}|{sourceId}|zero";
@@ -204,6 +223,9 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
             }
         }
 
+        /// <summary>
+        /// Requests cancellation of all processing
+        /// </summary>
         protected virtual void SetCancelToken()
         {
             CancellationRequested = true;
@@ -859,6 +881,41 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
             }
         }
 
+        /// <summary>
+        /// Sets sync record in progress, saving sync progress information in case of processing failure later.
+        /// </summary>
+        /// <param name="syncRecord">Sync record for the current source ID</param>
+        /// <param name="currentSourceId">Current source ID being processed</param>
+        /// <remarks>Sync records are no longer saved immediately (outside of buffering) for performance reasons.  
+        /// Even if we have to repeat processing on a few source IDs due to buffering the performance boost is worth it.</remarks>
+        protected virtual void SyncInProgress(SyncRecord syncRecord, string currentSourceId)
+        {
+            syncRecord = syncRecord ?? throw new ArgumentNullException(nameof(syncRecord));
+            syncRecord.CurrentSourceId = currentSourceId;
+            syncRecord.State = SyncState.InProgress;
+            LocalData.AddUpdate(syncRecord);
+        }
+
+        /// <summary>
+        /// Finalizes sync record at end of processing, saving sync progress.
+        /// </summary>
+        /// <param name="syncRecord">Sync record</param>
+        /// <remarks>Sync records are no longer saved immediately (outside of buffering) for performance reasons.  
+        /// Even if we have to repeat processing on a few source IDs due to buffering the performance boost is worth it.</remarks>
+        protected virtual void SyncComplete(SyncRecord syncRecord)
+        {
+            syncRecord = syncRecord ?? throw new ArgumentNullException(nameof(syncRecord));
+            syncRecord.LastSync = DateTime.UtcNow;
+            syncRecord.CurrentSourceId = "";
+            syncRecord.State = SyncState.Completed;
+            LocalData.AddUpdate(syncRecord);
+        }
+
+        /// <summary>
+        /// Updates local metric using latest source metric information.  Call at end of processing for current source ID.
+        /// </summary>
+        /// <param name="sourceMetric">Source metric data, latest source info about the asset</param>
+        /// <param name="localMetric">Local metric data to be updated and then saved</param>
         protected virtual void UpdateLocalMetric(SourceMetric sourceMetric, SourceMetric localMetric)
         {
             if (localMetric == null)
@@ -905,7 +962,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
             // Asset Search Request Set Up
             var assetsRequest = new SearchRequest()
             {
-                PitPagingInfo = new PitPagingInfo(config.FirstLoadBatchSize, true),
+                PagingInfo = new(config.FirstLoadBatchSize),
                 Filter = new()
                 {
                     FilterMatches = new Dictionary<string, string>()
@@ -920,7 +977,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
 
             // Priming read
             var assetsResults = DataClient.AssetSearch(assetsRequest);
-            var totalAssets = assetsResults.PitPagingInfo.Total;
+            var totalAssets = assetsResults.PagingInfo.TotalHits;
             Logger.LogInformation("[First Load] {Total} Assets Found", totalAssets);
 
             if (!assetsResults.Data.Any())
@@ -959,8 +1016,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core
                 Logger.LogInformation("[First Load] Adding {Count} metrics of {Total} ", sourceMetricList.Count, totalAssets);
                 sourceMetricList = [];
 
-                assetsRequest.PitPagingInfo = assetsResults.PitPagingInfo;
-                assetsRequest.AfterKeys = assetsResults.AfterKeys;
+                assetsRequest.PagingInfo = assetsResults.PagingInfo.NextPage();
                 assetsResults = DataClient.AssetSearch(assetsRequest);
             } while (assetsResults.Data.Any());
 

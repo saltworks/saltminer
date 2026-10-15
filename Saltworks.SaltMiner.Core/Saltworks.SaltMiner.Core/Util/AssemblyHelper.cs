@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.DependencyInjection;
 using System;
@@ -35,7 +39,7 @@ namespace Saltworks.SaltMiner.Core.Util
             }
             catch (Exception ex)
             {
-                throw new AssemblyHelperException($"Assembly: {assemblyName} - Type: {typeName} - Interface: {typeof(T).Name} - Could not be loaded.", ex);
+                throw new AssemblyHelperException($"Assembly: {assemblyName} - Type: {typeName} - Interface: {typeof(T).Name} - Could not be loaded due to error: [{ex.GetType().Name}] {ex.Message}", ex);
             }
         }
 
@@ -50,7 +54,7 @@ namespace Saltworks.SaltMiner.Core.Util
             }
             catch (Exception ex)
             {
-                throw new AssemblyHelperException($"Assembly: {assemblyName} - Type: {typeName} - Interface: {typeof(T).Name} - Could not be loaded.", ex);
+                throw new AssemblyHelperException($"Assembly: {assemblyName} - Type: {typeName} - Interface: {typeof(T).Name} - Could not be loaded due to error: [{ex.GetType().Name}] {ex.Message}", ex);
             }
         }
 
@@ -64,7 +68,7 @@ namespace Saltworks.SaltMiner.Core.Util
             }
             catch (Exception ex)
             {
-                throw new AssemblyHelperException($"Assembly: {assembly.FullName} - Type: {typeName} - Interface: {typeof(T).Name} - Could not be loaded.", ex);
+                throw new AssemblyHelperException($"Assembly: {assembly.FullName} - Type: {typeName} - Interface: {typeof(T).Name} - Could not be loaded due to error: [{ex.GetType().Name}] {ex.Message}", ex);
             }
         }
 
@@ -86,19 +90,15 @@ namespace Saltworks.SaltMiner.Core.Util
             }
             catch (Exception ex)
             {
-                throw new AssemblyHelperException($"Assembly: {assembly.FullName} - Base: {baseName} - Interface: {typeof(T).Name} - Failed to Load Could not be loaded.", ex);
+                throw new AssemblyHelperException($"Assembly: {assembly.FullName} - Base: {baseName} - Interface: {typeof(T).Name} - Could not be loaded due to error: [{ex.GetType().Name}] {ex.Message}", ex);
             }
         }
 
-        [Serializable]
         public class AssemblyHelperException : Exception
         {
             public AssemblyHelperException() { }
             public AssemblyHelperException(string message) : base(message) { }
             public AssemblyHelperException(string message, Exception inner) : base(message, inner) { }
-            protected AssemblyHelperException(
-              System.Runtime.Serialization.SerializationInfo info,
-              System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
         }
     }
 }

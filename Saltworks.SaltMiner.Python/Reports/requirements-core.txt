@@ -1,0 +1,6 @@
+requests==2.34.2
+httpx==0.28.1
+urllib3==2.8.0
+cryptography==50.0.1
+ecs-logging==2.3.0
+elasticsearch==8.19.3

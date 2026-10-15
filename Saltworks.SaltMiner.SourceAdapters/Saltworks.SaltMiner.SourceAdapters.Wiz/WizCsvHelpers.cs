@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using CsvHelper;
 using CsvHelper.Configuration;
@@ -136,7 +140,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
             // 2023-10-06 15:13:27.820197 +0000 UTC  ->  2023-10-06T15:13:38.820197Z
 
             var newtext = text.Replace(" +0000 UTC", "Z").Replace(" ", "T");
-            if (DateTime.TryParse(newtext, new CultureInfo("en-us"), DateTimeStyles.RoundtripKind, out var date))
+            if (DateTime.TryParse(newtext, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var date))
                 return date;
             else
                 return DateTime.MinValue;

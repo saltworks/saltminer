@@ -1,15 +1,19 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
@@ -24,6 +28,7 @@ import traceback
 import time
 
 from Core.Application import Application
+from Core.ApplicationExceptions import ApplicationException
 from Sources.FOD.SyncExtractor import SyncExtractor as SyncExtractorFod
 from Sources.SSC.SyncExtractor import SyncExtractor as SyncExtractorSsc
 
@@ -40,13 +45,13 @@ if len(sys.argv) > 2:
 if len(sys.argv) > 3:
     prmLogInstance = sys.argv[3]        # Custom logging instance
 
-msg = "Usage:\n\npython3 RunSync.py src [action] [lognum]\n\n:src: Source name, i.e. SSC1\n:action: sync, loadqueue, or all, defaults to all\n:lognum: logging instance number, defaults to none"
+msg = "Usage:\n\npython3 RunSync.py src [action] [lognum]\n\n:src: Source name, i.e. SSC1\n:action: sync, loadqueue, checkdrop, or all, defaults to all\n:lognum: logging instance number, defaults to none"
 if len(sys.argv) == 0:
     logging.warning(msg)
     exit(1)
 if prmAction not in ['sync', 'loadqueue', 'all', 'checkdrop']:
     raise ValueError(f"Invalid action '{prmAction}', expected 'sync', 'loadqueue', 'checkdrop', or 'all'.")
-app = Application(loggingInstance=prmLogInstance)
+app = Application(loggingCustomTag=prmLogInstance)
 logging.info(f"[{prog}] Starting, processing {'all sources' if prmSourceName is None else 'source ' + prmSourceName}, using '{prmAction}' action.")
 
 try:
@@ -89,8 +94,10 @@ for sourceName in sourceNames:
                 e.CheckDrop()
     except KeyboardInterrupt:
         logging.info("Keyboard interrupt, cancelling")
+        exit(0)
     except Exception as e:
         error_msg = traceback.format_exc()
         logging.critical(error_msg)
-        raise Exception(f"[{prog}] Exception: [{type(e).__name__}] {e}")
+        raise ApplicationException(f"[{prog}] Exception: [{type(e).__name__}] {e}")
     logging.info(f"[{prog}] Completed processing source '{sourceName}'")
+

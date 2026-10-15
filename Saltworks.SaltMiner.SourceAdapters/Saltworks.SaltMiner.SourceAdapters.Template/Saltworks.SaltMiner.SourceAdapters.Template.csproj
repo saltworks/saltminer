@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Saltworks.SaltMiner.SourceAdapters.Core" Version="1.0.16" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters.Core\Saltworks.SaltMiner.SourceAdapters.Core\Saltworks.SaltMiner.SourceAdapters.Core.csproj" />
   </ItemGroup>
 
 </Project>

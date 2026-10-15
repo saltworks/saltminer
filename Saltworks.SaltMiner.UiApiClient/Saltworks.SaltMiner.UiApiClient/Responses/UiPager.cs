@@ -1,21 +1,24 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Saltworks.SaltMiner.Core.Data;
-using Saltworks.SaltMiner.Core.Entities;
 
 namespace Saltworks.SaltMiner.UiApiClient.Responses
 {
@@ -45,33 +48,18 @@ namespace Saltworks.SaltMiner.UiApiClient.Responses
         /// <summary>
         /// Response constructor
         /// </summary>
-        public UiPager(UIPagingInfo dataPager, List<SearchFilterValue> sortOptions, bool isQueue = false)
+        public UiPager(PagingInfo dataPager, Dictionary<string, bool> sortFilters = null)
         {
-            Total = dataPager?.Total;
-            Size = dataPager.Size;
+            Total = Convert.ToInt32(dataPager?.TotalHits);
+            Size = dataPager?.Size ?? 0;
             Page = dataPager.Page;
-            sortOptions ??= [];
-            foreach (var sort in dataPager.SortFilters)
-            {
-                SearchFilterValue filter = null;
-                if (isQueue)
-                    filter = sortOptions.FirstOrDefault(x => x.QueueIndexFieldNames.Any(y => y.ToLower() == sort.Key.ToLower()));
-                else
-                    filter = sortOptions.FirstOrDefault(x => x.IndexFieldNames.Any(y => y.ToLower() == sort.Key.ToLower()));
-                
-                if (filter != null)
-                    SortFilters.Add(filter.Field, sort.Value);
-            }
+            SortFilters = sortFilters ?? [];
         }
 
-        public UIPagingInfo ToDataPager()
+        public PagingInfo ToPagingInfo() => new()
         {
-            return new UIPagingInfo
-            {
-                Page = Page,
-                Size = Size,
-                SortFilters = SortFilters
-            };
-        }
+            Page = Page,
+            Size = Size
+        };
     }
 }

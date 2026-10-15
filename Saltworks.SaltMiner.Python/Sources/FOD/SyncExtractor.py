@@ -1,15 +1,19 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
@@ -18,23 +22,29 @@ import json
 import logging
 import datetime
 
-from Core.ElasticClient import ElasticClient
 from Core.FodClient import FodClient
-from Utility.ProgressLogger import *
-from Utility.SyncQueueHelper import *
-from elasticsearch import Elasticsearch, NotFoundError, exceptions, ConflictError
+from .. import IdLoader
+from Utility.ProgressLogger import ProgressLogger
+from Utility.SyncQueueHelper import SyncQueueHelper
+from elasticsearch import ConflictError
+from ..SyncResult import SyncResult
 
 class SyncExtractor(object):
     """Extraction of Open FOD Changes"""
 
-    def __init__(self, appSettings, sourceName):
-        
+    def __init__(self, appSettings, sourceName, logger=None, heartbeat=None):
+        '''
+        :heartbeat: optional zero-arg callable invoked as work progresses.  Supplied by SyncWorker
+        so the agent can tell a slow sync from a defunct worker; None (the default) for standalone runs.
+        '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
-        if not sourceName or not sourceName in appSettings.GetSourceNames():
+        if not sourceName or sourceName not in appSettings.GetSourceNames():
             raise SyncExtractorException(f"Invalid or missing source configuration for source name '{sourceName}'")
 
-        self.__Fod = FodClient(appSettings, sourceName)
+        self.__Logger = logger or logging.getLogger(__name__)
+        self.__Heartbeat = heartbeat
+        self.__Fod = FodClient(appSettings, sourceName, heartbeat=heartbeat)
         self.__Es = appSettings.Application.GetElasticClient()
         self.__SyncQueue = SyncQueueHelper(appSettings, sourceName)
         self.__PreloadReleases = appSettings.GetSource(sourceName, 'SyncPreloadReleases', True)
@@ -43,7 +53,22 @@ class SyncExtractor(object):
         self.__SourceName = sourceName
         self.__SourceNameField = "sourceName"
 
-        logging.debug("ExtractFOD.init complete.")
+        self.__Logger.debug("ExtractFOD.init complete.")
+
+    @property
+    def SourceName(self):
+        return self.__SourceName
+
+    def _Beat(self):
+        '''
+        Signal progress to the caller's heartbeat delegate, if one was supplied.  No-op for
+        standalone runs.  Never lets a heartbeat failure break the work in progress.
+        '''
+        if self.__Heartbeat is not None:
+            try:
+                self.__Heartbeat()
+            except Exception:
+                self.__Logger.debug("Heartbeat delegate raised; ignoring.", exc_info=True)
 
     def MapESIndices(self, Force):
         
@@ -91,24 +116,111 @@ class SyncExtractor(object):
     def __GetElasticFodApplication(self, appId):
         return self.__GetElasticDataByKeyField('fodapplications', appId, 'applicationId')
 
-    def __GetRelease(self, avid, avList):
+    def __GetRelease(self, avid, avList, allowElastic=True, reportErrors=False):
+        '''
+        Return the release document for avid, preferring the cheapest source that has it.
+
+        :reportErrors: set True to raise SyncExtractorException, carrying the FOD status, when the
+        release could not be RETRIEVED (401/403/429/5xx) rather than being genuinely absent.  Left
+        False the method answers None for both, which is right for the batch path - it logs and
+        moves to the next queue item - but loses the only evidence of why for a caller that records
+        the failure.  Genuine absence (404) still answers None either way.
+
+        :allowElastic: set False when the caller is about to run change detection on the result.
+        __ProcessOne compares what it is given against the copy in 'fodreleases'; answering from
+        elasticsearch here would compare that copy against itself, so nothing ever looks changed
+        and the release is never re-synced.  The batch Process() path can leave this on because it
+        preloads releases from FOD into avList.
+        '''
         # 1 - return from memory list
         if not avList:
             avList = []
         for itm in avList:
             if str(itm['releaseId']) == str(avid):
                 return itm
-        # 2 - return from elastic
-        rel = self.__GetElasticFodRelease(avid)
-        if rel:
-            return rel
-        # 3 - return from FOD (or None if not found)
-        rel = self.__Fod.GetRelease(avid).Content
+        # 2 - return from elastic.  Search(navToData=True) yields hit envelopes, so unwrap to the
+        # release document here - callers (and __ProcessOne) want the same plain shape the memory
+        # list and the FOD API return, not a shape that depends on which branch answered.
+        if allowElastic:
+            rel = self.__GetElasticFodRelease(avid)
+            if rel:
+                return rel.get('_source', rel)
+        # 3 - return from FOD (or None if not found).  FodClient never raises on a 4xx - it hands back
+        # the parsed error body - so an unknown or inaccessible release arrives here as None or as a
+        # dict with no releaseId.  Both have to become None, or the caller stamps a source name onto
+        # an error payload (or onto None) and __ProcessOne fails later on a missing key instead of
+        # reporting the release as not found.
+        rsp = self.__Fod.GetRelease(avid)
+        rel = rsp.Content if rsp else None
+        if not isinstance(rel, dict) or 'releaseId' not in rel:
+            status = getattr(rsp, "Status", None)
+            self.__Logger.warning("FOD release %s not returned (status %s); treating as not found.", avid, status)
+            if reportErrors:
+                failure = self.__DescribeReleaseFailure(avid, rsp, rel, status)
+                if failure:
+                    raise SyncExtractorException(failure)
+            return None
         rel[self.__SourceNameField] = self.__SourceName
         return rel
 
+    def __DescribeReleaseFailure(self, avid, rsp, rel, status):
+        '''
+        Returns a message describing why a release did not come back, or None when the release is
+        genuinely absent and "could not be found" is the honest answer.
+
+        Only 404 means absent.  Everything else FOD documents (400, 401, 403, 422, 429, 500) means
+        the release was never actually looked for, and reporting those as "not found" is what made
+        expired tokens and throttling read as missing data.
+        '''
+        if status == 404:
+            return None
+        # FOD puts a human-readable cause in 'message' on its error bodies.
+        detail = ''
+        if isinstance(rel, dict):
+            detail = rel.get('message') or rel.get('errors') or ''
+        if not detail:
+            detail = (getattr(rsp, "Text", None) or '')[:200]
+        reason = getattr(rsp, "Reason", None) or ''
+        if status is None:
+            return f"Release {avid} not retrieved from FOD: no response from api."
+        if status == 200:
+            # FOD answered successfully with something that is not a release.
+            return f"Release {avid} not retrieved from FOD: (200) unexpected response body: {detail}"
+        hint = {
+            401: " - access token rejected",
+            403: " - not entitled to this release under the configured credentials",
+            429: " - rate limited, retries exhausted",
+        }.get(status, " - server error, retries exhausted" if status >= 500 else "")
+        return f"Release {avid} not retrieved from FOD: ({status}) {reason}{hint}. {detail}".strip()
+
+    def __FodFailure(self, what, rsp):
+        '''
+        Message describing a failed FodClient response, including FOD's own error text.
+        Used where an unusable response must abort the sync rather than be read as "no data".
+        '''
+        status = getattr(rsp, "Status", None)
+        reason = getattr(rsp, "Reason", None) or ''
+        content = getattr(rsp, "Content", None)
+        detail = ''
+        if isinstance(content, dict):
+            errs = content.get('errors')
+            if isinstance(errs, list) and errs:
+                detail = '; '.join(str(e.get('message', e)) for e in errs)
+            else:
+                detail = content.get('message') or ''
+        if not detail:
+            detail = (getattr(rsp, "Text", None) or '')[:200]
+        hint = {401: ' - access token rejected', 403: ' - not entitled to this data',
+                429: ' - rate limited, retries exhausted'}.get(status,
+                ' - server error, retries exhausted' if status and status >= 500 else '')
+        return f"FOD request for {what} failed: ({status}) {reason}{hint}. {detail}".strip()
+
     def __ClearRelease(self, appId, relId):
-        releaseComponents = [['fodapplications', 'applicationId', appId],['fodreleases', 'releaseId', relId],['fodcounts', 'releaseId', relId],
+        # fodapplications is deliberately NOT cleared here.  It is application-scoped state and this
+        # runs per release, so clearing it potentially removes the document a sibling worker is
+        # relying on.
+        # __ProcessOne now upserts it under a deterministic id, so there is nothing to clean up.
+        releaseComponents = [['fodreleases', 'releaseId', relId],['fodcounts', 'releaseId', relId],
                                 ['fodscans', 'releaseId', relId],['fodscansummary', 'releaseId', relId],['fodrelissues', 'releaseId', relId]]
         for component in releaseComponents:
             try:
@@ -116,70 +228,153 @@ class SyncExtractor(object):
                     { "term": { self.__SourceNameField: { "value": self.__SourceName } } },
                     { "term": { component[1]: { "value": component[2] } } }
                 ] }}}
-                self.__Es.DeleteByQuery(component[0], qry)
+                # flushAfter off - a Lucene commit per cleared component, per release, is cost this
+                # path has no use for; nothing here reads the deletes back.
+                self.__Es.DeleteByQuery(component[0], qry, flushAfter=False)
             except ConflictError as e:
                 msg = e.args[0] if e and e.args else "unknown"
-                logging.warning("[SyncExtractor] Conflict Error (409) clearing index %s for id %s: %s", component[0], component[2], msg)
+                self.__Logger.warning("[SyncExtractor] Conflict Error (409) clearing index %s for id %s: %s", component[0], component[2], msg)
                 continue
     
-    def CheckDrop(self, safetyOverride=False):
-        logging.info('Compare local data with FOD looking for dropped app/versions.  Loading releases for current source...')
-        body = { 
-            "sort": [ "releaseId"], 
-            "_source": ["releaseId", "releaseName", "applicationId", "applicationName"], 
-            "query": { "term": { self.__SourceNameField: { "value": self.__SourceName }}}
-        }
-        scroller = self.__Es.SearchScroll("fodreleases", body, scrollSize=500, scrollTimeout=None)
-        esTotal = scroller.TotalHits
-        if esTotal <= 0:
-            logging.warning("No FOD releases found in local data (fodreleases).")
+    # __init__ rejects any source whose type is not FOD, so this is constant for this class.
+    V3_SOURCE_TYPE = "Saltworks.FOD"
+    # Batch size for terms-clause deletes.  Well inside elasticsearch's 65,536 terms ceiling, and
+    # keeps each request body small enough to stay clear of http.max_content_length.
+    DROP_BATCH_SIZE = 10000
+    # fod* indices keyed by release id.  fodapplications is deliberately absent - it is keyed by
+    # application id and dropped separately, by application (see __DropApplications).
+    RELEASE_INDICES = [('fodreleases', 'releaseId'), ('fodcounts', 'releaseId'), ('fodscans', 'releaseId'),
+                       ('fodscansummary', 'releaseId'), ('fodrelissues', 'releaseId'),
+                       # SM2 reporting indices - keyed by application_version_id, and absent when
+                       # DisableSM2Indices is set, which the delete tolerates.
+                       ('app_scan_history_fod', 'application_version_id'), ('app_vuls_fod', 'application_version_id')]
+
+    def __DeleteByIdBatches(self, index, field, ids, scoped=True):
+        '''
+        Deletes from one index where `field` matches any of `ids`, in batches.  Returns the count.
+
+        :scoped: add the source name term.  On for the fod* indices, which hold every source's data in
+        one index; off for the SM2 reporting indices, which carry no source field.
+
+        Submitted with wait=False, so the count returned is ids submitted, not documents removed -
+        nothing reads these indices back in this pass.
+        '''
+        submitted = 0
+        for start in range(0, len(ids), SyncExtractor.DROP_BATCH_SIZE):
+            batch = [str(i) for i in ids[start:start + SyncExtractor.DROP_BATCH_SIZE]]
+            must = [{ "terms": { field: batch } }]
+            if scoped:
+                must.append({ "term": { self.__SourceNameField: { "value": self.__SourceName } } })
+            try:
+                self.__Es.DeleteByQuery(index, { "query": { "bool": { "must": must } } },
+                                        wait=False, ignoreMissingIndex=True, ignoreConflictError=True)
+                submitted += len(batch)
+            except Exception as ex:
+                self.__Logger.error("[CheckDrop] Error deleting from '%s' (%s ids in this batch): [%s] %s",
+                                    index, len(batch), type(ex).__name__, ex)
+        return submitted
+
+    def __DropReleases(self, releaseIds):
+        '''Removes every trace of the given releases - fod* indices, SM2 reporting, and v3.'''
+        if not releaseIds:
             return
-        fscroller = self.__Fod.GetReleases(fields="releaseId", scroller=True)
-        releases = []
+        self.__Logger.info("[CheckDrop] Dropping %s release(s) from local data.", len(releaseIds))
+        for index, field in SyncExtractor.RELEASE_INDICES:
+            scoped = index.startswith('fod')
+            n = self.__DeleteByIdBatches(index, field, releaseIds, scoped=scoped)
+            self.__Logger.info("[CheckDrop] Submitted delete of %s id(s) against '%s'.", n, index)
+        # v3 scans/assets/issues for the same releases - source_id on a v3 asset is the release id.
+        try:
+            results = self.__Es.DeleteV3BySourceIds(SyncExtractor.V3_SOURCE_TYPE, self.__SourceName,
+                                                    releaseIds, batchSize=SyncExtractor.DROP_BATCH_SIZE)
+            self.__Logger.info("[CheckDrop] v3 removal: %s", results or "nothing to remove")
+        except Exception as ex:
+            self.__Logger.error("[CheckDrop] Error removing v3 data for dropped releases: [%s] %s",
+                                type(ex).__name__, ex)
+
+    def __DropApplications(self, applicationIds):
+        '''Removes fodapplications documents for applications no longer present in FOD.'''
+        if not applicationIds:
+            return
+        self.__Logger.info("[CheckDrop] Dropping %s application(s) from fodapplications.", len(applicationIds))
+        n = self.__DeleteByIdBatches('fodapplications', 'applicationId', applicationIds)
+        self.__Logger.info("[CheckDrop] Submitted delete of %s id(s) against 'fodapplications'.", n)
+
+    def __CollectMissingIds(self, index, field, presentIds, label):
+        '''
+        Returns the ids in `index` (this source only) that are not in `presentIds`.
+
+        Scrolled rather than aggregated: an aggregation caps at its `size` and would silently miss
+        ids beyond it, and being wrong here means deleting data that still exists upstream.
+        '''
+        body = {
+            "sort": [field],
+            "_source": [field],
+            "query": { "term": { self.__SourceNameField: { "value": self.__SourceName } } }
+        }
+        scroller = self.__Es.SearchScroll(index, body, scrollSize=1000, scrollTimeout=None)
+        total = scroller.TotalHits if scroller else 0
+        missing = []
+        seen = set()
+        while scroller and len(scroller.Results):
+            for dto in scroller.Results:
+                value = dto['_source'].get(field)
+                if value is None or str(value) in seen:
+                    continue
+                seen.add(str(value))
+                if str(value) not in presentIds:
+                    missing.append(value)
+            scroller.GetNext()
+        self.__Logger.info("[CheckDrop] %s: %s local, %s distinct, %s not present in FOD.",
+                           label, total, len(seen), len(missing))
+        return missing, len(seen)
+
+    def CheckDrop(self, safetyOverride=False):
+        '''
+        Removes local data for releases and applications that no longer exist in FOD.
+        :safetyOverride: proceed even when the local data is more than 5% larger than FOD's, which
+        normally aborts on the assumption that the FOD pull was short rather than that thousands of
+        app versions vanished.
+        '''
+        self.__Logger.info('Compare local data with FOD looking for dropped app/versions.  Loading releases from FOD...')
+        fscroller = self.__Fod.GetReleases(fields="releaseId,applicationId", scroller=True)
+        fodReleaseIds = set()
+        fodApplicationIds = set()
         if fscroller and fscroller.TotalHits > 0:
             for rel in fscroller.GetAll():
-                releases.append(rel['releaseId'])
+                if rel.get('releaseId') is not None:
+                    fodReleaseIds.add(str(rel['releaseId']))
+                if rel.get('applicationId') is not None:
+                    fodApplicationIds.add(str(rel['applicationId']))
         else:
-            logging.warning("No releases found in FOD.")
+            self.__Logger.warning("No releases found in FOD.")
         fscroller = None
-        fodTotal = len(releases)
-        logging.info("Totals: Local FOD count: %s, Actual FOD count: %s", esTotal, fodTotal)
-        if esTotal > fodTotal and (int(abs(esTotal - fodTotal) / esTotal * 100) > 5):
-            if safetyOverride:
-                logging.warning("Local data counts are higher than FOD by more than 5%, safety override means we're cleaning house anyway.")
-            else:
-                logging.error("Local counts are higher than SSC by more than 5%, canceling auto-drop of FOD app versions from SaltMiner.  CheckDrop can be called manually with a safety override switch if desired.")
-                return
 
-        p = ProgressLogger(self.__Es)
-        p.Start("[CheckDrop]", esTotal, "CheckDrop Status")
-        p.Progress(0, 'Starting CheckDrop - check for FOD dropped releases')
+        missingReleases, localReleaseCount = self.__CollectMissingIds('fodreleases', 'releaseId', fodReleaseIds, 'Releases')
+        if localReleaseCount <= 0:
+            self.__Logger.warning("No FOD releases found in local data (fodreleases).")
+            return
+        missingApplications, localAppCount = self.__CollectMissingIds('fodapplications', 'applicationId', fodApplicationIds, 'Applications')
 
-        iDropCount = 0
-        iCount = 0
+        self.__Logger.info("Totals: local releases %s / FOD %s, local applications %s / FOD %s",
+                           localReleaseCount, len(fodReleaseIds), localAppCount, len(fodApplicationIds))
 
-        while len(scroller.Results):
-            for dto in scroller.Results:
-                esRelease = dto['_source']
-                if not esRelease['releaseId'] in releases:
-                    logging.info('Removing release with ID %s', esRelease['releaseId'])
-                    self.__ClearRelease(esRelease['applicationId'], esRelease['releaseId'])
-                    qdoc = {
-                        'processedDateTime' : datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-                        'releaseId': esRelease['releaseId'],
-                        'updateType': 'D',
-                        'updateReason': 'CheckDrop did not find this app version in FOD',
-                        'completedDateTime' : '1900-01-01T00:00:00.000-0000',
-                        self.__SourceNameField: self.__SourceName
-                    }
-                    self.__Es.Index('fodupdatequeue', json.dumps(qdoc))
-                    iDropCount += 1
-                iCount += 1
-                if iCount % 50 == 0 or iCount == esTotal:
-                    p.Progress(iCount, 'Processed {} of {}'.format(iCount, esTotal))
-            scroller.GetNext()
-        logging.info('Total releases dropped: %s', iDropCount)
-        p.Finish(esTotal, "Complete")
+        # Same safety rule as before, now covering both checks: a FOD pull that came back short looks
+        # exactly like a mass deletion, and acting on it would delete data that still exists.
+        for label, localCount, fodCount in (("releases", localReleaseCount, len(fodReleaseIds)),
+                                            ("applications", localAppCount, len(fodApplicationIds))):
+            if localCount > fodCount and int(abs(localCount - fodCount) / localCount * 100) > 5:
+                if safetyOverride:
+                    self.__Logger.warning("Local %s exceed FOD by more than 5%%, safety override set - cleaning house anyway.", label)
+                else:
+                    self.__Logger.error("Local %s exceed FOD by more than 5%% (local %s, FOD %s), cancelling auto-drop.  "
+                                        "Call CheckDrop with safetyOverride=True to proceed anyway.", label, localCount, fodCount)
+                    return
+
+        self.__DropReleases(missingReleases)
+        self.__DropApplications(missingApplications)
+        self.__Logger.info('CheckDrop complete.  Releases dropped: %s, applications dropped: %s.',
+                           len(missingReleases), len(missingApplications))
 
     def ReloadSyncQueue(self, clearSyncQueue='none'):
         '''
@@ -187,9 +382,10 @@ class SyncExtractor(object):
 
         clearSyncQueue - 'none' means do not clear, 'completed' for completed, 'unlocked' for unlocked only, 'locked' for all locked, 'all' for all.
         '''
-        avList = self.__Fod.GetReleases(fields='releaseId', scroller=True).GetAll()
+        # Pulled up front (not streamed) so a failed download leaves the existing queue intact.
+        avList = IdLoader.get_all_target_ids(IdLoader.FOD, client=self.__Fod, logger=self.__Logger)
 
-        if not clearSyncQueue in ['none', 'all', 'locked', 'unlocked', 'completed']:
+        if clearSyncQueue not in ['none', 'all', 'locked', 'unlocked', 'completed']:
             raise SyncExtractorException("Invalid/unsupported clearSyncqueue value.")
         if clearSyncQueue != 'none':
             completed = clearSyncQueue in ['all', 'completed']
@@ -198,28 +394,43 @@ class SyncExtractor(object):
 
         count = 0
         idList = []
-        for itm in avList:
+        for avid in avList:
             if count > 0 and count % 200 == 0:
                 self.__SyncQueue.InsertQueueBatch(idList)
                 idList = []
-                logging.info("Reloading sync queue: processed %s IDs", count)
-            idList.append(itm['releaseId'])
+                self.__Logger.info("Reloading sync queue: processed %s IDs", count)
+            idList.append(avid)
             count += 1
         if len(idList) > 0:
             self.__SyncQueue.InsertQueueBatch(idList)
-        logging.info("Sync queue reloaded successfully.")
+        self.__Logger.info("Sync queue reloaded successfully.")
     
-    def ProcessOne(self, avid, forceRefresh=False):
+    def ProcessOne(self, avid, forceRefresh=False, queueRefresh=True):
         '''
         Enables sync of a single release (by id), bypassing the queue entirely
+
+        :queueRefresh: set False to skip the fodupdatequeue record normally written when the
+        release changes.  Callers that run the refresh themselves for this one release (the
+        sync worker) don't need it; the batch Process() path does.
+
+        Returns a SyncResult describing what was written, so the refresh stage that runs next knows how
+        many issues to expect rather than having to guess from the index.
         '''
+        # Check mappings - ensures indices are created from templates rather than dynamically mapped by first doc write
+        self.MapESIndices(False)
         releases = []
-        release = self.__GetRelease(avid, releases)
+        # allowElastic off - this release is about to be change-detected against the copy in
+        # elasticsearch, so it has to come from FOD (see __GetRelease).
+        # reportErrors on - this is the agent's path, and whatever it raises becomes the
+        # status_reason recorded against the queue item.  Without it a 401/403/429 is written to
+        # sm_queue_sync* as "could not be found", indistinguishable from a deleted release.
+        release = self.__GetRelease(avid, releases, allowElastic=False, reportErrors=True)
         if not release:
             raise SyncExtractorException(f"Release {avid} could not be found.")
-        logging.info('Syncing FOD to Elastic for release %s', avid)
-        self.__ProcessOne(release['_source'], forceRefresh)
-        logging.info('Sync complete.')
+        self.__Logger.info('Syncing FOD to Elastic for release %s', avid)
+        result = self.__ProcessOne(release, forceRefresh, queueRefresh)
+        self.__Logger.info('Sync complete. %s', result)
+        return result
 
     def Process(self, reloadSyncQueue=False):
         '''
@@ -229,7 +440,7 @@ class SyncExtractor(object):
         '''
 
         # Check mappings
-        logging.debug("Ensuring Mappings are available")
+        self.__Logger.debug("Ensuring Mappings are available")
         self.MapESIndices(False)
 
         # Reload sync queue if configured
@@ -244,8 +455,10 @@ class SyncExtractor(object):
                 rel[self.__SourceNameField] = self.__SourceName
 
 
-        # Main queue loop
-        self.__Es.FlushIndex(self.__SyncQueue.Index)
+        # Main queue loop - refresh, not flush: this is a read-your-writes barrier before reading the
+        # queue back, and only refresh makes recent writes searchable.
+        # NOTE: SSC's SyncExtractor has no equivalent barrier before its GetSyncQueueBatch() calls.
+        self.__Es.RefreshIndex(self.__SyncQueue.Index)
         r = self.__SyncQueue.GetSyncQueueBatch()
         p = ProgressLogger(self.__Es)
         p.Start("ExtractFOD", r[1], "ExtractFOD Status")
@@ -255,36 +468,36 @@ class SyncExtractor(object):
         while r and len(r[0]) > 0:
             queueBatch = r[0]
             iTotal = r[1]
-            logging.debug("Sync queue total: %s", iTotal)
+            self.__Logger.debug("Sync queue total: %s", iTotal)
     
             try:
                 if not queueBatch or len(queueBatch) == 0:
-                    logging.info("No release queued for sync - nothing to do.")
+                    self.__Logger.info("No release queued for sync - nothing to do.")
 
                 for qItem in queueBatch:
                     if bailoutCount == 1000:
-                        logging.warning("[SYNC] Unable to lock queue item(s) after 1000 consecutive attempts, canceling sync.")
+                        self.__Logger.warning("[SYNC] Unable to lock queue item(s) after 1000 consecutive attempts, canceling sync.")
                         return
                     avCount = avCount + 1
                     sqdto = self.__SyncQueue.SetInProgress(qItem)
                     if not sqdto:
-                        logging.debug("Skipping sync queue item %s:%s:%s, unable to lock", qItem.SyncQueueDoc.TargetType, qItem.SyncQueueDoc.Instance, qItem.SyncQueueDoc.TargetId)
+                        self.__Logger.debug("Skipping sync queue item %s:%s:%s, unable to lock", qItem.SyncQueueDoc.TargetType, qItem.SyncQueueDoc.Instance, qItem.SyncQueueDoc.TargetId)
                         bailoutCount += 1
                         continue
                     bailoutCount = 0
 
                     release = self.__GetRelease(qItem.SyncQueueDoc.TargetId, allReleases)
                     if not release:
-                        logging.warning("[SYNC] FOD release ID %s not found, cannot sync.", qItem.SyncQueueDoc.TargetId)
+                        self.__Logger.warning("[SYNC] FOD release ID %s not found, cannot sync.", qItem.SyncQueueDoc.TargetId)
                         sqdto = self.__SyncQueue.SetComplete(sqdto)
                         if not sqdto:
-                            logging.warning("Failed to complete sync queue item %s:%s:%s. Earlier log messages may have more details.", qItem.SyncQueueDoc.TargetType, qItem.SyncQueueDoc.Instance, qItem.SyncQueueDoc.TargetId)
+                            self.__Logger.warning("Failed to complete sync queue item %s:%s:%s. Earlier log messages may have more details.", qItem.SyncQueueDoc.TargetType, qItem.SyncQueueDoc.Instance, qItem.SyncQueueDoc.TargetId)
                         continue
                     p.Progress(avCount, 'Syncing FOD to Elastic for release {} ({} of {})'.format(qItem.SyncQueueDoc.TargetId, avCount, iTotal), iTotal)
                     self.__ProcessOne(release, qItem.SyncQueueDoc.Force)
                     sqdto = self.__SyncQueue.SetComplete(sqdto)
                     if not sqdto:
-                        logging.warning("Failed to complete sync queue item %s:%s:%s. Earlier log messages may have more details.", qItem.SyncQueueDoc.TargetType, qItem.SyncQueueDoc.Instance, qItem.SyncQueueDoc.TargetId)
+                        self.__Logger.warning("Failed to complete sync queue item %s:%s:%s. Earlier log messages may have more details.", qItem.SyncQueueDoc.TargetType, qItem.SyncQueueDoc.Instance, qItem.SyncQueueDoc.TargetId)
                 # end for
                 r = self.__SyncQueue.GetSyncQueueBatch()
 
@@ -292,20 +505,20 @@ class SyncExtractor(object):
                 raise
             finally:
                 try:
-                    logging.debug("Attempting to clear sync queue session.")
+                    self.__Logger.debug("Attempting to clear sync queue session.")
                     self.__SyncQueue.ClearSession()
-                    logging.debug("Sync queue session cleared.")
-                except:
-                    logging.error("Failed to clear sync queue session - see previous log messages for details.")
+                    self.__Logger.debug("Sync queue session cleared.")
+                except Exception as ex:
+                    self.__Logger.error("Failed to clear sync queue session - see previous log messages for details.", exc_info=ex)
         # end 'while r and len(r[0]) > 0'
         if iTotal == 0:
-            logging.info("No sync queue entries found, aborting sync.")
+            self.__Logger.info("No sync queue entries found, aborting sync.")
         p.Finish(iTotal, "Complete")
 
     def __GetApplication(self, applicationId):
         # use a numbered position FIFO cache approach, might reduce duplicate application ID lookups
         # expects dict to be sorted by key, and that we process in order of ascending application ID
-        if not applicationId in self.__ApplicationCache.keys():
+        if applicationId not in self.__ApplicationCache.keys():
             app = self.__Fod.GetApplication(applicationId).Content
             app[self.__SourceNameField] = self.__SourceName
             self.__ApplicationCache[applicationId] = app
@@ -317,34 +530,38 @@ class SyncExtractor(object):
                         i += 1
                     self.__ApplicationCache.pop(first)
                 except KeyError:
-                    logging.error("[SYNC] Failed to remove application with id %s from application cache", first)
-            if not applicationId in self.__ApplicationCache.keys():
-                logging.warning("Application %s not found", applicationId)
+                    self.__Logger.error("[SYNC] Failed to remove application with id %s from application cache", first)
+            if applicationId not in self.__ApplicationCache.keys():
+                self.__Logger.warning("Application %s not found", applicationId)
                 return None
         return self.__ApplicationCache[applicationId]
 
-    def __ProcessOne(self, release, forceRefresh=False):
+    def __ProcessOne(self, release, forceRefresh=False, queueRefresh=True):
+        '''Returns a SyncResult - see ProcessOne.'''
+        issuesWritten = 0
+        scansWritten = 0
+        self._Beat()
         needsReset = False
         checkStaticDate = True
         checkDynamicDate = True
         checkMobileDate = True
         holdReleaseId = release['releaseId']
 
-        if release['staticScanDate'] != None:
+        if release['staticScanDate'] is not None:
             holdStaticScanDate = json.dumps(release['staticScanDate'])
             checkStaticDate = True
         else:
             holdStaticScanDate = 'null'
             checkStaticDate = False
 
-        if release['dynamicScanDate'] != None:
+        if release['dynamicScanDate'] is not None:
             holdDynamicScanDate = json.dumps(release['dynamicScanDate'])
             checkDynamicDate = True
         else:
             holdDynamicScanDate = 'null'
             checkDynamicDate = False
 
-        if release['mobileScanDate'] != None:
+        if release['mobileScanDate'] is not None:
             holdMobileScanDate = json.dumps(release['mobileScanDate'])
             checkMobileDate = True
         else:
@@ -356,23 +573,23 @@ class SyncExtractor(object):
         holdMedium = release['medium']
         holdLow = release['low']
 
-        logging.debug(holdReleaseId)
+        self.__Logger.debug(holdReleaseId)
 
         dto = self.__GetElasticFodRelease(holdReleaseId)
         foundRelease = None if not dto else dto['_source']
 
 
         if not foundRelease:
-            logging.debug('not in table - need to reset - get next release')
+            self.__Logger.debug('not in table - need to reset - get next release')
             needsReset = True
         else:
-            logging.debug('found it in table')
-            logging.debug(json.dumps(foundRelease))
+            self.__Logger.debug('found it in table')
+            self.__Logger.debug(json.dumps(foundRelease))
 
         if not needsReset:
             # Compare names
             if foundRelease['releaseName'] != release['releaseName'] or foundRelease['applicationName'] != release['applicationName']:
-                logging.debug('Release or application name changed, needs reset')
+                self.__Logger.debug('Release or application name changed, needs reset')
                 needsReset = True
 
         if not needsReset:
@@ -388,22 +605,22 @@ class SyncExtractor(object):
             dateMismatch = False
 
             # Compare last scan date
-            if checkStaticDate == True:
+            if checkStaticDate:
 
                 if holdStaticScanDate != compareStaticScanDate:
                     dateMismatch = True
 
-            if checkDynamicDate == True:
+            if checkDynamicDate:
 
                 if holdDynamicScanDate != compareDynamicScanDate:
                     dateMismatch = True
 
-            if checkMobileDate == True:
+            if checkMobileDate:
 
                 if holdMobileScanDate != compareMobileScanDate:
                     dateMismatch = True
 
-            if dateMismatch == True:
+            if dateMismatch:
 
                 logging.debug ('one or more dates are off - need to reset')
                 needsReset = True
@@ -414,46 +631,44 @@ class SyncExtractor(object):
 
                     #logging.info ('everything matches - check fixed and suppressed')
 
-                    _summary = {'releaseId': holdReleaseId, 'FixedIssue': 0, 'SuppressedIssues': 0}
-
                     _summary = self.__Fod.GetSummaryCounts(holdReleaseId)
 
-                    #logging.info("summary count response: {}".format(_summary))
+                    #self.__Logger.info("summary count response: {}".format(_summary))
                     holdFixed = _summary['FixedIssue']
                     holdSuppressed = _summary ['SuppressedIssues']
 
+                    # One hit, not a list - __GetElasticDataByKeyField already takes lst[0].
                     foundRelCounts = self.__GetElasticFodCounts(holdReleaseId)
 
-
-                    if foundRelCounts and len(foundRelCounts) == 1:
+                    if foundRelCounts and '_source' in foundRelCounts:
                         #logging.info ('found it in table')
-                        compareFixed = foundRelCounts[0]['_source']['FixedIssue']
-                        compareSuppressed = foundRelCounts[0]['_source']['SuppressedIssues']
+                        compareFixed = foundRelCounts['_source']['FixedIssue']
+                        compareSuppressed = foundRelCounts['_source']['SuppressedIssues']
 
                         if ((holdFixed == compareFixed) and (holdSuppressed == compareSuppressed)):
-                            logging.debug('all counts match - no need to reset')
+                            self.__Logger.debug('all counts match - no need to reset')
                             needsReset = False
                         else:
-                            logging.debug('fixed or suppressed is off - need to reset')
+                            self.__Logger.debug('fixed or suppressed is off - need to reset')
                             needsReset = True
 
                     else:
-                        logging.debug('no fixed or suppressed counts found - need to reset')
+                        self.__Logger.debug('no fixed or suppressed counts found - need to reset')
                         needsReset = True
 
                 else:
 
-                    logging.debug('something off in counts - need to reset')
+                    self.__Logger.debug('something off in counts - need to reset')
                     needsReset = True
 
-        if not needsReset and self.__CheckAttributes == True:
+        if not needsReset and self.__CheckAttributes:
             # Check attributes
             fAttrApp = self.__GetApplication(release['applicationId'])
             fAttr = [] if not (fAttrApp and 'attributes' in fAttrApp.keys()) else fAttrApp['attributes']
             eAttrApp = self.__GetElasticFodApplication(release['applicationId'])
-            eAttr = [] if not (eAttrApp and len(eAttrApp) > 0 and '_source' in eAttrApp[0].keys() and 'attributes' in eAttrApp[0]['_source'].keys()) else eAttrApp[0]['_source']['attributes']
+            eAttr = [] if not (eAttrApp and '_source' in eAttrApp and 'attributes' in eAttrApp['_source']) else eAttrApp['_source']['attributes']
             if len(fAttr) != len(eAttr):
-                logging.debug("Application ID % attributes count doesn't match in release %s, need to reset", release['applicationId'], release['releaseId'])
+                self.__Logger.debug("Application ID %s attributes count doesn't match in release %s, need to reset", release['applicationId'], release['releaseId'])
                 needsReset = True
             if not needsReset:
                 eAttrList = {}
@@ -462,61 +677,90 @@ class SyncExtractor(object):
                 for a in fAttr:
                     if a['name'] not in eAttrList.keys() or eAttrList[a['name']] != a['value']:
                         needsReset = True
-                        logging.debug("Application ID % attributes don't match in release %s, need to reset", release['applicationId'], release['releaseId'])
+                        self.__Logger.debug("Application ID %s attributes don't match in release %s, need to reset", release['applicationId'], release['releaseId'])
                         break
 
-        if needsReset == True or forceRefresh:
-            logging.info('Needs update - sending FOD data to Elastic for %s', holdReleaseId)
+        if needsReset or forceRefresh:
+            self.__Logger.info('Needs update - sending FOD data to Elastic for %s', holdReleaseId)
             holdApplicationId = release['applicationId']
 
             # Clear old data
+            self._Beat()
             self.__ClearRelease(holdApplicationId, holdReleaseId)
 
-            # Update fodapplications
+            # Update fodapplications.  Written under a deterministic id so repeat syncs UPSERT the
+            # one document for this application rather than inserting another auto-id copy each time.
+            # An application owns many releases and they sync on different workers concurrently, so
+            # any insert-plus-cleanup scheme here accumulates duplicates - and __GetAttributes
+            # requires exactly one hit, so duplicates read as "application not found" and the whole
+            # release is processed with no attributes.  Source-prefixed: application ids are unique
+            # per FOD tenant, not across sources.
             jApp = self.__GetApplication(holdApplicationId)
-            self.__Es.Index('fodapplications', jApp)
+            self.__Es.IndexWithId('fodapplications', f"{self.__SourceName}-{holdApplicationId}", jApp)
 
             jRel = json.dumps(release)
-            self.__Es.Index('fodreleases', jRel)
+            # Deterministic ids - see fodapplications comments for details.
+            self.__Es.IndexWithId('fodreleases', f"{self.__SourceName}-{holdReleaseId}", jRel)
    
-            _summary = {'releaseId': holdReleaseId, 'FixedIssue': 0, 'SuppressedIssues': 0, self.__SourceNameField: self.__SourceName}
+            # GetSummaryCounts returns its own dict, so stamp the source on the result - not on a
+            # seed value it discards.  Without it __GetElasticFodCounts, which filters on sourceName,
+            # can never find this document again and every sync re-resets the release.
             _summary = self.__Fod.GetSummaryCounts(holdReleaseId)
+            _summary[self.__SourceNameField] = self.__SourceName
 
-            self.__Es.Index('fodcounts', _summary)
+            # Deterministic ids - see fodapplications comments for details.
+            self.__Es.IndexWithId('fodcounts', f"{self.__SourceName}-{holdReleaseId}", _summary)
 
-            releasescans = { 'items': [] }
+            # __ClearRelease has already deleted this release's scans.  An unusable response here
+            # must abort the sync: reading it as "no scans" would leave fodscans permanently empty
+            # for this release AND complete the queue item successfully, so nothing would ever
+            # retry it.  Raising marks the item Error, which is retryable.
             rsp = self.__Fod.GetScans(holdReleaseId)
-            if rsp and rsp.Content:
-                releasescans = rsp.Content
+            if not rsp or not getattr(rsp, 'Ok', False):
+                raise SyncExtractorException(self.__FodFailure(f"scans of release {holdReleaseId}", rsp))
+            releasescans = rsp.Content if isinstance(rsp.Content, dict) else {}
+            if 'items' not in releasescans:
+                releasescans['items'] = []
 
-            #logging.info("scan response: {}".format(releasescans))
+            #self.__Logger.info("scan response: {}".format(releasescans))
             scnCount = 0
-                   
+            # Own helper - see the SSC version.  Scans and their summaries share one batch; each
+            # document carries its own _index, so a mixed batch is fine and halves the round trips.
+            scanBulk = self.__Es.NewBulkHelper()
+
             for relScan in releasescans['items']:
 
+                self._Beat()  # a scan summary call per scan
                 relScan[self.__SourceNameField] = self.__SourceName
                 scnCount = scnCount + 1
-                self.__Es.Index('fodscans', relScan)
+                scansWritten += 1
+                scanBulk.add('fodscans', relScan)
                     
                 #post Release Scan records
                 
                 if relScan['scanType'] != "OpenSource":
 
                     holdScan = relScan['scanId']
-                    #logging.info(holdscan)
+                    #self.__Logger.info(holdscan)
                     scanSumm = self.__Fod.GetScanSummary(holdScan)
-                    #logging.info(scansumm)
+                    #self.__Logger.info(scansumm)
                     holdScanSum = scanSumm.Content
                     if holdScanSum:
-                        self.__Es.Index('fodscansummary', holdScanSum)
+                        scanBulk.add('fodscansummary', holdScanSum)
                     else:
-                        logging.warning("Invalid/empty response when retrieving scan %s for release %s.", holdScan, holdReleaseId)
-                    #logging.info(holdscansum)
+                        self.__Logger.warning("Invalid/empty response when retrieving scan %s for release %s.", holdScan, holdReleaseId)
+                    #self.__Logger.info(holdscansum)
                         
-            self.__BulkLoadVulns(holdReleaseId)
+            # wait_for on the flush - see the SSC version.  Must happen before the issue load, which
+            # has its own batch and its own barrier.
+            scanBulk.flush(refresh='wait_for')
 
+            issuesWritten = self.__BulkLoadVulns(holdReleaseId) or 0
+
+            if not queueRefresh:
+                self.__Logger.debug("Skipping fodupdatequeue record for release %s (queueRefresh off).", holdReleaseId)
+                return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten)
             queueInfo = {
-                'processedDateTime': '',
                 'releaseId': holdReleaseId,
                 'updateType': 'U',
                 'completedDateTime' : '1900-01-01T00:00:00.000-0000',
@@ -524,6 +768,11 @@ class SyncExtractor(object):
                 'sourceName': self.__SourceName
             }
             self.__Es.Index('fodupdatequeue', json.dumps(queueInfo))
+            return SyncResult(synced=True, issue_count=issuesWritten, scan_count=scansWritten)
+
+        # Nothing needed re-loading, so there is no expectation to hand on - what is in the index
+        # belongs to an earlier run.
+        return SyncResult()
 
     def __BulkLoadVulns(self, id):
         ''' 
@@ -531,16 +780,38 @@ class SyncExtractor(object):
         original name: getAndLoadFODVulnerabilityBulk or BulkLoadVulnerabilitiesIntoElastic (FodClient)
 
         :id: release Id for which to retrieve vulnerabilities
+
+        Returns the number of issue documents indexed - the refresh stage uses it as the expected count.
         '''
         vuls = { 'items': [] }
+        written = 0
+        # Own helper.  This used to use the client's BulkSendBatch, whose buffer lives on the shared
+        # ElasticClient - with N workers that interleaves documents and lets one worker's flush ship
+        # another's half-built batch.
+        issueBulk = self.__Es.NewBulkHelper(1000)
         rsp = self.__Fod.GetVulnerabilities(id, True, True, logPrefix=f"FOD Issues for release {id}")
-        if rsp and rsp.Content:
+        # Same reasoning as the scan load above - fodrelissues has just been cleared for this
+        # release, so a failed fetch has to fail the sync rather than write nothing.
+        if not rsp or not getattr(rsp, 'Ok', False):
+            raise SyncExtractorException(self.__FodFailure(f"issues of release {id}", rsp))
+        if rsp.Content:
             vuls = rsp.Content
         for vuln in vuls['items']:
+            self._Beat()
             vuln['lastUpdated'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
             vuln[self.__SourceNameField] = self.__SourceName
-            self.__Es.BulkSendBatch('fodrelissues', vuln, batchSize=1000)
-        self.__Es.BulkSendBatch() # send remaining
+            issueBulk.add('fodrelissues', vuln)
+            written += 1
+        # wait_for on the flush: the refresh stage scrolls fodrelissues as soon as this returns, and a
+        # bulk write isn't searchable until a refresh.  Same fix as SSC's BulkIssuesLoad; without it the
+        # pull can silently read a short set.  Nothing to flush means the last full batch already went
+        # without the wait, so refresh instead.
+        if issueBulk.count > 0:
+            issueBulk.flush(refresh='wait_for')
+        else:
+            # Everything went in full batches without the wait - refresh so the pull can see them.
+            self.__Es.RefreshIndex('fodrelissues')
+        return written
 
 class SyncExtractorException(Exception):
     pass

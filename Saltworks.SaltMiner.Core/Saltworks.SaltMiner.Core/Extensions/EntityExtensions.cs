@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using System;
 using System.Collections.Generic;
@@ -61,9 +65,15 @@ namespace Saltworks.SaltMiner.Core.Extensions
             if (source.Count != compareTo.Count)
                 return false;
             foreach (var kv in source)
+                // We want to gracefully "fail" in case of a NullReferenceException, even though we've taken steps to prevent them
+                #pragma warning disable S1696 // NullReferenceException should not be caught
                 try
                 {
-                    if (!compareTo.ContainsKey(kv.Key) || !kv.Value.Equals(compareTo[kv.Key]))
+                    if (!compareTo.TryGetValue(kv.Key, out TValue value))
+                        return false;
+                    if (EqualityComparer<TValue>.Default.Equals(kv.Value, default) || EqualityComparer<TValue>.Default.Equals(value, default))
+                        return EqualityComparer<TValue>.Default.Equals(kv.Value, default) && EqualityComparer<TValue>.Default.Equals(value, default);
+                    if (!kv.Value.Equals(value))
                         return false;
                 }
                 catch (ArgumentNullException)
@@ -74,6 +84,7 @@ namespace Saltworks.SaltMiner.Core.Extensions
                 {
                     return false;
                 }
+                #pragma warning restore S1696 // NullReferenceException should not be caught
             return true;
         }
 

@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Collections.Generic;
@@ -24,19 +28,20 @@ using System.IO;
 using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Util;
 
-namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
-{
-    [TestClass]
-    public class SnapshotTests
-    {
-        private static IElasticClient Client = null;
+namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests;
 
-        [ClassInitialize]
-        public static void Initialize(TestContext context)
-        {
-            var c = Helpers.SettingsConfig();
-            Client = Helpers.GetElasticClient(c);
-        }
+[TestClass]
+public class SnapshotTests
+{
+    private static IElasticClient Client = null;
+
+    [ClassInitialize]
+    public static void Initialize(TestContext context)
+    {
+        Helpers.ValidateSettingsAndConnect();
+        var c = Helpers.SettingsConfig();
+        Client = Helpers.GetElasticClient(c);
+    }
 
         [TestMethod]
         public void TestAggregateBucketIssuesLoading()
@@ -69,7 +74,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             var request = new SearchRequest
             {
                 AssetType = "App",
-                PitPagingInfo = new PitPagingInfo()
+                PagingInfo = new PagingInfo()
             };
 
             var response = Client.GetCompositeAggregate<Snapshot>(request, sourceFields, aggList, Issue.GenerateIndex());
@@ -77,7 +82,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             {
                 var searchVals = b.Document.BucketKey.Split("|").Select(v => v.Replace("{P}", "|")).ToArray();
                 var count = 0;
-                var srsp = Client.Search<Issue>(new SearchRequest
+                var srsp = Client.Search<Issue>(Issue.GenerateIndex(), new SearchRequest
                 {
                     Filter = new()
                     {
@@ -88,8 +93,8 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
                             { "Vulnerability.Name", searchVals[3] }
                         }
                     },
-                    PitPagingInfo = new PitPagingInfo()
-                }, Issue.GenerateIndex());
+                    PagingInfo = new PagingInfo()
+                });
                 if (srsp?.Results?.Any() ?? false)
                 {
                     count++;
@@ -130,12 +135,13 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             var request = new SearchRequest
             {
                 AssetType = "App",
-                PitPagingInfo = new PitPagingInfo(5)
+                PagingInfo = new PagingInfo(5)
             };
 
             // Act
             var response = Client.GetCompositeAggregate<Snapshot>(request, aggFields, aggList, Issue.GenerateIndex("App"));
-            request.PitPagingInfo.Size = 6;
+            request.PagingInfo = response.PagingInfo.NextPage();
+            request.PagingInfo.Size = 6;
             var response2 = Client.GetCompositeAggregate<Snapshot>(request, aggFields, aggList, Issue.GenerateIndex());
 
             // Assert
@@ -162,14 +168,14 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
 
             var kvps = searchRequest.ToSearchRequest();
 
-            var response = Client.Search<Snapshot>(new SearchRequest
+            var response = Client.Search<Snapshot>(Snapshot.GenerateIndex(AssetType.Mocked.ToString()), new SearchRequest
             {
                 Filter = new()
                 {
                     FilterMatches = kvps
                 },
-                PitPagingInfo = new PitPagingInfo()
-            }, Snapshot.GenerateIndex(AssetType.Mocked.ToString()));
+                PagingInfo = new PagingInfo()
+            });
 
             // Assert
             Assert.IsNotNull(response);
@@ -204,8 +210,7 @@ namespace Saltworks.SaltMiner.ElasticClient.IntegrationTests
             var delete = Client.Delete<Snapshot>(result.Id, Snapshot.GenerateIndex(AssetType.Mocked.ToString(), daily)).CountAffected;
             Assert.AreEqual(1, delete);
 
-            var indexDelete = Client.DeleteIndex(Snapshot.GenerateIndex(AssetType.Mocked.ToString(), daily)).IsSuccessful;
+            var indexDelete = Client.IndexDelete(Snapshot.GenerateIndex(AssetType.Mocked.ToString(), daily)).IsSuccessful;
             Assert.IsTrue(indexDelete);
         }
     }
-}

@@ -1,20 +1,25 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
-﻿using Saltworks.SaltMiner.Core.Entities;
+using Saltworks.SaltMiner.Core.Data;
+using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.UiApiClient;
 using Saltworks.SaltMiner.UiApiClient.Helpers;
 using System.Text.RegularExpressions;
@@ -59,40 +64,39 @@ namespace Saltworks.SaltMiner.Ui.Api.Helpers
             {
                 var option = options?.FirstOrDefault(x => x.Field.Equals(filter.Field, StringComparison.OrdinalIgnoreCase));
                 if (option == null)
-                {
                     requestFilters.Add(filter.Field, filter.Value);
-                }
             }
         }
 
         private static void CreateFilter(Dictionary<string, string> requestFilters, string indexFieldName, SearchFilterValue option, FieldFilter filter)
         {
             if (indexFieldName.Contains("date", StringComparison.OrdinalIgnoreCase) || indexFieldName.Contains("timestamp", StringComparison.OrdinalIgnoreCase) || Regex.Match(filter.Value, @"([012]?\d)[\/. -]([0123]?\d)[\/. -]([012]\d{3})\b").Success)
-            {
                 filter.Value = $"{DateTime.Parse(filter.Value):yyyy-MM-dd}";
-            }
 
+            var f = new Filter();
             if (option.IsTextSearch)
-            {
-                requestFilters.Add(indexFieldName + ".Text", DataClient.Helpers.BuildQueryStringFilterValue(filter.Value));
-            }
+                f.AddQueryStringFilterMatch(indexFieldName + ".Text", filter.Value);
             else if (indexFieldName == "")
-            {
-                requestFilters.Add(indexFieldName, DataClient.Helpers.BuildQueryStringFilterValue(filter.Value));
-            }
+                f.AddQueryStringFilterMatch(indexFieldName, filter.Value);
             else
-            {
-                requestFilters.Add(indexFieldName, filter.Value);
-            }
+                f.AddSimpleFilterMatch(indexFieldName, filter.Value);
+            requestFilters.Add(f.FilterMatches.First().Key, f.FilterMatches.First().Value);
+        }
+
+        public static void AddIssueDefaultSortFilters(Dictionary<string, bool> sortFilters)
+        {
+            sortFilters ??= [];
+
+            // Include defaults (severity, name)
+            if (!sortFilters.Any(x => x.Key.Equals("severity", StringComparison.OrdinalIgnoreCase)))
+                sortFilters.Add("severity", true);
+            if (!sortFilters.Any(x => x.Key.Equals("name", StringComparison.OrdinalIgnoreCase)))
+                sortFilters.Add("name", true);
         }
 
         public static Dictionary<string, bool> MapSortFilters(Dictionary<string, bool> sortFilters, List<SearchFilterValue> sortFilterValues, bool isQueue = false)
         {
-            if (sortFilters == null)
-            {
-                return [];
-            }
-
+            sortFilters ??= [];
             var result = new Dictionary<string, bool>();
                        
             foreach (var filter in sortFilters)
@@ -102,16 +106,12 @@ namespace Saltworks.SaltMiner.Ui.Api.Helpers
                 if (isQueue)
                 {
                     foreach (var indexName in filterValue.QueueIndexFieldNames)
-                    {
                         result.Add(indexName, filter.Value);
-                    }
                 }
                 else
                 {
                     foreach (var indexName in filterValue.IndexFieldNames)
-                    {
                         result.Add(indexName, filter.Value);
-                    }
                 }
             }
 

@@ -1,61 +1,61 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
-﻿using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json;
 
-namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
+namespace Saltworks.SaltMiner.SourceAdapters.Core.Data;
+
+[Table("QueueAssets")]
+public class QueueAsset : ILocalDataEntity
 {
-    [Table("QueueAssets")]
-    public class QueueAsset : ILocalDataEntity
+    [Key]
+    public string Id { get; set; }
+    public string QueueScanId { get; set; }
+    public string DataIndexName() => "QueueAssets";
+    public string SourceType { get; set; }
+    public string SourceId { get; set; }
+    public string SerializedEntity { get; set; }
+    private SaltMiner.Core.Entities.QueueAsset _entity;
+
+    [NotMapped]
+    public SaltMiner.Core.Entities.QueueAsset Entity
     {
-        [Key]
-        public string Id { get; set; }
-        public string QueueScanId { get; set; }
-        public string DataIndexName() => "QueueAssets";
-        public string SourceType { get; set; }
-        public string SourceId { get; set; }
-        public string SerializedEntity { get; set; }
-        private SaltMiner.Core.Entities.QueueAsset _entity;
-
-        [NotMapped]
-        public SaltMiner.Core.Entities.QueueAsset Entity
+        get
         {
-            get
-            {
-                _entity ??= (string.IsNullOrEmpty(SerializedEntity) ? null : JsonSerializer.Deserialize<SaltMiner.Core.Entities.QueueAsset>(SerializedEntity));
-                return _entity;
-            }
-            set
-            {
-                _entity = value;
-            }
+            _entity ??= (string.IsNullOrEmpty(SerializedEntity) ? null : JsonSerializer.Deserialize<SaltMiner.Core.Entities.QueueAsset>(SerializedEntity));
+            return _entity;
         }
-
-        public void UpdateDtoFields()
+        set
         {
-            if (string.IsNullOrEmpty(Entity.Id))
-                Entity.Id = Guid.NewGuid().ToString();
-            QueueScanId = Entity?.Saltminer?.Internal?.QueueScanId;
-            SourceType = Entity?.Saltminer.Asset.SourceType;
-            SourceId = Entity?.Saltminer.Asset.SourceId;
-            Id = Entity?.Id;
-            SerializedEntity = Entity == null ? string.Empty : JsonSerializer.Serialize(Entity);
+            _entity = value;
         }
+    }
+
+    public void UpdateDtoFields()
+    {
+        Entity.Id = Id;
+        QueueScanId = Entity?.Saltminer?.Internal?.QueueScanId;
+        SourceType = Entity?.Saltminer.Asset.SourceType;
+        SourceId = Entity?.Saltminer.Asset.SourceId;
+        SerializedEntity = Entity == null ? string.Empty : JsonSerializer.Serialize(Entity);
     }
 }

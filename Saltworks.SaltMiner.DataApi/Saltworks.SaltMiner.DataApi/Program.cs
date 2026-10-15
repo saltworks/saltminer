@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -21,8 +25,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.OpenApi.Models;
-using Saltworks.SaltMiner.ConfigurationWizard;
 using Saltworks.SaltMiner.ConsoleApp.Core;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Util;
@@ -34,7 +36,6 @@ using Saltworks.SaltMiner.ElasticClient;
 using Saltworks.Utility.ApiHelper;
 using Serilog;
 using System;
-using System.Collections.Generic;
 using System.CommandLine;
 using System.Diagnostics;
 using System.IO;
@@ -42,26 +43,31 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Saltworks.SaltMiner.DataApi.Authentication;
-using System.Text.Json;
 using System.Text.Json.Nodes;
-using Elasticsearch.Net;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.OpenApi;
+using Elastic.Transport;
 
 namespace Saltworks.SaltMiner.DataApi
 {
     public static class Program
     {
-        private const string API_SETTINGS_FILE = "appsettings.json";
-        const string LOCATOR_FILE_NAME = "ConfigLocator.json";
-        const string DUMP_CONFIG_FILE_NAME = "ConfigDump.json";
-        private static bool KestrelAllowRemote = false;
+        private const string APP_FOLDER = "api";
+        private const string SETTINGS_FILE = "appsettings.json";
+        private const string DEFAULT_SETTINGS_FILE = "appsettings-default.json";
+        private const string CONFIG_SECTION = "ApiConfig";
+        private const string SEED_INDICATOR_FILE = "seeded.txt";
+        private const string ELASTIC_CONNECT_STRING = "ELASTICSEARCH_CONNECTION_STRING";
+        private const string JE = ".json";
+        private static bool KestrelAllowRemote = true;
         private static int KestrelPort = 5000;
+
 
         public static async Task<int> Main(string[] args)
         {
             if (args.Length == 0)
             {
-                args = new string[] { "main" };
+                args = [ "main" ];
             }
 
             var cmd = new RootCommand();
@@ -73,18 +79,6 @@ namespace Saltworks.SaltMiner.DataApi
                 HandleMain(args);
             });
 
-            //Config Wizard CMD
-            var configWizardVerb = new Command("configwizard", "Configuration wizard to create or edit.");
-
-            //Config Wizard SUB CMD
-            var configWizardMainVerb = new Command("main", "Creates and updates main Manager Configuration.");
-            configWizardMainVerb.SetHandler(() =>
-            {
-                HandleConfigWizard();
-            });
-
-            configWizardVerb.Add(configWizardMainVerb);
-
             //Version CMD
             var verisonVerb = new Command("version", "Reports build version for the application.");
             verisonVerb.SetHandler(() =>
@@ -92,51 +86,7 @@ namespace Saltworks.SaltMiner.DataApi
                 HandleVersion();
             });
 
-            //Crypto CMD
-            var cryptoVerb = new Command("crypto", "Encryption helper");
-
-            //Crypto Generate SUB CMD
-            var cryptoGenerateVerb = new Command("Generate", "Generates up to 5 values given those values using the configured Generateion keys.");
-            var cryptoGenerateArgument1 = new Argument<string>("value1", "Value to Generate.");
-            var cryptoGenerateArgument2 = new Argument<string>("value2", "Value to Generate.");
-            var cryptoGenerateArgument3 = new Argument<string>("value3", "Value to Generate.");
-            var cryptoGenerateArgument4 = new Argument<string>("value4", "Value to Generate.");
-            var cryptoGenerateArgument5 = new Argument<string>("value5", "Value to Generate.");
-           
-            cryptoGenerateVerb.Add(cryptoGenerateArgument1);
-            cryptoGenerateVerb.Add(cryptoGenerateArgument2);
-            cryptoGenerateVerb.Add(cryptoGenerateArgument3);
-            cryptoGenerateVerb.Add(cryptoGenerateArgument4);
-            cryptoGenerateVerb.Add(cryptoGenerateArgument5);
-            cryptoGenerateVerb.SetHandler((value1, value2, value3, value4, value5) =>
-            {
-                HandleCryptoGenerate(value1, value2, value3, value4, value5);
-            }, cryptoGenerateArgument1, cryptoGenerateArgument2, cryptoGenerateArgument3, cryptoGenerateArgument4, cryptoGenerateArgument5);
-
-            //Crypto Encrypt SUB CMD
-            var cryptoEncryptVerb = new Command("encrypt", "Encrypts up to 5 values given those values using the configured encryption keys.");
-            var cryptoEncryptArgument1 = new Argument<string>("value1", "Value to encrypt.");
-            var cryptoEncryptArgument2 = new Argument<string>("value2", "Value to encrypt.");
-            var cryptoEncryptArgument3 = new Argument<string>("value3", "Value to encrypt.");
-            var cryptoEncryptArgument4 = new Argument<string>("value4", "Value to encrypt.");
-            var cryptoEncryptArgument5 = new Argument<string>("value5", "Value to encrypt.");
-           
-            cryptoEncryptVerb.Add(cryptoEncryptArgument1);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument2);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument3);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument4);
-            cryptoEncryptVerb.Add(cryptoEncryptArgument5);
-            cryptoEncryptVerb.SetHandler((value1, value2, value3, value4, value5) =>
-            {
-                HandleCryptoEncrypt(value1, value2, value3, value4, value5);
-            }, cryptoEncryptArgument1, cryptoEncryptArgument2, cryptoEncryptArgument3, cryptoEncryptArgument4, cryptoEncryptArgument5);
-
-            cryptoVerb.Add(cryptoGenerateVerb);
-            cryptoVerb.Add(cryptoEncryptVerb);
-
             cmd.Add(mainVerb);
-            cmd.Add(configWizardVerb);
-            cmd.Add(cryptoVerb);
             cmd.Add(verisonVerb);
 
             return await cmd.InvokeAsync(args);
@@ -168,6 +118,7 @@ namespace Saltworks.SaltMiner.DataApi
             services.AddTransient<IDataRepo, ElasticDataRepo>();
             services.AddSingleton(config);
             services.AddSingleton(new LockHelper());
+            services.AddSingleton(new ApiCache());
             services.AddLogging(configure =>
             {
                 configure.ClearProviders();
@@ -176,7 +127,10 @@ namespace Saltworks.SaltMiner.DataApi
             services.AddSingleton(typeof(ILogger<>), typeof(CustomLogger<>));
 
             ConfigureSwaggerServices(services, config);
-            services.AddNestClient(configureOptions =>
+
+            // Shared Elasticsearch client configuration, applied both to the registered client and to a throwaway
+            // client below used to derive the auth header for Kibana (which shares Elasticsearch's credentials).
+            void ConfigureEsClient(ClientConfiguration configureOptions)
             {
                 configureOptions.HttpScheme = config.ElasticHttpScheme;
                 configureOptions.ElasticSearchHost = [config.ElasticHost];
@@ -189,16 +143,27 @@ namespace Saltworks.SaltMiner.DataApi
                 configureOptions.EnableBulkAddErrorDiagnostics = config.ElasticEnableBulkAddDiagnosticInfo;
                 configureOptions.VerifySsl = config.VerifySsl;
                 configureOptions.SingleNodeCluster = config.ElasticSingleNodeCluster;
-            });
+                configureOptions.ElasticConnectionString = config.ElasticConnectionString;
+            }
+            services.AddEsClient(ConfigureEsClient);
+
+            // Resolve the authentication header the EsClient actually uses (basic creds or API key, whether sourced
+            // from discrete settings or an ElasticConnectionString) so Kibana authenticates the same way.
+            var esConfig = new ClientConfiguration();
+            ConfigureEsClient(esConfig);
+            var esAuthHeader = new ElasticClient.EsClient.EsClient(esConfig, null).GetAuthHeader();
+
             services.AddApiClient<KibanaContext>(options =>
             {
                 options.BaseAddress = config.KibanaBaseUrl;
                 options.VerifySsl = config.VerifySsl;
                 options.Timeout = TimeSpan.FromSeconds(config.Timeout);
-                options.DefaultHeaders.Add(ApiClientHeaders.AuthorizationBasicHeader(config.ElasticUsername, config.ElasticPassword));
+                if (esAuthHeader is { } hdr)
+                    options.DefaultHeaders.Add(ApiClientHeaders.OneHeader(hdr.Name, hdr.Value));
                 options.DefaultHeaders.Add(ApiClientHeaders.OneHeader("kbn-xsrf", "true"));
                 options.CamelCaseJsonOutput = true;
             });
+            services.AddHostedService<LicenseService>();
         }
 
         private static void ConfigureSwaggerServices(IServiceCollection services, ApiConfig config)
@@ -224,23 +189,9 @@ namespace Saltworks.SaltMiner.DataApi
                     Scheme = "Bearer",
                 });
 
-                c.AddSecurityRequirement(new OpenApiSecurityRequirement()
+                c.AddSecurityRequirement(doc => new OpenApiSecurityRequirement()
                 {
-                    {
-                        new OpenApiSecurityScheme
-                        {
-                            Reference = new OpenApiReference
-                            {
-                                Type = ReferenceType.SecurityScheme,
-                                Id = "Bearer"
-                            },
-                            Scheme = "oauth2",
-                            Name = "Bearer",
-                            In = ParameterLocation.Header
-
-                        },
-                        new List<string>()
-                    }
+                    [new OpenApiSecuritySchemeReference("Bearer", doc)] = []
                 });
 
                 // Set the comments path for the Swagger JSON and UI.
@@ -278,10 +229,10 @@ namespace Saltworks.SaltMiner.DataApi
             var schemea = string.IsNullOrEmpty(config.NginxScheme) ? "https" : config.NginxScheme;
             app.UseSwagger(c =>
             {
-                c.PreSerializeFilters.Add((swaggerDoc, httpReq) => swaggerDoc.Servers = new List<OpenApiServer>
-                {
-                    new OpenApiServer { Url = $"{schemea}://{httpReq.Host.Value}{nr}" }
-                });
+                c.PreSerializeFilters.Add((swaggerDoc, httpReq) => swaggerDoc.Servers =
+                [
+                    new() { Url = $"{schemea}://{httpReq.Host.Value}{nr}" }
+                ]);
             });
 
             app.UseSwaggerUI(c => {
@@ -301,47 +252,84 @@ namespace Saltworks.SaltMiner.DataApi
             // This is a quick and somewhat simplified way to avoid the full auth middleware stack while still using [Authorize] attributes on controllers
             app.UseMiddleware<ApiAuthMiddleware>();
 
-            app.UseEndpoints(endpoints =>
-            {
-                endpoints.MapControllers();
-            });
+            app.MapControllers();
 
-            Log.Information("App builder configuration complete (Configure).");
+            var logger = app.Services.GetRequiredService<ILogger<LicenseContext>>();
+            logger.LogInformation("App builder configuration complete (Configure).");
 
             try
             {
-                app.UseNestClient();
+                app.UseEsClient();
                 var factory = app.Services.GetRequiredService<IElasticClientFactory>();
                 var client = factory.CreateClient();
-                // Check for data items to process
+                var ci = client.GetClusterInfo();
+                if (!ci.IsSuccessful)
+                {
+                    Log.Error("Unable to connect to Elasticsearch server '{ElasticHost}:{ElasticPort}' - [Status] {Msg}", string.Join(",", client.Hosts), client.Port, ci.HttpStatus, ci.Message);
+                    throw new ApiConfigurationException("Unable to connect to Elasticsearch - check configuration.");
+                }
+                var licenseContext = app.Services.GetRequiredService<LicenseContext>();
+
+                // Check for initial datatore seed indicator - if not present, copy default datastore seed files
+                if (!File.Exists(Path.Join(config.DatastoreSeedPath, SEED_INDICATOR_FILE)))
+                {
+                    string[] seedIndicatorIndices = ["sys_lookups", "sys_service_jobs", "sys_search_filters"];
+                    var allIndicesPresent = seedIndicatorIndices.All(idx => client.IndexExists(idx).CountAffected > 0);
+                    if (allIndicesPresent)
+                    {
+                        Log.Warning("Seed indicator file missing but all seed indices present — indicator was likely removed erroneously. Restoring indicator without reseeding.");
+                    }
+                    else
+                    {
+                        Log.Information("Initial datastore setup incomplete, setting default data seed items.");
+                        foreach (var srcDir in Directory.GetDirectories(config.DefaultDatastoreSeedPath))
+                        {
+                            var destDir = Path.Join(config.DatastoreSeedPath, Path.GetFileName(srcDir));
+                            Directory.CreateDirectory(destDir);
+                            foreach (var srcFile in Directory.GetFiles(srcDir))
+                                File.Copy(srcFile, Path.Join(destDir, Path.GetFileName(srcFile)), overwrite: true);
+                        }
+                    }
+                }
+
+                // Check for datastore seed items to process
                 ProcessOneTimeDataItems(config, client);
+
+                // Add datastore seed indicator file if not present
+                if (!File.Exists(Path.Join(config.DatastoreSeedPath, SEED_INDICATOR_FILE)))
+                {
+                    var fs = File.CreateText(Path.Join(config.DatastoreSeedPath, SEED_INDICATOR_FILE));
+                    fs.Write("DO NOT REMOVE THIS FILE, BAD THINGS MAY HAPPEN.\n\nThis file indicates that initial data seeding has been completed.\nRemoving it will cause default seeding to recur on next api restart.");
+                    fs.Close();
+                }
 
                 // Kibana data items to process
                 var kibanaClient = app.Services.GetRequiredService<KibanaContext>();
                 ProcessKibanaImport(config, kibanaClient);
-                
-                if (!client.CheckIndexTemplateExists(config.TemplateToVerify).IsSuccessful)
+
+                var templateCheck = client.IndexTemplateExists(config.TemplateToVerify);
+                if (!templateCheck.IsSuccessful || templateCheck.CountAffected == 0)
                 {
-                    Log.Error("Index templates not found on ElasticSearch server '{elasticHost}', checked for {templateToVerify}", config.ElasticHost, config.TemplateToVerify);
-                    throw new ApiConfigurationException($"Index templates not found on ElasticSearch server '{config.ElasticHost}', checked for {config.TemplateToVerify}");
+                    Log.Error("Index templates not found on ElasticSearch server '{ElasticHost}:{ElasticPort}', checked for {TemplateToVerify}", string.Join(",", client.Hosts), client.Port, config.TemplateToVerify);
+                    throw new ApiConfigurationException($"Index templates not found on ElasticSearch server '{string.Join(",", client.Hosts)}:{client.Port}', checked for {config.TemplateToVerify}");
                 }
-                else 
+                else
                 {
-                    Log.Information("Index templates found on ElasticSearch server '{elasticHost}', checked for {templateToVerify}", config.ElasticHost, config.TemplateToVerify);
+                    Log.Information("Index templates found on ElasticSearch server '{ElasticHost}:{ElasticPort}', checked for {TemplateToVerify}", string.Join(",", client.Hosts), client.Port, config.TemplateToVerify);
                 }
 
                 // Check for new license
                 if (File.Exists(config.LicenseFileName))
                 {
-                    var logger = app.Services.GetRequiredService<ILogger<LicenseContext>>();
                     License newLicense = null;
+                    Log.Information("Found new license in file '{Fname}'", config.LicenseFileName);
                     try
                     {
                         newLicense = Helpers.ReadLicenseFromFile(config.LicenseFileName);
                     }
                     catch (Exception ex)
                     {
-                        logger.LogError(ex, "Unable to read new license file '{fname}': {msg}", config.LicenseFileName, ex.Message);
+                        logger.LogError(ex, "Unable to read new license file '{Fname}': {Msg}", config.LicenseFileName, ex.Message);
                     }
 
                     try
@@ -352,21 +340,35 @@ namespace Saltworks.SaltMiner.DataApi
                             // Pull license doc and delete - workaround for strange error with DeleteByQuery
                             // Attempts to repro DeleteByQuery null reference error with empty search have been unsuccessful
                             // client.DeleteByQuery<License>(new() { }, License.GenerateIndex())
-                            foreach(var dto in client.Search<License>(new() { }, License.GenerateIndex()).Results)
+                            foreach (var dto in client.Search<License>(License.GenerateIndex(), new() { }).Results)
                                 client.Delete<License>(dto.Document.Id, License.GenerateIndex());
                             client.AddUpdate(newLicense, License.GenerateIndex());
                             File.Delete(config.LicenseProcessedFileName);
                             File.Move(config.LicenseFileName, config.LicenseProcessedFileName);
+                            Log.Information("New license imported successfully.");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Log.Error(ex, "New License '{fname}' is not valid. {msg}", config.LicenseFileName, ex.Message);
+                        Log.Error(ex, "New License '{Fname}' is not valid. {Msg}", config.LicenseFileName, ex.Message);
                     }
                 }
                 else
                 {
-                    Log.Information($"License File {config.LicenseFileName} not found");
+                    Log.Information("License File {Fname} not found", config.LicenseFileName);
+                }
+
+                var license = licenseContext.Get().Data;
+                var validator = new LicensingValidator(logger, license);
+                var elkVersion = licenseContext.GetElkLicenseType().Message;
+                Log.Information("Elasticsearch license type '{Edition}' detected.", elkVersion);
+                try
+                {
+                    validator.Validate(config.KeyPath, true);
+                }
+                catch (LicensingException)
+                {
+                    // Licensing exception logged, keep on running
                 }
             }
             catch (PipelineException ex)
@@ -374,11 +376,11 @@ namespace Saltworks.SaltMiner.DataApi
                 var lex = ex.InnerException;
                 var smsg = GetSimplePipelineExceptionMessage(ex);
 
-                Log.Error(ex, "Failed to connect to Elasticsearch{smsg}.  Full inner exception stack trace logged to log file.", smsg);
+                Log.Error(ex, "Failed to connect to Elasticsearch{Msg}.  Full inner exception stack trace logged to log file.", smsg);
 
                 while (lex != null && string.IsNullOrEmpty(smsg))
                 {
-                    Log.Information("^---- Inner exception: [{type}] {msg}", lex.GetType().Name, lex.Message);
+                    Log.Information("^---- Inner exception: [{Type}] {Msg}", lex.GetType().Name, lex.Message);
                     lex = lex.InnerException;
                 }
 
@@ -455,7 +457,7 @@ namespace Saltworks.SaltMiner.DataApi
                 if (!string.IsNullOrEmpty(dir))
                 {
                     var kibanaImports = Directory.GetFiles(dir).Where(t => t.ToLower().EndsWith(".ndjson")).ToList();
-                    Log.Debug("Found {counts} Kibana import file(s).", kibanaImports.Count);
+                    Log.Debug("Found {Counts} Kibana import file(s).", kibanaImports.Count);
 
                     foreach (var kibanaImport in kibanaImports)
                     {
@@ -478,8 +480,13 @@ namespace Saltworks.SaltMiner.DataApi
 
                                 if (!createResults.IsSuccessStatusCode)
                                 {
-                                    throw new($"Space '{spaceName}' was not created. Reason: {createResults.RawContent}");
+                                    throw new ApiException($"Kibana space '{spaceName}' was not created. Reason: {createResults.RawContent}");
                                 }
+                            }
+                            else
+                            {
+                                Log.Warning("Kibana space '{SpaceName}' already exists, will not import file {FileName}.", spaceName, kibanaImport);
+                                continue;
                             }
 
                             var task = kibanaContext.ImportSpaceData(kibanaDto.Id, fs);
@@ -497,103 +504,110 @@ namespace Saltworks.SaltMiner.DataApi
                         }
                         catch (Exception ex)
                         {
-                            Log.Error(ex, "Failed to remove kibana space import file '{path}' after use.", kibanaImport);
+                            Log.Error(ex, "Failed to remove kibana space import file '{Path}' after use.", kibanaImport);
                         }
                     }
-                    Log.Information("Processed {counts} Kibana import file(s).", kibanaImports.Count);
+                    Log.Information("Processed {Counts} Kibana import file(s).", kibanaImports.Count);
                 }
                 else
                 {
-                    Log.Information("No Kibana import files found in '{path}' (or invalid/doesn't exist)", config.DataKibanaSpacePath);
+                    Log.Information("No Kibana import files found in '{Path}' (or invalid/doesn't exist)", config.DataKibanaSpacePath);
                 }
             }
             catch (Exception ex)
             {
-                Log.Error(ex, $"{failMsg}: {ex.Message}");
+                Log.Error(ex, "{FMsg}: {ExMsg}", failMsg, ex.Message);
             }
         }
 
-        private static void ProcessOneTimeDataItems(ApiConfig config, IElasticClient client)
+        #region One-time stuff
+        
+        private static void ProcessIndexPolicies(ApiConfig config, IElasticClient client)
         {
-            var failMsg = "";
+            var failMsg = "Failed to list index policy path files";
             // Index Policies
             try
             {
-                failMsg = "Failed to list index policy path files";
 
                 var dir = GetDirectory(config.DataIndexPolicyPath);
                 if (!string.IsNullOrEmpty(dir))
                 {
                     var policies = Directory.GetFiles(dir).ToList();
-                    Log.Debug("Found {count} index policy(s).", policies.Count);
+                    Log.Debug("Found {Count} index policy(s).", policies.Count);
 
-                    foreach (var policy in policies.Where(t => t.ToLower().EndsWith(".json")))
+                    foreach (var policy in policies.Where(t => t.ToLower().EndsWith(JE)))
                     {
                         failMsg = $"Failed processing index policy '{policy}'";
                         using (var r = new StreamReader(policy))
                         {
                             var json = r.ReadToEnd().Replace("\r\n", "");
-                            var policyName = Path.GetFileName(policy).Replace(".json", "");
-
-                            client.AddUpdateIndexPolicy(policyName, json);
+                            var policyName = Path.GetFileName(policy).Replace(JE, "");
+                            client.IndexPolicyAddUpdate(policyName, json);
                         }
                         failMsg = $"Failed when attempting to delete index policy file '{policy}'";
 
                         File.Delete(policy);
                     }
 
-                    Log.Information("Processed {count} index policy(s).", policies.Count);
+                    Log.Information("Processed {Count} index policy(s).", policies.Count);
                 }
                 else
                 {
-                    Log.Information("No index policies found in '{path}' (or invalid/doesn't exist)", config.DataIndexPolicyPath);
+                    Log.Information("No index policies found in '{Path}' (or invalid/doesn't exist)", config.DataIndexPolicyPath);
                 }
             }
             catch (Exception ex)
             {
                 Log.Error(ex, failMsg);
             }
+        }
 
-
-            failMsg = "";
+        private static void ProcessIndexTemplates(ApiConfig config, IElasticClient client)
+        {
             // Index Templates
+            var failMsg = "Failed to list index template path files";
             try
             {
-                failMsg = "Failed to list index template path files";
-                
                 var dir = GetDirectory(config.DataIndexTemplatePath);
                 if (!string.IsNullOrEmpty(dir))
                 {
                     var templates = Directory.GetFiles(dir).ToList();
-                    Log.Debug("Found {count} index template(s).", templates.Count);
+                    Log.Debug("Found {Count} index template(s).", templates.Count);
 
-                    foreach (var template in templates.Where(t => t.ToLower().EndsWith(".json")))
+                    // Process in order so that queue_sync is processed before queue_sync_*
+                    foreach (var template in templates.Where(t => t.ToLower().EndsWith(JE)).OrderBy(x => x))
                     {
                         failMsg = $"Failed processing index template '{template}'";
                         using (var r = new StreamReader(template))
                         {
                             var json = r.ReadToEnd().Replace("\r\n", "");
-                            var templateName = Path.GetFileName(template).Replace(".json", "");
+                            var templateName = Path.GetFileName(template).Replace(JE, "");
                            
-                            client.AddUpdateIndexTemplate(templateName, json);
+                            var rsp = client.IndexTemplateAddUpdate(templateName, json);
+                            if (!rsp.IsSuccessful)
+                                Log.Warning("Index template {Name} not created due to error: [{Status}] {Err}", templateName, rsp.HttpStatus, rsp.Message);
                         }
                         failMsg = $"Failed when attempting to delete index template file '{template}'";
                        
                         File.Delete(template);
                     }
 
-                    Log.Information("Processed {count} index template(s).", templates.Count);
+                    Log.Information("Processed {Count} index template(s).", templates.Count);
                 }
                 else
                 {
-                    Log.Information("No index templates found in '{path}' (or invalid/doesn't exist)", config.DataIndexTemplatePath);
+                    Log.Information("No index templates found in '{Path}' (or invalid/doesn't exist)", config.DataIndexTemplatePath);
                 }
             }
             catch (Exception ex)
             {
                 Log.Error(ex, failMsg);
             }
+        }
 
+        private static void ProcessSeeds(ApiConfig config, IElasticClient client)
+        {
+            var failMsg = "Failed to list seed path files";
             // Seeds
             try
             {
@@ -603,25 +617,22 @@ namespace Saltworks.SaltMiner.DataApi
                 if (!string.IsNullOrEmpty(dir))
                 {
                     var seeds = Directory.GetFiles(dir).ToList();
-                    Log.Debug("Found {count} data seed file(s).", seeds.Count);
+                    Log.Debug("Found {Count} data seed file(s).", seeds.Count);
 
-                    foreach (var seed in seeds.Where(t => t.ToLower().EndsWith(".json")))
+                    foreach (var seed in seeds.Where(t => t.ToLower().EndsWith(JE)))
                     {
                         failMsg = $"Failed to parse file name for file '{seed}'";
-                        var pair = Path.GetFileName(seed).Replace(".json", "").Split('@');
+                        var pair = Path.GetFileName(seed).Replace(JE, "").Split('@');
                         if (pair.Length != 2)
                         {
                             throw new ArgumentException("File name for seed should be in the form of [Class]@[elastic_index].json");
                         }
                        
-                        var name = pair[0];
+                        var typeName = pair[0];
                         var index = pair[1];
-                        
-                        failMsg = $"Failed determining saltminer entity type for name '{name}'";
-                        
-                        var type = typeof(SaltMinerEntity).Assembly.GetType($"{typeof(SaltMinerEntity).Namespace}.{name}", false, true) ?? throw new ArgumentException("Seed data type could not be determined");
                         var count = 0;
-                        
+
+                        #pragma warning disable S1854 // Unused assignments should be removed - these are only useless when no exceptions occur
                         using (var r = new StreamReader(seed))
                         {
                             failMsg = $"Failure parsing data seed file '{seed}'";
@@ -629,51 +640,53 @@ namespace Saltworks.SaltMiner.DataApi
                             var jarray = JsonNode.Parse(r.BaseStream).AsArray();
                             foreach (var jelm in jarray)
                             {
-                                failMsg = $"Failure deserializing data to type '{type.Name}' on element number {count} from seed file '{seed}'";
-                                var entity = JsonSerializer.Deserialize(jelm, type, new JsonSerializerOptions{ PropertyNameCaseInsensitive = true });
-                                failMsg = $"Failure sending data update - type '{type.Name}' on element number {count} from seed file '{seed}'";
-                                client.AddUpdate(entity as SaltMinerEntity, index);
+                                failMsg = $"Failure sending data update - type '{typeName}' on element number {count} from seed file '{seed}'";
+                                client.AddUpdate(jelm.AsObject(), typeName, index);
                                 count++;
                             }
                         }
                         failMsg = $"Failed when attempting to delete file '{seed}'";
-                        
+                        #pragma warning restore S1854 // Unused assignments should be removed
+
                         File.Delete(seed);
                         
-                        Log.Information("Processed '{name}' seed file - {count} addition(s) to index '{index}'", name, count, index);
+                        Log.Information("Processed '{Name}' seed file - {Count} addition(s) to index '{Index}'", typeName, count, index);
                     }
 
-                    Log.Information("Processed {count} seed file(s).", seeds.Count);
+                    Log.Information("Processed {Count} seed file(s).", seeds.Count);
                 }
                 else
                 {
-                    Log.Information("No seed files found in '{path}' (or invalid/doesn't exist)", config.DataSeedPath);
+                    Log.Information("No seed files found in '{Path}' (or invalid/doesn't exist)", config.DataSeedPath);
                 }
             }
             catch (Exception ex)
             {
                 Log.Error(ex, failMsg);
             }
+        }
 
+        private static void ProcessRoles(ApiConfig config, IElasticClient client)
+        {
+            var failMsg = "Failed to list role path files";
             // Roles
             try
             {
-                failMsg = "Failed to list role path files";
                
                 var dir = GetDirectory(config.DataRolesPath);
                 if (!string.IsNullOrEmpty(dir))
                 {
                     var roles = Directory.GetFiles(dir).ToList();
-                    Log.Debug("Found {count} role(s).", roles.Count);
+                    Log.Debug("Found {Count} role(s).", roles.Count);
 
-                    foreach (var role in roles.Where(t => t.ToLower().EndsWith(".json")))
+                    foreach (var role in roles.Where(t => t.ToLower().EndsWith(JE)))
                     {
                         failMsg = $"Failed processing role '{role}'";
                         
                         using (var r = new StreamReader(role))
                         {
                             var json = r.ReadToEnd().Replace("\r\n", "");
-                            var roleName = Path.GetFileName(role).Replace(".json", "");
+                            var roleName = Path.GetFileName(role).Replace(JE, "");
                             client.UpsertRole(roleName, json);
                         }
                         failMsg = $"Failed when attempting to delete role file '{role}'";
@@ -681,44 +694,46 @@ namespace Saltworks.SaltMiner.DataApi
                         File.Delete(role);
                     }
 
-                    Log.Information("Processed {count} role(s).", roles.Count);
+                    Log.Information("Processed {Count} role(s).", roles.Count);
                 }
                 else
                 {
-                    Log.Information("No role found in '{path}' (or invalid/doesn't exist)", config.DataRolesPath);
+                    Log.Information("No role found in '{Path}' (or invalid/doesn't exist)", config.DataRolesPath);
                 }
             }
             catch (Exception ex)
             {
                 Log.Error(ex, failMsg);
             }
+        }
 
+        private static void ProcessEnrichments(ApiConfig config, IElasticClient client)
+        {
+            var failMsg = "Failed to list enrichment path files";
             // Enrichments
             try
             {
-                failMsg = "Failed to list enrichment path files";
-                
                 var dir = GetDirectory(config.DataEnrichmentPath);
                 if (!string.IsNullOrEmpty(dir))
                 {
                     var enrichments = Directory.GetFiles(dir).ToList();
                     if (enrichments.Count > 0)
                     {
-                        Log.Information("Found {count} enrichment(s).", enrichments.Count);
+                        Log.Information("Found {Count} enrichment(s).", enrichments.Count);
                     }
                     else
                     {
-                        Log.Debug("Found {count} enrichment(s).", enrichments.Count);
+                        Log.Debug("Found {Count} enrichment(s).", enrichments.Count);
                     }
 
-                    foreach (var enrichment in enrichments.Where(t => t.ToLower().EndsWith(".json")))
+                    foreach (var enrichment in enrichments.Where(t => t.ToLower().EndsWith(JE)))
                     {
                         failMsg = $"Failed processing enrichment '{enrichment}'";
 
                         using (var r = new StreamReader(enrichment))
                         {
                             var json = r.ReadToEnd().Replace("\r\n", "");
-                            var fileName = Path.GetFileName(enrichment).Replace(".json", "");
+                            var fileName = Path.GetFileName(enrichment).Replace(JE, "");
                             if (!fileName.Contains('@'))
                             {
                                 throw new ImportEnrichmentException("Enrichment file name invalid, should be [index]@[enrichment-name].json (no brackets).");
@@ -728,20 +743,9 @@ namespace Saltworks.SaltMiner.DataApi
                             var indexName = enrichmentInfo[0];
                             var enrichmentName = enrichmentInfo[1];
 
-                            Log.Information("Processing enrichment {name}", enrichmentName);
+                            Log.Information("Processing enrichment {Name}", enrichmentName);
 
-                            try
-                            {
-                                client.CreateEnrichment(enrichmentName, indexName, json);
-                            }
-                            catch (ElasticsearchClientException ex)
-                            {
-                                if (ex.Message.Contains("resource_already_exists_exception"))
-                                {
-                                    Log.Warning("Enrichment {name} already exists.  Will attempt to re-execute.", enrichmentName);
-                                }
-                            }
-
+                            client.CreateEnrichment(enrichmentName, indexName, json);
                             client.ExecuteEnrichPolicy(enrichmentName);
                         }
 
@@ -749,65 +753,11 @@ namespace Saltworks.SaltMiner.DataApi
 
                         File.Delete(enrichment);
                     }
-                    Log.Information("Processed {count} enrichment(s).", enrichments.Count);
+                    Log.Information("Processed {Count} enrichment(s).", enrichments.Count);
                 }
                 else
                 {
-                    Log.Information("No enrichments found in '{path}' (or invalid/doesn't exist)", config.DataEnrichmentPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, failMsg);
-            }
-
-            // Ingest pipelines
-            try
-            {
-                failMsg = "Failed to list ingest pipeline path files";
-                var dir = GetDirectory(config.DataIngestPipelinePath);
-                if (!string.IsNullOrEmpty(dir))
-                {
-                    var pipelines = Directory.GetFiles(dir).OrderBy(f => f).ToList();
-                    if (pipelines.Any())
-                    {
-                        Log.Information("Found {count} ingest pipeline(s).", pipelines.Count);
-                    }
-                    else
-                    {
-                        Log.Debug("Found {count} ingest pipeline(s).", pipelines.Count);
-                    }
-
-                    foreach (var pipeline in pipelines.Where(t => t.ToLower().EndsWith(".json")))
-                    {
-                        failMsg = $"Failed processing ingest pipeline '{pipeline}'";
-                     
-                        if (!pipeline.Contains('@'))
-                        {
-                            throw new ImportPipelineException("Ingest pipeline file name invalid, should be [sequence]@[ingest-pipeline-name].json (no brackets).");
-                        }
-                        
-                        using (var r = new StreamReader(pipeline))
-                        {
-                            var json = r.ReadToEnd().Replace("\r\n", "");
-                            var fileName = Path.GetFileName(pipeline).Replace(".json", "");
-                            var pipelineName = fileName.Split("@");
-                           
-                            Log.Information("Processing ingest pipeline {pipelineName}", pipelineName[1]);
-
-                            client.CreateIngestPipeline(pipelineName[1], json);
-                        }
-                        
-                        failMsg = $"Failed when attempting to delete ingest pipeline file '{pipeline}'";
-                        
-                        File.Delete(pipeline);
-                    }
-
-                    Log.Information("Processed {count} ingest pipeline(s).", pipelines.Count);
-                }
-                else
-                {
-                    Log.Information("No ingest pipeline found in '{path}' (or invalid/doesn't exist)", config.DataIngestPipelinePath);
+                    Log.Information("No enrichments found in '{Path}' (or invalid/doesn't exist)", config.DataEnrichmentPath);
                 }
             }
             catch (Exception ex)
@@ -816,37 +766,93 @@ namespace Saltworks.SaltMiner.DataApi
             }
         }
 
+        private static void ProcessPipelines(ApiConfig config, IElasticClient client)
+        {
+            var failMsg = "Failed to list ingest pipeline path files";
+            // Ingest pipelines
+            try
+            {
+                var dir = GetDirectory(config.DataIngestPipelinePath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    var pipelines = Directory.GetFiles(dir).OrderBy(f => f).ToList();
+                    if (pipelines.Count > 0)
+                        Log.Information("Found {Count} ingest pipeline(s).", pipelines.Count);
+                    else
+                        Log.Debug("Found {Count} ingest pipeline(s).", pipelines.Count);
+
+                    foreach (var pipeline in pipelines.Where(t => t.ToLower().EndsWith(JE)))
+                    {
+                        failMsg = $"Failed processing ingest pipeline '{pipeline}'";
+                     
+                        if (!pipeline.Contains('@'))
+                            throw new ImportPipelineException("Ingest pipeline file name invalid, should be [sequence]@[ingest-pipeline-name].json (no brackets).");
+                        
+                        using (var r = new StreamReader(pipeline))
+                        {
+                            var json = r.ReadToEnd().Replace("\r\n", "");
+                            var fileName = Path.GetFileName(pipeline).Replace(JE, "");
+                            var pipelineName = fileName.Split("@");
+                           
+                            Log.Information("Processing ingest pipeline {PipelineName}", pipelineName[1]);
+
+                            var rsp = client.CreateIngestPipeline(pipelineName[1], json, !pipelineName[1].Contains("custom", StringComparison.OrdinalIgnoreCase));
+                            if (!rsp.IsSuccessful) {
+                                if (pipelineName[1].Contains("custom", StringComparison.OrdinalIgnoreCase))
+                                    Log.Warning("Pipeline {Name} not created because it is a custom pipline and already exists.", pipelineName[1]);
+                                else
+                                    Log.Warning("Pipeline {Name} not created due to error: {Err}", pipelineName[1], rsp.Message);
+                            }
+                        }
+                        
+                        failMsg = $"Failed when attempting to delete ingest pipeline file '{pipeline}'";
+                        
+                        File.Delete(pipeline);
+                    }
+
+                    Log.Information("Processed {Count} ingest pipeline(s).", pipelines.Count);
+                }
+                else
+                {
+                    Log.Information("No ingest pipeline found in '{Path}' (or invalid/doesn't exist)", config.DataIngestPipelinePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, failMsg);
+            }
+        }
+
+        private static void ProcessOneTimeDataItems(ApiConfig config, IElasticClient client)
+        {
+            ProcessIndexPolicies(config, client);
+            ProcessIndexTemplates(config, client);
+            ProcessSeeds(config, client);
+            ProcessRoles(config, client);
+            ProcessEnrichments(config, client);
+            ProcessPipelines(config, client);
+        }
+
+        #endregion
+
         private static ApiConfig InitConfigAndLogging()
         {
-            var env = Environment.GetEnvironmentVariable("SALTMINER_ENVIRONMENT");
-            if (string.IsNullOrEmpty(env))
-            {
-                env = Guid.NewGuid().ToString();  // prevent env settings overwrite
-            }
-
-            // Determine config location and log it
-            var configFileSettings = ConsoleAppUtils.DetermineConfigFilePath("appsettings.json", LOCATOR_FILE_NAME, Environment.GetEnvironmentVariable("SALTMINER_API_CONFIG_PATH"), DUMP_CONFIG_FILE_NAME);
-            var fullPathSettingsFile = configFileSettings;
-            // assume SettingsFile ends with .json - lop that off in a variable that doesn't change the case of the filename
-            var sf = fullPathSettingsFile[0..^5];
+            // default datastore seed occurs in method ConfigureWebApp() 
+            var configFilePath = ConsoleAppUtils.DetermineConfigFilePath(SETTINGS_FILE, DEFAULT_SETTINGS_FILE, APP_FOLDER);
 
             // Create IConfiguration to use temporarily for logging and kestrel config
             var configuration = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile(fullPathSettingsFile, optional: false, reloadOnChange: true)
-                .AddJsonFile($"{sf}.{env}.json", optional: true, reloadOnChange: true)
+                .AddJsonFile(configFilePath, optional: false, reloadOnChange: false)
                 .Build();
 
             // Get kestrel options from config
-            if (configuration.GetSection("ApiConfig").Exists())
+            if (configuration.GetSection(CONFIG_SECTION).Exists())
             {
-                KestrelAllowRemote = configuration.GetSection("ApiConfig").GetValue<bool>("KestrelAllowRemote");
-                KestrelPort = configuration.GetSection("ApiConfig").GetValue<int>("KestrelPort");
-
+                KestrelAllowRemote = configuration.GetSection(CONFIG_SECTION).GetValue("KestrelAllowRemote", KestrelAllowRemote);
+                KestrelPort = configuration.GetSection(CONFIG_SECTION).GetValue<int>("KestrelPort");
                 if (KestrelPort <= 0)
-                {
                     KestrelPort = 5000;
-                }
             }
 
             // Set Serilog to write stuff to trace if it encounters errors internally
@@ -859,10 +865,16 @@ namespace Saltworks.SaltMiner.DataApi
                 .CreateLogger();
 
             Log.Debug("Current directory: {Dir}", Directory.GetCurrentDirectory());
-
-            configuration.Providers.First().Set("FullPathSettingsFile", fullPathSettingsFile);
-
-            return new ApiConfig(configuration, configuration.GetValue<string>("FullPathSettingsFile"));
+            configuration.Providers.First().Set("FullPathSettingsFile", configFilePath);
+            Log.Debug("FullPathSettingsFile: {File}", configuration.GetValue<string>("FullPathSettingsFile"));
+            var config = new ApiConfig(configuration, configuration.GetValue<string>("FullPathSettingsFile"));
+            var configString = Environment.GetEnvironmentVariable(ELASTIC_CONNECT_STRING);
+            if (!string.IsNullOrEmpty(configString))
+            {
+                Log.Information("Overriding Elastic connection settings from environment variable '{VarName}'", ELASTIC_CONNECT_STRING);
+                config.ElasticConnectionString = configString;
+            }
+            return config;
         }
 
         #endregion
@@ -901,7 +913,7 @@ namespace Saltworks.SaltMiner.DataApi
 
                 webapp.Run();
             }
-            catch (ElasticsearchClientException ex)
+            catch (TransportException ex)
             {
                 var inner = "";
                 var innerEx = ex.InnerException;
@@ -913,7 +925,7 @@ namespace Saltworks.SaltMiner.DataApi
                 switch (ex.FailureReason)
                 {
                     case PipelineFailure.SniffFailure:
-                        Log.Fatal(ex, "Elasticsearch may be misconfigured - connection sniffing attempted {Host}:{Port} but {ElasticHost}:{ElasticPort} is configured", ex.Request.Uri.Host, ex.Request.Uri.Port, config.ElasticHost, config.ElasticPort);
+                        Log.Fatal(ex, "Elasticsearch may be misconfigured - connection sniffing attempted {Host}:{Port} but {ElasticHost}:{ElasticPort} is configured", ex.Endpoint.Node.Uri.Host, ex.Endpoint.Node.Uri.Port, config.ElasticHost, config.ElasticPort);
                         break;
                     case PipelineFailure.PingFailure:
                         Log.Fatal(ex, "Elasticsearch may be misconfigured - ping was unsuccessful ({Msg})", ex.Message);
@@ -937,19 +949,13 @@ namespace Saltworks.SaltMiner.DataApi
             }
         }
 
-        private static void HandleConfigWizard()
-        {
-            var wizard = new ConfigurationWizard<ApiConfig>();
-            wizard.Run(API_SETTINGS_FILE);
-        }
-
         private static void HandleVersion()
         {
             var file = "version.txt";
 
             if (File.Exists(file))
             {
-                Console.WriteLine("Manager version: " + File.ReadAllText(file));
+                Console.WriteLine("App version: " + File.ReadAllText(file));
             }
             else
             {
@@ -996,7 +1002,7 @@ namespace Saltworks.SaltMiner.DataApi
         {
             ApiConfig config = new();
 
-            ConsoleAppUtils.BindConfigFromSettingsFile(API_SETTINGS_FILE, config, "ApiConfig");
+            ConsoleAppUtils.BindConfigFromSettingsFile(SETTINGS_FILE, config, CONFIG_SECTION);
 
             if (string.IsNullOrEmpty(config.EncryptionKey) || string.IsNullOrEmpty(config.EncryptionIv))
             {

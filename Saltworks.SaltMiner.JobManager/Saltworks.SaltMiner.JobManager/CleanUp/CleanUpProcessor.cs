@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
@@ -86,13 +90,13 @@ namespace Saltworks.SaltMiner.JobManager.Processor.CleanUp
                     },
                     AnyMatch = false
                 },
-                PitPagingInfo = new PitPagingInfo(Config.CleanupProcessorBatchSize, false)
+                PagingInfo = new PagingInfo(Config.CleanupProcessorBatchSize)
             };
 
             if (RunConfig.ListOnly)
             {
                 // for listing only, just query all and display the count. Job queue should never be too big
-                jobQueueRequest.PitPagingInfo = null;
+                jobQueueRequest.PagingInfo = null;
                 var outdatedJobQueuesList = DataClient.JobSearch(jobQueueRequest).Data.ToList();
                 Logger.LogInformation("{count} job queue(s) with status '{status}' will be removed", outdatedJobQueuesList.Count, jobStatus.ToString("g"));
             }

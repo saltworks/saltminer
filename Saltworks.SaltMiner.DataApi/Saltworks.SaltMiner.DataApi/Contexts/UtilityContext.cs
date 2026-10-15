@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
@@ -26,10 +30,9 @@ using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.ElasticClient;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Authentication;
-using Saltworks.SaltMiner.DataApi.Extensions;
 using System.Linq;
-using System.Net.Http.Json;
-using System.Security.Cryptography;
+using System.Text;
+using Saltworks.Utility.ApiHelper;
 
 namespace Saltworks.SaltMiner.DataApi.Contexts;
 
@@ -40,6 +43,14 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
     {
         using var cyprto = new Crypto(Config.EncryptionKey, Config.EncryptionIv);
         return new NoDataResponse(0, cyprto.Encrypt(value));
+    }
+
+    public NoDataResponse GetElasticTaskCount()
+    {
+        var rsp = ElasticClient.ClusterTaskCountGetAsync().Result;
+        if (!rsp.IsSuccessful)
+            throw new ApiException("Task count failed", 500);
+        return new(rsp.CountAffected);
     }
 
     public NoDataResponse Version()
@@ -113,7 +124,7 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
         return ElasticClient.RestoreBackup(Config.ElasticBackupRepoName, Config.ElasticBackupName).ToNoDataResponse();
     }
 
-    internal NoDataResponse AddQueueSyncItem(IHeaderDictionary headers, string type, string payload)
+    internal NoDataResponse AddQueueSyncItem(string type, HttpRequest request)
     {
         if (!Config.EnableWebhooks)
         {
@@ -123,22 +134,31 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
         if (!Config.WebhookSecrets.ContainsKey(type))
         {
             Logger.LogWarning("Attempted web hook post, but indicated type '{Type}' is not configured in WebhookSecrets.  Type must be configured even if secret is blank and EnableWebhookSecurity is false.", type);
-            throw new ApiUnauthorizedException();
+            throw new ApiClientBadRequestException();
         }
-        if (Config.EnableWebhookSecurity && !HmacAuthHelper.Authenticate(type, Config.WebhookSecrets, headers, payload, Logger))
+        var payload = HmacAuthHelper.GetPayload(request);
+        if (Config.EnableWebhookSecurity && !HmacAuthHelper.Authenticate(type, Config.WebhookSecrets, request, Logger))
         {
             Logger.LogInformation("Webhook auth failure, EnableWebhookDebug: {Bool}", Config.EnableWebhookDebug);
             try
             {
                 if (Config.EnableWebhookDebug)
                 {
-                    foreach (var hdr in headers)
-                        Logger.LogInformation("[Webhook request header] {Hdr}: {Val}", hdr.Key, hdr.Value);
+                    StringBuilder sb = new("");
+                    var file = "webhookdebug.txt";
+                    foreach (var hdr in request.Headers)
+                    {
+                        sb.Append($"[HEADER]\n{hdr.Key}: {hdr.Value}\n");
+                        Logger.LogInformation("[Webhook debug] {Hdr}: {Val}", hdr.Key, hdr.Value);
+                    }
+                    sb.Append($"[BODY]\n{payload}");
+                    File.WriteAllText(file, sb.ToString());
+                    Logger.LogInformation("[Webhook debug] File {File} contains last payload body and headers.", file);
                 }
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "Error when logging webhook request headers: [{Type}] {Msg}", ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
+                Logger.LogWarning(ex, "Error when logging webhook debug information: [{Type}] {Msg}", ex.GetType().Name, ex.InnerException?.Message ?? ex.Message);
                 // ignore otherwise
             }
             Logger.LogWarning("Attempted web hook post of type '{Type}' but authentication failed.", type);
@@ -179,13 +199,13 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
             {
                 FilterMatches = new() { { "type", type }, { "state", "new" } }
             },
-            UIPagingInfo = new(Config.WebhookBatchSize)
+            PagingInfo = new(Config.WebhookBatchSize)
         };
 
         lock (LockHelper.QueueSyncSearchLock)
         {
             // run search
-            var rsp = ElasticClient.Search<QueueSyncItem>(request, QueueSyncItem.GenerateIndex(true));
+            var rsp = ElasticClient.Search<QueueSyncItem>(QueueSyncItem.GenerateIndex(true), request);
             if (!(rsp.Results?.Any() ?? false))
                 return new([]);
 
@@ -194,7 +214,7 @@ public class UtilityContext(ApiConfig config, IDataRepo dataRepository, IElastic
             
             // call bulk update to "delete" these items
             // passing null updateObject, so update type doesn't matter
-            var bulkRsp = ElasticClient.UpdatePartialBulkWithLocking<QueueSyncItem, QueueSyncItem>(dtos, "ctx._source.state = 'deleted';", null);
+            var bulkRsp = ElasticClient.BulkUpdatePartialWithLocking<QueueSyncItem, QueueSyncItem>(dtos, "ctx._source.state = 'deleted';", null);
             
             // remove dtos that appear in the returned errors
             foreach (var id in bulkRsp.BulkErrorMessages?.Keys.ToList() ?? [])

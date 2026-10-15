@@ -3,6 +3,7 @@
   "SkipStabilityChecks": "True",
   "DataFolder": "./data/",
   "ReportsFolder": "./reports/",
+  "TempFolder": "/tmp",
   "PenTestEtlIndexName": "app_vuls_pen",
   "Attributes": {
     "Risk Level": {

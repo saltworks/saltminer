@@ -1,61 +1,55 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Saltworks.SaltMiner.Core.Data;
-using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.UiApiClient.Helpers;
+using Saltworks.SaltMiner.UiApiClient.Requests;
 
 namespace Saltworks.SaltMiner.UiApiClient.Responses
 {
     public class UiDataResponse<T> : DataResponse<T> where T : class
     {
+        /// <summary>
+        /// All possible sort options go here, not just the selected one(s)
+        /// </summary>
         public List<FieldFilter> SortOptions { get; set; } = [];
         public UiPager Pager { get; set; } = new();
-
         public UiDataResponse(IEnumerable<T> data) : base(data) { }
-        public UiDataResponse(IEnumerable<T> data, Response response, UiPager pager) : base(data)
+        public UiDataResponse(IEnumerable<T> data, PagingInfo pagingInfo, IEnumerable<FieldFilter> sortOptions = null) : base(data, pagingInfo) 
         {
+            Pager = new(pagingInfo.Size ?? 0, pagingInfo.Page)
+            {
+                Total = Convert.ToInt32(pagingInfo.TotalHits)
+            };
+            SortOptions = sortOptions?.ToList() ?? [];
+            PagingInfo = pagingInfo;
+        }
+        public UiDataResponse(DataResponse<T> response, GenericSearch search, IEnumerable<FieldFilter> sortOptions = null) : base(response?.Data)
+        {
+            var pi = response?.PagingInfo ?? search.Pager.ToPagingInfo();
             StatusCode = response.StatusCode;
             Message = response.Message;
             Affected = response.Affected;
-            Pager = pager;
-            UIPagingInfo = pager.ToDataPager();
-        }
-        public UiDataResponse(IEnumerable<T> data, UIPagingInfo dataPager, bool isQueue = false) : base(data)
-        {
-            StatusCode = 200;
-            Affected = data.Count();
-            Pager = dataPager != null ? new(dataPager, [], isQueue) : null;
-            UIPagingInfo = Pager.ToDataPager();
-        }
-        public UiDataResponse(IEnumerable<T> data, List<SearchFilterValue> sortFilters, UIPagingInfo dataPager, bool isQueue = false) : base(data)
-        {
-            StatusCode = 200;
-            Affected = data.Count();
-            Pager = dataPager != null ? new(dataPager, sortFilters, isQueue) : null;
-            UIPagingInfo = Pager.ToDataPager();
-            SortOptions = sortFilters?.Select(f => new FieldFilter(f))?.ToList();
-        }
-        public UiDataResponse(IEnumerable<T> data, Response response, List<SearchFilterValue> sortFilters, UIPagingInfo dataPager, bool isQueue = false) : base(data, dataPager)
-        {
-            StatusCode = response.StatusCode;
-            Message = response.Message;
-            Affected = response.Affected;
-            Pager = dataPager != null ? new(dataPager, sortFilters, isQueue) : null;
-            SortOptions = sortFilters?.Select(f => new FieldFilter(f))?.ToList();
+            Pager = new(pi, search.Pager.SortFilters);
+            SortOptions = sortOptions?.ToList() ?? [];
+            PagingInfo = pi;
         }
     }
 

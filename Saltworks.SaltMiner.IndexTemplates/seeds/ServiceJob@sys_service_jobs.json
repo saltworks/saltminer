@@ -3,7 +3,7 @@
     "name": "Manager Queue",
     "description": "Runs Manager queue processor",
     "type": "Command",
-    "option": "ManagerCron",
+    "option": "Manager",
     "schedule": "0 0/2 * 1/1 * ? *",
     "parameters": "queue",
     "disabled": false,
@@ -16,7 +16,7 @@
     "name": "Manager Cleanup",
     "description": "Runs Manager cleanup processor",
     "type": "Command",
-    "option": "ManagerCron",
+    "option": "Manager",
     "schedule": "0 0 1 1/1 * ? *",
     "parameters": "cleanup",
     "disabled": false,
@@ -26,16 +26,29 @@
     "id": "00000000-0000-0000-0000-000000000002"
   },
   {
-    "name": "Manager Snapshot",
-    "description": "Runs Manager snapshot processor",
+    "name": "Agent Service",
+    "description": "Runs agent service - for processing SSC/FOD queued sync items",
     "type": "Command",
-    "option": "ManagerCron",
-    "schedule": "0 0 1 1/1 * ? *",
-    "parameters": "snapshot",
-    "disabled": false,
+    "option": "AgentService",
+    "schedule": "0 0/15 0 1/1 * ? *",
+    "parameters": "",
+    "disabled": true,
     "runNow": false,
     "timestamp": "2023-09-14T00:00:00.000000+00:00",
     "last_updated": "2023-09-28T00:00:00.000000+00:00",
     "id": "00000000-0000-0000-0000-000000000003"
+  },
+  {
+    "name": "SSC Sync ALL",
+    "description": "Queues all SSC project versions for sync",
+    "type": "Command",
+    "option": "FortifySync",
+    "schedule": "",
+    "parameters": "SSC1 loadqueue 0",
+    "disabled": false,
+    "runNow": false,
+    "timestamp": "2023-09-14T00:00:00.000000+00:00",
+    "last_updated": "2023-09-28T00:00:00.000000+00:00",
+    "id": "00000000-0000-0000-0000-000000000004"
   }
 ]

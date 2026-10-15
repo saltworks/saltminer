@@ -1,61 +1,29 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
-﻿using Microsoft.AspNetCore.Mvc.RazorPages;
-using Saltworks.SaltMiner.Core.Data;
-using Saltworks.SaltMiner.Core.Entities;
-using Saltworks.SaltMiner.UiApiClient.Helpers;
-using System.Drawing;
-using System.Net.NetworkInformation;
+namespace Saltworks.SaltMiner.Ui.Api.Extensions;
 
-namespace Saltworks.SaltMiner.Ui.Api.Extensions
+public static class GeneralExtensions
 {
-    public static class GeneralExtensions
+    public static string SearchUIPagingLoggerMessage(string entity, int count, int? size, int page)
     {
-        public static string SearchUIPagingLoggerMessage(string entity, int count, int size, int page)
-        {
-            return $"Search {entity}:  count of filters {count}, with size {size} and page '{page}'";
-        }
-
-        public static Dictionary<string, bool> GetSortFilters(this UIPagingInfo paging, List<SearchFilterValue> searchFilters, bool isQueue = false)
-        {
-            var sortFilters = new Dictionary<string, bool>();
-
-            if (searchFilters != null)
-            {
-                foreach (var sort in paging.SortFilters)
-                {
-                    SearchFilterValue filter = null;
-
-                    if (isQueue)
-                    {
-                        filter = searchFilters.FirstOrDefault(x => x.QueueIndexFieldNames.Any(y => y.Equals(sort.Key, StringComparison.CurrentCultureIgnoreCase)));
-                    }
-                    else
-                    {
-                        filter = searchFilters.FirstOrDefault(x => x.IndexFieldNames.Any(y => y.Equals(sort.Key, StringComparison.CurrentCultureIgnoreCase)));
-                    }
-
-                    if (filter != null)
-                    {
-                        sortFilters.Add(filter.Field, sort.Value);
-                    }
-                }
-            }
-            return sortFilters;
-        }
+        return $"Search {entity}:  count of filters {count}, with size {size} and page '{page}'";
     }
 }

@@ -1,72 +1,44 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Saltworks.SaltMiner.DataApi.Models;
 using Saltworks.SaltMiner.DataApi.Data;
 using Saltworks.SaltMiner.Core.Data;
 using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Entities;
-using System.Collections.Generic;
 using Saltworks.SaltMiner.ElasticClient;
-using System.Linq;
 
-namespace Saltworks.SaltMiner.DataApi.Contexts
+namespace Saltworks.SaltMiner.DataApi.Contexts;
+
+public class ConfigContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<LookupContext> logger) : ContextBase(config, dataRepository, factory, logger)
 {
-    public class ConfigContext : ContextBase
+    public DataResponse<Config> GetBySectionSubsection(string section, string subsection)
     {
-        public ConfigContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<LookupContext> logger) : base(config, dataRepository, factory, logger)
-        { }
+        if (string.IsNullOrEmpty(section))
+            throw new ApiValidationMissingArgumentException("Section is required.");
 
-        public NoDataResponse DeleteByType(string type)
-        {
-            var request = new SearchRequest
-            {
-                Filter = new Filter
-                {
-                    FilterMatches = new Dictionary<string, string> { { "Type", type } }
-                }
-            };
+        var request = new SearchRequest("section", section, 1000);
 
-            return ElasticClient.DeleteByQuery<Config>(request, Core.Entities.Config.GenerateIndex()).ToNoDataResponse();
-        }
+        if (!string.IsNullOrEmpty(subsection))
+            request.Filter.AddTermsFilterMatch("subsection", [subsection]);
 
-        public DataItemResponse<Config> GetByType(string type)
-        {
-            var result = DataRepo.Search<Config>(
-                new SearchRequest
-                {
-                    Filter = new Filter
-                    {
-                        FilterMatches = new Dictionary<string, string> { { "Type", type } }
-                    }
-                },
-                Core.Entities.Config.GenerateIndex()
-           );
-
-            return new DataItemResponse<Config>(result.Data.FirstOrDefault());
-        }
-
-        public DataResponse<Config> GetAll()
-        {
-            var result = DataRepo.Search<Config>(
-                new SearchRequest(),
-                Core.Entities.Config.GenerateIndex()
-           );
-
-            return new DataResponse<Config>(result.Data);
-        }
+        return Search<Config>(Core.Entities.Config.GenerateIndex(), request);
     }
 }

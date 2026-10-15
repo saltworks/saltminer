@@ -1,20 +1,25 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
-﻿using Saltworks.SaltMiner.Core.Entities;
+using Saltworks.SaltMiner.Core.Data;
+using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Util;
 using Saltworks.SaltMiner.DataClient;
 using Saltworks.SaltMiner.UiApiClient;
@@ -27,7 +32,6 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
         private DateTime? FieldTimestamp { get; set; } = null;
         private List<AttributeDefinition> AttributeDefinitions = [];
         private List<ActionDefinition> ActionDefinitions = [];
-        private DateTime? ActionTimestamp { get; set; } = null;
         private DateTime? AttrTimestamp { get; set; } = null;
         private List<AppRole> AppRoles = [];
         private DateTime? ArTimestamp { get; set; } = null;
@@ -50,13 +54,14 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
             UpdateAttributeDefinitions(data);
             UpdateAppRoles(data);
             UpdateActionDefinitions(data);
-            return new() { 
+            FieldInfo rsp = new() { 
                 FieldDefinitions = FieldDefinitions.Where(ad => ad.Entity.Equals(t, StringComparison.OrdinalIgnoreCase)), 
                 AttributeDefinitions = AttributeDefinitions.FirstOrDefault(ad => ad.Type.Equals(t, StringComparison.OrdinalIgnoreCase))?.Values ?? [], 
                 ActionDefinitions = ActionDefinitions,
                 CurrentAppRoles = AppRoles.Where(r => userRoles.Contains(r.Name, StringComparer.OrdinalIgnoreCase)),
                 EntityType = type.ToString("g")
             };
+            return rsp;
         }
 
         internal List<AttributeDefinition> GetAttributeDefinitions(DataClient.DataClient data = null)
@@ -82,7 +87,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
             try
             {
                 if (data != null && (FieldDefinitions.Count == 0 || FieldTimestamp == null || DateTime.UtcNow.Subtract(FieldTimestamp.Value).Seconds > RandomSecs))
-                    FieldDefinitions = data.FieldDefinitionSearch(new()).Data?.ToList() ?? [];
+                    FieldDefinitions = data.FieldDefinitionSearch(new(new PagingInfo(1000))).Data?.ToList() ?? [];
             }
             catch (DataClientResponseException ex)
             {
@@ -95,7 +100,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
             try
             {
                 if (data != null && (AttributeDefinitions.Count == 0 || AttrTimestamp == null || DateTime.UtcNow.Subtract(AttrTimestamp.Value).Minutes > RandomSecs))
-                    AttributeDefinitions = data.AttributeDefinitionSearch(new()).Data?.ToList() ?? [];
+                    AttributeDefinitions = data.AttributeDefinitionSearch(new(new PagingInfo(1000))).Data?.ToList() ?? [];
             }
             catch (DataClientResponseException ex)
             {
@@ -108,7 +113,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
             try
             {
                 if (data != null && (AppRoles.Count == 0 || ArTimestamp == null || DateTime.UtcNow.Subtract(ArTimestamp.Value).Minutes > RandomSecs))
-                    AppRoles = data.RoleSearch(new()).Data?.ToList() ?? [];
+                    AppRoles = data.RoleSearch(new(new PagingInfo(1000))).Data?.ToList() ?? [];
             }
             catch (DataClientResponseException ex)
             {
@@ -121,7 +126,7 @@ namespace Saltworks.SaltMiner.Ui.Api.Models
             try
             {
                 if (data != null && (ActionDefinitions.Count == 0 || AcTimestamp == null || DateTime.UtcNow.Subtract(AcTimestamp.Value).Minutes > RandomSecs))
-                    ActionDefinitions = data.ActionDefinitionSearch(new()).Data?.ToList() ?? [];
+                    ActionDefinitions = data.ActionDefinitionSearch(new(new PagingInfo(1000))).Data?.ToList() ?? [];
             }
             catch (DataClientResponseException ex)
             {

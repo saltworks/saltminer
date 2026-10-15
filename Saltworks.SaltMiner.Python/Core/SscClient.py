@@ -1,21 +1,26 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
 
 import json
 import sys
+import weakref
 import time
 import datetime
 import logging
@@ -25,120 +30,200 @@ import os
 import requests
 from requests.exceptions import ConnectionError as RequestsConnectionError, ReadTimeout as RequestsReadTimeout
 
+from .Heartbeat import BeatingSleep
 from .RestClient import RestClient
+from .ApplicationSettings import ApplicationSettings
 
 class SscClient(object):
-        
-    def __init__(self, appSettings, sourceName):
+
+    def __init__(self, appSettings:ApplicationSettings, sourceName:str, logger=None, heartbeat=None):
         '''
         Initializes the class.
 
         appSettings: Settings instance containing application settings
-        sourceName: SourceName appearing in a config file in Config\Sources
+        sourceName: SourceName appearing in a config file in Config\\Sources
+        logger: optional Logger instance; if None, uses logging.getLogger(__name__)
+        heartbeat: optional zero-arg callable invoked while waiting out a retry backoff, so a caller
+                   running under the agent isn't mistaken for a dead worker during a long retry
         '''
-        if type(appSettings).__name__ != "ApplicationSettings":
-            raise SscClientConfigurationException("Type of appSettings must be 'ApplicationSettings'")
-        if not sourceName or not sourceName in appSettings.GetSourceNames():
+        if not isinstance(appSettings, ApplicationSettings):
+            raise ValueError("Type of appSettings must be 'ApplicationSettings'")
+        if not sourceName or sourceName not in appSettings.GetSourceNames():
             raise SscClientConfigurationException(f"Invalid or missing source configuration for source name '{sourceName}'")
         sourceType = appSettings.GetSource(sourceName, "Source", "")
         if not sourceType == "SSC":
             raise SscClientConfigurationException(f"Invalid source type '{sourceType}', should be 'SSC'. (in source config '{sourceName}', property 'Source')")
+        self.__Logger = logger or logging.getLogger(__name__)
+        self.__Heartbeat = heartbeat
         self.__App = appSettings.Application
+        self.__AuthTokenInfo = None
+        # One timeout governs every SSC HTTP call: the RestClient used for all API requests (see
+        # __GetAuthToken) plus the two direct requests calls (login POST, logout DELETE).
+        # Default 60 sec, deliberately: no heartbeat can fire from inside a blocking request, so the
+        # longest gap between beats is bounded by a single request's timeout, and that gap must stay
+        # under the agent's DefunctWorkerTimeoutSecs (default 120) or a healthy worker gets reaped as
+        # defunct.  Retry backoffs are NOT part of that budget - SscClient sleeps with
+        # Core.Heartbeat.BeatingSleep, which keeps beating - so one request's timeout is the binding
+        # constraint.  60 < 120 with margin.  Raising this above DefunctWorkerTimeoutSecs reintroduces
+        # the false-reap bug (a 240 sec read timeout vs a 120 sec defunct timeout).
+        # Coerced to int and floored at 1 for the same reason as the retry limits below: config values
+        # arrive as whatever JSON held, and a string or a 0 here would be as bad.
+        self.__DefaultTimeout = max(1, int(appSettings.GetSource(sourceName, 'RequestTimeoutSec', 60)))
         self.__Client = None
         self.__SourceName = sourceName
         self.__GroupingTypeId = appSettings.GetSource(sourceName, 'GroupingTypeId')
         self.__FiltersetId = appSettings.GetSource(sourceName, 'FiltersetId')
+        self.__OverrideProtocol = appSettings.GetSource(sourceName, 'OverrideProtocol', "")
+        self.__TempPath = appSettings.Get("Main", "TempFolder", "/tmp")
+        if self.__OverrideProtocol == "":
+            # Default to the BaseUrl scheme so SSC's self-reported (proxy-downgraded) absolute
+            # links can't downgrade the connection - BaseUrl is authoritative for the protocol.
+            base = appSettings.GetSource(sourceName, 'BaseUrl', "") or ""
+            if base.startswith("https://"):
+                self.__OverrideProtocol = "https://"
+            elif base.startswith("http://"):
+                self.__OverrideProtocol = "http://"
+            else:
+                self.__OverrideProtocol = None
         self.__CacheKeys = []
         self.__Id = uuid.uuid4()
         self.__DateForFile = datetime.datetime.now().strftime('%Y.%m.%d')
         self.__GetAuthToken(appSettings, sourceName) # this initializes the internal RestClient (self.__Client)
         self.__BatchUrls = {}
         self.__CleanedUp = False
-        self.__RetrySec = appSettings.GetSource(sourceName, 'ServerErrorRetrySeconds', 60)
-        self.__MaxRetries = appSettings.GetSource(sourceName, 'ServerErrorMaxRetries', 3)
+        # Coerced to int, and floored at 1 retry: config values arrive as whatever JSON held, and
+        # these bound a retry loop - a string ("3") or a 0 would silently make the bound unreachable.
+        self.__RetrySec = int(appSettings.GetSource(sourceName, 'ServerErrorRetrySeconds', 60))
+        self.__MaxRetries = max(1, int(appSettings.GetSource(sourceName, 'ServerErrorMaxRetries', 3)))
         self.__RetryCount = 0
         self.__RequestStatsReportEnabled = appSettings.GetSource(sourceName, 'RequestStatsReportEnabled', False)
         self.__LoggingFolder = appSettings.Get('Logging', 'Folder')
+        weakref.finalize(self, self.Cleanup)
         
         # Sample auth response
         # {"data":{"remainingUsages":-1,"terminalDate":"2020-06-19T20:36:42.697+0000","description":null,"id":1963,"creationDate":"2020-06-18T20:36:42.697+0000","type":"UnifiedLoginToken","token":"MGY4NDBkMzItZTlkYS00MjczLWI4OWQtNzEyZjVhMmQ2YTZj","username":"dennis.hurst"},"responseCode":201}
         self.__App.LogDebug("SscClient initialization complete.  RestClient params - url: '{}', username: '{}', verify: {}".format(appSettings.GetSource(sourceName, 'BaseUrl'), appSettings.GetSource(sourceName, 'Username'), appSettings.GetSource(sourceName, 'SslVerify')))
 
     @property
-    def BaseUrl(self):
+    def BaseUrl(self) -> str:
         return self.__Client.BaseUrl
+    
+    @property
+    def SourceName(self) -> str:
+        return self.__SourceName
 
-    def __TokenApiCall(self, appSettings, sourceName, isDelete=False, isRetry=False):
-        tokenDescription = appSettings.GetSource(sourceName, 'AuthTokenDescription', 'SaltMiner')
+    def _Beat(self):
+        '''
+        Signal progress to the caller's heartbeat delegate, if one was supplied.  No-op when no
+        delegate was passed.  Never lets a heartbeat failure break the request in progress.
+        '''
+        if self.__Heartbeat is not None:
+            try:
+                self.__Heartbeat()
+            except Exception:
+                self.__Logger.debug("Heartbeat delegate raised; ignoring.", exc_info=True)
+
+    def __Logout(self, isRetry=False):
+        if not self.__AuthTokenInfo:
+            self.__Logger.error("SscClient unable to log out of current session, session information missing.")
+            raise SscClientException("Missing auth token session information for logout.")
+        try:
+            r = requests.delete(self.__AuthTokenInfo['logoutUrl'], verify=self.__AuthTokenInfo['sslVerify'], headers=self.__AuthTokenInfo['headers'], auth=self.__AuthTokenInfo['auth'], timeout=self.__DefaultTimeout)
+            return 200 if r.ok else r.status_code
+        except ConnectionError as e:
+            msg = f"SscClient encountered an error when deleting a session token: {e}"
+            self.__Logger.error(msg)
+            if isRetry:
+                self.__Logger.error("SscClient giving up on deleting session token.")
+                return
+            self.__Logger.info("SscClient logout retry in 10 sec...")
+            BeatingSleep(10, self._Beat)
+            return self.__Logout(True)
+
+    def __Login(self, appSettings, sourceName, isRetry=False):
+        desc = appSettings.GetSource(sourceName, 'AuthTokenDescription', 'SaltMiner')
         headers = {
             'Accept':'application/json',
             'Content-Type':'application/json;charset=UTF-8'
         }
-        if not isDelete:
-            # Make the token expire in a day
-            body = {
-                "type": "UnifiedLoginToken",
-                "terminalDate": (datetime.datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S.%f"),
-                "description": tokenDescription
-            }
+        # Make the token expire in a day
+        body = {
+            "type": "UnifiedLoginToken",
+            "terminalDate": (datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S.%f"),
+            "description": desc
+        }
         auth = RestClient.basicAuth(appSettings.GetSource(sourceName, "Username"), appSettings.GetSource(sourceName, "Password"))
         verify = (appSettings.GetSource(sourceName, 'SslVerify')=='True')
-        if isDelete:
-            url = f"{appSettings.GetSource(sourceName, 'BaseUrl')}/api/v1/tokens/{self.__AuthTokenId}"
-            return requests.delete(url, verify=verify, headers=headers, auth=auth)
-        else:
+        try:
+            url = appSettings.GetSource(sourceName, 'BaseUrl') + '/api/v1/tokens'
+            rsp = requests.post(url, json=body, verify=verify, headers=headers, auth=auth, timeout=self.__DefaultTimeout)
             try:
-                url = appSettings.GetSource(sourceName, 'BaseUrl') + '/api/v1/tokens'
-                return requests.post(url, json=body, verify=verify, headers=headers, auth=auth)
-            except ConnectionError as e:
-                msg = f"Error when requesting a login token: {e}"
-                logging.error(msg)
-                if isRetry:
-                    raise SscClientServerErrorException(msg) from e
-                logging.info("Login retry in 60 sec...")
-                time.sleep(10)
-                return self.__TokenApiCall(appSettings, sourceName, False, True)
+                r = rsp.json()
+            except ValueError as e:
+                # SSC serves an HTML error page instead of JSON when it is unhealthy
+                raise SscClientServerErrorException(f"SSC login returned a non-JSON response: {self.__DescribeResponse(rsp)}") from e
+            if not rsp.ok:
+                raise SscClientAuthenticationException(f"({rsp.status_code}) {r['message']}")
+            exp = None
+            try:
+                exp = datetime.datetime.fromisoformat(r['data']['terminalDate'])
+            except Exception as e:
+                self.__Logger.debug("Token expiration parse failure: %s", f"{e}")
+                self.__Logger.warning("Failed to parse token expiration - this can happen if python 3.11 or older and can be ignored safely.")
+            self.__AuthTokenInfo = {
+                "token": r['data']['token'],
+                "tokenId": r['data']['id'],
+                "tokenExpires": exp,
+                "logoutUrl": f"{appSettings.GetSource(sourceName, 'BaseUrl')}/api/v1/tokens/{r['data']['id']}",
+                "sslVerify": verify,
+                "headers": headers,
+                "auth": auth
+            }
+        except ConnectionError as e:
+            msg = f"SscClient error when requesting a login token: {e}"
+            self.__Logger.error(msg)
+            if isRetry:
+                raise SscClientServerErrorException(msg) from e
+            self.__Logger.info("SscClient login retry in 10 sec...")
+            BeatingSleep(10, self._Beat)
+            return self.__Login(appSettings, sourceName, True)
 
-        
     def __GetAuthToken(self, appSettings, sourceName):
         RestClient.disableRequestWarnings()
-        response = self.__TokenApiCall(appSettings, sourceName)
-        r = json.loads(response.text)
-        if not response.ok:
-            raise SscClientAuthenticationException(f"({response.status_code}) {r['message']}")
-        self.__AuthToken = r['data']['token']
-        self.__AuthTokenId = r['data']['id']
+        self.__Login(appSettings, sourceName)
         headers = {
             'Accept':'application/json',
             'Content-Type':'application/json;charset=UTF-8',
-            'Authorization': 'FortifyToken {}'.format(self.__AuthToken)
+            'Authorization': f'FortifyToken {self.__AuthTokenInfo['token']}'
         }
-        self.__Client = RestClient(appSettings.GetSource(sourceName, 'BaseUrl'), sslVerify=appSettings.GetSource(sourceName, 'SslVerify'), defaultHeaders= headers)
+        # timeout must be passed explicitly - RestClient's own default is 240 sec, which exceeds the
+        # agent's default DefunctWorkerTimeoutSecs (120) and caused live workers to be reaped as defunct.
+        self.__Client = RestClient(appSettings.GetSource(sourceName, 'BaseUrl'), sslVerify=appSettings.GetSource(sourceName, 'SslVerify'), defaultHeaders= headers, retryConnectionErrors=False, overrideProtocol=self.__OverrideProtocol, timeout=self.__DefaultTimeout)
         self.__Client.SessionEnabled = True
 
     def Cleanup(self):
         if self.__CleanedUp:
             return
         try:
-            logging.info("Attempting to release SSC auth token")
-            r = self.__TokenApiCall(self.__App.Settings, self.__SourceName, True)
-            if r.ok:
-                logging.info("Token released successfully")
+            self.__Logger.info("Attempting to release SSC auth token")
+            r = self.__Logout()
+            if r == 200:
+                self.__Logger.info("Token released successfully")
             else:
-                logging.warning(f"Failed to release SSC token ({r.status_code})")
+                self.__Logger.warning("Failed to release SSC token (%s)", r)
         except Exception:
-            logging.warning("Unable to release token", exc_info=True)
+            self.__Logger.warning("Unable to release token", exc_info=True)
 
         try:
             for k in self.__CacheKeys:
                 self.__DeleteCache(k)
         except Exception:
-            logging.error("Error in removing temp cache files", exc_info=True)
+            self.__Logger.error("Error in removing temp cache files", exc_info=True)
 
         try:
             self.__DumpStats()
         except Exception:
-            logging.error(f"Error reporting API stats", exc_info=True)
+            self.__Logger.error("Error reporting API stats", exc_info=True)
 
         self.__CleanedUp = True
 
@@ -148,10 +233,31 @@ class SscClient(object):
         fldr = self.__LoggingFolder
         file = os.path.join(fldr, f"{self.__DateForFile}.SaltMiner.SscClientStats-{self.__Id}.json")
         self.__App.CleanFiles(fldr, "*.SscClientStats*.json", 7)
-        with open(file, "w") as f:
+        with open(file, "w", encoding="utf-8") as f:
             f.write(json.dumps(self.__Client.RequestStatsReport()))
         self.__App.LogInfo(f"SSC client API session stats written to log file '{file}'")
     
+    @staticmethod
+    def __DescribeResponse(response, maxBodyChars = 500):
+        '''
+        Builds a one-line description of a failed response for logs and exception messages.
+
+        SSC leaves the HTTP reason phrase empty and puts the real cause in the body (ex.
+        '{"message":"Unable to execute batch."}'), so the body has to be included or the
+        failure is undiagnosable.
+        '''
+        body = (response.text or "").strip()
+        try:
+            # Prefer SSC's own error message when the body is its standard JSON error shape
+            body = json.loads(body).get('message') or body
+        except (ValueError, AttributeError):
+            pass
+        body = " ".join(body.split())  # collapse whitespace - SSC error pages are multi-line HTML
+        if len(body) > maxBodyChars:
+            body = body[:maxBodyChars] + "..."
+        reason = f" {response.reason}" if response.reason else ""
+        return f"({response.status_code}{reason}) {body or '<empty response body>'} [url: {response.url}]"
+
     def __Get(self, url, navToData = False, suppressError = False, statKey = None, errorOnEmptyResponse = True, retryDelaySec=None):
         '''
         Calls GET and loads the response into an object, raising an error if not a 2xx response.
@@ -162,6 +268,9 @@ class SscClient(object):
         suppressError - set to True to not raise an error if the response.status_code is not 2xx.  Returns None if error suppressed.
         statKey - used in recording stats for API calls
         '''
+        if datetime.datetime.now(datetime.UTC) > self.__AuthTokenInfo['tokenExpires']:
+            self.__Logger.info("Token expired, attempting to get new token")
+            self.__GetAuthToken(self.__App.Settings, self.__SourceName)
         wait = self.__RetrySec if not retryDelaySec or retryDelaySec < 0 else retryDelaySec
         ex = None
 
@@ -176,29 +285,31 @@ class SscClient(object):
             if self.__RetryCount == 1:
                 wait = 1
             else:
-                logging.warning("After first retry adding a longer wait of %s secs", wait)
+                self.__Logger.warning("After first retry adding a longer wait of %s secs", wait)
             ex = e
 
         except (SscClientServerErrorException, SscClientEmptyResponseException, ConnectionError, RequestsConnectionError, RequestsReadTimeout) as e:
-            logging.error("SSC API error encountered (%s), retrying in %s secs.", type(e).__name__, wait)
+            self.__Logger.error("SSC API error encountered (%s): %s. Retrying in %s secs.", type(e).__name__, e, wait)
             ex = e
 
         except SscClientException:
             raise
 
         except Exception as e:
-            logging.error("__Get failed to handle exception of type %s", type(e).__name__)
+            self.__Logger.error("__Get failed to handle exception of type %s", type(e).__name__)
             raise
 
         # Retry
         self.__RetryCount += 1
 
-        if self.__RetryCount == self.__MaxRetries:
+        # >= not ==: an exact test stops bounding the retries the moment the count steps over the
+        # limit rather than landing on it, and the loop below is unbounded without this guard.
+        if self.__RetryCount >= self.__MaxRetries:
             self.__RetryCount = 0
-            logging.error("Reached retry limit - see earlier logged errors for details.")
+            self.__Logger.error("Reached retry limit - see earlier logged errors for details.")
             raise ex
 
-        time.sleep(wait)
+        BeatingSleep(wait, self._Beat)
         return self.__Get(url, navToData, suppressError, statKey, errorOnEmptyResponse, retryDelaySec)
 
     def __GetResponseDataOrError(self, response, navToData = True, suppressError = False, errorOnEmptyResponse = True):
@@ -216,7 +327,7 @@ class SscClient(object):
             sc = int(response.status_code)
         if sc == 404:
             msg = f"(404) Not found for url '{response.url}'"
-            logging.error(f"SSC API call failure: {msg}")
+            self.__Logger.error(f"SSC API call failure: {msg}")
             raise SscClientException(msg)
         if 200 <= sc < 300:
             m = None if not response.text else json.loads(response.text)
@@ -240,30 +351,42 @@ class SscClient(object):
             raise SscClient409ConflictException(f"{response.text}")
         elif sc > 499:
             # Separate 50x errors from the rest so can retry.
-            raise SscClientServerErrorException(response.reason)
+            raise SscClientServerErrorException(self.__DescribeResponse(response))
         else:
             msg = f"SSC API call failure: ({sc}) {response.text}"
-            logging.error(msg)
+            self.__Logger.error(msg)
             if not suppressError:
                 raise SscClientException(msg)
             return None
 
     def __SetCache(self, key, data):
-        logging.info(f"Writing cache data for key '{key}'")
-        with open(f"{key}-{self.__Id}.tmp", "w") as f:
-            f.write(json.dumps(data))
-        self.__CacheKeys.append(key)
+        file = os.path.join(self.__TempPath, f"{key}-{self.__Id}.tmp")
+        self.__Logger.info(f"Writing cache data for key '{key}'")
+        try:
+            with open(file, "w") as f:
+                f.write(json.dumps(data))
+            self.__CacheKeys.append(key)
+        except PermissionError:
+            logging.warning("Unable to write cache data to configured tmp path '%s'", self.__TempPath)
 
     def __GetCache(self, key):
-        if os.path.exists(f"{key}-{self.__Id}.tmp"):
-            logging.info(f"Cache hit for key '{key}'")
-            with open(f"{key}-{self.__Id}.tmp", "r") as f:
-                return json.loads(f.read())
+        file = os.path.join(self.__TempPath, f"{key}-{self.__Id}.tmp")
+        if os.path.exists(file):
+            self.__Logger.info(f"Cache hit for key '{key}'")
+            try:
+                with open(file, "r") as f:
+                    return json.loads(f.read())
+            except PermissionError:
+                logging.warning("Unable to read cache data to configured tmp path '%s'", self.__TempPath)
 
     def __DeleteCache(self, key):
-        logging.info(f"Clearing cache data for key '{key}'")
-        if os.path.exists(f"{key}-{self.__Id}.tmp"):
-            os.remove(f"{key}-{self.__Id}.tmp")
+        file = os.path.join(self.__TempPath, f"{key}-{self.__Id}.tmp")
+        self.__Logger.info(f"Clearing cache data for key '{key}'")
+        try:
+            if os.path.exists(file):
+                os.remove(file)
+        except PermissionError:
+            logging.warning("Unable to remove cache data filer '%s'", file)
        
     @staticmethod
     def TestConnection(appSettings, sourceName):
@@ -279,7 +402,7 @@ class SscClient(object):
     def BulkRequest(self, uri, httpVerb='GET', postBody=None):
         return { 'uri': uri, 'httpVerb': httpVerb, 'postData': postBody }
     
-    def Bulk(self, requests):
+    def Bulk(self, bulkRequests):
         '''
         Send in multiple requests at once - see https://ssc.saltworks.io/ssc/html/docs/docs.html#!/bulk for more info.
         This version assumes the requests will all return the same single doc structure and unpacks the responses into a list.
@@ -290,26 +413,26 @@ class SscClient(object):
 
         returns a list of data items unpacked from the bulk response
         '''
-        lst = []       
+        lst = []
         retry = False
         wait = self.__RetrySec
         try:
-            rlst = self.__GetResponseDataOrError(self.__Client.Post("api/v1/bulk", { "requests": requests }))
+            rlst = self.__GetResponseDataOrError(self.__Client.Post("api/v1/bulk", { "requests": bulkRequests }))
         except (SscClientServerErrorException, SscClientEmptyResponseException, ConnectionError, RequestsConnectionError) as e:
             self.__App.LogError(f"SSC Bulk API error - [{type(e).__name__}] {e}, retrying in {wait} secs...")
-            time.sleep(wait)
+            BeatingSleep(wait, self._Beat)
             retry = True
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid, attempting to get new token and retry previous operation ({e})")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
             retry = True
         except RequestsReadTimeout as e:
             self.__App.LogError(f"SSC Bulk API read timeout error ('{e}'), retrying in {wait} secs...")
-            time.sleep(wait)
+            BeatingSleep(wait, self._Beat)
             retry = True
         
         if retry:
-            rlst = self.__GetResponseDataOrError(self.__Client.Post("api/v1/bulk", { "requests": requests }))
+            rlst = self.__GetResponseDataOrError(self.__Client.Post("api/v1/bulk", { "requests": bulkRequests }))
 
         for rsp in rlst:
             if not 'responses' in rsp.keys() or not rsp['responses'] or len(rsp['responses']) < 1:
@@ -416,9 +539,9 @@ class SscClient(object):
                 count = projectVersions['count']
                 if limit > 0 or startIndex > 0:
                     count = limit
-                logging.info(f"{count} total project versions, starting at index {startIndex}.")
+                self.__Logger.info(f"{count} total project versions, starting at index {startIndex}.")
             else:       
-                logging.info(f"Downloaded {ccount} of {count} total project versions from SSC")
+                self.__Logger.info(f"Downloaded {ccount} of {count} total project versions from SSC")
 
             for pv in projectVersions['data']:
                 yield pv
@@ -428,13 +551,81 @@ class SscClient(object):
             except KeyError:
                 done = True
             except:
-                logging.error('Unexpected error:{}'.format(sys.exc_info()[0]))
+                self.__Logger.error('Unexpected error:{}'.format(sys.exc_info()[0]))
                 done = True
             if limit <= ccount and limit > 0:
                 done = True
 
+    def GetProjectVersionByName(self, name = "", version = "", inactive = False):
+        '''
+        Find project version by project name and/or version
 
-    def GetProjectVersions(self, fields = None, inactive = False, batchSize = 200, forceRefresh = False, limit = 0, startIndex=0):
+        :name: Project version name to find.
+        :version: Project version/release to find.
+        :inactive: Enable search to include inactive project versions.
+
+        Must specify at least one search parameter (name or version).
+        '''
+        if not name and not version:
+            raise ValueError("At least one search term must be specified (name or version).")
+        q = ""
+        ander = ""
+        if name:
+            q += f"project.name:{name}"
+            ander = ","
+        if version:
+            q += f"{ander}name:{version}"
+        url = f"/api/v1/projectVersions?limit=1&fulltextsearch=false&includeInactive={str(inactive).lower()}&q={q}"
+        data = self.__Get(url, navToData=True, errorOnEmptyResponse=False)
+        if data and len(data) > 0:
+            return data[0]
+        return None
+
+    def GetInactiveProjectVersionIds(self, batchSize = 200, limit = 0, startIndex = 0):
+        '''
+        Return list of project version IDs where the project version is inactive
+
+        Parameters:
+        :batchSize: how many project versions to load in a single API call
+        :forceRefresh: use the API to refresh the data even if it's already been pulled and cached
+        :limit: return no more than this number of project versions; if greater then batchSize then ignored
+        '''
+        if limit > 0 and limit < batchSize:
+            batchSize = limit
+        url = f"/api/v1/projectVersions?start={startIndex}&limit={batchSize}&includeInactive=true&q=active:false&orderby=id&fields=id"
+
+        list = []
+        count = 0
+        ccount = 0
+        done = False
+        while not done:
+            projectVersions = self.__Get(url, False, False, "GetInactiveProjectVersionIds")
+            ccount += len(projectVersions['data'])
+            if count == 0:
+                count = projectVersions['count']
+                if limit > 0 or startIndex > 0:
+                    count = limit
+                self.__Logger.info(f"{count} total project versions to load, starting at index {startIndex}.")
+            else:       
+                self.__Logger.info(f"Downloading {ccount} of {count} total records")
+
+            for pv in projectVersions['data']:
+                list.append(pv['id'])
+
+            try:
+                url = projectVersions['links']['next']['href']
+            except KeyError:
+                done = True
+            except:
+                self.__Logger.error('Unexpected error:{}'.format(sys.exc_info()[0]))
+                done = True
+            if limit <= ccount and limit > 0:
+                done = True
+
+        self.__Logger.info(f"Retrieved {len(list)} inactive project version IDs")
+        return list
+
+    def GetProjectVersions(self, fields = None, inactive = False, batchSize = 200, forceRefresh = False, limit = 0, startIndex = 0):
         '''
         Returns complete list of project versions, calling the API in batches
 
@@ -442,7 +633,7 @@ class SscClient(object):
 
         Parameters:
         fields - comma delimited list of fields to return, or None to return all
-        inactive - set to True to include inactive project versions
+        inactive - set to True to include inactive project versions, F
         batchSize - how many project versions to load in a single API call
         forceRefresh - use the API to refresh the data even if it's already been pulled and cached
         limit - return no more than this number of project versions; if greater then batchSize then ignored
@@ -471,9 +662,9 @@ class SscClient(object):
                 count = projectVersions['count']
                 if limit > 0 or startIndex > 0:
                     count = limit
-                logging.info(f"{count} total project versions to load, starting at index {startIndex}.")
+                self.__Logger.info(f"{count} total project versions to load, starting at index {startIndex}.")
             else:       
-                logging.info(f"Downloading {ccount} of {count} total records")
+                self.__Logger.info(f"Downloading {ccount} of {count} total records")
 
             for pv in projectVersions['data']:
                 list.append(pv)
@@ -483,12 +674,12 @@ class SscClient(object):
             except KeyError:
                 done = True
             except:
-                logging.error('Unexpected error:{}'.format(sys.exc_info()[0]))
+                self.__Logger.error('Unexpected error:{}'.format(sys.exc_info()[0]))
                 done = True
             if limit <= ccount and limit > 0:
                 done = True
 
-        logging.info(f"Downloaded {len(list)} project versions")
+        self.__Logger.info(f"Downloaded {len(list)} project versions")
         # set cache if limit is 0 (full list)
         if limit == 0:
             self.__SetCache("GetProjectVersions", { "url": orgUrl, "data": list })
@@ -526,7 +717,7 @@ class SscClient(object):
                 elif count['cleanName'] == "Low":
                     _issueCounts['low'] = count['visibleCount']
                 else:
-                    logging.info('odd: {}'.format(count['cleanName']))
+                    self.__Logger.info('odd: {}'.format(count['cleanName']))
 
             _issueCounts['count'] = _issueCounts['critical'] + _issueCounts['high'] + _issueCounts['medium'] + _issueCounts['low']    
         
@@ -535,7 +726,7 @@ class SscClient(object):
             _issueCounts['high'] = 0
             _issueCounts['medium'] = 0
             _issueCounts['low'] = 0
-            logging.info('error getting count totals - force recalc')
+            self.__Logger.info('error getting count totals - force recalc')
 
         _summaryHidden = self.GetProjectVersionSummaryCounts(id, projDefFilter)
 
@@ -546,7 +737,7 @@ class SscClient(object):
         except KeyError:
             _issueCounts['suppressedCount'] = 0
             _issueCounts['removedCount'] = 0
-            logging.info('error getting count totals - force recalc')
+            self.__Logger.info('error getting count totals - force recalc')
 
         return _issueCounts
 
@@ -566,7 +757,7 @@ class SscClient(object):
             _issueCountsHidden['hiddenCount'] = _summaryHidden['data'][0]['hiddenCount']
         except KeyError:
             _issueCountsHidden['hiddenCount'] = 0
-            logging.info('error getting count totals - force recalc')
+            self.__Logger.info('error getting count totals - force recalc')
 
         return _issueCountsHidden
 
@@ -579,7 +770,7 @@ class SscClient(object):
             return False
         except (SscClientBadRequestException, SscClient409ConflictException, SscClientAuthenticationException, SscClientServerErrorException) as e:
             if isinstance(e, SscClientServerErrorException):
-                logging.warning("Server error (500) returned when checking for incomplete/invalid app version for ID %s.  This result may be hiding a system issue with SSC.")
+                self.__Logger.warning("Server error (500) returned when checking for incomplete/invalid app version for ID %s.  This result may be hiding a system issue with SSC.")
             return True
 
     def GetProjectVersion(self, id, navToData = False):
@@ -608,7 +799,7 @@ class SscClient(object):
         try:
             rsp = self.__Get('/api/v1/projectVersions/{}/filterSets?&start=0&limit=200'.format(pvId), False, False, "GetProjectVersionFilterset")
         except SscClientServerErrorException:
-            logging.error("500 Server error attempting to retrieve filterset for project version %s", pvId)
+            self.__Logger.error("500 Server error attempting to retrieve filterset for project version %s", pvId)
         return rsp
 
     def GetProjectVersionDefaultFilterset(self, pvId):
@@ -620,13 +811,22 @@ class SscClient(object):
             if filter['defaultFilterSet'] == True:
                 return filter['guid']
 
-    def GetProjectVersionScans(self, id, batchSize=1000):
+    def GetProjectVersionArtifacts(self, pvid, limit=1000):
+        '''
+        Returns artifacts for a given project version id, up to specified limit.  Currently ordered by uploadDate descending from API.
+
+        :id: Project version ID
+        :limit: Max artifacts to return (no paging in this method). Set 0 for no limit.
+        '''
+        return self.__Get(f"/api/v1/projectVersions/{pvid}/artifacts?start=0&limit={limit}", True, False)
+    
+    def GetProjectVersionScans(self, pvid, batchSize=1000):
         '''
         Returns scan artifacts for a given project version id
 
         Original name: getProjectVersionScans
         '''
-        response = self.__Get(f"/api/v1/projectVersions/{id}/artifacts?embed=scans&start=0&limit={batchSize}", False, False, "GetProjectVersionScans")
+        response = self.__Get(f"/api/v1/projectVersions/{pvid}/artifacts?embed=scans&start=0&limit={batchSize}", False, False, "GetProjectVersionScans")
         if not response['data']:
             return []
         data = response['data']
@@ -700,14 +900,14 @@ class SscClient(object):
             return self.__Get(url, False, "IssueDetails", "GetProjectVersionIssueDetail")
             
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid, attempting to get new token and retry previous operation ({e})")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
             return self.__Get(url, False, "IssueDetails", "GetProjectVersionIssueDetail")
 
         except (SscClientServerErrorException, SscClientEmptyResponseException, ConnectionError, RequestsConnectionError) as e:
             wait = self.__RetrySec
             self.__App.LogError(f"SSC API error - [{type(e).__name__}] {e}, retrying in {wait} secs...")
-            time.sleep(wait)
+            BeatingSleep(wait, self._Beat)
             return self.__Get(url, False, "IssueDetails", "GetProjectVersionIssueDetail")
 
         except Exception as e:
@@ -772,14 +972,14 @@ class SscClient(object):
         beforeCount = _curCount + 1
         _curCount += len(response['data'])
         self.__BatchUrls[_key]['CurCount'] = _curCount
-        logging.info(f"Downloading issues for id {id}: {beforeCount}-{_curCount} of {_issues['count']} total records")
+        self.__Logger.info(f"Downloading issues for id {id}: {beforeCount}-{_curCount} of {_issues['count']} total records")
         try:
             self.__BatchUrls[_key]['Url'] = response['links']['next']['href']
         except KeyError:
             self.__BatchUrls[_key]['Url'] = "Done"
         except Exception as e:
             self.__BatchUrls[_key]['Url'] = "Done"
-            logging.error(f"Failed to get next batch link for issue download: {e}")
+            self.__Logger.error(f"Failed to get next batch link for issue download: {e}")
         return _issues
 
     def GetProjectVersionIssues(self, id, projDefFilter, batchSize = 1000, showHidden = True, showRemoved = True, showSuppressed = True, showShortFilenames = True):
@@ -806,7 +1006,7 @@ class SscClient(object):
         NOTE: GetProjectVersionUsers navigates to the data portion of the API response directly
         '''
         msg = "getProjectVersionsUsers is deprecated and will be removed soonish, please use GetProjectVersionUsers instead."
-        logging.warning(msg)
+        self.__Logger.warning(msg)
         print(msg)
         return self.__Get(f"/api/v1/projectVersions/{projectVersionId}/authEntities", False)
     
@@ -817,15 +1017,26 @@ class SscClient(object):
             self.__Client.Put(url=f'/api/v1/projectVersions/{projectVersionId}', json=data)
             
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid, attempting to get new token and retry previous operation ({e})")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
             self.__Client.Put(url=f'/api/v1/projectVersions/{projectVersionId}', data=data)
 
-    def UploadFile(self, projectVersionId, engineType, filePath= None):
+    def UploadFile(self, projectVersionId, engineType = None, filePath = None, fileName = "issues.zip"):
+        '''
+        Upload an FPR into SSC.
 
+        :projectVersionId: project version ID, required
+        :engineType: Engine type of the FPR (can be omitted if embedded in FPR)
+        :filePath: File path to the upload file (FPR), required even if it seems like it isn't
+        :fileName: File name to send, defaults to issues.zip probably because this method was originally single-purpose...
+        '''
+
+        if len(str(filePath).strip()) == 0:
+            raise ValueError("filePath is required.")
         file_token = self.GetFileToken("UPLOAD")
+        et = "?engineType=" + str(engineType) if engineType and len(str(engineType).strip()) > 0 else ""
         try:
-            url = "/api/v1/projectVersions/" + str(projectVersionId) + "/artifacts?engineType=" + str(engineType)
+            url = "/api/v1/projectVersions/" + str(projectVersionId) + "/artifacts" + et
 
             headers = {
                 'Authorization': f'FortifyToken {file_token}',
@@ -834,12 +1045,12 @@ class SscClient(object):
             }
 
             with open(filePath, 'rb') as file:
-                return self.__Client.Post(url, headers=headers, files={"file": ("issues.zip", file)})
+                return self.__Client.Post(url, headers=headers, files={"file": (fileName, file)})
             
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid {e}, attempting to get new token and retry previous operation")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
-            self.__Client.Post(url, headers=headers, files={"file": file})
+            return self.__Client.Post(url, headers=headers, files={"file": (fileName, file)})
     
     def CreateIssuesDeltaExport(self, pvidList, fileName, sinceDate):
         try:
@@ -853,11 +1064,11 @@ class SscClient(object):
 
            return self.__GetResponseDataOrError(self.__Client.Post(url="/api/v1/issuesDeltaExports", data=json.dumps(data)))
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid, attempting to get new token and retry previous operation ({e})")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
             return self.__GetResponseDataOrError(self.__Client.Post(url="/api/v1/issuesDeltaExports", data=json.dumps(data)))
         except Exception as e:
-            logging.error(f"Failed to create issues delta export: {e}")
+            self.__Logger.error("Failed to create issues delta export: %s", e)
 
     
     def GetIssuesDeltaExport(self, exportId):
@@ -865,11 +1076,11 @@ class SscClient(object):
            return self.__GetResponseDataOrError(self.__Client.Get(url=f"/api/v1/issuesDeltaExports/{exportId}"))
            
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid, attempting to get new token and retry previous operation ({e})")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
             return self.__GetResponseDataOrError(self.__Client.Get(url=f"/api/v1/issuesDeltaExports/{exportId}"))
         except Exception as e:
-            logging.error(f"Failed to get issues delta export download: {e}")
+            self.__Logger.error("Failed to get issues delta export download: %s", e)
 
 
     def GetIssuesDeltaExportDownload(self, exportId):
@@ -878,11 +1089,11 @@ class SscClient(object):
         try:
            return self.__Client.Get(url="/transfer/issuesDeltaExportDownload.html?mat=" + file_token + "&id=" + str(exportId))
         except SscClientAuthenticationException as e:
-            self.__App.LogWarning("Authentication token invalid, attempting to get new token and retry previous operation")
+            self.__App.LogWarning(f"Authentication token invalid ({e}), attempting to get new token and retry previous operation")
             self.__GetAuthToken(self.__App.Settings, self.__SourceName)
             return self.__Client.Get(url="/transfer/issuesDeltaExportDownload.html?mat=" + file_token + "&id=" + str(exportId))
         except Exception as e:
-            logging.error(f"Failed to get issues delta export download: {e}")
+            self.__Logger.error("Failed to get issues delta export download: %s", e)
 
     def GetFileToken(self, fileTokenType):
         data = ({

@@ -1,20 +1,26 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
-﻿using Saltworks.SaltMiner.Core.Data;
+using Elastic.Clients.Elasticsearch.Aggregations;
+using Saltworks.SaltMiner.Core.Data;
+using System;
 using System.Collections.Generic;
 
 namespace Saltworks.SaltMiner.ElasticClient
@@ -43,6 +49,14 @@ namespace Saltworks.SaltMiner.ElasticClient
         public int HttpStatus { get; set; }
     }
 
+    public interface IElasticClientAggregateResponse : IElasticClientResponse
+    {
+        /// <summary>
+        /// Aggregation results go here.
+        /// </summary>
+        public AggregateDictionary Aggregations { get; set; }
+    }
+
     public interface IElasticClientResponse<T> : IElasticClientResponse where T: class
     {
         /// <summary>
@@ -54,16 +68,8 @@ namespace Saltworks.SaltMiner.ElasticClient
         /// </summary>
         public IElasticClientDto<T> Result { get; set; }
         /// <summary>
-        /// Single result document goes here, not as a loner in the Results field.
-        /// </summary>
-        public IList<object> AfterKeys { get; set; }
-        /// <summary>
         /// For multiple result queries, key information needed to return the next (or first) set of results
         /// </summary>
-        public PitPagingInfo PitPagingInfo { get; set; }
-        /// <summary>
-        /// For multiple result queries, key information needed to return the next (or first) set of results
-        /// </summary>
-        public UIPagingInfo UIPagingInfo { get; set; }
+        public PagingInfo PagingInfo { get; set; }
     }
 }

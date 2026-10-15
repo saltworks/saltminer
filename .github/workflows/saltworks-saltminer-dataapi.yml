@@ -3,17 +3,44 @@ name: Saltworks.SaltMiner.DataApi
 on:
   push:
     branches:
-    - main
     - '3.*'
+    - "4.*"
     paths:
-    - 'Saltworks.SaltMiner.DataApi/*'
+    - 'Saltworks.SaltMiner.DataApi/**'
+    - 'Saltworks.SaltMiner.ElasticClient/**'
+    - 'Saltworks.SaltMiner.ConfigurationWizard/**'
+    - 'Saltworks.SaltMiner.ConsoleApp.Core/**'
+    - 'Saltworks.SaltMiner.Core/**'
+    - 'Saltworks.Utility.ApiHelper/**'
+    - 'Saltworks.SaltMiner.IndexTemplates/**'
     - '.github/workflows/saltworks-saltminer-dataapi.yml'
-    - '.dockerfiles/Dockerfile'
-  pull_request:
-    branches: [ "main" ]
+    - '.dockerfiles/Dockerfile-api'
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: 'Pre-release channel (none = dev or release build)'
+        required: false
+        default: none
+        type: choice
+        options:
+        - none
+        - alpha
+        - beta
+        - rc
+      push_to_docker_hub:
+        description: 'Also push to Docker Hub'
+        required: false
+        default: false
+        type: boolean
+      diagnostic_mode:
+        description: 'Enable diagnostic output'
+        required: false
+        default: false
+        type: boolean
 
-env:
-  DIAGNOSTIC_MODE: false
+permissions:
+  packages: write
+  contents: read
 
 jobs:
   build_api:
@@ -26,33 +53,27 @@ jobs:
         working-directory: ./Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi
     env:
       CONFIGURATION: release
-      CONFIG_FILE: appsettings.json
-      KIBANA_BASE_URL: http://kibana:5601
-      KESTREL_ALLOW_REMOTE: true
-      EXEC_TRANSFORM: true
+      # On a push event the `inputs` context is empty, so every value falls back
+      # to its dev-build default: no pre-release channel, GHCR only.
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode && 'true' || 'false' }}
+      PRERELEASE: ${{ inputs.prerelease || 'none' }}
+      PUSH_TO_DOCKER_HUB: ${{ inputs.push_to_docker_hub && 'true' || 'false' }}
+      DEPLOY_ARTIFACT_PATH: Saltworks.SaltMiner.Deploy
 
     steps:
     - uses: actions/checkout@v4
-#    - name: Setup .NET
-#      uses: actions/setup-dotnet@v4
-#      with:
-#        dotnet-version: 8.0.x
 
-    - name: Configuration File Transformation
-      if: env.EXEC_TRANSFORM == 'true'
-      run: |
-        echo 'Transforming configuration file'
-        jq --argjson kar ${{ env.KESTREL_ALLOW_REMOTE }} \
-          --arg kbu "${{ env.KIBANA_BASE_URL }}" \
-          '.ApiConfig += {"KestrelAllowRemote": $kar} | .ApiConfig += {"KibanaBaseUrl": $kbu}' \
-          ${{ env.CONFIG_FILE }} \
-          > ${{ env.CONFIG_FILE }}.new
-        mv ${{ env.CONFIG_FILE }} ${{ env.CONFIG_FILE }}.old
-        mv ${{ env.CONFIG_FILE }}.new ${{ env.CONFIG_FILE }}        
-    - name: Store working directory path
-      run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
     - name: Store artifact path
-      run: echo "ARTIFACT_PATH=./artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_ENV 
+      id: paths
+      run: |
+        echo "artifact-path=./artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_OUTPUT
+        echo "docker-artifact-path=Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi/artifacts/bin/Saltworks.SaltMiner.DataApi/${{ env.CONFIGURATION}}" >> $GITHUB_OUTPUT
+        echo "docker-datastore-seed-path=Saltworks.SaltMiner.IndexTemplates" >> $GITHUB_OUTPUT
+    
+    - name: Inspect datastore seed path
+      run: |
+        ls -lah ${{ github.workspace }}/Saltworks.SaltMiner.IndexTemplates --group-directories-first
+      if: env.DIAGNOSTIC_MODE == 'true'
 
     - name: Use artifacts directory
       run: dotnet new buildprops --use-artifacts
@@ -63,99 +84,28 @@ jobs:
 
     - name: Inspect output
       run: |
-        ls -lah ${{ env.ARTIFACT_PATH }} --group-directories-first
+        ls -lah ${{ steps.paths.outputs.artifact-path }} --group-directories-first
       if: env.DIAGNOSTIC_MODE == 'true'
 
-    - run: mkdir ${{ env.ARTIFACT_PATH }}/data-templates
-      name: Create data-templates directory
-    - run: cp -r ${{ github.workspace }}/Saltworks.SaltMiner.IndexTemplates/* ${{ env.ARTIFACT_PATH }}/data-templates
-      name: Copy data templates to API output
-    - run: ls -lah ${{ env.ARTIFACT_PATH }}/data-templates --group-directories-first
-      name: Show copied files
-      if: env.DIAGNOSTIC_MODE == 'true'
-
-    - name: Login to the container registry
-      uses: docker/login-action@v3.4.0
+    - name: Tag, build and publish
+      id: publish
+      uses: ./.github/actions/docker-publish
       with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-
-    - name: Extract metadata (tags, labels) for Docker
-      id: meta
-      uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
-      with:
-        images: saltworks/saltminer
-        tags: |
-          type=raw,value=api-${{ github.ref_name }}.{{date 'YYYYMMDD-HHmmss' tz='America/Chicago'}}
-        labels: |
-          org.opencontainers.image.title=saltminer-api
-          org.opencontainers.image.description=SaltMiner API
-          org.opencontainers.image.vendor=Saltworks Security, LLC
-
-    - name: Build and push Docker images
-      id: push
-      uses: docker/build-push-action@v6.15.0
-      with:
-        file: .dockerfiles/Dockerfile
-        context: ${{ env.WORKING_DIR }}
-        push: true
-        provenance: mode=max
-        sbom: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
+        app: api
+        title: saltminer-api
+        description: SaltMiner API
+        dockerfile: .dockerfiles/Dockerfile-api
+        context: ${{ github.workspace }}
         build-args: |
-          ARTIFACT_PATH=${{ env.ARTIFACT_PATH }}
-
-    - name: Show complete docker tag
-      run: echo ${{ steps.meta.outputs.tags }}
-      if: env.DIAGNOSTIC_MODE == 'true'
-    
-    - name: Extract tag component
-      run: echo "TAG=`cut -d ':' -f2 <<< ${{ steps.meta.outputs.tags }}`" >> $GITHUB_ENV
-
-    - name: Show new tag
-      run: echo "Tag ${{ env.TAG }}"
-      if: env.DIAGNOSTIC_MODE == 'true'
-    
-    - id: extract_tag
-      run: echo "tag=${{ env.TAG }}" >> $GITHUB_OUTPUT
-      name: Set tag output
+          ARTIFACT_PATH=${{ steps.paths.outputs.docker-artifact-path }}
+          DATASTORE_SEED_PATH=${{ steps.paths.outputs.docker-datastore-seed-path }}
+          DEPLOY_PATH=${{ env.DEPLOY_ARTIFACT_PATH }}
+        prerelease: ${{ env.PRERELEASE }}
+        push-to-docker-hub: ${{ env.PUSH_TO_DOCKER_HUB }}
+        diagnostic-mode: ${{ env.DIAGNOSTIC_MODE }}
+        ghcr-token: ${{ secrets.GITHUB_TOKEN }}
+        dockerhub-username: ${{ secrets.DOCKER_USERNAME }}
+        dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}
 
     outputs:
-      tag: ${{ steps.extract_tag.outputs.tag }}
-
-  update_compose:
-    name: Update Compose
-    runs-on:
-    - self-hosted
-    - dotnet
-    needs: build_api
-    env:
-      TARGET_KEY: SM_API_IMAGE_VERSION
-
-    steps:
-    - name: Checkout saltminer-setup repo
-      uses: actions/checkout@v4
-      with:
-        repository: saltworks/saltminer-setup
-        token: ${{ secrets.SALTMINER_SETUP }}
-        ref: ${{ github.ref_name }}
-
-    - name: Show current .env file.
-      run: cat .env
-      if: env.DIAGNOSTIC_MODE == 'true'
-
-    - run: sed -i -e "/${{ env.TARGET_KEY }}/ s/=.*$/=${{ needs.build_api.outputs.tag }}/" .env
-      name: Update Compose file  
-
-    - run: cat .env
-      name: Show transformed file.
-      if: env.DIAGNOSTIC_MODE == 'true'
-
-    - name: Push changes
-      run: |
-        git config user.name ${{ github.actor }}
-        git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-        git add .env
-        git commit -m "Updated .env ${{ env.TARGET_KEY }} value"
-        git push
+      tag: ${{ steps.publish.outputs.tag }}

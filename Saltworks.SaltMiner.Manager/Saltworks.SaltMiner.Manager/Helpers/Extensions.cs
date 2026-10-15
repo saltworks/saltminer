@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
@@ -109,25 +113,12 @@ namespace Saltworks.SaltMiner.Manager.Helpers
         /// </remarks>
         public static SearchRequest NextRequest<T>(this SearchRequest request, DataResponse<T> response) where T: class
         {
-            request.UIPagingInfo = response.UIPagingInfo;
-            request.AfterKeys = response.AfterKeys;
+            request.PagingInfo = response.PagingInfo.NextPage();
 
-            if (!string.IsNullOrEmpty(request.PitPagingInfo?.PagingToken))
+            if (!string.IsNullOrEmpty(request.PagingInfo?.PitPagingToken))
             {
-                request.PitPagingInfo = response.PitPagingInfo;
+                request.PagingInfo = response.PagingInfo;
             }
-
-            // If no paging method is valid, then setup UI Paging to page 1 (will be incremented)
-            if (string.IsNullOrEmpty(request.PitPagingInfo?.PagingToken) && (request.UIPagingInfo?.Page ?? 0) == 0 && (request.AfterKeys?.Count ?? 0) == 0)
-            {
-                request.UIPagingInfo = new() { Page = 1, Size = 10 };
-            }
-
-            if ((request.UIPagingInfo?.Page ?? 0) > 0)
-            {
-                request.UIPagingInfo.Page++;
-            }
-
             return request;
         }
 

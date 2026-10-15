@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Email;
@@ -306,28 +310,11 @@ namespace Saltworks.SaltMiner.Ui.Api.Contexts
                 {
                     FilterMatches = filters
                 },
-                UIPagingInfo = new UIPagingInfo(request.Pager?.Size ?? Config.DefaultPageSize, 1)
+                PagingInfo = new(request.Pager?.Size ?? Config.DefaultPageSize)
             };
 
-            //search until page is found
             var response = DataClient.CommentSearch(searchRequest);
-
-            while (response.Success && response.Data != null && response.Data.Any())
-            {
-                searchRequest.UIPagingInfo = response.UIPagingInfo;
-                if ((request.Pager?.Page == null || request.Pager.Page == 1 || request.Pager.Page == 0) || searchRequest.UIPagingInfo.Page == request.Pager.Page)
-                {
-                    Logger.LogInformation("{Msg}", Extensions.GeneralExtensions.SearchUIPagingLoggerMessage("Comment", filters.Count, response.UIPagingInfo.Size, response.UIPagingInfo.Page));
-                    return new UiDataResponse<UiComment>(response.Data.Select(x => new UiComment(x, UiApiConfig.AppVersion)).ToList(), response, SortFilterValues, response.UIPagingInfo, false);
-                }
-
-                searchRequest.UIPagingInfo.Page++;
-                searchRequest.AfterKeys = response.AfterKeys;
-
-                response = DataClient.CommentSearch(searchRequest);
-            }
-
-            return new UiDataResponse<UiComment>([]);
+            return new UiDataResponse<UiComment>(response.Data.Select(x => new UiComment(x, UiApiConfig.AppVersion)), response.PagingInfo, SortFilterValues?.Select(x => new FieldFilter(x)));
         }
 
         public UiDataItemResponse<UiComment> Get(string id)

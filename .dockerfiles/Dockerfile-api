@@ -1,0 +1,30 @@
+FROM mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64
+
+LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64"
+LABEL vendor="Saltworks Security, LLC"
+
+ARG ARTIFACT_PATH=.
+ARG DATASTORE_SEED_PATH=./invalid-index-templates-path
+ARG DEPLOY_PATH=invalid
+
+ENV APP_ROOT=/opt/saltworks/saltminer
+ENV ARTIFACT_PATH=$ARTIFACT_PATH
+ENV DATASTORE_SEED_PATH=$DATASTORE_SEED_PATH
+ENV DEPLOY_PATH=$DEPLOY_PATH
+ENV DOTNET_PRINT_TELEMETRY_MESSAGE=false
+ENV SALTMINER_CONFIG_PATH=${APP_ROOT}/config
+
+WORKDIR ${APP_ROOT}/app/api
+
+COPY $ARTIFACT_PATH .
+
+# curl is used for healthcheck.
+RUN apk add --no-cache curl 
+COPY $DATASTORE_SEED_PATH ./default-datastore-seed/
+
+EXPOSE 5000
+
+COPY $DEPLOY_PATH/entrypoint-api.sh ${APP_ROOT}/entrypoint.sh
+RUN chmod +x ${APP_ROOT}/entrypoint.sh
+
+ENTRYPOINT ${APP_ROOT}/entrypoint.sh

@@ -1,0 +1,460 @@
+''' --[auto-generated, do not modify this block]--
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+'''
+import os
+import tempfile
+import unittest
+import zipfile
+
+import docx
+from docx.oxml.ns import qn
+
+from Reports.Tests.sample_record import sample_record
+from Reports.Tests.synthetic import add_field, paragraph_text
+from Reports.WordMerge import (
+    FieldContext,
+    TemplateStructureError,
+    bind_roots,
+    fill_template,
+    merge_document,
+)
+
+# Saltworks.SaltMiner.Python/Reports/Tests -> the repository root is three levels up from Python.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE = os.path.normpath(os.path.join(
+    _HERE, "..", "..", "..", "Saltworks.SaltMiner.JobManager", "Saltworks.SaltMiner.JobManager",
+    "TemplateDefaults", "Saltworks", "SaltworksTemplate.docx"))
+
+
+class ShippedTemplate(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.out = os.path.join(cls.tmp.name, "out.docx")
+        cls.result = fill_template(TEMPLATE, cls.out, sample_record())
+        cls.document = docx.Document(cls.out)
+        with zipfile.ZipFile(cls.out) as z:
+            cls.xml = z.read("word/document.xml").decode("utf-8")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def _paragraphs(self):
+        return [paragraph_text(p) for p in self.document.element.body.iter(qn("w:p"))]
+
+    def test_no_instruction_left(self):
+        self.assertEqual(self.xml.count("MERGEFIELD"), 0)
+        self.assertEqual(self.xml.count("«"), 0)
+        self.assertEqual(self.result.unmatched, [])
+
+    def test_group_counts(self):
+        groups = self.result.groups
+        self.assertEqual(groups["Section1"], 1)
+        self.assertEqual(groups["AssetTocs"], 2)
+        self.assertEqual(groups["IssueTocs"], 3)
+        self.assertEqual(groups["IssueDetails"], 3)
+        self.assertEqual(groups["SeverityGroups"], 6)
+
+    def test_name_resolves_per_region(self):
+        paragraphs = self._paragraphs()
+        self.assertTrue(any("ENG-NAME" in t for t in paragraphs))
+        for asset in ("ASSET-A", "ASSET-B"):
+            self.assertTrue(any(t.startswith(asset) for t in paragraphs), asset)
+        for issue in ("ISSUE-1", "ISSUE-2", "ISSUE-3"):
+            self.assertIn(issue, paragraphs)
+
+    def _size_of(self, text):
+        for run in self.document.element.body.iter(qn("w:r")):
+            if "".join(t.text or "" for t in run.iter(qn("w:t"))) == text:
+                rpr = run.find(qn("w:rPr"))
+                size = None if rpr is None else rpr.find(qn("w:sz"))
+                return None if size is None else size.get(qn("w:val"))
+        self.fail(f"no run with text {text}")
+        raise AssertionError(f"no run with text {text}")
+
+    def test_run_sizes_kept(self):
+        self.assertEqual(self._size_of("ENG-NAME"), "44")
+        self.assertEqual(self._size_of("ENG-STATE"), "44")
+        for text in ("ENG-CUSTOMER", "ENG-TIMESTAMP", "ENG-TESTER"):
+            self.assertEqual(self._size_of(text), "28", text)
+        self.assertEqual(self._size_of("ISSUE-1-Description"), "24")
+
+    def test_single_sectpr(self):
+        body = self.document.element.body
+        self.assertEqual(len(list(body.iter(qn("w:sectPr")))), 1)
+        source = docx.Document(TEMPLATE).element.body.find(qn("w:sectPr")).find(qn("w:pgSz"))
+        output = body.find(qn("w:sectPr")).find(qn("w:pgSz"))
+        self.assertEqual(dict(output.attrib), dict(source.attrib))
+
+    def test_repeated_regions_carry_no_duplicate_ids(self):
+        ids = [el.get("{http://schemas.microsoft.com/office/word/2010/wordml}paraId")
+               for el in self.document.element.body.iter(qn("w:p"))]
+        ids = [i for i in ids if i]
+        self.assertEqual(len(ids), len(set(ids)))
+        bookmark_ids = [el.get(qn("w:id")) for el in self.document.element.body.iter(qn("w:bookmarkStart"))]
+        self.assertEqual(len(bookmark_ids), len(set(bookmark_ids)))
+
+
+def _blank_document():
+    document = docx.Document()
+    for paragraph in list(document.paragraphs):
+        paragraph._p.getparent().remove(paragraph._p)
+    return document
+
+
+class Unsupported(unittest.TestCase):
+    def test_split_across_two_tables_reported(self):
+        document = _blank_document()
+        table_a = document.add_table(rows=1, cols=1)
+        add_field(table_a.cell(0, 0).paragraphs[0], "TableStart:Split")
+        table_b = document.add_table(rows=1, cols=1)
+        add_field(table_b.cell(0, 0).paragraphs[0], "TableEnd:Split")
+
+        result = merge_document(document, bind_roots({}))
+
+        self.assertIn("TableStart:Split", result.unsupported_markers)
+        tables = document.tables
+        self.assertEqual(len(tables[0].rows), 1)
+        self.assertEqual(len(tables[1].rows), 1)
+
+    def test_split_table_and_body_reported(self):
+        document = _blank_document()
+        add_field(document.add_paragraph(), "TableStart:X")
+        table = document.add_table(rows=1, cols=1)
+        add_field(table.cell(0, 0).paragraphs[0], "TableEnd:X")
+
+        result = merge_document(document, bind_roots({}))
+
+        self.assertIn("TableStart:X", result.unsupported_markers)
+        self.assertIn("TableEnd:X", result.unsupported_markers)
+        self.assertEqual(len(document.tables[0].rows), 1)
+
+    def test_marker_in_nested_table_reported(self):
+        document = _blank_document()
+        outer = document.add_table(rows=1, cols=1)
+        inner = outer.cell(0, 0).add_table(rows=1, cols=1)
+        add_field(inner.cell(0, 0).paragraphs[0], "TableStart:Nested")
+
+        result = merge_document(document, bind_roots({}))
+
+        self.assertIn("TableStart:Nested", result.unsupported_markers)
+        self.assertEqual(len(document.tables[0].rows), 1)
+
+    def test_crossing_row_groups_raise(self):
+        document = _blank_document()
+        table = document.add_table(rows=1, cols=2)
+        add_field(table.cell(0, 0).paragraphs[0], "TableStart:A")
+        add_field(table.cell(0, 0).paragraphs[0], "TableStart:B")
+        add_field(table.cell(0, 1).paragraphs[0], "TableEnd:A")
+        add_field(table.cell(0, 1).paragraphs[0], "TableEnd:B")
+
+        with self.assertRaises(TemplateStructureError) as caught:
+            merge_document(document, bind_roots({}))
+        message = str(caught.exception)
+        self.assertIn("TableEnd:A", message)
+        self.assertIn("TableStart:B", message)
+
+    def test_unclosed_raises(self):
+        document = _blank_document()
+        add_field(document.add_paragraph(), "TableStart:X")
+        with self.assertRaises(TemplateStructureError) as caught:
+            merge_document(document, bind_roots({}))
+        self.assertIn("TableStart:X", str(caught.exception))
+
+    def test_mismatched_end_raises(self):
+        document = _blank_document()
+        add_field(document.add_paragraph(), "TableStart:X")
+        add_field(document.add_paragraph(), "TableEnd:Y")
+        with self.assertRaises(TemplateStructureError) as caught:
+            merge_document(document, bind_roots({}))
+        self.assertIn("TableEnd:Y", str(caught.exception))
+
+    def test_simple_field_listed_and_left_in_place(self):
+        document = _blank_document()
+        paragraph = document.add_paragraph()
+        from docx.oxml import OxmlElement
+        simple = OxmlElement("w:fldSimple")
+        simple.set(qn("w:instr"), " MERGEFIELD  Legacy ")
+        paragraph._p.append(simple)
+        result = merge_document(document, bind_roots({}))
+        self.assertEqual(result.unsupported_fields, ["Legacy"])
+        self.assertEqual(len(list(document.element.body.iter(qn("w:fldSimple")))), 1)
+
+
+class Unmatched(unittest.TestCase):
+    def _fill(self, keep):
+        record = sample_record()
+        del record["Summary"]
+        document = docx.Document(TEMPLATE)
+        result = merge_document(document, bind_roots(record), keep_unmatched=keep)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "o.docx")
+            document.save(path)
+            with zipfile.ZipFile(path) as z:
+                xml = z.read("word/document.xml").decode("utf-8")
+        return result, xml
+
+    def test_keep_and_blank(self):
+        result, xml = self._fill(keep=True)
+        self.assertIn("MERGEFIELD  Summary", xml)
+        self.assertIn("Summary", result.unmatched)
+        result, xml = self._fill(keep=False)
+        self.assertNotIn("MERGEFIELD", xml)
+        self.assertIn("Summary", result.unmatched)
+
+
+class Renderer(unittest.TestCase):
+    def test_stub_renderer_is_given_context_and_its_block_replaces_the_paragraph(self):
+        from docx.oxml import OxmlElement
+        seen = []
+
+        def stub(ctx: FieldContext):
+            seen.append(ctx)
+            block = OxmlElement("w:p")
+            run = OxmlElement("w:r")
+            text = OxmlElement("w:t")
+            text.text = f"BLOCK-{ctx.value}"
+            run.append(text)
+            block.append(run)
+            return [block]
+
+        document = _blank_document()
+        add_field(document.add_paragraph(), "TableStart:Section1")
+        add_field(document.add_paragraph(), "Body")
+        add_field(document.add_paragraph(), "TableEnd:Section1")
+        merge_document(document, bind_roots({"Body": "x"}), renderer=stub)
+        self.assertEqual(seen[0].name, "Body")
+        self.assertFalse(seen[0].in_table_cell)
+        paragraphs = [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
+        # The group's two marker paragraphs stay as empty paragraphs (PBI-099).
+        self.assertEqual(paragraphs, ["", "BLOCK-x", ""])
+
+    def test_single_run_result_replaces_only_the_fields_own_runs(self):
+        # PBI-048: a renderer that needs its own run formatting (a colour override, for example)
+        # returns a single w:r instead of a list, so a field sharing its paragraph with static
+        # text keeps that text, unlike the block-splice path above which replaces the paragraph.
+        from docx.oxml import OxmlElement
+
+        def stub(ctx):
+            run = OxmlElement("w:r")
+            text = OxmlElement("w:t")
+            text.text = f"COLORED-{ctx.value}"
+            run.append(text)
+            return run
+
+        document = _blank_document()
+        add_field(document.add_paragraph(), "TableStart:Section1")
+        paragraph = document.add_paragraph()
+        paragraph.add_run("Label: ")
+        add_field(paragraph, "Body")
+        add_field(document.add_paragraph(), "TableEnd:Section1")
+        merge_document(document, bind_roots({"Body": "x"}), renderer=stub)
+        paragraphs = [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
+        self.assertEqual(paragraphs, ["", "Label: COLORED-x", ""])
+
+    def test_block_result_in_last_cell_paragraph_keeps_cell_valid(self):
+        from docx.oxml import OxmlElement
+
+        def stub(ctx):
+            table = OxmlElement("w:tbl")
+            return [table]
+
+        document = _blank_document()
+        add_field(document.add_paragraph(), "TableStart:Section1")
+        table = document.add_table(rows=1, cols=1)
+        add_field(table.cell(0, 0).paragraphs[0], "Body")
+        add_field(document.add_paragraph(), "TableEnd:Section1")
+        merge_document(document, bind_roots({"Body": "x"}), renderer=stub)
+        cell = document.element.body.find(qn("w:tbl")).find(qn("w:tr")).find(qn("w:tc"))
+        self.assertEqual(cell[-1].tag, qn("w:p"))
+
+
+class GroupResolution(unittest.TestCase):
+    def test_same_group_name_under_two_parents_reads_each_own_list(self):
+        document = _blank_document()
+        for text in ("TableStart:Section1", "TableStart:A", "TableStart:Items"):
+            add_field(document.add_paragraph(), text)
+        add_field(document.add_paragraph(), "Label")
+        for text in ("TableEnd:Items", "TableEnd:A", "TableStart:B", "TableStart:Items"):
+            add_field(document.add_paragraph(), text)
+        add_field(document.add_paragraph(), "Label")
+        for text in ("TableEnd:Items", "TableEnd:B", "TableEnd:Section1"):
+            add_field(document.add_paragraph(), text)
+        record = {
+            "A": [{"Items": [{"Label": "a1"}, {"Label": "a2"}]}],
+            "B": [{"Items": [{"Label": "b1"}]}],
+        }
+        result = merge_document(document, bind_roots(record))
+        texts = [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
+        self.assertEqual([t for t in texts if t], ["a1", "a2", "b1"])
+        # n repetitions of a group leave n+1 empty lines (PBI-099): 3 data lines, 3 for Items
+        # under A (2 reps), 2 for Items under B (1 rep), 2 each for A, B and Section1.
+        self.assertEqual(len(texts), 14)
+        self.assertEqual(result.groups["Items"], 3)
+
+    def test_group_key_absent_renders_zero_times_and_is_reported(self):
+        document = _blank_document()
+        add_field(document.add_paragraph(), "TableStart:Section1")
+        add_field(document.add_paragraph(), "TableStart:Gone")
+        add_field(document.add_paragraph(), "TableEnd:Gone")
+        add_field(document.add_paragraph(), "TableEnd:Section1")
+        result = merge_document(document, bind_roots({}))
+        self.assertEqual(result.groups_missing, ["Gone"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class HyperlinkStyling(unittest.TestCase):
+    """PBI-051 AC-11: a HYPERLINK field's visible text is blue and underlined, as .NET styled it."""
+
+    @staticmethod
+    def _fld(paragraph, kind):
+        from docx.oxml import OxmlElement
+        run = OxmlElement("w:r")
+        fld = OxmlElement("w:fldChar")
+        fld.set(qn("w:fldCharType"), kind)
+        run.append(fld)
+        paragraph._p.append(run)
+
+    def _paragraph_with(self, instr):
+        from docx.oxml import OxmlElement
+        document = docx.Document()
+        paragraph = document.add_paragraph()
+        self._fld(paragraph, "begin")
+        run = OxmlElement("w:r")
+        node = OxmlElement("w:instrText")
+        node.text = instr
+        run.append(node)
+        paragraph._p.append(run)
+        self._fld(paragraph, "separate")
+        paragraph.add_run("https://www.saltworks.io/")
+        self._fld(paragraph, "end")
+        paragraph.add_run(" plain")
+        return document
+
+    def _visible_runs(self, document):
+        return [r for r in document.element.body.iter(qn("w:r")) if r.find(qn("w:t")) is not None]
+
+    def test_hyperlink_field_text_is_blue_and_underlined(self):
+        document = self._paragraph_with('HYPERLINK "https://www.saltworks.io/"')
+        merge_document(document, bind_roots({}))
+        link, other = self._visible_runs(document)
+        self.assertEqual(link.find(qn("w:rPr")).find(qn("w:color")).get(qn("w:val")), "0000FF")
+        self.assertEqual(link.find(qn("w:rPr")).find(qn("w:u")).get(qn("w:val")), "single")
+        rpr = other.find(qn("w:rPr"))
+        self.assertTrue(rpr is None or rpr.find(qn("w:color")) is None)
+
+    def test_other_field_text_is_left_alone(self):
+        document = self._paragraph_with("PAGEREF _Toc1 \\h")
+        merge_document(document, bind_roots({}))
+        for run in self._visible_runs(document):
+            rpr = run.find(qn("w:rPr"))
+            self.assertTrue(rpr is None or rpr.find(qn("w:color")) is None)
+
+    def _link_document(self, run_texts, external=True):
+        from docx.oxml import OxmlElement
+        document = docx.Document()
+        paragraph = document.add_paragraph()
+        link = OxmlElement("w:hyperlink")
+        link.set(qn("r:id") if external else qn("w:anchor"), "rId8" if external else "Executive_Summary")
+        for text in run_texts:
+            run = OxmlElement("w:r")
+            node = OxmlElement("w:t")
+            node.text = text
+            run.append(node)
+            link.append(run)
+        paragraph._p.append(link)
+        return document
+
+    def test_a_single_run_hyperlink_element_is_blue_and_underlined(self):
+        document = self._link_document(["https://www.saltworks.io/"])
+        merge_document(document, bind_roots({}))
+        run = self._visible_runs(document)[0]
+        self.assertEqual(run.find(qn("w:rPr")).find(qn("w:color")).get(qn("w:val")), "0000FF")
+        self.assertEqual(run.find(qn("w:rPr")).find(qn("w:u")).get(qn("w:val")), "single")
+
+    def test_a_hyperlink_element_over_several_runs_is_left_alone(self):
+        document = self._link_document(["Introduction", " 3"])
+        merge_document(document, bind_roots({}))
+        for run in self._visible_runs(document):
+            self.assertIsNone(run.find(qn("w:rPr")))
+
+    def test_an_internal_anchor_hyperlink_is_left_alone(self):
+        document = self._link_document(["Executive Summary"], external=False)
+        merge_document(document, bind_roots({}))
+        for run in self._visible_runs(document):
+            self.assertIsNone(run.find(qn("w:rPr")))
+
+
+class EverySectionRootMerges(unittest.TestCase):
+    """PBI-099: every Section<N> root binds to the record, whatever the Word section count, and a
+    body-level group marker paragraph stays as an empty paragraph, as .NET leaves it."""
+
+    def _texts(self, document):
+        return [paragraph_text(p) for p in document.element.body.iter(qn("w:p"))]
+
+    def _template(self, path):
+        document = docx.Document()
+        document.add_section()
+        self.assertEqual(len(document.sections), 2)
+        for name in ("Section1", "Section2", "Section3"):
+            add_field(document.add_paragraph(), f"TableStart:{name}")
+            add_field(document.add_paragraph(), "Name")
+            add_field(document.add_paragraph(), f"TableEnd:{name}")
+        document.save(path)
+
+    def test_a_two_section_template_merges_section1_to_section3(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, target = os.path.join(tmp, "in.docx"), os.path.join(tmp, "out.docx")
+            self._template(source)
+            result = fill_template(source, target, {"Name": "Acme"})
+            texts = self._texts(docx.Document(target))
+        self.assertEqual(result.roots_not_merged, [])
+        self.assertEqual(result.groups, {"Section1": 1, "Section2": 1, "Section3": 1})
+        self.assertEqual([t for t in texts if t], ["Acme", "Acme", "Acme"])
+        self.assertFalse([t for t in texts if "«" in t])
+
+    def test_a_body_level_marker_paragraph_comes_out_as_n_plus_one_empty_paragraphs_for_n_repetitions(self):
+        document = docx.Document()
+        start = document.add_paragraph(style="Heading 1")
+        add_field(start, "TableStart:Items")
+        add_field(document.add_paragraph(), "Name")
+        add_field(document.add_paragraph(), "TableEnd:Items")
+        merge_document(document, {"Items": [{"Name": "a"}, {"Name": "b"}, {"Name": "c"}]})
+        paragraphs = list(document.element.body.iter(qn("w:p")))
+        self.assertEqual([paragraph_text(p) for p in paragraphs],
+                         ["", "a", "", "b", "", "c", ""])
+        # The line before the first repetition keeps the start marker's properties; the lines at
+        # each boundary and after the last keep the end marker's.
+        style = paragraphs[0].find(qn("w:pPr")).find(qn("w:pStyle"))
+        self.assertEqual(style.get(qn("w:val")), "Heading1")
+        for index in (2, 4, 6):
+            self.assertIsNone(paragraphs[index].find(qn("w:pPr")))
+        self.assertIsNone(paragraphs[1].find(qn("w:pPr")))
+
+    def test_an_unknown_root_group_is_reported_in_groups_missing(self):
+        document = docx.Document()
+        add_field(document.add_paragraph(), "TableStart:NotAKey")
+        add_field(document.add_paragraph(), "Name")
+        add_field(document.add_paragraph(), "TableEnd:NotAKey")
+        result = merge_document(document, bind_roots({"Name": "Acme"}))
+        self.assertEqual(result.groups_missing, ["NotAKey"])

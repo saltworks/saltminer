@@ -1,15 +1,19 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
@@ -18,36 +22,61 @@
 # Originally AppVulsSSC.py and class AppVulsSSC.
 
 import datetime
+import json
 import logging
 import time
-from queue import Queue
 from dateutil.parser import parse as dtparse
 
 from Utility.CancelTracker import CancelTracker
 from Utility.DImport import DImport
-from Utility.ProgressLogger import *
+from Utility.ProgressLogger import ProgressLogger
 from Utility.SmApiClient import SmApiClient
 from Utility.UpdateQueueHelper import UpdateQueueHelper
+
+ISSUE_COUNT_RECHECK_DELAY_SEC = 5
+
+# How hard to chase the sync stage's expected issue count before giving up and letting the pull run
+# short (the guard then reports it).  One refresh, then this many counts spaced by the delay.
+# Defaults for the per-source SyncVisibilityAttempts / SyncVisibilityDelaySeconds settings.
+# They govern the wait for BOTH the scan load and the issue load to become searchable.
+SYNC_VISIBILITY_ATTEMPTS = 3
+SYNC_VISIBILITY_DELAY_SEC = 2
+# Fixed settling period after the last-resort index refresh, before the final count.
+SYNC_VISIBILITY_FINAL_WAIT_SEC = 10
+
 
 class AppVulsProcessor(object):
     """ App vulnerability processor for SSC """
 
-    def __init__(self, appSettings, sourceName, smv3ConfigName="SMv3", mainConfigName="Main"):
-
+    def __init__(self, appSettings, sourceName, smv3ConfigName="SMv3", mainConfigName="Main", logger=None, heartbeat=None, agent_mode:bool=False):
+        '''
+        :heartbeat: optional zero-arg callable invoked as work progresses.  Supplied by SyncWorker
+        so the agent can tell a slow refresh from a defunct worker; None (the default) for standalone runs.
+        :agent_mode: set by SyncWorker.  Marks a run that handles one app version per invocation, so
+        per-run costs the batch runners amortise over a whole queue are paid every item instead, and the
+        queue scans it produces are claimed for its own manager hand-off - see SmApiClient's agent_mode.
+        '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise TypeError("Type of appSettings must be 'ApplicationSettings'")
-        if not smv3ConfigName or not smv3ConfigName in appSettings.GetConfigNames():
+        if not smv3ConfigName or smv3ConfigName not in appSettings.GetConfigNames():
             raise AppVulsSSCException(f"Invalid or missing configuration for name '{smv3ConfigName}'")
-        if not mainConfigName or not mainConfigName in appSettings.GetConfigNames():
+        if not mainConfigName or mainConfigName not in appSettings.GetConfigNames():
             raise AppVulsSSCException(f"Invalid or missing configuration for name '{mainConfigName}'")
-        
+
+        self.__Logger = logger or logging.getLogger(__name__)
+        self.__Heartbeat = heartbeat
         self.__Es = appSettings.Application.GetElasticClient()
         self.__Attributes = appSettings.Get(mainConfigName, 'Attributes')
         self.__App = appSettings.Application
         self.__UpdateQHelper = UpdateQueueHelper(appSettings, sourceName)
         self.__LastScanDateField = appSettings.GetSource(sourceName, "LastScanDateField", "lastScanDate")
         self.__BulkDocs = []
+        self.__IssueCountMismatch = None  # set by __CheckIssueCounts / __WaitForExpectedCount (scans or
+                                  # issues) when a count came up short; read by PopulateVulsOne
+        self.__ExpectedIssueCount = None  # set per run by PopulateVulsOne, from the sync stage
+        self.__ExpectedScanCount = None   # ditto - scan history is built from these
         self.__BulkSendBatchSize = appSettings.GetSource(sourceName, "BulkSendBatchSize", 1000)
+        self.__SourceName = sourceName
 
         #
         # SM API Integration
@@ -56,7 +85,7 @@ class AppVulsProcessor(object):
         #
         self.__SmApiClientEnabled = appSettings.Get(smv3ConfigName, "ApiClientEnabled", False)
         if self.__SmApiClientEnabled:
-            self.__SmApiClient = SmApiClient(appSettings, sourceName, smv3ConfigName)
+            self.__SmApiClient = SmApiClient(appSettings, sourceName, smv3ConfigName, agent_mode=agent_mode)
             self.__HistoryV3Enable =  appSettings.GetSource(sourceName, "EnableHistoryImportToV3", False)
         self.__DisableSM2Indices = appSettings.GetSource(sourceName, "DisableSM2Indices", False)
         
@@ -70,12 +99,19 @@ class AppVulsProcessor(object):
         self.__AppVulsCustom = appVulsCustomFactory(appSettings, sourceName)
 
         self.__AssessmentTypeMap = appSettings.GetSource(sourceName, 'AssessmentTypeMap', {})
+        # How much to wait for sync data to become searchable before giving up on issues and scans
+        self.__VisibilityAttempts = max(1, int(appSettings.GetSource(sourceName, "SyncVisibilityAttempts", SYNC_VISIBILITY_ATTEMPTS)))
+        self.__VisibilityDelaySecs = max(0, int(appSettings.GetSource(sourceName, "SyncVisibilityDelaySeconds", SYNC_VISIBILITY_DELAY_SEC)))
 
         if not len(self.__AssessmentTypeMap.keys()):
-            logging.warn("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
+            self.__Logger.warn("Assessment type map missing from source name '%s'.  This will cause all scans to be considered assessment type 'Unknown'.", sourceName)
                
-        logging.info("AppVulsSSC init complete, connected to Elastic")
-       
+        self.__Logger.info("AppVulsSSC init complete, connected to Elastic")
+
+    @property
+    def SourceName(self):
+        return self.__SourceName
+
     def MapAppSecVuls(self, Force):
         '''Create the Indices whith proper mappings if they don't already exist.'''
 
@@ -123,7 +159,7 @@ class AppVulsProcessor(object):
        
         self.__Es.MapIndexWithMapping("app_scan_history_ssc", _mapping, Force)
 
-        logging.debug('Mapping of indices complete.')
+        self.__Logger.debug('Mapping of indices complete.')
 
     def PopulateVuls(self, cleanupAfter=True):
         '''Main function that will drive the population of vulnerabilites.'''
@@ -148,7 +184,7 @@ class AppVulsProcessor(object):
         sscProjects = self._GetAllSscProjects()
 
         # Ensure the mappings exist and create them if they don't
-        logging.info('Mapping indices as needed...')
+        self.__Logger.info('Mapping indices as needed...')
         self.MapAppSecVuls(False)
 
         # Remove app versions marked for delete
@@ -158,20 +194,20 @@ class AppVulsProcessor(object):
         while uq and len(uq) > 0:
             for qitem in uq:
                 if c % 10 == 0:
-                    logging.info("Retiring app version(s), %s of %s (batch %s)", c, total, b)
+                    self.__Logger.info("Retiring app version(s), %s of %s (batch %s)", c, total, b)
                 qid = qitem['id'] if qitem and 'id' in qitem.keys() else None
                 if qid:
-                    logging.debug("Deleting v2 data for project version id %s", qid)
+                    self.__Logger.debug("Deleting v2 data for project version id %s", qid)
                     self.__DeleteStuff(qid)
                 else:
-                    logging.warning("Skipping qitem for deleting v2 data, invalid. qitem: %s", qitem)
+                    self.__Logger.warning("Skipping qitem for deleting v2 data, invalid. qitem: %s", qitem)
                 self.__UpdateQHelper.CompleteUpdateQueue(qid, ["D"])
                 c += 1
             # next batch
             uq, total = self.__UpdateQHelper.GetUpdateQueueBatch(["D"])
             b += 1
         if c > 0:
-            logging.info("Waiting 5 sec..")
+            self.__Logger.info("Waiting 5 sec..")
             time.sleep(5)
 
         # Create an object so we can remember if we have run an import already.
@@ -200,17 +236,17 @@ class AppVulsProcessor(object):
                 qid = qitem['id']
                 processedDate = dtparse(qitem['max_processed_date'])
                 if processedDate > sscProjectListPulledAt:
-                    logging.info("Project version data outdated, reloading...")
+                    self.__Logger.info("Project version data outdated, reloading...")
                     sscProjectListPulledAt = datetime.datetime.now(datetime.timezone.utc)
                     sscProjects = self._GetAllSscProjects()
 
                 if qid in updated:
                     retries +=1
                     if retries >= 10:
-                        logging.warning("App version %s recently processed but failed to update after 10 retries, canceling process.", qid)
+                        self.__Logger.warning("App version %s recently processed but failed to update after 10 retries, canceling process.", qid)
                         break
                     # We already processed this PVID - might be ahead of the db so let's pause
-                    logging.info('Skipping app version %s, already processed.  Pausing for 5 sec to let the db catch up...', qid)
+                    self.__Logger.info('Skipping app version %s, already processed.  Pausing for 5 sec to let the db catch up...', qid)
                     time.sleep(5)
                     break
                 else:
@@ -233,45 +269,97 @@ class AppVulsProcessor(object):
             # Finalize batch items for issues and complete queue scans
             #
             if self.__SmApiClientEnabled:
-                self.__SmApiClient.FinalizeEverything()
+                self.__SmApiClient.finalize_everything()
         # end while
 
         p.Finish(c, "App version updates complete.")
         if cleanupAfter:
             self.Cleanup()
 
+    def PopulateVulsOne(self, pvid, cleanupAfter=True, race_retry:bool=False, race_retry_delay:int=5, expected_issue_count:int=None, expected_scan_count:int=None):
+        '''
+        Process one project version (doesn't have to be in the update queue).
+        Returns the list of queue scan IDs created (empty when SM API integration is disabled or nothing processed).
 
-    def PopulateVulsOne(self, pvid, cleanupAfter=True):
+        :race_retry: passed through to _GetSscProjectVersion - see there.
+        :expected_issue_count: how many issues the sync stage just wrote for this project version
+        (SyncResult.expected_issue_count).  None when the caller doesn't know - the sync didn't re-load
+        it, or this isn't the agent path - in which case the pull proceeds as before.  When known, it is
+        the authoritative number: the pull waits for the index to show it and is checked against it,
+        rather than against an index count that is still settling.
         '''
-        Process one project version (doesn't have to be in the update queue)
-        '''
-        
-        sscProject = self._GetSscProjectVersion(pvid)
+
+        self.__ExpectedIssueCount = expected_issue_count
+        self.__ExpectedScanCount = expected_scan_count
+        sscProject = self._GetSscProjectVersion(pvid, race_retry, race_retry_delay)
         if not sscProject:
-            logging.error("Couldn't retrieve project version %s from SSC, skipping this update.", pvid)
-            return
+            self.__Logger.error("Couldn't retrieve project version %s from SSC, skipping this update.", pvid)
+            return []
 
         # Ensure the mappings exist and create them if they don't
-        logging.info('Mapping indices if needed')
+        self.__Logger.info('Mapping indices if needed')
         self.MapAppSecVuls(False)
 
         # Process
-        logging.info('Running PopulateVulsOne for project version %s', pvid)
+        self.__Logger.info('Running PopulateVulsOne for project version %s', pvid)
         self.__ProcessUpdate(pvid, { int(pvid): sscProject })
         #
         # SM API Integration
-        # Finalize batch items for issues and complete queue scans
+        # Finalize batch items for issues and complete queue scans - unless the issue pull came up
+        # short, in which case the load is incomplete and the queue scans are cancelled instead so
+        # the manager never processes partial data.  Cleanup still runs; the raise is the last thing.
         #
+        countError = self.__IssueCountMismatch
+        queue_scan_ids = []
         if self.__SmApiClientEnabled:
-            self.__SmApiClient.FinalizeEverything()
+            self._Beat()
+            if countError:
+                self.__SmApiClient.abort_everything(countError)
+            else:
+                queue_scan_ids = self.__SmApiClient.finalize_everything()
+            self._Beat()
 
-        logging.info("Complete")
+        self.__Logger.info("Complete" if not countError else "Complete (queue load abandoned)")
         if cleanupAfter:
             self.Cleanup()
+        if countError:
+            raise AppVulsSSCException(countError)
+        return queue_scan_ids
+
+    def CancelQueueScan(self, queue_scan_id, lock_id=None):
+        '''
+        Cancels a single queue scan by ID, for a load the manager didn't carry through.  Pass the lock the
+        manager reported holding, or the api rejects the change for a locked scan.  Returns True if
+        the status was set.  Never raises - a rejected transition (the manager already set Error, or our
+        view of the status is stale) is the caller's to log, not a reason to fail harder.
+        '''
+        if not self.__SmApiClientEnabled:
+            return False
+        try:
+            self.__SmApiClient.cancel_queue_scan(queue_scan_id, lock_id)
+            return True
+        except Exception as ex:
+            self.__Logger.warning("Could not cancel queue scan %s: [%s] %s", queue_scan_id, type(ex).__name__, ex)
+            return False
+
+
+    def _Beat(self):
+        '''
+        Signal progress to the caller's heartbeat delegate, if one was supplied.  No-op for
+        standalone runs.  Never lets a heartbeat failure break the work in progress.
+        '''
+        if self.__Heartbeat is not None:
+            try:
+                self.__Heartbeat()
+            except Exception:
+                self.__Logger.debug("Heartbeat delegate raised; ignoring.", exc_info=True)
 
     def Cleanup(self):
         if self.__AppVulsSscCustom.Cleanup:
             self.__AppVulsSscCustom.Cleanup()
+
+    def Nvl(self, obj:dict, prop:str, replace=None):
+        return replace if prop not in obj.keys() else obj[prop]
 
     def __GetAssessmentType(self, engineType):
         if not engineType:
@@ -280,11 +368,15 @@ class AppVulsProcessor(object):
         if engineType in self.__AssessmentTypeMap.keys():
             return self.__AssessmentTypeMap[engineType]
         else:
-            logging.warning("Assessment type '%s' not configured in map.", engineType)
+            self.__Logger.warning("Assessment type '%s' not configured in map.", engineType)
             return "Unknown"
 
     def __ProcessUpdate(self, avid, sscProjects):
         '''Primary method calls the various private methods to update vuls, history and tests'''
+        # Cleared per app version, not per pull: __UpdateIssues can return early before it ever counts
+        # anything, and SyncWorker reuses this instance across queue items - so a mismatch left over from
+        # a previous app version would fail the next one and cancel its queue scans.
+        self.__IssueCountMismatch = None
 
         attributes = {}
         appVerId = int(avid)
@@ -292,7 +384,7 @@ class AppVulsProcessor(object):
         for i in range(1, 3):
             delay = (i - 1) * 30
             if appVerId not in sscProjects.keys():
-                logging.warning("App version %s not found in SSC extract data, retrying (%s of 3) after %s sec delay...", appVerId, i, delay)
+                self.__Logger.warning("App version %s not found in SSC extract data, retrying (%s of 3) after %s sec delay...", appVerId, i, delay)
                 time.sleep(delay)
                 rsp = self._GetSscProjectVersion(avid)
                 if rsp:
@@ -320,7 +412,7 @@ class AppVulsProcessor(object):
                     # If cancel, remove it
                     self.__DeleteStuff(appVerId)
         else:
-            logging.warning("App version %s not found in SSC extract data and will be skipped", appVerId)
+            self.__Logger.warning("App version %s not found in SSC extract data and will be skipped", appVerId)
             # Remove if not found in ssc data
             self.__DeleteStuff(appVerId)
 
@@ -333,7 +425,7 @@ class AppVulsProcessor(object):
         # If expected assessment types missing, add "noscan" queue data
         #
         if appVer:
-            self.__SmApiClient.MapScanlessAsset(appVerId, "Fortify", appVer['project']['name'], appVer['name'], appVer['description'], attributes, assessmentTypes=list(lastScans.keys()))
+            self.__SmApiClient.map_scanless_asset(appVerId, "Fortify", appVer['project']['name'], appVer['name'], appVer['description'], attributes, assessment_types=list(lastScans.keys()))
 
         #
         # Update the Issues for the project
@@ -342,14 +434,15 @@ class AppVulsProcessor(object):
 
     @staticmethod
     def __GetDateStr(ds):
-        if not ds: return None
+        if not ds:
+            return None
         i = ds.find(".")
         if i > -1:
             ds = ds[0:i]
         try:
             return dtparse(ds).isoformat()
-        except:
-            raise(ValueError(f"Date string '{ds}' is incorrect"))
+        except Exception as e:
+            raise(ValueError(f"Date string '{ds}' is incorrect ({e})"))
 
     def __UpdateScanHistory(self, appVerId, sscProjects, attributes):
         
@@ -357,7 +450,7 @@ class AppVulsProcessor(object):
         # It's possible we have a record in the Queue that has since been
         # removed from SSC, in that case we can bail out
         #
-        if not appVerId in sscProjects.keys():
+        if appVerId not in sscProjects.keys():
             return
         projectVersion = sscProjects[appVerId]
         isDelete = False
@@ -371,13 +464,19 @@ class AppVulsProcessor(object):
         #
         # Get a list of SSC Project Scans
         #
+        # Scan history is built from these, so a scan that isn't visible yet is a history record missing
+        # from the final index.  Worse than the issue case: scans are written one document at a time with
+        # no bulk barrier at all, so there is nothing to hang a wait_for on - the count is all we have.
+        self.__WaitForExpectedCount("sscprojscans", { "query": { "bool": { "must": [
+            { "term": { "projectVersionId": appVerId } } ] } } }, appVerId, self.__ExpectedScanCount, "scan")
         projectScans = self.__GetSscProjScansByProjectId(appVerId)
 
         allDocsToInsert = []
 
         lastScans = {}
         for scan in projectScans.values():
-            if not 'type' in scan and 'scanrec' in scan:
+            self._Beat()
+            if 'type' not in scan and 'scanrec' in scan:
                 raise AppVulsSSCException("sscprojscans index is incompatible and must be upgraded to the latest version.  See Upgrade/RunSscScansUpgrade for more details.")
             scanType = scan['type']
             assessment_type = self.__GetAssessmentType(scanType)
@@ -425,10 +524,13 @@ class AppVulsProcessor(object):
                 # NOTE: if there are ever multiple SSC scan types that map to the same assessment type then the last scan information here may be inaccurate
                 if assessment_type not in lastScans:
                     # Haven't seen this assessment type yet, so create it in the list
-                    lastScans[assessment_type] = { "lastscan": datetime.datetime(1900, 1, 1).isoformat(), "orgType": scanType }
+                    lastScans[assessment_type] = { "lastscan": datetime.datetime(1900, 1, 1).isoformat(), "orgType": scanType, "engineVersion": None }
                 if scanDate > lastScans[assessment_type]['lastscan'] and not cancel:
                     # Update last scan date if newer for this assessement type
-                    lastScans[assessment_type] = { "lastscan": scanDate, "orgType": scanType }
+                    lastScans[assessment_type] = { "lastscan": scanDate, "orgType": scanType, "engineVersion": None }
+                if lastScans[assessment_type]['engineVersion'] is None and 'engineVersion' in scan:
+                    # Set engine version if not already set and available
+                    lastScans[assessment_type]['engineVersion'] = scan['engineVersion']
 
                 if not self.__DisableSM2Indices and not cancel:
                     #
@@ -442,7 +544,7 @@ class AppVulsProcessor(object):
                     self.__SendBulkItem(bulkDocument)
 
             except Exception as e:
-                logging.error(f"[{type(e).__name__}] {e}", exc_info=1)
+                self.__Logger.error(f"[{type(e).__name__}] {e}", exc_info=1)
                 # continue implied since last line of for block
 
             # end for
@@ -452,8 +554,137 @@ class AppVulsProcessor(object):
             # Send any remaining bulk docs
             #
             self.__SendBulkItem()
-        logging.info(f"Inserting {len(allDocsToInsert)} scan history doc(s) for id {projectVersion['id']}")
+        self.__Logger.info(f"Inserting {len(allDocsToInsert)} scan history doc(s) for id {projectVersion['id']}")
         return lastScans
+
+    def __WaitForExpectedCount(self, index, query, appVerId, expected, label='issue'):
+        '''
+        Waits for the number of documents the sync stage said it wrote to become searchable.
+
+        The sync bulk-loads with refresh='wait_for', but that only refreshes the shards its final
+        request wrote to - these indices have more than one, so a small final batch can leave another
+        shard's documents unsearchable.  The sequence is: count, then a recount after each of
+        SyncVisibility* waits, and only if all of those come up short is the index refreshed and one
+        last look taken after SYNC_VISIBILITY_FINAL_WAIT_SEC.  Refreshing is left to the end on
+        purpose - it is index-wide and every worker pays for it, so it is the last resort rather than
+        the first move.
+        '''
+        if expected is None:
+            return
+        started = time.monotonic()
+        elapsed = lambda: time.monotonic() - started
+        try:
+            count = self.__Es.Count(index, self.__CountSafeQuery(query))
+            if count == expected:
+                return
+            self.__Logger.info("Sync wrote %s %s(s) for %s but only %s are visible in '%s' - waiting %ss between "
+                               "up to %s recount(s)...", expected, label, appVerId, count, index,
+                               self.__VisibilityDelaySecs, self.__VisibilityAttempts)
+
+            for attempt in range(1, self.__VisibilityAttempts + 1):
+                time.sleep(self.__VisibilityDelaySecs)
+                count = self.__Es.Count(index, self.__CountSafeQuery(query))
+                self.__Logger.info("Recount %s of %s for %s in '%s': %s of %s %s(s) visible (%.1fs elapsed).",
+                                   attempt, self.__VisibilityAttempts, appVerId, index, count, expected, label, elapsed())
+                if count == expected:
+                    self.__Logger.info("All %s %s(s) for %s visible after %s recount(s) (%.1fs elapsed).",
+                                       expected, label, appVerId, attempt, elapsed())
+                    return
+
+            # Last resort - an index-wide refresh, then one final look after a fixed settling period.
+            self.__Logger.info("Still short for %s after %s recount(s) - refreshing '%s' and waiting %ss for a final count...",
+                               appVerId, self.__VisibilityAttempts, index, SYNC_VISIBILITY_FINAL_WAIT_SEC)
+            self.__Es.RefreshIndex(index)
+            time.sleep(SYNC_VISIBILITY_FINAL_WAIT_SEC)
+            count = self.__Es.Count(index, self.__CountSafeQuery(query))
+            waits = self.__VisibilityAttempts + 1
+            self.__Logger.info("Final count for %s in '%s': %s of %s %s(s) visible (%.1fs elapsed).",
+                               appVerId, index, count, expected, label, elapsed())
+            if count == expected:
+                self.__Logger.info("All %s %s(s) for %s visible after %s wait(s) and an index refresh (%.1fs elapsed).",
+                                   expected, label, appVerId, waits, elapsed())
+                return
+
+            self.__IssueCountMismatch = (
+                f"Unexpected {label} count ({count}, expected {expected}) in {index} for {appVerId} after "
+                f"{waits} waits and an index refresh."
+            )
+            self.__Logger.error(self.__IssueCountMismatch)
+        except Exception as ex:
+            # A failure to verify is itself a reason not to trust the load - record it the same way.
+            self.__IssueCountMismatch = (
+                f"Could not verify {label} count for {appVerId} in {index}: [{type(ex).__name__}] {ex}"
+            )
+            self.__Logger.error(self.__IssueCountMismatch, exc_info=ex)
+
+    @staticmethod
+    def __CountSafeQuery(query):
+        '''
+        A copy of a search body with the paging keys stripped - _count rejects them.  The scroller adds
+        "sort" to the dict it is handed, in place, so a query that has been through it is not count-safe.
+        '''
+        q = json.loads(json.dumps(query))
+        for key in ('sort', 'search_after', '_source', 'size', 'from'):
+            q.pop(key, None)
+        return q
+
+
+    def __CheckIssueCounts(self, index, query, appVerId, syncCountBefore, pulledCount):
+        '''
+        Validates that the issue pull read the whole source set.
+
+        The sync stage bulk-writes these issues immediately before the refresh stage scrolls them, and
+        elasticsearch makes writes searchable asynchronously, so a scroll can quietly return a short
+        set.  Comparing the count of the source index taken *after* the pull against the number of
+        documents the pull actually read catches that: they agree on a complete read and disagree when
+        documents became visible mid-pull.  A single {delay} sec recheck confirms the discrepancy is
+        real rather than a count taken mid-refresh.
+
+        Records the mismatch on the instance (read by PopulateVulsOne, which cancels the queue scans
+        and errors the item) and logs it.  Never raises - the caller decides what to do about it.
+
+        Deliberately does NOT count the final issues index: it holds every app version for the
+        source/instance, the manager merges rather than appends, and synthetic zero/noscan records and
+        cancel-hook drops all move that number legitimately.  See PBI-0005.
+        '''
+        countQuery = self.__CountSafeQuery(query)
+
+        # When the sync stage told us what it wrote, that is the number that matters: it is what SHOULD
+        # be there, where the index count is only what happens to be visible.  Reading the right number
+        # of documents is a complete pull even if the index has since moved.
+        expected = self.__ExpectedIssueCount
+        if expected is not None and pulledCount == expected:
+            self.__Logger.debug("Pulled all %s issue(s) the sync stage wrote for %s.", expected, appVerId)
+            return
+
+        syncCountAfter = self.__Es.Count(index, countQuery)
+        if syncCountAfter == pulledCount:
+            if syncCountBefore != syncCountAfter:
+                # Settled before we finished reading, so the pull is still complete - worth knowing.
+                self.__Logger.info("Source issue count for %s moved during the pull (%s -> %s) but the pull read all %s.",
+                                   appVerId, syncCountBefore, syncCountAfter, pulledCount)
+            return
+
+        self.__Logger.warning("Issue count mismatch for %s: pulled %s, '%s' now holds %s (%s at pull start).  Rechecking in %s sec...",
+                              appVerId, pulledCount, index, syncCountAfter, syncCountBefore, ISSUE_COUNT_RECHECK_DELAY_SEC)
+        time.sleep(ISSUE_COUNT_RECHECK_DELAY_SEC)
+        recheckCount = self.__Es.Count(index, countQuery)
+        if recheckCount == pulledCount:
+            self.__Logger.info("Issue count for %s matched on recheck (%s) - pull was complete.", appVerId, recheckCount)
+            return
+
+        moved = "" if syncCountBefore == syncCountAfter else f", and moved during the pull ({syncCountBefore} at start)"
+        # Naming the expected count separates the two causes: short of what the sync wrote is a
+        # visibility problem, while an index holding MORE than the sync wrote means something else is
+        # writing this app version.
+        target = "" if expected is None else f"  The sync stage wrote {expected}."
+        self.__IssueCountMismatch = (
+            f"Incomplete issue pull for {appVerId}: read {pulledCount} issue(s) but '{index}' holds "
+            f"{recheckCount} after a {ISSUE_COUNT_RECHECK_DELAY_SEC} sec recheck ({syncCountAfter} on first check){moved}.{target} "
+            "The source data was still becoming visible while it was being read - re-run the sync for this ID."
+        )
+        self.__Logger.error(self.__IssueCountMismatch)
+
 
     def __DeleteStuff(self, appVersionId, issuesOnly=False, scansOnly=False):
         if issuesOnly and scansOnly:
@@ -465,16 +696,18 @@ class AppVulsProcessor(object):
             "term": { "application_version_id": { "value": appVersionId } }
           }
         }
+        # flushAfter off - this runs per app version (twice), and a flush is a Lucene commit on indices
+        # every worker is writing.  Nothing reads these deletes back within the run.
         if not issuesOnly:
-            self.__Es.DeleteByQuery("app_scan_history_ssc", DeleteQuery)
+            self.__Es.DeleteByQuery("app_scan_history_ssc", DeleteQuery, flushAfter=False)
         if not scansOnly:
-            self.__Es.DeleteByQuery("app_vuls_ssc", DeleteQuery)
+            self.__Es.DeleteByQuery("app_vuls_ssc", DeleteQuery, flushAfter=False)
 
     def __GetAssessmentTypes(self):
         lst = []
         for k in self.__AssessmentTypeMap.keys():
             atype = self.__AssessmentTypeMap[k]
-            if not atype in lst:
+            if atype not in lst:
                 lst.append(atype)
         return lst
 
@@ -493,17 +726,17 @@ class AppVulsProcessor(object):
             ctv = "customTagValues"
             ca = "customAttributes"
             if ctv in srcIssue.keys():
-                if not ca in issue.keys():
+                if ca not in issue.keys():
                     issue[ca] = {}
                 for tag in srcIssue[ctv]:
-                    if 'keyValue' not in tag.keys() or not tag['keyValue'] or not 'name' in tag['keyValue'].keys() or not 'value' in tag['keyValue'].keys():
-                        logging.debug("Missing/null keyValue in customTagValue for issue %s", srcIssue['id'])
+                    if 'keyValue' not in tag.keys() or not tag['keyValue'] or 'name' not in tag['keyValue'].keys() or 'value' not in tag['keyValue'].keys():
+                        self.__Logger.debug("Missing/null keyValue in customTagValue for issue %s", srcIssue['id'])
                         continue
                     issue[ca][tag['keyValue']['name']] = tag['keyValue']['value']
 
     def __UpdateIssues(self, lastScans, appVerId, sscProjects, attributes):
         # It's possible we have a record in the Queue that has been removed from SSC, in that case we can bail out
-        if not appVerId in sscProjects.keys():
+        if appVerId not in sscProjects.keys():
             return
         self.__DeleteStuff(appVerId, True)
         projectVersion = sscProjects[appVerId]
@@ -515,22 +748,27 @@ class AppVulsProcessor(object):
             if assessment_type not in assessmentTypeStatuses.keys():
                 if assessment_type in lastScans.keys():
                     # Start each assessment type as not present, then set present when encountered while processing issues
-                    assessmentTypeStatuses[assessment_type] = { "lastscan": lastScans[assessment_type]['lastscan'], "present": False, "orgType": lastScans[assessment_type]['orgType'] }
+                    assessmentTypeStatuses[assessment_type] = { "lastscan": lastScans[assessment_type]['lastscan'], "present": False, "orgType": lastScans[assessment_type]['orgType'], "engineVersion": lastScans[assessment_type]['engineVersion'] }
                 else:
-                    logging.debug("App version %s appears to have no assessments of type '%s'", appVerId, assessment_type)
+                    self.__Logger.debug("App version %s appears to have no assessments of type '%s'", appVerId, assessment_type)
 
         #
         # It's possible we have a record in the Queue that has since been
         # removed from SSC, in that case we can bail out
         #
-        if not appVerId in sscProjects.keys():
+        if appVerId not in sscProjects.keys():
             return
 
         # Get a list of all the vulnerabilites found by SSC with the matching
         # project ID
         issueQuery = { "query": { "term": { "projectVersionId": appVerId }}}
         p = ProgressLogger(self.__Es)      
-        allDocsToInsert = []
+
+        # Race guard - the sync stage wrote these issues moments ago and elasticsearch's refresh is
+        # asynchronous, so a scroll started too early silently pulls a short set.  When the sync told us
+        # how many it wrote, wait for exactly that many to be visible before starting; otherwise
+        # TotalCount below is all we have to go on and __CheckIssueCounts does the checking at the end.
+        self.__WaitForExpectedCount("sscprojissues", issueQuery, appVerId, self.__ExpectedIssueCount, "issue")
 
         with self.__Es.SearchScroll("sscprojissues", queryBody=issueQuery, scrollSize=1000, scrollTimeout=None) as scroller:
             TotalCount = scroller.TotalHits if scroller else 0
@@ -540,8 +778,9 @@ class AppVulsProcessor(object):
 
                 # Main issue handling loop
                 for IssueContainer in scroller.Results:
+                    self._Beat()
                     Issue = IssueContainer['_source']
-                    IssueKey = IssueContainer['_id']
+                    # IssueKey = IssueContainer['_id']
                     IssueActive = True
 
                     # SSC randomly does not have the scan type so default to SSC if it's missing
@@ -558,13 +797,13 @@ class AppVulsProcessor(object):
                         if not cancel:
                             # 2/8/24
                             # Remediation for SSC bug that sometimes sets removed = True with no removedDate
-                            if Issue['removed'] == True and not Issue['removedDate']:
+                            if Issue['removed'] and not Issue['removedDate']:
                                 Issue['removedDate'] = '1876-01-01T00:00:00.000+00:00'
 
                             # Check to see if the Fortify vulnerability is "active", ie should be shown.
-                            if Issue['suppressed'] == True or Issue['removed'] == True or Issue['hidden'] == True:
+                            if Issue['suppressed'] or Issue['removed'] or Issue['hidden']:
                                 IssueActive = False
-                            RemovedDate = None if Issue['removed'] == False else Issue['removedDate']
+                            RemovedDate = None if not Issue['removed'] else Issue['removedDate']
 
                             # Need to remember if the issue is Critical, High, etc.
                             Critical = 0
@@ -589,10 +828,13 @@ class AppVulsProcessor(object):
                                 pass
                     
                             lastAssessmentDate = projectVersion['currentState']['lastFprUploadDate']
+                            engineVersion = None
                             if assessment_type in assessmentTypeStatuses.keys():
                                 # Set to last scan date for the assessment type if we know it
                                 lastAssessmentDate = assessmentTypeStatuses[assessment_type]['lastscan']
-                            if Issue['foundDate'] == None:
+                                # Set engineVersion if available
+                                engineVersion = assessmentTypeStatuses[assessment_type]['engineVersion']
+                            if Issue['foundDate'] is None:
                                 Issue['foundDate'] = lastAssessmentDate
                             _app_vul = {
                                     "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -618,6 +860,7 @@ class AppVulsProcessor(object):
                                     "hidden": Issue["hidden"],
                                     "engine_type": scanType,
                                     "engine_category": Issue['engineCategory'],
+                                    "engine_version": engineVersion,
                                     "issue_status": Issue['issueStatus'],
                                     "location": Issue["primaryLocation"],
                                     "analyzer": Issue['analyzer'],
@@ -701,17 +944,17 @@ class AppVulsProcessor(object):
                             # Submit queue issue to SM API
                             #
                             if self.__SmApiClientEnabled and _app_vul and not cancel:
-                                self.__SmApiClient.MapEverything(_app_vul, issueAssetKeys, issueKeys, self.__HistoryV3Enable)
+                                self.__SmApiClient.map_everything(_app_vul, issueAssetKeys, issueKeys, self.__HistoryV3Enable)
 
                             #
                             # Bulk insert the array of documents.
                             #
-                            if not self.__DisableSM2Indices and not cancel:
-                                bulkDocument = {
-                                    '_index': 'app_vuls_ssc',
-                                    '_id': 'SSC1-{}'.format(IssueKey),
-                                    '_source': _app_vul        
-                                    }
+                            # if not self.__DisableSM2Indices and not cancel:
+                            #     bulkDocument = {
+                            #         '_index': 'app_vuls_ssc',
+                            #         '_id': 'SSC1-{}'.format(IssueKey),
+                            #         '_source': _app_vul        
+                            #         }
                                 # self.__SendBulkItem(bulkDocument)
 
                             if (iCount % 1000 == 0):
@@ -723,11 +966,11 @@ class AppVulsProcessor(object):
                     #except KeyError as ex:
                     #    msg = f"Unknown scan type found: [{type(ex).__name__}] {ex}"
                     #    print(msg)
-                    #    logging.warning(msg)
+                    #    self.__Logger.warning(msg)
                     except Exception as ex:
                         msg = f"[{type(ex).__name__}] {ex}"
                         print(msg)
-                        logging.error(msg)
+                        self.__Logger.error(msg)
                         raise(ex)
 
                     iCount = iCount + 1
@@ -736,11 +979,18 @@ class AppVulsProcessor(object):
                 scroller.GetNext()
             # end while len(scroller.Results)
 
+        # TotalCount is scroller.TotalHits, captured before the first page was consumed.  It is an exact
+        # count - the scroller back-fills a _count of its own whenever elasticsearch reports a capped
+        # 'gte' total - and it has to be read there rather than here: this pull uses search_after, which
+        # re-evaluates the total on every page.
+        self.__CheckIssueCounts("sscprojissues", issueQuery, appVerId, TotalCount, iCount)
+
         # Zero records handling - if any scan assessment type is not present in issues, add zero record
         for assessment_type in assessmentTypeStatuses.keys():
             if assessmentTypeStatuses[assessment_type]['present']:
                 continue
 
+            self._Beat()
             cancelTrk = CancelTracker(False)
             self.__AppVulsCustom.CustomBeforeIssueUpdate(projectVersion, attributes, assessment_type, 'SSC', cancelTrk)
             if not cancelTrk.Cancel:
@@ -773,6 +1023,7 @@ class AppVulsProcessor(object):
                     "hidden": False,
                     "engine_type": assessmentTypeStatuses[assessment_type]['orgType'],
                     "engine_category": "",
+                    "engine_version": "",
                     "issue_status": "Zero",
                     "location": "",
                     "analyzer": "",
@@ -837,24 +1088,24 @@ class AppVulsProcessor(object):
                     if k not in issueKeys:
                         issueAssetKeys.append(k)
 
-            logging.info("Adding zero record for app version %s and assessment type %s", appVerId, assessment_type)
-            IssueKey = f"{appVerId}-{assessment_type}-0"
+            self.__Logger.info("Adding zero record for app version %s and assessment type %s", appVerId, assessment_type)
+            # IssueKey = f"{appVerId}-{assessment_type}-0"
             #
             # SM API Integration
             # Submit queue issue to SM API
             #
             if self.__SmApiClientEnabled and _app_vul:
-                self.__SmApiClient.MapEverything(_app_vul, issueAssetKeys, issueKeys)
+                self.__SmApiClient.map_everything(_app_vul, issueAssetKeys, issueKeys)
 
-            if not self.__DisableSM2Indices:
+            # if not self.__DisableSM2Indices:
                 #
                 # Bulk insert the array of documents.
                 #
-                bulkDocument = {
-                    '_index': 'app_vuls_ssc',
-                    '_id': 'SSC1-{}'.format(IssueKey),
-                    '_source': _app_vul                
-                    }
+                # bulkDocument = {
+                #     '_index': 'app_vuls_ssc',
+                #     '_id': 'SSC1-{}'.format(IssueKey),
+                #     '_source': _app_vul                
+                #     }
                 #self.__SendBulkItem(bulkDocument)
             
         if not self.__DisableSM2Indices:
@@ -869,9 +1120,10 @@ class AppVulsProcessor(object):
             finishUp = True
         if len(self.__BulkDocs) >= self.__BulkSendBatchSize or finishUp:
             if len(self.__BulkDocs) == 0:
-                logging.info("Bulk queue empty, nothing to send.")
+                self.__Logger.info("Bulk queue empty, nothing to send.")
             else:
-                logging.info("Bulk queue send (%s items)", len(self.__BulkDocs))
+                self.__Logger.info("Bulk queue send (%s items)", len(self.__BulkDocs))
+                self._Beat()
                 self.__Es.BulkInsert(self.__BulkDocs)
                 self.__BulkDocs = []
 
@@ -929,14 +1181,27 @@ class AppVulsProcessor(object):
                 lst[dto['_source']['id']] = dto['_source']
                 c += 1
                 if c % 500 == 0:
-                    logging.info("Loading ssc project versions, %s of %s", c, scroller.TotalHits)
+                    self.__Logger.info("Loading ssc project versions, %s of %s", c, scroller.TotalHits)
             scroller.GetNext()
         scroller.Clear()
         return lst
 
-    def _GetSscProjectVersion(self, id):
-        '''Return a single project version by project version ID'''
-        res = self.__Es.Search('sscprojects', { "query": { "term": { "id": id } } })
+    def _GetSscProjectVersion(self, id, race_retry:bool=False, race_retry_delay:int=5):
+        '''
+        Return a single project version by project version ID.
+
+        :race_retry: when the project version isn't found, wait race_retry_delay seconds and look
+        once more.  Callers that read straight after the sync stage wrote the doc (the sync worker)
+        set this so elasticsearch's near-real-time refresh gap doesn't look like a missing PV.
+        '''
+        query = { "query": { "term": { "id": id } } }
+        res = self.__Es.Search('sscprojects', query)
+        if race_retry and not res:
+            self.__Logger.info("Project version %s not found, retrying in %s sec in case this is a race condition...", id, race_retry_delay)
+            time.sleep(race_retry_delay)
+            res = self.__Es.Search('sscprojects', query)
+            if res:
+                self.__Logger.info("Found project version %s after waiting for the index to catch up.", id)
         if res and len(res) > 0:
             if ("_source" in res[0].keys()):
                 return res[0]['_source']

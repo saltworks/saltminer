@@ -1,0 +1,214 @@
+# Inspiration:
+# https://www.elastic.co/guide/en/elastic-stack-get-started/7.17/get-started-docker.html#get-started-docker-tls
+services:
+  init:
+    image: docker.io/library/busybox
+    container_name: sm-init
+    volumes:
+    # APP_ROOT (e.g. /opt/saltworks) must already exist on the host.
+    # :z applies a shared SELinux label so the container may write here on
+    # SELinux-enforcing hosts (RHEL/Fedora); it is a no-op elsewhere.
+    - ${APP_ROOT}:/app_root:z
+    environment:
+    # Docker running services as a non-root user needs the tree chowned
+    # to the container UID/GID.  Rootless Podman should not chown.
+    - INIT_CHOWN=${INIT_CHOWN}
+    command: >-
+      sh -c "[ -w /app_root ] ||
+      { echo 'ERROR: APP_ROOT is not writable. Create it on the host and make it owned/writable by the account running the container engine.'; exit 1; }
+      && mkdir -p
+      /app_root/saltminer/logs/nginx
+      /app_root/saltminer/app/ui-files
+      /app_root/saltminer/config/nginx
+      /app_root/saltminer/config/jobmanager
+      /app_root/saltminer/config/api/data
+      /app_root/saltminer/python/Custom
+      /app_root/saltminer/python/Mappings
+      /app_root/saltminer/python/AppVulsCustom
+      /app_root/saltminer/python/AuthHelperCustom
+      /app_root/saltminer/scripts
+      && if [ -n \"$$INIT_CHOWN\" ]; then echo \"Chowning saltminer tree to $$INIT_CHOWN\"; chown -R \"$$INIT_CHOWN\" /app_root/saltminer; else echo 'INIT_CHOWN empty, skipping chown (rootless mode)'; fi"
+    restart: "no"
+
+  sm-nginx:
+    image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_NGINX_IMAGE_VERSION}
+    container_name: sm-nginx
+    # Host ports are overridable for rootless Podman, which cannot bind <1024:
+    # Recommend setting NGINX_HTTP_PORT=8080 / NGINX_HTTPS_PORT=8443 in .env 
+    # and forward 80/443 with the host firewall (see PODMAN.MD). 
+    # Docker: leave unset.
+    ports:
+    - "${NGINX_HTTP_PORT:-80}:80"
+    - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+    # SSL cert/key expected in this mount: saltminer.crt, saltminer.key (self-signed dropped there by default if missing)
+    - ${APP_ROOT}/saltminer/config/nginx/:/opt/saltworks/saltminer/config/nginx:z
+#   Enable if you need logs to go to a file; by default they are aliased to STDOUT and can be seen via docker logs sm-nginx
+#    - ${APP_ROOT}/saltminer/logs/nginx:/var/log/nginx
+    - smpgui-assets:${CONTAINER_APP_ROOT}/saltminer/app/ui-web
+    environment:
+    - KIBANA_URL=${KIBANA_URL}
+    - KIBANA_HOST=${KIBANA_HOST}
+    networks:
+    - ${CONTAINER_NETWORK}
+    restart: "always"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+      ui-api:
+        condition: service_started
+    mem_limit: 1gb
+    mem_reservation: 100mb
+
+  api:
+    image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_API_IMAGE_VERSION}
+    container_name: api
+    user: "${CONTAINER_UID_GID}"
+    expose:
+    - "5000"
+    volumes:
+    - ${APP_ROOT}/saltminer/config:${CONTAINER_APP_ROOT}/saltminer/config:z
+    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/saltminer/logs:z
+    - ${APP_ROOT}/saltminer/config/api/data:${CONTAINER_APP_ROOT}/saltminer/app/api/data:z
+    environment:
+    - ELASTICSEARCH_CONNECTION_STRING=${ELASTICSEARCH_CONNECTION_STRING}
+    - KIBANA_URL=${KIBANA_URL}
+    networks:
+    - ${CONTAINER_NETWORK}
+    restart: "always"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s http://localhost:5000/utility/version | grep -q '\"success\":true'",
+        ]
+      start_period: 300s
+    mem_limit: ${API_MEMORY_LIMIT}
+    mem_reservation: 100mb
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  ui-api:
+    image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_UI_API_IMAGE_VERSION}
+    container_name: ui-api
+    user: "${CONTAINER_UID_GID}"
+    hostname: ui-api
+    expose:
+    - "5001"
+    volumes:
+    - ${APP_ROOT}/saltminer/config:${CONTAINER_APP_ROOT}/saltminer/config:z
+    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/saltminer/logs:z
+    - ${APP_ROOT}/saltminer/app/ui-files:${CONTAINER_APP_ROOT}/saltminer/app/ui-files:z
+    environment:
+    - KIBANA_URL=${KIBANA_URL}
+    networks:
+    - ${CONTAINER_NETWORK}
+    restart: "always"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s http://localhost:5001/auth/cookie | grep -q '\"success\":true'",
+        ]
+      start_period: 300s
+    mem_limit: 1gb
+    mem_reservation: 100mb
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+
+  sm-services:
+    image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_SERVICES_IMAGE_VERSION}
+    container_name: sm-services
+    user: "${CONTAINER_UID_GID}"
+    hostname: services
+    volumes:
+    - ${APP_ROOT}/saltminer/config:${CONTAINER_APP_ROOT}/saltminer/config:z
+    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/saltminer/logs:z
+    - ${APP_ROOT}/saltminer/scripts:${CONTAINER_APP_ROOT}/saltminer/scripts:z
+    - ${APP_ROOT}/saltminer/python/Custom:${CONTAINER_APP_ROOT}/saltminer/app/python/Custom:z
+    - ${APP_ROOT}/saltminer/python/Mappings:${CONTAINER_APP_ROOT}/saltminer/app/python/Mappings:z
+    - ${APP_ROOT}/saltminer/python/AppVulsCustom:${CONTAINER_APP_ROOT}/saltminer/app/python/AppVulsCustom:z
+    - ${APP_ROOT}/saltminer/python/AuthHelperCustom:${CONTAINER_APP_ROOT}/saltminer/app/python/AuthHelperCustom:z
+    environment:
+    - ELASTICSEARCH_CONNECTION_STRING=${ELASTICSEARCH_CONNECTION_STRING}
+    networks:
+    - ${CONTAINER_NETWORK}
+    restart: "always"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    mem_limit: ${SERVICES_MEMORY_LIMIT}
+    mem_reservation: 100mb
+
+  jobmanager:
+    image: ${CONTAINER_REGISTRY}/saltworks/saltminer:${SM_JOBMANAGER_IMAGE_VERSION}
+    container_name: jobmanager
+    user: "${CONTAINER_UID_GID}"
+    hostname: jobmanager
+    volumes:
+    - ${APP_ROOT}/saltminer/config/jobmanager:${CONTAINER_APP_ROOT}/saltminer/config/jobmanager:z
+    - ${APP_ROOT}/saltminer/app/ui-files:${CONTAINER_APP_ROOT}/saltminer/app/ui-files:z
+    - ${APP_ROOT}/saltminer/logs:${CONTAINER_APP_ROOT}/saltminer/logs:z
+    networks:
+    - ${CONTAINER_NETWORK}
+    restart: "always"
+    depends_on:
+      api:
+        condition: service_healthy
+      ui-api:
+        condition: service_healthy
+    mem_limit: 1gb
+    mem_reservation: 50mb
+
+  # elastic-agent:
+  #   image: docker.elastic.co/elastic-agent/elastic-agent:${STACK_VERSION}
+  #   container_name: elastic-agent
+  #   hostname: ${ELASTIC_AGENT_HOSTNAME}
+  #   restart: on-failure:10
+  #   user: root # note, synthetic browser monitors require this set to `elastic-agent`
+  #   volumes:
+  #   - services-logs:/var/log/saltworks/saltminer-3.0.0/services
+  #   - api-logs:/var/log/saltworks/saltminer-3.0.0/api
+  #   - jobmanager-logs:/var/log/saltworks/saltminer-3.0.0/jobmanager
+  #   - agent25-logs:/var/log/saltworks/saltminer-2.5.0
+  #   - ui-api-logs:/var/log/saltworks/saltminer-3.0.0/ui-api
+  #   environment:
+  #   - FLEET_ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
+  #   - FLEET_ENROLL=1
+  #   - FLEET_URL=${FLEET_SERVER_URL}
+  #   - FLEET_INSECURE=1
+  #   networks:
+  #   - ${CONTAINER_NETWORK}
+  #   mem_limit: 1gb
+  #   mem_reservation: 50mb
+  #   depends_on:
+  #     api:
+  #       condition: service_healthy
+  #     ui-api:
+  #       condition: service_healthy
+  #     sm-services:
+  #       condition: service_started
+  #     jobmanager:
+  #       condition: service_started
+  #   profiles:
+  #   - fleet
+
+volumes:
+  smpgui-assets:
+    driver: local
+  ui-files:
+    driver: local
+
+networks:
+  saltminer:
+    driver: bridge
+    external: true
+    name: saltminer

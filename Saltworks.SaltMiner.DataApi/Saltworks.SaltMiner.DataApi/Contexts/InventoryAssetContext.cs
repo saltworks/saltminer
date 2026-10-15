@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Models;
@@ -22,57 +26,47 @@ using Microsoft.Extensions.Logging;
 using System.Linq;
 using Saltworks.SaltMiner.ElasticClient;
 
-namespace Saltworks.SaltMiner.DataApi.Contexts
+namespace Saltworks.SaltMiner.DataApi.Contexts;
+
+public class InventoryAssetContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<InventoryAssetContext> logger) : ContextBase(config, dataRepository, factory, logger)
 {
-    public class InventoryAssetContext : ContextBase
+    private readonly string InventoryAssetIndex = InventoryAsset.GenerateIndex();
+
+    public DataItemResponse<InventoryAsset> GetByKey(string key)
     {
-        private readonly string InventoryAssetIndex = InventoryAsset.GenerateIndex();
-        public InventoryAssetContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<InventoryAssetContext> logger) : base(config, dataRepository, factory, logger)
-        { }
+       Logger.LogInformation("Get inventory by key {key}", key);
 
-        public DataItemResponse<InventoryAsset> GetByKey(string key)
+        var request = new SearchRequest("Saltminer.InventoryAsset.Key", key);
+        var response = (Search<InventoryAsset>(InventoryAssetIndex, request)?.Data?.FirstOrDefault()) ?? 
+            throw new ApiResourceNotFoundException($"Asset Inventory not found for Key '{key}'");
+        return new DataItemResponse<InventoryAsset>(response);
+    }
+
+    public DataItemResponse<InventoryAsset> AddDirty(DataItemRequest<InventoryAsset> request)
+    {
+        var newInventoryAsset = new InventoryAsset
         {
-           Logger.LogInformation("Get inventory by key {key}", key);
+            Attributes = request.Entity.Attributes,
+            Description = request.Entity.Description,
+            IsProduction = request.Entity.IsProduction,
+            Name = request.Entity.Name,
+            Version = request.Entity.Version,
+            Key = request.Entity.Key 
+        };
 
-            var request = new ElasticDataFilter("Saltminer.InventoryAsset.Key", key);
-            request.PitPagingInfo = new PitPagingInfo(1);
+        return ElasticClient.AddUpdate(newInventoryAsset, InventoryAssetIndex).ToDataItemResponse();
+    }
 
-            var response = DataRepo.Search<InventoryAsset>(request, InventoryAssetIndex)?.Data?.FirstOrDefault();
+    public NoDataResponse Refresh(string sourceType)
+    {
+        ElasticClient.ExecuteEnrichPolicy(Config.InventoryAssetEnrichmentPolicy);
 
-            if(response == null)
-            {
-                throw new ApiResourceNotFoundException($"Asset Inventory not found for Key '{key}'");
-            }
+        var query = $"{{ 'term': {{ 'saltminer.asset.source_type' : {{ 'value': '{sourceType}' }} }} }}";
 
-            return new DataItemResponse<InventoryAsset>(response);
-        }
+        var issueResponse = ElasticClient.UpdateByQuery<Issue>(query, Issue.GenerateIndex(null, sourceType, null), null).ToNoDataResponse();
+        var scanResponse = ElasticClient.UpdateByQuery<Scan>(query, Scan.GenerateIndex(null, sourceType, null), null).ToNoDataResponse();
+        var assetResponse = ElasticClient.UpdateByQuery<Asset>(query, Asset.GenerateIndex(null, sourceType, null), null).ToNoDataResponse();
 
-        public DataItemResponse<InventoryAsset> AddDirty(DataItemRequest<InventoryAsset> request)
-        {
-            var newInventoryAsset = new InventoryAsset
-            {
-                Attributes = request.Entity.Attributes,
-                Description = request.Entity.Description,
-                IsProduction = request.Entity.IsProduction,
-                Name = request.Entity.Name,
-                Version = request.Entity.Version,
-                Key = request.Entity.Key 
-            };
-
-            return ElasticClient.AddUpdate(newInventoryAsset, InventoryAssetIndex).ToDataItemResponse();
-        }
-
-        public NoDataResponse Refresh(string sourceType)
-        {
-            ElasticClient.ExecuteEnrichPolicy(Config.InventoryAssetEnrichmentPolicy);
-
-            var query = $"{{ 'term': {{ 'saltminer.asset.source_type' : {{ 'value': '{sourceType}' }} }} }}";
-
-            var issueResponse = ElasticClient.UpdateByQuery<Issue>(query, Issue.GenerateIndex(null, sourceType, null), null).ToNoDataResponse();
-            var scanResponse = ElasticClient.UpdateByQuery<Scan>(query, Scan.GenerateIndex(null, sourceType, null), null).ToNoDataResponse();
-            var assetResponse = ElasticClient.UpdateByQuery<Asset>(query, Asset.GenerateIndex(null, sourceType, null), null).ToNoDataResponse();
-
-            return new NoDataResponse(issueResponse.Affected + scanResponse.Affected + assetResponse.Affected);
-        }
+        return new NoDataResponse(issueResponse.Affected + scanResponse.Affected + assetResponse.Affected);
     }
 }

@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
@@ -32,7 +36,8 @@ namespace Saltworks.SaltMiner.Manager
         private static DateTime Today = DateTime.UtcNow;
         private static bool IsDaily = Today.Day != 1;
         private SnapshotRuntimeConfig RuntimeConfig;
-        private PitPagingInfo BucketPagingInfo;
+        private PagingInfo BucketPagingInfo;
+        private int BatchNumber;
 
         public SnapshotProcessor
         (
@@ -68,7 +73,7 @@ namespace Saltworks.SaltMiner.Manager
             
             var search = new SearchRequest 
             {
-                PitPagingInfo = BucketPagingInfo, 
+                PagingInfo = BucketPagingInfo, 
                 Filter = new()
                 {
                     FilterMatches = new()
@@ -82,9 +87,47 @@ namespace Saltworks.SaltMiner.Manager
             
             var result = DataClient.SnapshotCounts(search);
 
-            BucketPagingInfo = result.PitPagingInfo;
+            if ((result.Results?.Count ?? 0) > 0)
+            {
+                // Next request, or null when the run must stop (missing or repeated cursor)
+                BucketPagingInfo = GetNextBucketPagingInfo(Logger, Config.SnapshotProcessorApiBatchSize, search.PagingInfo, result.PagingInfo, BatchNumber);
+            }
 
             return result.Results;
+        }
+
+        /// <summary>
+        /// Decides the request for the page after a non-empty page. Returns null, after logging an error, when the returned
+        /// cursor is missing or equal to the one this page was requested with, because requesting again would re-read the same page.
+        /// </summary>
+        /// <param name="logger">Logger for the stop error</param>
+        /// <param name="batchSize">Configured page size, kept on every request</param>
+        /// <param name="previous">Paging info sent with the request that returned this page</param>
+        /// <param name="returned">Paging info returned with this page</param>
+        /// <param name="batchNumber">Batch number of this page, for the log line</param>
+        internal static PagingInfo GetNextBucketPagingInfo(ILogger logger, int batchSize, PagingInfo previous, PagingInfo returned, int batchNumber)
+        {
+            var cursor = returned?.AggregateKeys;
+
+            if (cursor == null || cursor.Count == 0)
+            {
+                logger.LogError("Snapshot batch {batchCount} returned data but no cursor for the next page, stopping the run to avoid re-reading the same page", batchNumber);
+                return null;
+            }
+
+            var previousCursor = previous?.AggregateKeys;
+
+            if (previousCursor != null && previousCursor.Count == cursor.Count
+                && cursor.All(kv => previousCursor.TryGetValue(kv.Key, out var value) && string.Equals(value?.ToString(), kv.Value?.ToString(), StringComparison.Ordinal)))
+            {
+                logger.LogError("Snapshot batch {batchCount} returned the same cursor as the request that produced it, stopping the run to avoid re-reading the same page", batchNumber);
+                return null;
+            }
+
+            return new PagingInfo(batchSize)
+            {
+                AggregateKeys = new Dictionary<string, object>(cursor)
+            };
         }
 
         public void Run(RuntimeConfig config)
@@ -106,13 +149,21 @@ namespace Saltworks.SaltMiner.Manager
                 var batchCount = 0;
                 var retries = 0;
                 
-                BucketPagingInfo = new PitPagingInfo(Config.SnapshotProcessorApiBatchSize);
+                BucketPagingInfo = new PagingInfo(Config.SnapshotProcessorApiBatchSize);
                 
                 var firstBatch = true;
                 
                 while (!complete)
                 {
+                    if (BucketPagingInfo == null)
+                    {
+                        // The previous page was the last one we can safely read, see GetNextBucketPagingInfo
+                        complete = true;
+                        continue;
+                    }
+
                     batchCount++;
+                    BatchNumber = batchCount;
                     
                     var snapshots = new List<Snapshot>();
                     // Get a batch of snapshot count buckets

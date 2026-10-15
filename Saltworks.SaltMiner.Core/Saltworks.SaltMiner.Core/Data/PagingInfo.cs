@@ -1,72 +1,127 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 namespace Saltworks.SaltMiner.Core.Data
 {
-    public class PitPagingInfo
+    public class PagingInfo
     {
-        public PitPagingInfo() { }
-
-        public PitPagingInfo(int? size, bool enabled = false, Dictionary<string, bool> sortFilters = null)
+        public PagingInfo() { }
+        public PagingInfo(int? size)
         {
             Size = size;
-            Enabled = enabled;
-            SortFilters = sortFilters;
         }
-
-        public PitPagingInfo(int? size, bool enabled, string token, Dictionary<string, bool> sortFilters = null)
-        {
-            Size = size;
-            Enabled = enabled;
-            PagingToken = token;
-            SortFilters = sortFilters;
+        /// <summary>
+        /// Current page number
+        /// </summary>
+        public int Page { get; set; } = 1;
+        /// <summary>
+        /// Hits returned in current page 
+        /// </summary>
+        public long? CurrentHits { get; set; } = null;
+        /// <summary>
+        /// Total hits as reported by Elasticsearch
+        /// </summary>
+        public long? TotalHits { get; set; } = null;
+        /// <summary>
+        /// Total pages of results, computed by math (TotalHits / Size), rounding any remainder up
+        /// </summary>
+        public long? TotalPages {
+            get
+            {
+                if (TotalHits == null)
+                    return 0;
+                var res = TotalHits.Value / Size;
+                if (TotalHits.Value % Size != 0)
+                    return res + 1;
+                return res;
+            }
         }
-
-        public PitPagingInfo(int? size, bool enabled, Dictionary<string, object> aggregateKeys, Dictionary<string, bool> sortFilters = null)
-        {
-            Size = size;
-            Enabled = enabled;
-            AggregateKeys = aggregateKeys;
-            SortFilters = sortFilters;
-        }
-
-        public int? Total { get; set; }
-        public int? Size { get; set; }
-        public bool Enabled { get; set; } = false;
-        public string PagingToken { get; set; } = null;
+        /// <summary>
+        /// If false, a separate count query will be run to determine total hits if over max results (10k currently).  If true (default), allow max results for total hits without running the count query.
+        /// </summary>
+        public bool TotalHitsCanBeTruncated { get; set; } = true;
+        /// <summary>
+        /// Set by a successful query, if true, TotalHits represents max results from datastore without a count query, but more results exist.
+        /// </summary>
+        public bool TotalHitsWereTruncated { get; set; } = false;
+        /// <summary>
+        /// Page size - should not exceed 10,000.  If set to 0 or null, will use default from configuration.
+        /// </summary>
+        public int? Size { get; set; } = null;
+        /// <summary>
+        /// Enables Elasticsearch PIT (Point In Time) paging to ensure consistent results over multiple search request pages.
+        /// </summary>
+        public bool EnablePit { get; set; } = false;
+        /// <summary>
+        /// If using Elasticsearch PIT (Point In Time), the token representing the search context in Elasticsearch.
+        /// </summary>
+        public string PitPagingToken { get; set; } = null;
+        /// <summary>
+        /// Resume paging after these keys - speeds up page requests when available.
+        /// </summary>
+        public List<object> NextAfterKeys { get; set; }
+        /// <summary>
+        /// Keys used for current request - speeds up page requests when available.
+        /// </summary>
+        public List<object> CurrentAfterKeys { get; set; }
+        /// <summary>
+        /// Keys used for current aggregate request - speeds up page requests when available.
+        /// </summary>
         public Dictionary<string, object> AggregateKeys { get; set; }
-        public Dictionary<string, bool> SortFilters { get; set; }
-    }
-
-    public class UIPagingInfo
-    {
-        public UIPagingInfo() { }
-        public UIPagingInfo(int size, int page = 1, Dictionary<string, bool> sortFilters = null)
-        {
-            Size = size;
-            Page = page;
-            SortFilters = sortFilters;
+        public bool IsLastPage() {
+            if (Page == -1 || (NextAfterKeys == null && CurrentAfterKeys != null))
+                return true;
+            if (CurrentHits.HasValue && Size.HasValue && CurrentHits < Size)
+                return true;
+            // If we got all results (CurrentHits >= TotalHits), we're on the last page
+            if (CurrentHits.HasValue && TotalHits.HasValue && CurrentHits >= TotalHits)
+                return true;
+            if (((TotalHitsCanBeTruncated && !TotalHitsWereTruncated) || !TotalHitsCanBeTruncated) && 
+                    TotalPages.HasValue && Page >= TotalPages)
+                return true;
+            return false;
         }
-
-        public int? Total { get; set; }
-        public int Size { get; set; }
-        public int Page { get; set; }
-        public int? TotalPages => (Size != 0 && Total != null) ? (int) ((Total - 1) / Size) + 1 : null;
-        public Dictionary<string, bool> SortFilters { get; set; }
+        /// <summary>
+        /// Returns a PagingInfo object representing a next page request, just add to your SearchRequest and fire it off.
+        /// </summary>
+        public PagingInfo NextPage()
+        {
+            var next = new PagingInfo()
+            {
+                Page = Page > 0 ? Page + 1 : Page,
+                TotalHits = TotalHits,
+                TotalHitsCanBeTruncated = TotalHitsCanBeTruncated,
+                Size = Size,
+                EnablePit = EnablePit,
+                PitPagingToken = PitPagingToken,
+                NextAfterKeys = null,
+                CurrentAfterKeys = NextAfterKeys
+            };
+            if (IsLastPage())
+            {
+                // We've reached the last page - signal no more pages
+                next.Page = -1;
+            }
+            return next;
+        }
     }
 }

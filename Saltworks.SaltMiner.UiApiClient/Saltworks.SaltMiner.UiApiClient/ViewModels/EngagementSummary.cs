@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Saltworks.SaltMiner.Core.Entities;
 
@@ -29,6 +33,7 @@ namespace Saltworks.SaltMiner.UiApiClient.ViewModels
                 attributes = fieldInfo.AttributeDefinitions.Select(ad => new TextField(default, ad.Name, fieldInfo, true, true)).ToList();
             Name = engagement.Saltminer.Engagement.Name;
             Id = engagement.Id;
+            GroupId = engagement.Saltminer.Engagement.GroupId;
             Subtype = engagement.Saltminer.Engagement.Subtype;
             Timestamp = engagement.Timestamp;
             PublishDate = engagement.Saltminer.Engagement.PublishDate;
@@ -51,6 +56,7 @@ namespace Saltworks.SaltMiner.UiApiClient.ViewModels
         public string Status { get; set; }
         public string Summary { get; set; }
         public string GroupId { get; set; }
+        public string DraftEngagementId { get; set; }
         public List<UiAttachment> Attachments { get; set; }
         public List<TextField> Attributes { get; set; }
         public List<string> ActionRestrictions { get; set; }

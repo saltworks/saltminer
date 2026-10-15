@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -90,7 +94,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         {
             Logger.LogInformation("Search action called");
            
-            return Ok(Context.Search<Engagement>(search, EngagementIndex));
+            return Ok(Context.Search<Engagement>(EngagementIndex, search));
         }
 
         /// <summary>
@@ -166,7 +170,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         [HttpDelete("group/{id}")]
         public ActionResult<NoDataResponse> DeleteGroup(string id)
         {
-            Logger.LogInformation("Delete action called for group id '{id}'", id);
+            Logger.LogInformation("Delete action called for group id '{Id}'", id);
 
             return Ok(Context.DeleteGroup(id));
         }
@@ -174,7 +178,10 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <summary>
         /// Returns issue counts grouped by severity for engagement
         /// </summary>
-        /// <param name="request">Request supports PagingInfo.Size, PagingInfo.ScrollKeys, and FilterMatches</param>
+        /// <param name="assetType">Asset type for the target issues</param>
+        /// <param name="id">Engagement ID</param>
+        /// <param name="instance">Pentest instance for the target issues</param>
+        /// <param name="sourceType">Pentest source type</param>
         /// <returns>A dictionary response of type string, double that represents the key values (joined with |) and counts</returns>
         [ProducesResponseType(200, Type = typeof(DataDictionaryResponse<string, long?>))]
         [HttpGet("{id}/{assetType}/{sourceType}/{instance}/issue/counts")]

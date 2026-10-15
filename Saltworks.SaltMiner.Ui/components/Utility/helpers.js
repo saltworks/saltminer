@@ -3,6 +3,7 @@ import moment from 'moment';
 function formatDate(
   timestamp = null,
   format = 'M/D/yyyy',
+  defaultValue = ''
 ) {
   if (timestamp !== null) {
     const ts = moment.utc(timestamp).format(format);
@@ -14,7 +15,7 @@ function formatDate(
     return ts;
   }
   
-  return '';
+  return defaultValue;
 }
 
 export default {

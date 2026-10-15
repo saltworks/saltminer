@@ -76,16 +76,14 @@
         />
       </div>
 
-      <div id="job-option" class="input-flex">
-        <FormLabel class="input-label" label="Option" />
-        <InputText
-          reff="txtJobOption"
-          class="text-field_asset btm-input"
-          placeholder="Enter Option"
-          :value="selectedJob && selectedJob.option || ''"
-          @update="(val) => handleInput('option', val)"
-        />
-      </div>
+      <DropdownControl
+        theme="outline"
+        label="Option"
+        reff="txtJobOption"
+        :options="optionsDropdown"
+        :value="selectedJob && selectedJob.option || ''"
+        @update="(val) => handleInput('option', val.value)"
+      />
 
       <div id="job-parameters" class="input-flex">
         <FormLabel class="input-label" label="Parameters" />
@@ -150,16 +148,14 @@
         />
       </div>
 
-      <div id="job-option" class="input-flex">
-        <FormLabel class="input-label" label="Option" />
-        <InputText
-          reff="txtJobOption"
-          class="text-field_asset btm-input"
-          placeholder="Enter Option"
-          :value="selectedJob && selectedJob.option || ''"
-          @update="(val) => handleInput('option', val)"
-        />
-      </div>
+      <DropdownControl
+        theme="outline"
+        label="Option"
+        reff="txtJobOption"
+        :options="optionsDropdown"
+        :value="selectedJob && selectedJob.option || ''"
+        @update="(val) => handleInput('option', val.value)"
+      />
 
       <div id="job-parameters" class="input-flex">
         <FormLabel class="input-label" label="Parameters" />
@@ -185,39 +181,49 @@
         <CronEditorComponent v-model="cronExpression"/>
       </div>
 
-      <div class="extraRoom">
-        <ButtonComponent
-          label="Save"
-          theme="primary"
-          size="medium"
-          @button-clicked="handleEditSave"
-        />
-        <div v-show="selectedJob != null && selectedJob.disabled === false">
-        <ButtonComponent
-            label="Disable"
-            theme="danger"
+      <div style="color:red">{{ selectedJob?.message }}</div>
+
+        <div class="extraRoom">
+          <ButtonComponent
+            label="Save"
+            theme="primary"
             size="medium"
-            @button-clicked="handleDisable"
-            />
-        </div>
-        <div v-show="selectedJob != null && selectedJob.disabled === true">
+            @button-clicked="handleEditSave"
+          />
+          <div v-show="selectedJob != null && selectedJob.disabled === false">
             <ButtonComponent
-            label="Enable"
-            theme="primary"
-            size="medium"
-            @button-clicked="handleEnable"
+              label="Disable"
+              theme="danger"
+              size="medium"
+              @button-clicked="handleDisable"
             />
-        </div>
-        <div>
-        <ButtonComponent
-            label="Run"
-            theme="primary"
-            size="medium"
-            :disabled="selectedJob != null && selectedJob.disabled === true"
-            @button-clicked="handleRunNow"
+          </div>
+          <div v-show="selectedJob != null && selectedJob.disabled === true">
+            <ButtonComponent
+              label="Enable"
+              theme="primary"
+              size="medium"
+              @button-clicked="handleEnable"
             />
-        </div>
-        
+          </div>
+          <div>
+            <ButtonComponent
+              label="Run"
+              theme="primary"
+              size="medium"
+              :disabled="selectedJob != null && selectedJob.disabled === true"
+              @button-clicked="handleRunNow"
+            />
+          </div>
+          <div>
+            <ButtonComponent
+              label="Cancel Job"
+              theme="primary"
+              size="medium"
+              @button-clicked="handleCancelJob"
+            />
+          </div>
+          <ConfirmDialog ref="confirmDialog" />
       </div>
 
     </SlideModal>
@@ -243,6 +249,7 @@ import PaginationComponent from './../../components/PaginationComponent.vue'
 import CronEditorComponent from './../../components/CronEditorComponent.vue'
 import DropdownControl from './../../components/controls/DropdownControl.vue'
 import SearchControl from './../../components/controls/SearchControl.vue'
+import ConfirmDialog from './../../components/ConfirmDialog.vue';
 
 
 export default {
@@ -256,7 +263,8 @@ export default {
     PaginationComponent,
     CronEditorComponent,
     DropdownControl,
-    SearchControl
+    SearchControl,
+    ConfirmDialog
 },
   props: {
   },
@@ -269,12 +277,11 @@ export default {
       editServiceJob: {},
       toggleAdd: false,
       toggleEdit: false,
-      availableServiceJobFields: [],
       newField: '',
       newHidden: false,
       newDefault: '',
       checkedRows: [],
-      severityDropdown: [],
+      optionsDropdown: [],
       alert: {
         messages: [],
         type: "",
@@ -345,8 +352,22 @@ export default {
           nowrap: true
         },
         {
+          display: 'Last run-time',
+          field: 'lastRunTime',
+          sortable: false,
+          hide: false,
+          nowrap: true
+        },
+        {
           display: 'Next run-time',
           field: 'nextRunTime',
+          sortable: false,
+          hide: false,
+          nowrap: true
+        },
+        {
+          display: 'Status',
+          field: 'status',
           sortable: false,
           hide: false,
           nowrap: true
@@ -361,9 +382,12 @@ export default {
     },
     formattedServiceJobs() {
       return this.servicejob.map((job) => {
+        if (job.disabled) job.nextRunTime = null;
+        const nextRunTime = job.schedule ? 'Unknown' : 'On Demand'
         return {
           ...job,
-          nextRunTime: helpers.formatDate(job.nextRunTime, 'M/D/yyyy h:mm:ss a')
+          nextRunTime: helpers.formatDate(job.nextRunTime, 'M/D/yyyy h:mm:ss a', nextRunTime),
+          lastRunTime: helpers.formatDate(job.lastRunTime, 'M/D/yyyy h:mm:ss a', 'Unknown')
         }
       })
     },
@@ -411,6 +435,13 @@ export default {
       this.selectedJob.runNow = true;
       this.handleEditSave();
     },
+    async handleCancelJob() {
+      const confirm = await this.$refs.confirmDialog.show("This will stop the job if it is running. Do you want to cancel?", "Confirm Cancel");
+      if (confirm) {
+        this.selectedJob.cancel = true;
+        this.handleEditSave();
+      }
+    },
     handleInput(field, value) {
       this.selectedJob[field] = value
     },
@@ -432,6 +463,7 @@ export default {
         }
       }
       this.selectedJob = formattedJob;
+      this.selectedJob.message = row.message;
       this.cronExpression = row.schedule;
       this.toggleEdit = true;
     },
@@ -446,6 +478,20 @@ export default {
                 field: facet.field.toLowerCase(),
               }
             }) || []
+
+          this.optionsDropdown =
+            r.data?.serviceJobCommandDropdowns
+              .map((option) => {
+                return {
+                  ...option,
+                  display: option.display,
+                  value: option.value
+                  // selected: option.value === r.data?.issue.assetId
+                }
+              })
+              .sort((a, b) => {
+                return ((a, b) => (a.order || 0) - (b.order || 0))
+              }) || []
         })
         .catch((error) => {
           this.handleErrorResponse(error, "Error Getting Service Jobs")
@@ -490,6 +536,7 @@ export default {
       }
 
       this.selectedJob.schedule = this.cronExpression ?? '';
+
       return this.$axios
         .$post(`${this.$store.state.config.api_url}/admin/servicejob`, JSON.stringify(this.selectedJob), {
           headers: {
@@ -510,7 +557,7 @@ export default {
       if (!this.validateJob()) {
         return;
       }
-
+      this.selectedJob.lastRunTime = this.servicejob.find(item => item.id === this.selectedJob.id).lastRunTime;
       this.selectedJob.schedule = this.cronExpression ?? '';
       return this.$axios
         .$post(`${this.$store.state.config.api_url}/admin/servicejob`, JSON.stringify(this.selectedJob), {
@@ -561,11 +608,15 @@ export default {
       this.selectedJob = {
         "name": "",
         "description": "",
-        "type" : "Command", // only have the one type so hard-code for now
-        "option" : "",
-        "parameters" : "",
-        "runNow" : false,
-        "disabled" : false
+        "type": "Command", // only have the one type so hard-code for now
+        "option": this.optionsDropdown[0].value,
+        "parameters": "",
+        "runNow": false,
+        "disabled": false,
+        "cancel": false,
+
+        "message": "",
+        "status": ""
       }
     },
     handleAdd() {

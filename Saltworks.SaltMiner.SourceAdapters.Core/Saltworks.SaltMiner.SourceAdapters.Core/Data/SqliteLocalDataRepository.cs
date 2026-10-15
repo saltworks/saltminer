@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -73,10 +77,11 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
 
                     return AddUpdate(new SyncRecord()
                     {
+                        CurrentSourceId = "",
                         Instance = instance,
                         SourceType = sourceType,
                         State = SyncState.InProgress
-                    }, true);
+                    });
                 }
             }
             catch (Exception ex)
@@ -91,11 +96,16 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
             {
                 lock (DataContextLock)
                 {
-                    return DataContext.SyncRecords.FirstOrDefault(x => x.Instance == instance && x.SourceType == sourceType && x.State == SyncState.InProgress);
+                    var rec = DataContext.SyncRecords.FirstOrDefault(x => x.Instance == instance && x.SourceType == sourceType && x.State == SyncState.InProgress);
+                    if (rec != null && string.IsNullOrEmpty(rec.CurrentSourceId))
+                        throw new LocalDataException("In progress sync record found, but no CurrentSourceId was set.");
+                    return rec;
                 }
             }
             catch (Exception ex)
             {
+                if (ex is LocalDataException)
+                    throw;
                 throw new LocalDataException(ex.InnerException?.Message ?? ex.Message, ex);
             }
         }
@@ -110,7 +120,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
                     if (sourceMetric != null)
                         Logger.LogDebug("[Sqlite] GetSourceMetric succeeded for instance '{Instance}', sourceType '{SourceType}', and sourceId '{SourceId}'", instance, sourceType, sourceId);
                     else
-                        Logger.LogDebug("[Sqlite] GetSourceMetric failed (not dataFound) for instance '{Instance}', sourceType '{SourceType}', and sourceId '{SourceId}'", instance, sourceType, sourceId);
+                        Logger.LogDebug("[Sqlite] GetSourceMetric not found for instance '{Instance}', sourceType '{SourceType}', and sourceId '{SourceId}'", instance, sourceType, sourceId);
                     return sourceMetric;
                 }
             }
@@ -200,11 +210,11 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
                     lock (DataContextLock)
                     {
                         foreach (var e in DataContext.QueueAssets.Where(x => x.QueueScanId == id))
-                            AddToSaveBatch(e, EntityState.Deleted, true);
+                            SaveBatchAdd(e, EntityState.Deleted, true);
                         foreach (var e in DataContext.QueueIssues.Where(x => x.QueueScanId == id))
-                            AddToSaveBatch(e, EntityState.Deleted, true);
+                            SaveBatchAdd(e, EntityState.Deleted, true);
                     }
-                    AddToSaveBatch<QueueAsset>(null, EntityState.Unchanged); // unpause
+                    SaveBatchAdd<QueueAsset>(null, EntityState.Unchanged); // unpause
                 }
             }
             catch (Exception ex)
@@ -261,41 +271,60 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
             SaveBatch<QueueScan>();  // scan should go last in case loading = false
             SaveBatch<SourceMetric>();
             SaveBatch<DataDict>();
+            SaveBatch<SyncRecord>();
             Logger.LogDebug("[LocalData] Save complete.");
         }
 
 
-        private void AddToSaveBatch<T>(T entity, EntityState state, bool pauseFlush = false) where T : ILocalDataEntity
+        private SqliteDbChangeEntry SaveBatchGet<T>(T entity) where T: ILocalDataEntity
         {
-            if (!object.Equals(entity, default(T)))
+            if (string.IsNullOrEmpty(entity?.Id))
+                throw new ArgumentException("Entity cannot be null and must include a valid ID.", nameof(entity));
+            Logger.LogDebug("SaveBatchGet: [{Type}] ID: {Id}", typeof(T).Name, entity.Id);
+            return AddUpdateQueue.Find(e => e.Entity.Id == entity.Id && e.Type == entity.GetType());
+        }
+
+        private void SaveBatchRemove<T>(T entity) where T: ILocalDataEntity
+        {
+            Logger.LogDebug("SaveBatchRemove: [{Type}] ID: {Id}", typeof(T).Name, entity.Id);
+            var entry = SaveBatchGet(entity);
+            if (entry != null)
+                AddUpdateQueue.Remove(entry);
+        }
+
+        private void SaveBatchAdd<T>(T entity, EntityState state, bool pauseFlush = false) where T : ILocalDataEntity
+        {
+            if (object.Equals(entity, default(T)))  // check for entity null
+                throw new ArgumentNullException(nameof(entity));
+            if (string.IsNullOrEmpty(entity.Id))
+                throw new ArgumentNullException(nameof(entity), "Entity ID cannot be null");
+            Logger.LogDebug("SaveBatchAdd: [{Type}] ID: {Id}", typeof(T).Name, entity.Id);
+            lock (AddUpdateQueueLock)
             {
-                lock (AddUpdateQueueLock)
+                var entry = SaveBatchGet(entity);
+                if (entry != null)
                 {
-                    var entry = AddUpdateQueue.Find(e => e.Entity.Id == entity.Id && e.Type == entity.GetType());
-                    if (entry != null)
+                    entry.Entity = entity;
+                    if (entry.State != state)
                     {
-                        entry.Entity = entity;
-                        if (entry.State != state)
-                        {
-                            // logic for state change based on current state and incoming state (if different)
-                            // best guess handling here...
-                            if (entry.State == EntityState.Added && state == EntityState.Deleted)
-                                AddUpdateQueue.Remove(entry);  // just kidding, don't save this one
-                            if (entry.State == EntityState.Modified && state == EntityState.Deleted)
-                                entry.State = EntityState.Deleted;
-                            if (entry.State == EntityState.Deleted)
-                                entry.State = state;
-                        }
+                        // logic for state change based on current state and incoming state (if different)
+                        // best guess handling here...
+                        if (entry.State == EntityState.Added && state == EntityState.Deleted)
+                            AddUpdateQueue.Remove(entry);  // just kidding, don't save this one
+                        if (entry.State == EntityState.Modified && state == EntityState.Deleted)
+                            entry.State = EntityState.Deleted;
+                        if (entry.State == EntityState.Deleted)
+                            entry.State = state;
                     }
-                    else
+                }
+                else
+                {
+                    AddUpdateQueue.Add(new()
                     {
-                        AddUpdateQueue.Add(new()
-                        {
-                            Entity = entity,
-                            State = state,
-                            Type = typeof(T)
-                        });
-                    }
+                        Entity = entity,
+                        State = state,
+                        Type = typeof(T)
+                    });
                 }
             }
 
@@ -322,10 +351,15 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
                 {
                     // suppress the inner exception, avoid filling the log from one error message
                     #pragma warning disable S6667 // Logging in a catch clause should pass the caught exception as a parameter, but we want to suppress the inner exception here.
-                    Logger.LogError("During data context save operation, {ExName} was thrown.  Inner exception will be suppressed to protect logging overflow.", nameof(DbUpdateConcurrencyException));
+                    if (ex.InnerException != null)
+                        Logger.LogError("During data context save operation, {ExName} was thrown.  Inner exception will be suppressed to protect logging overflow.", nameof(DbUpdateConcurrencyException));
                     #pragma warning restore S6667 // Logging in a catch clause should pass the caught exception as a parameter.
                     throw new LocalDataConcurrencyException(ex.Message);
                 }
+            }
+            catch (Exception ex)
+            {
+                throw new LocalDataException($"General data failure: [{ex.InnerException?.GetType().Name ?? ex.GetType().Name}] {ex.InnerException?.Message ?? ex.Message}", ex);
             }
         }
 
@@ -336,8 +370,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
             {
                 if (!AddUpdateQueue.Exists(ce => ce.Type == type))
                     return;  // nothing to do
-                var batch = AddUpdateQueue.Where(ce => ce.Type == type);
-                Logger.LogDebug("[LocalData] Saving changes for {Count} {Type} doc(s).", batch.Count(), type.Name);
+                var batch = AddUpdateQueue.Where(ce => ce.Type == type).ToList();
+                Logger.LogDebug("[LocalData] Saving changes for {Count} {Type} doc(s).", batch.Count, type.Name);
                 lock (DataContextLock)
                 {
                     DataContext.Set<T>().AddRange(batch.Where(ce => ce.State == EntityState.Added).Select(ce => (T)ce.Entity));
@@ -345,12 +379,23 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
                     DataContext.Set<T>().RemoveRange(batch.Where(ce => ce.State == EntityState.Deleted).Select(ce => (T)ce.Entity));
                     DataContextSave();
                 }
-                AddUpdateQueue.RemoveAll(ce => ce.Type == type);
+                var removed = AddUpdateQueue.RemoveAll(ce => ce.Type == type);
+                if (removed != batch.Count)
+                    Logger.LogError("SaveBatch saved {Bat} {Typ}s but removed {Rem} items from the queue (they should match).", batch.Count, typeof(T).Name, removed);
             }
         }
 
-
-
+        internal struct MyStruct
+        {
+            internal int Index;
+            internal string Type;
+            internal string Id;
+            public override string ToString()
+            {
+                return $"{Index} {Type} {Id}";
+            }
+        }
+        private readonly List<MyStruct> List = [];
 
         /// <param name="entity">Entity to add/update</param>
         /// <param name="immediate">If add and immediate set, will be immediately sent to DB instead of being queued for a batch add.</param>
@@ -361,14 +406,22 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
         /// </remarks>
         public T AddUpdate<T>(T entity, bool immediate = false) where T : class, ILocalDataEntity
         {
-            var isNew = string.IsNullOrEmpty(entity.Id);
-            entity.Id = isNew ? Guid.NewGuid().ToString() : entity.Id;
+            var isNew = false;
+            if (string.IsNullOrEmpty(entity.Id))
+            {
+                entity.Id = Guid.NewGuid().ToString();
+                isNew = true;
+                if (typeof(T).Name == typeof(QueueAsset).Name || typeof(T).Name == typeof(QueueScan).Name)
+                    List.Add(new() { Index = List.Count, Type = typeof(T).Name, Id = entity.Id });
+            }
             entity.UpdateDtoFields();
+            var unsaved = SaveBatchGet(entity);  // Get entry if we have this queued already
+
             try
             {
                 if (!immediate)
                 {
-                    AddToSaveBatch(entity, isNew ? EntityState.Added : EntityState.Modified);
+                    SaveBatchAdd(entity, unsaved?.State ?? (isNew ? EntityState.Added : EntityState.Modified));
                 }
                 else
                 {
@@ -376,8 +429,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
                     //var perfId = PerfHelper.Start(nameof(AddUpdate) + etype.Name)
                     lock (DataContextLock)
                     {
-                        DataContext.Entry(entity).State = isNew ? EntityState.Added : EntityState.Modified;
+                        DataContext.Entry(entity).State = unsaved?.State ?? (isNew ? EntityState.Added : EntityState.Modified);
                         DataContextSave();
+                        if (unsaved != null)
+                            SaveBatchRemove(entity);
                     }
                     //PerfHelper.Complete(perfId)
                 }
@@ -413,7 +468,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Core.Data
                 }
                 else
                 {
-                    AddToSaveBatch(entity, EntityState.Deleted);
+                    SaveBatchAdd(entity, EntityState.Deleted);
                 }
                 return true;
             }

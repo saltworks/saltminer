@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using System.Text.Json.Serialization;
 
@@ -96,12 +100,14 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
         public LongDto ClosedTimestampMillis { get; set; }
         public StringListDto ScanId { get; set; }
         public StringListDto Sources { get; set; }
+        public StringListDto AffectedDomainIds { get; set; }
+        public StringListDto AffectedDomainNames { get; set; }
         public StringDto EnvironmentId { get; set; }
         public StringDto Severity { get; set; }
         public FloatDto CvssScore { get; set; }
         public StringDto VulnerabilitySubCategory { get; set; }
         public StringDto DisplayName { get; set; }
-        public StringDto OwaspApiTop10 { get; set; }
+        public StringListDto OwaspApiTop10 { get; set; }
         public ApiEntityDto ApiEntity { get; set; }
     }
 
@@ -112,6 +118,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
     public class StringListDto
     {
         public List<string> Value { get; set; }
+        public string ToCsv() => string.Join(",", Value ?? []);
     }
     public class StringDto
     {

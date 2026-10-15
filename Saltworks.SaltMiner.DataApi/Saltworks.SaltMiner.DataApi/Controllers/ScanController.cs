@@ -1,25 +1,29 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Authentication;
 using Saltworks.SaltMiner.DataApi.Contexts;
-using Saltworks.SaltMiner.Core.Data;
 
 namespace Saltworks.SaltMiner.DataApi.Controllers
 {
@@ -73,10 +77,10 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <response code="200">Returns the requested object</response>
         [ProducesResponseType(200, Type = typeof(DataResponse<Scan>))]
         [Auth(Role.Manager, Role.Admin, Role.Pentester, Role.PentesterViewer)]
-        [HttpGet("{id}/{assetType}/{sourceType}/{configName}")]
+        [HttpGet("{id}/{assetType}/{sourceType}/{instance}")]
         public ActionResult<DataItemResponse<Scan>> Get(string id, string assetType, string sourceType, string instance)
         {
-            Logger.LogInformation("Get action called for id '{id}', type '{assetType}', and source type '{sourceType}', and instance '{instance}'", id, assetType, sourceType, instance);
+            Logger.LogInformation("Get action called for id '{Id}', type '{AssetType}', and source type '{SourceType}', and instance '{Instance}'", id, assetType, sourceType, instance);
             
             return Ok(Context.Get<Scan>(id, Scan.GenerateIndex(assetType, sourceType, instance)));
         }
@@ -84,17 +88,17 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <summary>
         /// Returns a list of Scans by search
         /// </summary>
-        /// <param name="search">Search request payload</param>
+        /// <param name="request">Search request payload</param>
         /// <returns>The list inside a response object</returns>
         /// <response code="200">Returns a batch from a search request</response>
         [ProducesResponseType(200, Type = typeof(DataResponse<Scan>))]
         [Auth(Role.Manager, Role.Admin, Role.Pentester, Role.PentesterViewer, Role.Agent)]
         [HttpPost("[action]")]
-        public ActionResult<DataResponse<Scan>> Search([FromBody] SearchRequest search)
+        public ActionResult<DataResponse<Scan>> Search([FromBody] SearchRequest request)
         {
             Logger.LogInformation("Search action called");
             
-            return Ok(Context.Search(search));
+            return Ok(Context.Search<Scan>(Scan.GenerateIndex(request.AssetType, request.SourceType, request.Instance), request));
         }
 
         /// <summary>
@@ -127,7 +131,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         [HttpDelete("{id}/{assetType}/{sourceType}/{instance}")]
         public ActionResult<NoDataResponse> Delete(string id, string assetType, string sourceType, string instance)
         {
-            Logger.LogInformation("Delete action called for id '{id}', type '{assetType}', and source type '{sourceType}', and instance '{instance}'", id, assetType, sourceType, instance);
+            Logger.LogInformation("Delete action called for id '{Id}', type '{AssetType}', and source type '{SourceType}', and instance '{Instance}'", id, assetType, sourceType, instance);
         
             return Ok(Context.Delete<Scan>(id, Scan.GenerateIndex(assetType, sourceType, instance)));
         }
@@ -143,7 +147,7 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         [HttpGet("count/asset/{assetId}")]
         public ActionResult<NoDataResponse> CountByAssetId(string assetId)
         {
-            Logger.LogInformation("Count of scans action called for Asset ID '{assetId}'", assetId);
+            Logger.LogInformation("Count of scans action called for Asset ID '{AssetId}'", assetId);
 
 
             return Ok(Context.CountByAssetId(assetId));

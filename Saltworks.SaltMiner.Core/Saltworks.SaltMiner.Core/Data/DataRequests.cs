@@ -1,23 +1,29 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
-﻿using Org.BouncyCastle.Bcpg;
+using Saltworks.SaltMiner.Core.Common;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Extensions;
+using System;
 using System.Collections.Generic;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace Saltworks.SaltMiner.Core.Data
@@ -41,6 +47,12 @@ namespace Saltworks.SaltMiner.Core.Data
         public IEnumerable<QueueIssue> QueueIssues { get; set; }
     }
     
+    public class JsonDataRequest
+    {
+        public IEnumerable<JsonObject> Documents { get; set; }
+        public string TypeName { get; set; }
+    }
+
     /// <summary>
     /// Use to request an operation over multiple entities
     /// </summary>
@@ -96,28 +108,171 @@ namespace Saltworks.SaltMiner.Core.Data
         /// <summary>
         /// <para>Dictionary of field/value pairs to use for searching with logical AND</para>
         /// <para>Supports DataRange, TermRange, MustNot Exists, and Wildcard Queries</para>
-        /// <para>DateRange - To build query string value needed use the DataClient Helper BuildDateRangeFilterValue(DateTime greaterThanOrEqual, DateTime lessThan)</para>
-        /// <para>TermRange - To build query string value needed use the DataClient Helpers BuildGreaterThanOrEqualFilterValue(string value), BuildLessThanOrEqualFilterValue(string value), BuildGreaterThanFilterValue(string value), BuildLessThanFilterValue(string value)</para>
-        /// <para>MustNot Exists - To build query string value needed use the DataClient Helpers BuildMustNotExistsFilterValue()</para>
-        /// <para>Must Exists - To build query string value needed use the DataClient Helpers BuildMustExistsFilterValue()</para>
-        /// <para>Terms Query - To build query string value needed use the DataClient Helpers BuildTermsFilterValue(List<string> values)</string>)</para>
-        /// <para>QueryString - To build query string value needed use the DataClient Helpers BuildQueryStringFilterValue(string value = "")</para>
+        /// <para>See Add*FilterMatch methods</para>
         /// <para>WildCard - Use '*' where you want to place the wildcard</para>
         /// </summary>
-        public Dictionary<string, string> FilterMatches { get; set; }
+        public Dictionary<string, string> FilterMatches { get; set; } = [];
 
         /// <summary>
-        /// Sub Quweries 
+        /// Sub Queries 
         /// </summary>
         public Filter SubFilter { get; set; }
+
+        public void RemoveFilterMatchByField(string field)
+        {
+            if (FilterMatches.TryGetValue(field, out _))
+                FilterMatches.Remove(field);
+        }
+
+
+        public void AddSimpleFilterMatch(string field, string value, bool exceptionOnTryFail = false)
+        {
+            FilterMatches.TryAdd(field, value);
+        }
+
+        public void AddDateRangeFilterMatch(string field, DateTime greaterThanOrEqual, DateTime lessThan, bool exceptionOnTryFail = false)
+        {
+            var didIt = FilterMatches.TryAdd(field, $"{greaterThanOrEqual:yyyy-mm-dd}||{lessThan:yyyy-mm-dd}");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
+        public void AddGreaterThanOrEqualFilterMatch(string field, string value, bool exceptionOnTryFail = false)
+        {
+            var didIt = FilterMatches.TryAdd(field, $"{value}>=||");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
+        public void AddRangeOrEqualFilterMatch(string field, string gteValue, string lteValue, bool exceptionOnTryFail = false)
+        {
+            var didIt = FilterMatches.TryAdd(field, $"{gteValue}>=||{lteValue}<=||");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
+        public void AddRangeFilterMatch(string field, string gtValue, string ltValue, bool exceptionOnTryFail = false)
+        {
+            var didIt = FilterMatches.TryAdd(field, $"{gtValue}>||{ltValue}<||");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
+        public void AddLessThanOrEqualFilterMatch(string field, string value, bool exceptionOnTryFail = false)
+        {
+            var didIt = FilterMatches.TryAdd(field, $"{value}<=||");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
+        public void AddGreaterThanFilterMatch(string field, string value, bool exceptionOnTryFail = false)
+        {
+            var didIt = FilterMatches.TryAdd(field, $"{value}>||");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
+        public void AddLessThanFilterMatch(string field, string value, bool exceptionOnTryFail = false)
+        {
+            var didIt = FilterMatches.TryAdd(field, $"{value}<||");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
+        public void AddQueryStringFilterMatch(string field, string value, bool exceptionOnTryFail = false)
+        {
+            var didIt = FilterMatches.TryAdd(field, $"{value}**");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
+        public void AddMustNotExistsFilterMatch(string field, bool exceptionOnTryFail = false)
+        {
+            var didIt = FilterMatches.TryAdd(field, "!");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
+        public void AddMustExistsFilterMatch(string field, bool exceptionOnTryFail = false)
+        {
+            var didIt = FilterMatches.TryAdd(field, "+!");
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
+        public void AddTermsFilterMatch(string field, List<string> values, bool exceptionOnTryFail = false)
+        {
+            var didIt = FilterMatches.TryAdd(field, string.Join("||+", values.ToArray()));
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
+        public void AddExcludeTermsFilterMatch(string field, List<string> values, bool exceptionOnTryFail=false)
+        {
+            bool didIt;
+            if (values.Count == 1)
+            {
+                didIt = FilterMatches.TryAdd(field, $"||~{values[0]}");
+            }
+            didIt = FilterMatches.TryAdd(field, string.Join("||~", values.ToArray()));
+            if (exceptionOnTryFail && !didIt)
+                throw new SaltMinerValidationException($"Field '{field}' already added to filters.");
+        }
+
     }
 
+    public abstract class SearchRequestBase
+    {
+        protected SearchRequestBase() { }
+        protected SearchRequestBase(PagingInfo paging)
+        {
+            PagingInfo = paging;
+        }
+        protected SearchRequestBase(string filterField, string filterValue, int size = 0)
+        {
+            Filter = new();
+            Filter.AddSimpleFilterMatch(filterField, filterValue);
+            if (size > 0)
+                PagingInfo = new() { Size = size };
+        }
+
+        protected SearchRequestBase(string filterField, string filterValue, PagingInfo pagingInfo)
+        {
+            Filter = new();
+            Filter.AddSimpleFilterMatch(filterField, filterValue);
+            PagingInfo = pagingInfo;
+        }
+
+        /// <summary>
+        /// Filter(s) to apply to search
+        /// </summary>
+        public Filter Filter { get; set; } = new();
+
+        /// <summary>
+        /// Dictionary&lt;sort field, is ascending&gt; for sorting
+        /// </summary>
+        public Dictionary<string, bool> SortKeys { get; set; }
+
+        /// <summary>
+        /// Pagination Information
+        /// </summary>
+        public PagingInfo PagingInfo { get; set; } = null;
+
+        /// <summary>
+        /// If set, includes concurrency information in results (sequence num, primary term)
+        /// </summary>
+        public bool IncludeConcurrencyInfo { get; set; } = false;
+    }
+    
     /// <summary>
     /// Used to perform a search (or continue it)
     /// </summary>
-    public class SearchRequest
+    public class SearchRequest : SearchRequestBase
     {
         public SearchRequest() { }
+        public SearchRequest(PagingInfo paging) : base(paging) {}
+        public SearchRequest(string filterField, string filterValue, int size = 0) : base(filterField, filterValue, size) {}
+        public SearchRequest(string filterField, string filterValue, PagingInfo pagingInfo) : base(filterField, filterValue, pagingInfo) {}
 
         /// <summary>
         /// Possible filter by asset type
@@ -131,26 +286,29 @@ namespace Saltworks.SaltMiner.Core.Data
         /// Possible filter by asset type
         /// </summary>
         public string SourceType { get; set; }
+    }
 
-        public Filter Filter { get; set; }
-        /// <summary>
-        /// List of sort values after which the next result set should be produced
-        /// </summary>
-        public IList<object> AfterKeys { get; set; }
+    public class JsonSearchRequest : SearchRequestBase
+    {
+        public JsonSearchRequest() { }
+        public JsonSearchRequest(PagingInfo paging) : base(paging) { }
+        public JsonSearchRequest(string filterField, string filterValue, int size = 0) : base(filterField, filterValue, size) { }
+        public JsonSearchRequest(string filterField, string filterValue, PagingInfo pagingInfo) : base(filterField, filterValue, pagingInfo) { }
+
+        public SearchRequest ToSearchRequest()
+        {
+            return new SearchRequest
+            {
+                Filter = Filter,
+                SortKeys = SortKeys,
+                PagingInfo = PagingInfo,
+                IncludeConcurrencyInfo = IncludeConcurrencyInfo
+            };
+        }
 
         /// <summary>
-        /// Pagination information
+        /// The entity type to return from the search
         /// </summary>
-        public PitPagingInfo PitPagingInfo { get; set; } = null;
-
-        /// <summary>
-        /// Pagination information
-        /// </summary>
-        public UIPagingInfo UIPagingInfo { get; set; } = null;
-
-        /// <summary>
-        /// If set, includes concurrency information in results (sequence num, primary term)
-        /// </summary>
-        public bool IncludeConcurrencyInfo { get; set; } = false;
+        public string TypeName { get; set; }
     }
 }

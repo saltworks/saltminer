@@ -35,9 +35,9 @@
         },
         "name": {
           "type": "keyword",
-		      "fields": {
-			    "text": { "type": "text" }
-		      }
+          "fields": {
+            "text": { "type": "text" }
+          }
         },
         "description": {
           "type": "keyword"
@@ -56,6 +56,12 @@
         },
         "status": {
           "type": "keyword"
+        },
+        "message": {
+          "type": "keyword"
+        },
+        "cancel": {
+          "type": "boolean"
         }
       }
     }

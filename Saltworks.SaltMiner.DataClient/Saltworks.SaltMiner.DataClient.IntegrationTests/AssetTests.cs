@@ -1,23 +1,28 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.SaltMiner.Core.Entities;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.DataClient.IntegrationTests
 {
@@ -36,29 +41,26 @@ namespace Saltworks.SaltMiner.DataClient.IntegrationTests
             Client = Helpers.GetDataClient<AssetTests>(Helpers.GetDataClientOptions(Helpers.GetConfig(false, true)));
         }
 
-        [ClassCleanup]
-        public static void CleanUp()
-        {
-            Helpers.CleanIndex(Client, "asset");
-        }
-
         [TestMethod]
         public void Crud()
         {
             // Arrange
-            var source = "Fortify1231";
             var sourceType = "DataClient";
             var instance = "UnitTest";
             var sourceId = "F1231";
             var asset = Mock.Asset(sourceType);
             asset.Id = string.Empty;
-            asset.Saltminer.Asset.Instance = source;
+            // Ensure instance matches the index we will query against
+            asset.Saltminer.Asset.Instance = instance;
             asset.Saltminer.Asset.SourceType = sourceType;
             asset.Saltminer.Asset.SourceId = sourceId;
+            var assetIndex = Asset.GenerateIndex(asset.Saltminer.Asset.AssetType, sourceType, instance);
+            Helpers.RegisterDeleteIndex(assetIndex);
 
             // Act
             var asset1 = Client.AssetAddUpdate(asset).Data;
-            Thread.Sleep(2000); // wait for "save" to complete
+            Client.RefreshIndex(Asset.GenerateIndex(asset.Saltminer.Asset.AssetType, sourceType, instance));
+            Task.Delay(2000).Wait(); // wait for "save" to complete
             var asset2 = Client.AssetGet(asset1.Id, asset.Saltminer.Asset.AssetType, sourceType, instance);
             var response = Client.AssetSearch(Helpers.SearchRequest("Saltminer.Asset.SourceId", sourceId, asset.Saltminer.Asset.AssetType, sourceType, instance));
 

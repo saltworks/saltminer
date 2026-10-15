@@ -1,0 +1,39 @@
+{
+  "index_patterns": [
+    "smtest*"
+  ],
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "name": {
+          "type": "keyword"
+        },
+        "value": {
+          "type": "keyword"
+        },
+        "date": {
+          "type": "date"
+        },
+        "category": {
+          "type": "keyword"
+        },
+        "timestamp": {
+           "type": "date"
+         },
+         "last_updated": {
+           "type": "date"
+         }
+      }
+    }
+  }
+}

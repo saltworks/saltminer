@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using System.Text.Json.Serialization;
 
@@ -58,7 +62,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
         public string Id { get; set; }
         public string Name { get; set; }
         public string NameWithNamespace { get; set; }
-        public string? Description { get; set; }
+        public string Description { get; set; }
         public string FullPath { get; set; }
         public int? OpenIssuesCount { get; set; }
         public string Path { get; set; }
@@ -68,6 +72,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
         public string LastActivityAt { get; set; }
         public List<string> Topics { get; set; }
         public string UpdatedAt { get; set; }
+        public bool Archived { get; set; }
     }
 
     public class GroupDto
@@ -79,10 +84,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
 
     public class ProjectRepositoryDto
     {
-        public string? DiskPath { get; set; }
+        public string DiskPath { get; set; }
         public bool Empty { get; set; }
         public bool Exists { get; set; }
-        public string? RootRef { get; set; }
+        public string RootRef { get; set; }
     }
 
     // scans
@@ -113,7 +118,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
         public string Ref { get; set; }
         public string RefPath { get; set; }
         public string CommitPath { get; set; }
-        public string? CommittedAt { get; set; }
+        public string CommittedAt { get; set; }
         public ScanJobsDto Jobs { get; set; }
         public string Status { get; set; }
     }
@@ -158,23 +163,23 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
         public LocationDto Location { get; set; }
         public string Severity { get; set; }
         public string DetectedAt { get; set; }
-        public List<CvssDto>? Cvss { get; set; }
-        public string? DismissalReason { get; set; }
-        public string? DismissedAt { get; set; }
+        public List<CvssDto> Cvss { get; set; }
+        public string DismissalReason { get; set; }
+        public string DismissedAt { get; set; }
         public bool FalsePositive { get; set; }
         public bool PresentOnDefaultBranch { get; set; }
-        public string? ResolvedAt { get; set; }
+        public string ResolvedAt { get; set; }
         public bool ResolvedOnDefaultBranch { get; set; }
         public ScannerDto Scanner { get; set; }
         /// <summary>
         /// Valid State values are: DETECTED, CONFIRMED, RESOLVED, DISMISSED
         /// </summary>
-        public string? State { get; set; }
-        public string? StateComment { get; set; }
-        public string? UpdatedAt { get; set; }
-        public string? Uuid { get; set; }
-        public string? VulnerabilityPath { get; set; }
-        public string? WebUrl { get; set; }
+        public string State { get; set; }
+        public string StateComment { get; set; }
+        public string UpdatedAt { get; set; }
+        public string Uuid { get; set; }
+        public string VulnerabilityPath { get; set; }
+        public string WebUrl { get; set; }
     }
 
     public class IdentifiersDto
@@ -204,18 +209,18 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
     {
         public float? BaseScore { get; set; }
         public float? OverallScore { get; set; }
-        public string? CvssSeverity { get; set; }
-        public string? Vector { get; set; }
-        public string? Vendor { get; set; }
+        public string CvssSeverity { get; set; }
+        public string Vector { get; set; }
+        public string Vendor { get; set; }
         public float? Version { get; set; }
     }
 
     public class ScannerDto
     {
-        public string? Id { get; set; }
-        public string? Name { get; set; }
-        public string? Vendor { get; set; }
-        public string? ReportType { get; set; }
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public string Vendor { get; set; }
+        public string ReportType { get; set; }
     }
 
     // groups

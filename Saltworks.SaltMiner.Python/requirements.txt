@@ -12,6 +12,13 @@ setuptools
 urllib3
 charset-normalizer
 requests
-elasticsearch>=7.17.1,<8.0.0
+httpx
+elasticsearch>=8.0.0,<9.0.0
 ecs-logging
 openpyxl
+pydantic
+pytenable
+httpx
+aiohttp
+jwt
+google-cloud-bigquery

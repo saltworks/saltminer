@@ -1,15 +1,19 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
@@ -34,8 +38,10 @@ from Utility.GeneralUtility import GeneralUtility
 
 class SscUtilities:
 
-    def __init__(self, appSettings, sourceName):
+    def __init__(self, appSettings, sourceName, logger=None, heartbeat=None):
 
+        self.__Logger = logger or logging.getLogger(__name__)
+        self.__Heartbeat = heartbeat
         self.__App = appSettings.Application
         self.__ProjectVersions = {'data': [], 'count': 0}
         self.__AllIssues = {'data': [], 'Critical': 0, 'High': 0, 'Medium': 0, 'Low':0, 'count': 0}
@@ -56,8 +62,8 @@ class SscUtilities:
         #self.__UseSscClient = False
         
         if self.__UseSscClient :
-            self.__Ssc = SscClient(appSettings, sourceName)
-            logging.debug(f"{self.__Prog}.init complete - using SSC client.")
+            self.__Ssc = SscClient(appSettings, sourceName, heartbeat=heartbeat)
+            self.__Logger.debug(f"{self.__Prog}.init complete - using SSC client.")
             if appSettings.GetSource(sourceName, 'UseIssueDetailsEndpoint', False):
                 self.__CustomTagDefinitions = self.__Ssc.GetCustomTagDefinitions()
         else:
@@ -80,7 +86,7 @@ class SscUtilities:
         
             response = self.restClient.post('/api/v1/tokens', json=typeToken)
             authToken = json.loads(response.text)['data']['token']
-            print(authToken)
+            
 
             _headers = {'Accept':'application/json',
                 'Content-Type':'application/json;charset=UTF-8',
@@ -89,8 +95,19 @@ class SscUtilities:
 
             self.restClient = RestClient(appSettings.GetSource(sourceName, 'BaseUrl'), sslVerify=appSettings.GetSource(sourceName, 'SslVerify'), defaultHeaders= _headers)
 
-            logging.debug("{self.__Prog}.init complete.  RestClient params - url: '{}', username: '{}', verify: {}".format(appSettings.GetSource(sourceName, 'BaseUrl', '[Unknown]'), appSettings.GetSource(sourceName, 'Username', '[Unknown]'), appSettings.GetSource(sourceName, 'SslVerify', '[Unknown]')))
+            self.__Logger.debug("{self.__Prog}.init complete.  RestClient params - url: '{}', username: '{}', verify: {}".format(appSettings.GetSource(sourceName, 'BaseUrl', '[Unknown]'), appSettings.GetSource(sourceName, 'Username', '[Unknown]'), appSettings.GetSource(sourceName, 'SslVerify', '[Unknown]')))
     
+    def _Beat(self):
+        '''
+        Signal progress to the caller's heartbeat delegate, if one was supplied.  No-op for
+        standalone runs.  Never lets a heartbeat failure break the work in progress.
+        '''
+        if self.__Heartbeat is not None:
+            try:
+                self.__Heartbeat()
+            except Exception:
+                self.__Logger.debug("Heartbeat delegate raised; ignoring.", exc_info=True)
+
     def Cleanup(self):
         if self.__UseSscClient :
             self.__Ssc.Cleanup()
@@ -104,7 +121,7 @@ class SscUtilities:
         if mname in self.__DepWarnList:
             return
         msg = f"[DEPRECATED] {self.__Prog} method '{mname}' has been deprecated - please use SscClient version instead."
-        logging.warning(msg)
+        self.__Logger.warning(msg)
         print(msg)
         self.__DepWarnList.append(mname)
 
@@ -114,9 +131,9 @@ class SscUtilities:
         self.__CallList[mname] += 1
 
     def callReport(self):
-        logging.info(f"{self.__Prog} method call report (only applies to methods tagged with addCall()...)")
+        self.__Logger.info(f"{self.__Prog} method call report (only applies to methods tagged with addCall()...)")
         for c in self.__CallList.keys():
-            logging.info(f"{c}: {self.__CallList[c]} call(s)")
+            self.__Logger.info(f"{c}: {self.__CallList[c]} call(s)")
 
     def getElasticUtil(self):
         return self.__ElasticClient
@@ -132,16 +149,16 @@ class SscUtilities:
         try:
             response = self.restClient.get(_url)
             if response.status_code != 200:
-                logging.error("SSC api call failed with status {} and text {}".format(response.status_code, response.text))
+                self.__Logger.error("SSC api call failed with status {} and text {}".format(response.status_code, response.text))
                 return False
             data = json.loads(response.text)
             if data is None or not 'count' in data:
-                logging.error("SSC connection failure, response null or missing expected fields")
+                self.__Logger.error("SSC connection failure, response null or missing expected fields")
                 return False
-            logging.info("SSC test call result - status code: {}, project count: {}".format(response.status_code, data['count']))
+            self.__Logger.info("SSC test call result - status code: {}, project count: {}".format(response.status_code, data['count']))
             return True
         except Exception as error:
-            logging.error("SSC test call failed - exception: " + str(error))
+            self.__Logger.error("SSC test call failed - exception: " + str(error))
             return False
 
     # GregLook - all these SSC operations have been replaced with an SSC client call (when the switch is set).  
@@ -182,7 +199,7 @@ class SscUtilities:
                 elif count['cleanName'] == "Low":
                     _issueCounts['low'] = count['visibleCount']
                 else:
-                    logging.info('odd: {}'.format(count['cleanName']))
+                    self.__Logger.info('odd: {}'.format(count['cleanName']))
 
             _issueCounts['count'] = _issueCounts['critical'] + _issueCounts['high'] + _issueCounts['medium'] + _issueCounts['low']    
         
@@ -191,7 +208,7 @@ class SscUtilities:
             _issueCounts['high'] = 0
             _issueCounts['medium'] = 0
             _issueCounts['low'] = 0
-            logging.info('error getting count totals - force recalc')
+            self.__Logger.info('error getting count totals - force recalc')
 
         
         _summaryHidden = self.getProjectVersionSummaryCounts(id, projDefFilter)
@@ -206,7 +223,7 @@ class SscUtilities:
 
             _issueCounts['suppressedCount'] = 0
             _issueCounts['removedCount'] = 0
-            logging.info('error getting count totals - force recalc')
+            self.__Logger.info('error getting count totals - force recalc')
 
 
         return _issueCounts
@@ -232,7 +249,7 @@ class SscUtilities:
         except KeyError:
 
             _issueCountsHidden['hiddenCount'] = 0
-            logging.info('error getting count totals - force recalc')
+            self.__Logger.info('error getting count totals - force recalc')
 
         return _issueCountsHidden
 
@@ -404,7 +421,7 @@ class SscUtilities:
         debug = self.__App.Settings.FlagSet("Debug-Shorten-Lists")
         if debug:
             batchSize = 10
-            logging.info('Shorten list flag in effect ("Debug-Shorten-Lists")')
+            self.__Logger.info('Shorten list flag in effect ("Debug-Shorten-Lists")')
         
         # New Ssc client
         if self.__UseSscClient:
@@ -424,9 +441,9 @@ class SscUtilities:
 
             if self.__ProjectVersions['count'] == 0:
                 self.__ProjectVersions['count'] = projectVersions['count']
-                logging.info('Downloading for {} project versions'.format(self.__ProjectVersions['count']))
+                self.__Logger.info('Downloading for {} project versions'.format(self.__ProjectVersions['count']))
             else:       
-                logging.info('Downloading {} of {} total records'.format(len(projectVersions['data']), self.__ProjectVersions['count']))
+                self.__Logger.info('Downloading {} of {} total records'.format(len(projectVersions['data']), self.__ProjectVersions['count']))
 
             for projectVersion in projectVersions['data']:
                 self.__ProjectVersions['data'].append(projectVersion)
@@ -441,10 +458,10 @@ class SscUtilities:
             except KeyError:
                 _moreRecords = False
             except:
-                logging.error('Unexpected error:{}'.format(sys.exc_info()[0]))
+                self.__Logger.error('Unexpected error:{}'.format(sys.exc_info()[0]))
                 _moreRecords = False
 
-        logging.info('Downloaded total of {} project versions'.format(len(self.__ProjectVersions['data'])))
+        self.__Logger.info('Downloaded total of {} project versions'.format(len(self.__ProjectVersions['data'])))
         return self.__ProjectVersions
 
 
@@ -458,7 +475,7 @@ class SscUtilities:
         Adds keyValue to a customTagValue object
         '''
         if not ctv:
-            logging.debug("Passed ctv missing or None")
+            self.__Logger.debug("Passed ctv missing or None")
             return
         guid = ctv['customTagGuid']
         defn = None
@@ -467,7 +484,7 @@ class SscUtilities:
                 defn = d
                 break
         if not defn:
-            logging.debug("Couldn't find custom tag definition for guid '%s'", guid)
+            self.__Logger.debug("Couldn't find custom tag definition for guid '%s'", guid)
             ctv['keyValue'] = None
             return
         if 'dateValue' in ctv.keys():
@@ -478,14 +495,14 @@ class SscUtilities:
             ctv['keyValue'] = { "name": defn['name'], "value": ctv['textValue'] } 
         if 'newCustomTagIndex' in ctv.keys():
             if not 'valueList' in defn.keys():
-                logging.debug("Expected value list not present in custom tag definition for guid '%s', name '%s'", guid, defn['name'])
+                self.__Logger.debug("Expected value list not present in custom tag definition for guid '%s', name '%s'", guid, defn['name'])
                 return
             for v in defn['valueList']:
                 if v['lookupIndex'] == ctv['newCustomTagIndex']:
                     ctv['keyValue'] = { "name": defn['name'], "value": v['lookupValue'] }
                     break
             if not 'keyValue' in ctv.keys():
-                logging.debug("Custom tag lookup index %s not found for '%s' (%s) custom tag", ctv['newCustomTagIndex'], defn['name'], guid)
+                self.__Logger.debug("Custom tag lookup index %s not found for '%s' (%s) custom tag", ctv['newCustomTagIndex'], defn['name'], guid)
 
     def __BulkIssuesLoadFromDetailsMapIssueFromDetail(self, dtl, reviewed, baseUrl, pvid):
         url = self.Nvl(dtl, 'url')
@@ -547,13 +564,14 @@ class SscUtilities:
         issues = []
         counter = 0
         for iss in issueBatch:
+            self._Beat()  # one SSC round trip per issue - the slowest loop in the sync
             rsp = ssc.GetProjectVersionIssueDetail(iss['id'])['data']
             issues.append(self.__BulkIssuesLoadFromDetailsMapIssueFromDetail(rsp, iss['reviewed'], self.__Ssc.BaseUrl, pvid))
             counter += 1
             if counter % self.__SscIssueDetailBatchSize == 0:
-                logging.info("Bulk issue detail loading %i-%i of a batch of %i issues", counter - self.__SscIssueDetailBatchSize + 1, counter, len(issueBatch))
+                self.__Logger.info("Bulk issue detail loading %i-%i of a batch of %i issues", counter - self.__SscIssueDetailBatchSize + 1, counter, len(issueBatch))
         if len(issueBatch) != len(issues):
-            logging.warning("BulkIssuesLoadDetails - counts don't match (expected %s, found %s)", len(issueBatch), len(issues))
+            self.__Logger.warning("BulkIssuesLoadDetails - counts don't match (expected %s, found %s)", len(issueBatch), len(issues))
         return issues
     
     def __BulkIssuesLoadFromDetailsBatchBulk(self, requests, issues, pvid):
@@ -586,20 +604,26 @@ class SscUtilities:
             requests.append({ 'id': iss['id'], 'reviewed': iss['reviewed'], 'req': ssc.BulkRequest(f"{url}/{iss['id']}") })
             counter += 1
             if len(requests) >= self.__SscIssueDetailBatchSize:
-                logging.info("Bulk issue detail loading %i-%i of a batch of %i issues", counter - self.__SscIssueDetailBatchSize + 1, counter, len(issueBatch))
+                self.__Logger.info("Bulk issue detail loading %i-%i of a batch of %i issues", counter - self.__SscIssueDetailBatchSize + 1, counter, len(issueBatch))
+                self._Beat()
                 self.__BulkIssuesLoadFromDetailsBatchBulk(requests, issues, pvid)
                 requests = []
         if len(requests) > 0:
-            logging.info("Bulk issue detail loading remaining %i issues", len(requests))
+            self.__Logger.info("Bulk issue detail loading remaining %i issues", len(requests))
+            self._Beat()
             self.__BulkIssuesLoadFromDetailsBatchBulk(requests, issues, pvid)
         if len(issueBatch) != len(issues):
-            logging.warning("BulkIssuesLoadFromDetailsBatch - counts don't match (expected %s, found %s)", len(issueBatch), len(issues))
+            self.__Logger.warning("BulkIssuesLoadFromDetailsBatch - counts don't match (expected %s, found %s)", len(issueBatch), len(issues))
         return issues
     
     def BulkIssuesLoadFromDetails(self, projectVersionId, projDefFilter):
         ''' 
         Same bulk issue loader as BulkIssuesLoad(), but uses the IssueDetails endpoint for the issue data, 
         which allows us to bring in more information than is available in just the Issues endpoint.
+
+        Returns the number of issue documents indexed.  The refresh stage uses it as the expected count -
+        the authoritative "how many should be there", instead of inferring it from the index while the
+        index is still settling.
         '''
         more = True
         count = 0
@@ -607,10 +631,11 @@ class SscUtilities:
         eBatchSize = self.__ElasticBatchSize
         p = ProgressLogger(self.__ElasticClient)
         while more:
+            self._Beat()  # each page is an SSC round trip plus a details fetch - can be slow
             try:
                 r = self.__Ssc.GetProjectVersionIssuesV2(projectVersionId, projDefFilter, "id,reviewed", self.__SscBatchSize, False, restartScroll = (count == 0))
             except SscClient409ConflictException as e:
-                logging.error("SSC conflict error (409) while updating issues, aborting with a partial update for PV ID %s.  Message: %s", projectVersionId, e.message)
+                self.__Logger.error("SSC conflict error (409) while updating issues, aborting with a partial update for PV ID %s.  Message: %s", projectVersionId, e.message)
                 r = None
             if not r or not r['data']:
                 more = False
@@ -627,17 +652,28 @@ class SscUtilities:
                     count += 1
                     if len(bulkDocs) == eBatchSize:
                         p.Progress(count, f"Bulk inserting {eBatchSize} documents into SaltMiner")
+                        self._Beat()
                         self.__ElasticClient.BulkInsert(bulkDocs)
                         bulkDocs = []
 
+        # refresh='wait_for' on the LAST batch only: the refresh stage scrolls this index as soon as we
+        # return, and a bulk write is not searchable until a refresh happens.  Waiting here makes every
+        # document written by this load - not just this batch - visible before we hand over, which is
+        # what the issue-count guard in AppVulsProcessor was catching us failing to do.  Intermediate
+        # batches don't need it; the final wait covers them.
         if len(bulkDocs) > 0:
             p.Progress(count, f"Bulk inserting {len(bulkDocs)} documents into SaltMiner")
-            self.__ElasticClient.BulkInsert(bulkDocs)
+            self.__ElasticClient.BulkInsert(bulkDocs, refresh='wait_for')
+        else:
+            # Nothing left to flush, but earlier batches still need to be searchable.
+            self.__ElasticClient.RefreshIndex('sscprojissues')
         if p.Started:
             p.Finish(None, "Completed loading this batch of issues from SSC to SaltMiner.")
+        return count
 
     # Simplified bulk issues loader using SscClient and ElasticClient
     def BulkIssuesLoad(self, projectVersionId, projDefFilter):
+        '''Returns the number of issue documents indexed - see BulkIssuesLoadFromDetails.'''
         _moreRecords = True
         iCurrentCount = 0
         bulkDocs = []
@@ -645,6 +681,7 @@ class SscUtilities:
         eBatchSize = self.__ElasticBatchSize
         p = ProgressLogger(self.__ElasticClient)
         while _moreRecords:
+            self._Beat()  # each page is an SSC round trip - can be slow
             response = self.__Ssc.GetProjectVersionIssues(projectVersionId, projDefFilter, sBatchSize, False)
             if response == None:
                 if p.Started:
@@ -659,12 +696,19 @@ class SscUtilities:
                     iCurrentCount += 1
                     if len(bulkDocs) == eBatchSize:
                         p.Progress(iCurrentCount, f"Bulk inserting {eBatchSize} documents into SaltMiner")
+                        self._Beat()
                         self.__ElasticClient.BulkInsert(bulkDocs)
                         bulkDocs = []
 
+                # See the note in BulkIssuesLoadFromDetails - wait_for on the final batch, so the
+                # refresh stage's scroll sees every document this load wrote.
                 if len(bulkDocs) > 0:
                     p.Progress(iCurrentCount, f"Bulk inserting {len(bulkDocs)} documents into SaltMiner")
-                    self.__ElasticClient.BulkInsert(bulkDocs)
+                    self.__ElasticClient.BulkInsert(bulkDocs, refresh='wait_for')
+                else:
+                    self.__ElasticClient.RefreshIndex('sscprojissues')
+        return iCurrentCount
+
     
     # GregLook - deprecating and disabling this method.  Only reference to it is in RWExtractSSCHidden.py (line 94), which seems to not be in use.
     def getAndLoadProjectVersionIssuesHidden(self, id, elasticUtility):
@@ -687,14 +731,14 @@ class SscUtilities:
             
             if _issues['count'] == 0:
                 _issues['count'] = issues['count']
-                logging.info('Downloading for {} issues'.format(_issues['count']))
+                self.__Logger.info('Downloading for {} issues'.format(_issues['count']))
             else:
-                logging.info('Downloading at {} - {} of {} total records'.format(iCurrentRecord, len(issues['data']), _issues['count']))
+                self.__Logger.info('Downloading at {} - {} of {} total records'.format(iCurrentRecord, len(issues['data']), _issues['count']))
 
             for issue in issues['data']:
                 iCurrentRecord = iCurrentRecord + 1
 
-                #logging.info(issue)
+                #self.__Logger.info(issue)
 
                 if (issue['hidden'] == True):
                     
@@ -706,10 +750,10 @@ class SscUtilities:
         
             except KeyError:
                 _moreRecords = False
-                logging.info('no more records to download')
+                self.__Logger.info('no more records to download')
             except:
                 _moreRecords = False
-                logging.info('something else happened trying to get next href')
+                self.__Logger.info('something else happened trying to get next href')
                 '''print('In getProjectVersionIssues - Unexpected error:{}'.format(sys.exc_info()[0]))
                 '''
         
@@ -741,9 +785,9 @@ class SscUtilities:
 
             if _issues['count'] == 0:
                 _issues['count'] = issues['count']
-                logging.info('Downloading for {} issues'.format(_issues['count']))
+                self.__Logger.info('Downloading for {} issues'.format(_issues['count']))
             else:
-                logging.info('Downloading at {} - {} of {} total records'.format(iCurrentRecord, len(issues['data']), _issues['count']))
+                self.__Logger.info('Downloading at {} - {} of {} total records'.format(iCurrentRecord, len(issues['data']), _issues['count']))
 
             for issue in issues['data']:
                 iCurrentRecord = iCurrentRecord + 1
@@ -755,10 +799,10 @@ class SscUtilities:
         
             except KeyError:
                 _moreRecords = False
-                logging.info('no more records to download')
+                self.__Logger.info('no more records to download')
             except:
                 _moreRecords = False
-                logging.info('something else happened trying to get next href')
+                self.__Logger.info('something else happened trying to get next href')
                 '''print('In getProjectVersionIssues - Unexpected error:{}'.format(sys.exc_info()[0]))
                 '''
 
@@ -803,7 +847,7 @@ class SscUtilities:
                 Critical, High, Medium, Low))
         ofile.close()
 
-        logging.info('Data export complete.')
+        self.__Logger.info('Data export complete.')
 
 
  

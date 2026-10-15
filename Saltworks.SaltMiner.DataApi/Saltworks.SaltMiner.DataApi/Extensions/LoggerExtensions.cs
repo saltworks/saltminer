@@ -1,23 +1,25 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Saltworks.SaltMiner.Core.Data;
 using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace Saltworks.SaltMiner.DataApi.Extensions
 {
@@ -25,59 +27,20 @@ namespace Saltworks.SaltMiner.DataApi.Extensions
     {
         public static string SearchPagingLoggerMessage(string methodName, SearchRequest request)
         {
-            if (request.PitPagingInfo != null)
+            if (request.PagingInfo != null)
             {
-                var keyString = request.AfterKeys == null ? null : String.Join(",", request.AfterKeys.ToArray());
-                var result = $"{methodName}:  count of filters {request?.Filter?.FilterMatches?.Count ?? 0}, with scroll size {request?.PitPagingInfo?.Size ?? 0} and scroll token '{request?.PitPagingInfo?.PagingToken ?? ""}'";
+                var keyString = request.PagingInfo.CurrentAfterKeys == null ? null : String.Join(",", request.PagingInfo.CurrentAfterKeys.ToArray());
+                var result = $"{methodName}:  count of filters {request?.Filter?.FilterMatches?.Count ?? 0}, with size {request?.PagingInfo?.Size ?? 0} and page '{request?.PagingInfo?.Page ?? 0}'";
                 if (keyString != null)
                 {
-                    result = result + $" and after keys '{keyString}'";
-                }
-                return result;
-            }
-            else if(request.UIPagingInfo != null)
-            {
-                var keyString = request.AfterKeys == null ? null : String.Join(",", request.AfterKeys.ToArray());
-                var result = $"{methodName}:  count of filters {request?.Filter?.FilterMatches?.Count ?? 0}, with size {request?.UIPagingInfo?.Size ?? 0} and page '{request?.UIPagingInfo?.Page ?? 0}'";
-                if (keyString != null)
-                {
-                    result = result + $" and after keys '{keyString}'";
+                    result += $" and after keys '{keyString}'";
                 }
                 return result;
             } 
             else
             {
-                return $"{methodName}:  count of filters {request?.Filter?.FilterMatches?.Count ?? 0} without any PagingIfo";
+                return $"{methodName}:  count of filters {request?.Filter?.FilterMatches?.Count ?? 0} without any PagingInfo";
             }
-        }
-
-        public static string GetPagingLoggerMessage(string methodName, string name, PitPagingInfo scrollInfo, IList<object> afterKeys)
-        {
-            var keyString = afterKeys == null ? null : String.Join(",", afterKeys.ToArray());
-            var result = $"{methodName} called for type {name} with scroll size {scrollInfo.Size} and scroll token '{scrollInfo.PagingToken}'";
-            if (keyString != null)
-            {
-                result = result + $" and after keys '{keyString}'";
-            }
-
-            return result;
-        }
-
-        public static string GetPagingLoggerMessage(string methodName, string name, UIPagingInfo scrollInfo, IList<object> afterKeys)
-        {
-            var keyString = afterKeys == null ? null : String.Join(",", afterKeys.ToArray());
-            var result = $"{methodName} called for type {name} with size {scrollInfo.Size} and page '{scrollInfo.Page}'";
-            if (keyString != null)
-            {
-                result = result + $" and after keys '{keyString}'";
-            }
-
-            return result;
-        }
-
-        public static string GetNoPagingLoggerMessage(string methodName, string name)
-        {
-            return $"{methodName} called for type {name} with no PagingInfo'";
         }
     }
 }

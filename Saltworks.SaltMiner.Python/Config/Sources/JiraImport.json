@@ -1,0 +1,8 @@
+{
+  "Source": "JiraImport",
+  "SourceName": "JiraImport",
+  "Enabled": false,
+  "Url": "",
+  "UserName": "",
+  "ApiKey": ""
+}

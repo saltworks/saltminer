@@ -1,57 +1,52 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.DataApi.Models;
 using Saltworks.SaltMiner.DataApi.Data;
 using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
-using System.Collections.Generic;
 using Saltworks.SaltMiner.ElasticClient;
 using System;
 
-namespace Saltworks.SaltMiner.DataApi.Contexts
+namespace Saltworks.SaltMiner.DataApi.Contexts;
+
+public class QueueLogContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<QueueLogContext> logger) : ContextBase(config, dataRepository, factory, logger)
 {
-    public class QueueLogContext : ContextBase
+    public DataResponse<QueueLog> Read(bool leaveUnread = false)
     {
-        public QueueLogContext(ApiConfig config, IDataRepo dataRepository, IElasticClientFactory factory, ILogger<QueueLogContext> logger) : base(config, dataRepository, factory, logger)
-        { }
+        var response = DataRepo.Search<QueueLog>(QueueLog.GenerateIndex(), new SearchRequest("Read", "false"));
 
-        public DataResponse<QueueLog> Read(bool leaveUnread = false)
+        foreach (var log in response.Data)
         {
-            var searchRequest = new SearchRequest() { Filter = new() { FilterMatches = new Dictionary<string, string>() } };
-            
-            searchRequest.Filter.FilterMatches.Add("Read", "false");
-
-            var response = DataRepo.Search<QueueLog>(searchRequest, QueueLog.GenerateIndex());
-
-            foreach (var log in response.Data)
+            if (leaveUnread)
             {
-                if (leaveUnread)
-                {
-                    break;
-                }
-
-                log.Read = true;
-                log.LastUpdated = DateTime.UtcNow;
-
-                ElasticClient.AddUpdate(log, QueueLog.GenerateIndex());
+                break;
             }
 
-            return response;
+            log.Read = true;
+            log.LastUpdated = DateTime.UtcNow;
+
+            ElasticClient.AddUpdate(log, QueueLog.GenerateIndex());
         }
+
+        return response;
     }
 }

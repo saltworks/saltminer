@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
@@ -21,10 +25,11 @@ using Saltworks.SaltMiner.UiApiClient.Requests;
 using Saltworks.SaltMiner.UiApiClient.ViewModels;
 using Saltworks.Utility.ApiHelper;
 using System.Net;
+using System.Text.Json;
 
 namespace Saltworks.SaltMiner.UiApiClient
 {
-    public class UiApiClient : IDisposable
+    public class UiApiClient : IReportAttachmentClient, IDisposable
     {
         public ApiClient UiApi { get; }
         private ILogger Logger { get; }
@@ -60,6 +65,11 @@ namespace Saltworks.SaltMiner.UiApiClient
         public DataItemResponse<UiAttachmentInfo> GetEngagementAttachment(string fileName)
         {
             return CheckRetry(() => UiApi.Get<DataItemResponse<UiAttachmentInfo>>($"report/attachment/{fileName}")).Content;
+        }
+
+        public DataItemResponse<UiAttachmentInfo> GetReportAttachmentByFileId(string fileId)
+        {
+            return CheckRetry(() => UiApi.Get<DataItemResponse<UiAttachmentInfo>>($"report/attachment/file-id/{fileId}")).Content;
         }
 
         #endregion
@@ -101,17 +111,8 @@ namespace Saltworks.SaltMiner.UiApiClient
         {
             var url = "job/pending";
             if (!string.IsNullOrEmpty(type))
-            {
                 url = $"{url}?type={type}";
-            }
-
-            var pagingInfo = new UIPagingInfo 
-            { 
-                Size = 1,
-                SortFilters = new Dictionary<string, bool> { { "Timestamp", true } }
-            };
-
-            return new DataItemResponse<Job>(CheckRetry(() => UiApi.Post<DataResponse<Job>>(url, pagingInfo)).Content.Data.FirstOrDefault());
+            return new DataItemResponse<Job>(CheckRetry(() => UiApi.Post<DataResponse<Job>>(url, new PagingInfo(1))).Content.Data.FirstOrDefault());
         }
 
         public DataResponse<Job> PendingJobCount(string type = null)
@@ -122,7 +123,7 @@ namespace Saltworks.SaltMiner.UiApiClient
                 url = $"{url}?type={type}";
             }
 
-            return CheckRetry(() => UiApi.Get<DataResponse<Job>>(url, new UIPagingInfo { Size = 100 })).Content;
+            return CheckRetry(() => UiApi.Get<DataResponse<Job>>(url, new PagingInfo(100))).Content;
         }
 
         public DataItemResponse<Job> UpdateJobQueue(Job queue)
@@ -139,9 +140,29 @@ namespace Saltworks.SaltMiner.UiApiClient
 
         #region Report File
 
-        public void UploadFile(Stream file, string fileName)
+        /// <summary>
+        /// Uploads a file and returns the file id the UI API stored it under.
+        /// </summary>
+        public string UploadFile(Stream file, string fileName)
         {
-            UiApi.PostFileAsync($"report/file/upload", file, fileName).Wait();
+            var response = UiApi.PostFileAsync($"report/file/upload", file, fileName).Result;
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new UiApiClientException($"File upload failed for '{fileName}' with status {(int)response.StatusCode}");
+            }
+            return FileIdFromUploadResponse(response.RawContent);
+        }
+
+        /// <summary>
+        /// The upload action returns a JSON string "{FileRepository}/{file id}"; returns the file id.
+        /// </summary>
+        public static string FileIdFromUploadResponse(string rawContent)
+        {
+            if (string.IsNullOrWhiteSpace(rawContent))
+            {
+                return string.Empty;
+            }
+            return Path.GetFileName(JsonSerializer.Deserialize<string>(rawContent));
         }
 
         public byte[] DownloadFile(string url)

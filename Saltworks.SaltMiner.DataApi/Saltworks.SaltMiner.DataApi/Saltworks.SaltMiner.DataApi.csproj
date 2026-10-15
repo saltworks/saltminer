@@ -27,6 +27,7 @@
     <EmbeddedResource Remove="RunData\**" />
     <None Remove="pub\**" />
     <None Remove="RunData\**" />
+	<InternalsVisibleTo Include="Saltworks.SaltMiner.DataApi.UnitTests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -39,7 +40,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="8.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
   </ItemGroup>
 
   <ItemGroup>
@@ -63,7 +64,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Update="appsettings.json">
+    <Content Update="appsettings-default.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

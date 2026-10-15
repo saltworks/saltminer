@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Saltworks.Utility.ApiHelper.UnitTests.Helpers;
@@ -24,9 +28,6 @@ namespace Saltworks.Utility.ApiHelper.UnitTests
     [TestClass]
     public class ExceptionTests
     {
-        public const string TEST_BASE_URL = "https://reqres.in/api";
-        // https://reqres.in/
-
         [TestMethod]
         public void Exception_Deserialize_Html()
         {
@@ -41,21 +42,6 @@ namespace Saltworks.Utility.ApiHelper.UnitTests
 
             // Assert
             Assert.IsTrue(ok);
-        }
-
-        [TestMethod]
-        public void Exception_NotThrown_NotFound()
-        {
-            // Arrange
-            var url = TEST_BASE_URL;
-
-            // Act
-            var c = ApiClientFactory.CreateApiClient<ExceptionTests>(url);
-            c.Options.ExceptionOnFailure = false;
-            var r = c.Get<Thing>("user/23");
-
-            // Assert
-            Assert.AreEqual(HttpStatusCode.NotFound, r.StatusCode);
         }
 
         [TestMethod]
@@ -82,33 +68,6 @@ namespace Saltworks.Utility.ApiHelper.UnitTests
             catch (ApiClientUnauthorizedException ex)
             {
                 Assert.AreEqual(HttpStatusCode.Unauthorized, ex.Status);
-                Assert.AreNotEqual(0, ex.Message.Length);
-            }
-            catch (ApiClientException ex)
-            {
-                throw new AssertFailedException($"Got exception of type [{ex.GetType().Name}], but expected exception of type [{exType}]");
-            }
-        }
-
-        [TestMethod]
-        public void Exception_NotFound()
-        {
-            // Arrange
-            var url = TEST_BASE_URL;
-            var exType = typeof(ApiClientNotFoundException).Name;
-
-            // Act
-            var c = ApiClientFactory.CreateApiClient<ExceptionTests>(url);
-            c.Options.ExceptionOnFailure = true;
-            try
-            {
-                c.Get<Thing>("users/23");
-                throw new AssertFailedException($"No exception thrown, but expected type [{exType}]");
-            }
-            // Assert
-            catch (ApiClientNotFoundException ex)
-            {
-                Assert.AreEqual(HttpStatusCode.NotFound, ex.Status);
                 Assert.AreNotEqual(0, ex.Message.Length);
             }
             catch (ApiClientException ex)

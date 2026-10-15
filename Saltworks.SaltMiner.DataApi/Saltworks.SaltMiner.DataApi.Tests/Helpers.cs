@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -31,10 +35,10 @@ namespace Saltworks.SaltMiner.DataApi.IntegrationTests
         public static IElasticClientFactory CreateElasticClientFactory(ApiConfig config)
         {
             var services = new ServiceCollection();
-            services.AddNestClient(configureOptions =>
+            services.AddEsClient(configureOptions =>
             {
                 configureOptions.HttpScheme = config.ElasticHttpScheme;
-                configureOptions.ElasticSearchHost = new string[] { config.ElasticHost };
+                configureOptions.ElasticSearchHost = [ config.ElasticHost ];
                 configureOptions.Port = config.ElasticPort;
                 configureOptions.Username = config.ElasticUsername;
                 configureOptions.Password = config.ElasticPassword;
@@ -42,7 +46,7 @@ namespace Saltworks.SaltMiner.DataApi.IntegrationTests
             
             var sp = services.BuildServiceProvider();
             
-            sp.UseNestClient();
+            sp.UseEsClient();
             
             return sp.GetRequiredService<IElasticClientFactory>();
         }

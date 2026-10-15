@@ -1,0 +1,51 @@
+{
+    "index_patterns": [
+        "sm_queue_sync*"
+    ],
+    "priority": 100,
+    "template": {
+        "settings": {
+            "number_of_shards": 1,
+            "number_of_replicas": 0,
+            "analysis": {
+                "normalizer": {
+                    "lc_normalizer": {
+                        "type": "custom",
+                        "char_filter": [],
+                        "filter": [
+                            "lowercase",
+                            "asciifolding"
+                        ]
+                    }
+                }
+            }
+        },
+        "mappings": {
+            "properties": {
+                "id": { "type": "keyword" },
+                "source": { "type": "keyword" },
+                "key": { "type": "keyword" },
+                "status": { "type": "keyword" },
+                "stage": { "type": "keyword" },
+                "status_reason": { "type": "text" },
+                "data": {
+                    "properties": {
+                        "target_id": { "type": "keyword" },
+                        "target_type": { "type": "keyword" },
+                        "target_instance": { "type": "keyword" },
+                        "force": { "type": "boolean" }
+                    }
+                 },
+                "created": { "type": "date" },
+                "completed": { "type": "date" },
+                "locked": { "type": "date" },
+                "lock_id": { "type": "keyword" },
+                "priority": { "type": "integer" },
+                "change_reason": { "type": "text" },
+                "change_trigger": { "type": "keyword" },
+                "agent_id": { "type": "keyword" },
+                "worker_id": { "type": "integer" }
+            }
+        }
+    }
+}

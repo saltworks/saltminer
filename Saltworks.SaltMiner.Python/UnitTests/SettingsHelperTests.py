@@ -1,58 +1,67 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
 
-import sys
 import os
 import time
+import unittest
 
 from Core.Application import Application
 from Utility.SettingsHelper import SettingsHelper
 
 module = os.path.splitext(os.path.basename(__file__))[0]
 
-def MainTest():
-    # Arrange
-    sh = SettingsHelper(Application())
-    key = "testsetting"
-    val = "testval"
-    val2 = "testval2"
 
-    # Act/Assert
-    fn = sys._getframe().f_code.co_name
-    try:
-        setting = sh.Get(key)
-        assert setting == None, "Setting should be none when doesn't exist."
-        sh.SetValue(key, val)
-        time.sleep(1)
-        setting = sh.Get(key)
-        assert setting != None, "Setting should be present after setting it."
-        setting.Value = val2
-        sh.Set(setting)
-        time.sleep(1)
-        setting = sh.Get(key)
-        assert setting.Value == val2, f"Setting value '{setting.Value}', but expected '{val2}'"
-        print(f"[TEST SUCCESS] {module}:{fn}")
-    except AssertionError as e:
-        print(f"[TEST FAILURE] {module}:{fn}: {e}")
-    finally:
+class SettingsHelperTests(unittest.TestCase):
+    """Unit tests for SettingsHelper functionality."""
+
+    def setUp(self):
+        """[UnitTest] Set up test fixtures before each test method."""
+        self.sh = SettingsHelper(Application())
+        self.key = "testsetting"
+        self.val = "testval"
+        self.val2 = "testval2"
+
+    def tearDown(self):
+        """[UnitTest] Clean up after each test method."""
         # cleanup
         try:
-            sh.DeleteByKey(key)
+            self.sh.DeleteByKey(self.key)
         except:
             pass
 
+    def test_main(self):
+        """Test settings get, set, and update functionality."""
+        # Act/Assert
+        setting = self.sh.Get(self.key)
+        self.assertIsNone(setting, "Setting should be none when doesn't exist.")
+        self.sh.SetValue(self.key, self.val)
+        time.sleep(1)
+        setting = self.sh.Get(self.key)
+        self.assertIsNotNone(setting, "Setting should be present after setting it.")
+        setting.Value = self.val2
+        self.sh.Set(setting)
+        time.sleep(1)
+        setting = self.sh.Get(self.key)
+        self.assertEqual(setting.Value, self.val2, f"Setting value '{setting.Value}', but expected '{self.val2}'")
+        print(f"[TEST SUCCESS] {module}:test_main")
 
-MainTest()
+
+if __name__ == '__main__':
+    unittest.main()

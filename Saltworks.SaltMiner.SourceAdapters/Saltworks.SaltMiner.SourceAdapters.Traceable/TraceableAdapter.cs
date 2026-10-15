@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Extensions;
@@ -110,7 +114,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
 
         private async Task SyncAsync(TraceableClient client)
         {
-            CheckCancel();
+            CheckCancel(true);
 
             if (Config.SourceType != SourceType.Traceable.GetDescription())
             {
@@ -186,10 +190,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
                             }
                         }
 
-                        //Include: Update sync record to reflect the metric currently processed
-                        SyncRecord.CurrentSourceId = metric.SourceId;
-                        SyncRecord.State = SyncState.InProgress;
-                        LocalData.AddUpdate(SyncRecord, true);
+                        // Set sync record to show this source ID in progress
+                        SyncInProgress(SyncRecord, metric.SourceId);
 
                         //Include: Get matching local metric to current metric
                         var localMetric = LocalData.GetSourceMetric(Config.Instance, Config.SourceType, metric.SourceId);
@@ -258,7 +260,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
                     catch (LocalDataException ex)
                     {
                         Logger.LogCritical(ex, "[Sync] Local data access error: {Msg}", ex.InnerException?.Message ?? ex.Message);
-                        StillLoading = false;
                         throw new TraceableException($"Local data access error: {ex.InnerException?.Message ?? ex.Message}", ex);
                     }
                     catch (Exception ex)
@@ -274,32 +275,27 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
                             if (exceptionCounter == Config.SourceAbortErrorCount)
                             {
                                 Logger.LogCritical(ex, "[Sync] {Instance} instance exceeded {Count} sync processing errors: {Msg}", Config.Instance, Config.SourceAbortErrorCount, ex.InnerException?.Message ?? ex.Message);
-                                StillLoading = false;
                                 break;
                             }
                         }
                     }
                 }
 
-                //Include: indicate you are finished with this source metric
-                SyncRecord.LastSync = (DateTime.UtcNow);
-                SyncRecord.CurrentSourceId = null;
-                SyncRecord.State = SyncState.Completed;
-                LocalData.AddUpdate(SyncRecord, true);
+                SyncComplete(SyncRecord);
                 LocalData.SaveAllBatches();
                 Logger.LogInformation("[Sync] Sync complete ({Ac} total assets, {Ic} total source issues), exiting phase in 5 sec...", totalAssetCount, totalIssueCount);
                 await Task.Delay(5000);
-                //Include: Set this to indicate you are finished syncing
-                StillLoading = false;
             }
             catch (CancelTokenException cte)
             {
                 Logger.LogWarning(cte, "[Sync] Cancellation requested, aborting processing: {Msg}.", cte.Message);
-                StillLoading = false;
             }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "[Sync] Aborting Traceable sync due to exception: [{Type}] {Msg}", ex.GetType().Name, ex.Message);
+            }
+            finally
+            {
                 StillLoading = false;
             }
         }
@@ -431,7 +427,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
                             Attributes = new()
                             {
                                 { "labels", string.Join(", ", asset.Labels.Results.Select(x => x.Key)) },
-                                { "is_external", asset.IsExternal.ToString().ToLower() }
+                                { "is_external", asset.IsExternal.ToString().ToLower() },
+                                { "environment", asset.Environment }
                             },
                             IsProduction = true,
                             Instance = Config.Instance,
@@ -473,8 +470,8 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
                         },
                         Category = item,
                         FoundDate = ConvertMillisecondsDate(issue?.CreatedTimestampMillis.Value) ?? DateTime.Now,
-                        LocationFull = "N/A", // todo - where to get?
-                        Location = "N/A", // todo - where to get?
+                        LocationFull = issue?.DisplayName.Value,
+                        Location = issue?.DisplayName.Value,
                         Name = issue?.DisplayName.Value,
                         Description = issue?.DisplayName.Value,
                         ReportId = issue.VulnerabilityId.Value,
@@ -494,9 +491,13 @@ namespace Saltworks.SaltMiner.SourceAdapters.Traceable
                     },
                     Saltminer = new SaltMiner.Core.Entities.SaltMinerQueueIssueInfo
                     {
+                        IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
                         Attributes = new Dictionary<string, string>
                         { 
-                            { "status", issue?.Status.Value ?? string.Empty }
+                            { "status", issue?.Status.Value ?? string.Empty },
+                            { "sources", issue?.Sources?.ToCsv() },
+                            { "affected_domain_ids", issue?.AffectedDomainIds?.ToCsv() },
+                            { "affected_domains", issue?.AffectedDomainNames?.ToCsv() }
                         },
                         QueueScanId = queueScan.Id,
                         QueueAssetId = queueAsset.Id,

@@ -1,30 +1,45 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
 
+import asyncio
 import logging
 import urllib3
 import time
 
+import httpx
 import requests
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import ConnectionError as RequestsConnectionError, ReadTimeout as RequestsReadTimeout
 
+class RestClientException(Exception):
+    pass
+class RestClientConfigurationException(RestClientException):
+    pass
+
 class RestClient:
-    
-    def __init__(self, baseUrl=None, authUser=None, authPass=None, sslVerify=None, defaultHeaders=None, enableSession=True, timeout=240, retryConnectionErrors=False, retryDelaySec=3, proxy=None, proxyUser=None, proxyPass=None):
+
+    # timeout default is 30 sec: a generous extension of a short client default, for callers that
+    # don't specify one.  It was 240, which was never a considered value - just what nobody overrode.
+    # Callers with a real requirement should pass timeout explicitly (see SscClient for a case where
+    # the value is load-bearing).
+    def __init__(self, baseUrl=None, authUser=None, authPass=None, sslVerify=None, defaultHeaders=None, enableSession=True, timeout=30, retryConnectionErrors=False, retryDelaySec=3, proxy=None, proxyUser=None, proxyPass=None, overrideProtocol=None):
         if sslVerify is None:
             self.__SslVerify = True
         elif sslVerify == "False":
@@ -49,6 +64,9 @@ class RestClient:
         self.__Session = requests.Session()
         self.SessionEnabled = enableSession
         self.__Warnings = { "request": 0, "get": 0, "put": 0, "post": 0, "delete": 0 }
+        if overrideProtocol != None and overrideProtocol not in ["https://", "http://"]:
+            raise RestClientConfigurationException(f"Invalid overrideProtocol '{overrideProtocol}', expected 'https://' or 'http://'")
+        self.__OverrideProtocol = overrideProtocol
         self.__Timeout = timeout
         self.__Proxy = None
         if proxy:
@@ -243,6 +261,8 @@ class RestClient:
             _url = self.__BaseUrl + url
         else:
             _url = url
+        if self.__OverrideProtocol != None:
+            _url = _url.replace("https://", self.__OverrideProtocol).replace("http://", self.__OverrideProtocol)
         if headers is not None:
             _headers = headers
         else:
@@ -263,7 +283,10 @@ class RestClient:
             if self.__Retry and self.__RetryConnectionErrors:
                 self.__Retry = False
                 raise RestClientException("Failed request on retry.") from e
-            logging.error(f"API error encountered ({type(e).__name__}), retrying in {self.__RetryDelaySec} secs.")
+            if not self.__RetryConnectionErrors:
+                logging.error(f"API error encountered ({type(e).__name__}).  Last url: '{url}'")
+                raise
+            logging.error(f"API error encountered ({type(e).__name__}) when calling url '{url}', retrying in {self.__RetryDelaySec} secs.")
             self.__Retry = True
             time.sleep(self.__RetryDelaySec)
             st = time.perf_counter()
@@ -288,5 +311,161 @@ class RestClient:
     def disableRequestWarnings():
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-class RestClientException(Exception):
-    pass
+
+class AsyncRestClient:
+    '''
+    Async counterpart to RestClient.  Uses httpx.AsyncClient internally so all
+    HTTP methods are coroutines (async def).  API mirrors RestClient exactly so
+    DataClient can delegate sync calls to async implementations via a persistent
+    event loop without duplicating endpoint logic.
+    '''
+
+    # timeout default is 30 sec, matching RestClient - a backstop for callers that don't specify
+    # one, not a considered value.  Callers with a real requirement should pass timeout explicitly.
+    def __init__(self, baseUrl=None, authUser=None, authPass=None, sslVerify=None,
+                 defaultHeaders=None, timeout=30, retryConnectionErrors=False,
+                 retryDelaySec=3, proxy=None, proxyUser=None, proxyPass=None):
+        if sslVerify is None:
+            self.__SslVerify = True
+        elif sslVerify == "False":
+            self.__SslVerify = False
+        else:
+            self.__SslVerify = sslVerify
+        self._auth = httpx.BasicAuth(authUser, authPass) if authUser and authPass else None
+        if not self.__SslVerify:
+            logging.warning("SSL connections will not be verified by AsyncRestClient as configured. This is unsafe and not recommended outside a development environment.")
+        self.__DefHeaders = defaultHeaders
+        if baseUrl and not baseUrl.endswith("/"):
+            baseUrl += "/"
+        self.__RetryConnectionErrors = retryConnectionErrors
+        self.__RetryDelaySec = 3 if not retryDelaySec or retryDelaySec < 1 else retryDelaySec
+        self.__BaseUrl = baseUrl
+        self.__RequestStats = {}
+        self.__Timeout = float(timeout)
+        proxy_url = None
+        if proxy:
+            creds = f"{proxyUser}:{proxyPass}@" if proxyUser else ""
+            proxy_url = f"http://{creds}{proxy}"
+        self.__Client = httpx.AsyncClient(
+            verify=self.__SslVerify,
+            headers=defaultHeaders or {},
+            timeout=self.__Timeout,
+            auth=self._auth,
+            proxy=proxy_url,
+        )
+        logging.debug("AsyncRestClient initialized. baseUrl: '%s', sslVerify: '%s', defaultHeaders: %s", baseUrl, sslVerify, defaultHeaders)
+
+    @property
+    def BaseUrl(self):
+        return self.__BaseUrl
+
+    @property
+    def SslVerify(self):
+        return self.__SslVerify
+
+    @property
+    def DefaultHeaders(self):
+        return self.__DefHeaders
+
+    def __CollectRequestStats(self, elapsedTime, statKey=None):
+        if "_all" not in self.__RequestStats:
+            self.__RequestStats['_all'] = { "Count": 1, "LastDuration": elapsedTime, "AvgDuration": elapsedTime }
+            self.__RequestStats['_uncat'] = { "Count": 0, "LastDuration": 0, "AvgDuration": 0 }
+        else:
+            self.__RequestStats['_all']['Count'] += 1
+            self.__RequestStats['_all']['LastDuration'] = elapsedTime
+            self.__RequestStats['_all']['AvgDuration'] = ((self.__RequestStats['_all']['AvgDuration'] * (self.__RequestStats['_all']['Count'] - 1)) + elapsedTime) / self.__RequestStats['_all']['Count']
+        if not statKey:
+            self.__RequestStats['_uncat']['Count'] += 1
+            self.__RequestStats['_uncat']['LastDuration'] = elapsedTime
+            self.__RequestStats['_uncat']['AvgDuration'] = ((self.__RequestStats['_uncat']['AvgDuration'] * (self.__RequestStats['_uncat']['Count'] - 1)) + elapsedTime) / self.__RequestStats['_uncat']['Count']
+            return
+        if statKey not in self.__RequestStats:
+            self.__RequestStats[statKey] = { "Count": 1, "LastDuration": elapsedTime, "AvgDuration": elapsedTime }
+        else:
+            self.__RequestStats[statKey]['Count'] += 1
+            self.__RequestStats[statKey]['LastDuration'] = elapsedTime
+            self.__RequestStats[statKey]['AvgDuration'] = ((self.__RequestStats[statKey]['AvgDuration'] * (self.__RequestStats[statKey]['Count'] - 1)) + elapsedTime) / self.__RequestStats[statKey]['Count']
+
+    def RequestStatsReport(self):
+        return { "BaseUrl": self.__BaseUrl, "Stats": self.__RequestStats }
+
+    def RequestCount(self, statKey=None):
+        if not statKey:
+            statKey = "_all"
+        return self.__RequestStats[statKey]['Count']
+
+    def RequestAvgDuration(self, statKey=None):
+        if not statKey:
+            statKey = "_all"
+        return self.__RequestStats[statKey]['AvgDuration']
+
+    def RequestLastDuration(self, statKey=None):
+        if not statKey:
+            statKey = "_all"
+        return self.__RequestStats[statKey]['LastDuration']
+
+    async def Get(self, url, json=None, data=None, headers=None, proxies=None, statKey=None, queryParams=None):
+        return await self.Request("get", url, json, data, headers, proxies, statKey, queryParams)
+
+    async def Post(self, url, json=None, data=None, headers=None, proxies=None, statKey=None, queryParams=None, files=None):
+        return await self.Request("post", url, json, data, headers, proxies, statKey, queryParams, files)
+
+    async def Put(self, url, json=None, data=None, headers=None, proxies=None, statKey=None, queryParams=None):
+        return await self.Request("put", url, json, data, headers, proxies, statKey, queryParams)
+
+    async def Delete(self, url, json=None, data=None, headers=None, proxies=None, statKey=None, queryParams=None):
+        return await self.Request("delete", url, json, data, headers, proxies, statKey, queryParams)
+
+    async def Request(self, method, url, json=None, data=None, headers=None, proxies=None, statKey=None, queryParams=None, files=None):
+        '''
+        Async HTTP request — mirrors RestClient.Request signature exactly.
+
+        :arg method: HTTP method (get/post/put/delete)
+        :arg url: Full or partial URL; baseUrl is prepended for relative paths
+        :arg json: JSON-serialisable body (use json OR data, not both)
+        :arg data: Form-encoded body (use json OR data, not both)
+        :arg headers: Per-request headers; override defaults when provided
+        :arg proxies: Unused — proxy is configured at construction time
+        :arg statKey: Stats bucket key for duration tracking
+        :arg queryParams: Dict of query-string parameters
+        :arg files: Multipart file body
+        '''
+        if url.startswith("/"):
+            url = url[1:]
+        if self.__BaseUrl is not None and not url.startswith("http:") and not url.startswith("https:"):
+            _url = self.__BaseUrl + url
+        else:
+            _url = url
+        _headers = headers if headers is not None else self.__DefHeaders
+        if queryParams and not isinstance(queryParams, dict):
+            raise ValueError("queryParams must be type dict")
+        queryParams = None if not queryParams else queryParams
+        st = time.perf_counter()
+        retry_attempted = False
+        resp = None
+        try:
+            resp = await self.__Client.request(method, _url, json=json, data=data, headers=_headers, params=queryParams, files=files)
+        except (httpx.ConnectError, httpx.ReadTimeout) as e:
+            if retry_attempted or not self.__RetryConnectionErrors:
+                logging.error("API error encountered (%s). Last url: '%s'", type(e).__name__, url)
+                raise
+            logging.error("API error (%s) calling '%s', retrying in %s secs.", type(e).__name__, url, self.__RetryDelaySec)
+            retry_attempted = True
+            await asyncio.sleep(self.__RetryDelaySec)
+            st = time.perf_counter()
+            resp = await self.__Client.request(method, _url, json=json, data=data, headers=_headers, params=queryParams, files=files)
+
+        et = time.perf_counter() - st
+        self.__CollectRequestStats(et, statKey)
+        logging.debug("[AsyncRestClient] %s: %s, Headers: %s, Duration (sec): %s.  Response: (%s) %s",
+                      method, _url, _headers, et, resp.status_code, resp.reason_phrase)
+        return resp
+
+    async def close(self):
+        '''Close the underlying httpx.AsyncClient and release connections.'''
+        await self.__Client.aclose()
+
+    @staticmethod
+    def disableRequestWarnings():
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)

@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Saltworks.SaltMiner.UiApiClient.ViewModels;
 using System.Text.RegularExpressions;
@@ -21,6 +25,13 @@ namespace Saltworks.SaltMiner.JobManager.Helpers
 {
     public static class ReportFileName
     {
+        /// <summary>
+        /// Appends "_" and the generation time in Unix seconds, so every report on an engagement
+        /// has a distinct name and earlier reports stay attached as history (PBI-077).
+        /// </summary>
+        public static string AppendTimestamp(string reportName, DateTimeOffset generatedAt)
+            => $"{reportName}_{generatedAt.ToUnixTimeSeconds()}";
+
         public static string GetReportName(string template, EngagementSummary engagement)
         {
             var fileName = template;

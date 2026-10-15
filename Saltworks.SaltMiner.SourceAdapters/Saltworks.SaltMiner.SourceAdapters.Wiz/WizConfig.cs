@@ -1,22 +1,27 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Saltworks.SaltMiner.SourceAdapters.Core;
 using System.Text.Json;
 using Saltworks.SaltMiner.Core.Util;
+using Org.BouncyCastle.Asn1.Mozilla;
 
 namespace Saltworks.SaltMiner.SourceAdapters.Wiz
 {
@@ -57,7 +62,21 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         public int MaxApiDaysToPull { get; set; } = 14;
         public DateTime? OverrideFromDate { get; set; } = null;
         public string OverrideWizType { get; set; } = null;
-        public override string CurrentCompatibleApiVersion => "3.1.0";
+        public bool SkipVulns { get; set; } = false;
+        public bool SkipIssues { get; set; } = false;
+        /// <summary>
+        /// Interval over which we count requests for rate limiting.  Set in config and not changed.
+        /// </summary>
+        public int WizRateLimitIntervalSeconds { get; set; } = 10;
+        /// <summary>
+        /// Initial max requests allowed in the interval.  Ramps up as rate limits are hit.
+        /// </summary>
+        public int WizRateLimitInitialMaxRequests { get; set; } = 50;
+        /// <summary>
+        /// How long to delay when rate limit reached.
+        /// </summary>
+        public int WizRateLimitDelaySeconds { get; set; } = 3;
+        public override string CurrentCompatibleApiVersion => "3.2.0";
         public override string MinimumCompatibleApiVersion => "3.0.8";
 
         public override string Serialize()
@@ -83,6 +102,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
             if (SyncHoldForSendThreshold < 200 || SyncResumeWhenSendThreshold < 50 || SyncHoldForSendThreshold - SyncResumeWhenSendThreshold <= 50)
             {
                 throw new SourceConfigurationException($"Invalid {nameof(SyncHoldForSendThreshold)} and/or {nameof(SyncResumeWhenSendThreshold)}.  Minimums are 200 and 50 and they must be at least 50 apart.");
+            }
+            if (SkipVulns && SkipIssues)
+            {
+                throw new SourceConfigurationException("Both vulnerabilities and issues are set to be skipped - this is invalid.  Please check Wiz source configuration.");
             }
         }
     }

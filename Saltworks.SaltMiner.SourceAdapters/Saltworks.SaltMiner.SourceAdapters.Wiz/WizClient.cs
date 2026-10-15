@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.SourceAdapters.Core;
@@ -29,6 +33,10 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         private int IssueRequestSize = 5000;
         private int VulnRequestSize = 5000;
         internal bool StillLoading = false;
+        private bool RateLimited = false;
+        private int RateLimitMax;
+        private readonly object RateLimitLock = new();
+        private readonly List<DateTime> RecentRequestTimes = [];
 
         private WizToken Token
         {
@@ -46,9 +54,42 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
         public WizClient(ApiClient client, WizConfig config, ILogger logger) : base(client, logger)
         {
             Config = config;
+            RateLimitMax = Config.WizRateLimitInitialMaxRequests;
             var hdrs = new ApiClientHeaders();
             hdrs.Add("Accept", "application/json");
             SetApiClientDefaults(config.BaseAddress, config.Timeout, hdrs);
+        }
+
+        private void RateLimiter(bool tooManyRequestsError=false)
+        {
+            lock (RateLimitLock)
+            {
+                if (tooManyRequestsError)
+                {
+                    if (RateLimited && RateLimitMax > 1)
+                    {
+                        RateLimitMax--;
+                    }
+                    else
+                    {
+                        if (RateLimitMax <= 1)
+                        {
+                            Logger.LogError("Rate limit (1/{Sec} sec) minimum reached, but still receiving rate limit error responses from Wiz API.  Cannot continue.", Config.WizRateLimitIntervalSeconds);
+                            throw new WizClientException($"Rate limit (1/{Config.WizRateLimitIntervalSeconds} sec) minimum reached, but still receiving rate limit error responses from Wiz API.  Cannot continue.");
+                        }
+                    }
+                    RateLimited = true;
+                    Logger.LogWarning("Wiz API call failed due to rate limiting, reducing max API call rate (now set to {Max}/{Secs} sec) ", RateLimitMax, Config.WizRateLimitIntervalSeconds);
+                }
+                if (!RateLimited) return; // no rate limiting in effect
+                RecentRequestTimes.RemoveAll(x => x < DateTime.UtcNow.AddSeconds(-Config.WizRateLimitIntervalSeconds));
+                if (RecentRequestTimes.Count >= RateLimitMax)
+                {
+                    Logger.LogWarning("Rate limiter waiting {Wait} seconds before next Wiz API call.", Config.WizRateLimitDelaySeconds);
+                    Task.Delay(TimeSpan.FromSeconds(Config.WizRateLimitDelaySeconds)).Wait();
+                }
+                RecentRequestTimes.Add(DateTime.UtcNow);
+            }
         }
 
         private void Login()
@@ -93,39 +134,40 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
             Logger.LogDebug("Token authentication complete");
         }
 
-        private ApiClientResponse Request(string jsonRequestBody, int retries = 0)
-        {
-            ApiClientResponse r;
-            try
-            {
-                r = ApiClient.Post<string>("", jsonRequestBody, ApiClientHeaders.AuthorizationBearerHeader(Token.AccessToken));
-            }
-            catch (ApiClientUnauthorizedException ex)
-            {
-                if (retries > 0)
-                {
-                    throw new WizClientAuthenticationException("Failed authentication retry.");
-                }
-                Logger.LogWarning(ex, "Token invalid/missing, attempting to obtain new token");
-                Login();
-                return Request(jsonRequestBody, retries + 1);
-            }
-            catch (TaskCanceledException ex)
-            {
-                if (retries > Config.ApiRetryCount)
-                {
-                    throw new WizClientTimeoutException($"Wiz API retry count ({Config.ApiRetryCount}) reached.");
-                }
-                retries++;
-                Logger.LogWarning(ex, "TaskCanceled exception thrown, treating as timeout and retrying ({Retries} of {RetryCount} after a short delay.)", retries, Config.ApiRetryCount);
-                Task.Delay(60000).Wait();
-                return Request(jsonRequestBody, retries);
-            }
-            return r;
-        }
+        //private ApiClientResponse Request(string jsonRequestBody, int retries = 0)
+        //{
+        //    ApiClientResponse r;
+        //    try
+        //    {
+        //        r = ApiClient.Post<string>("", jsonRequestBody, ApiClientHeaders.AuthorizationBearerHeader(Token.AccessToken));
+        //    }
+        //    catch (ApiClientUnauthorizedException ex)
+        //    {
+        //        if (retries > 0)
+        //        {
+        //            throw new WizClientAuthenticationException("Failed authentication retry.");
+        //        }
+        //        Logger.LogWarning(ex, "Token invalid/missing, attempting to obtain new token");
+        //        Login();
+        //        return Request(jsonRequestBody, retries + 1);
+        //    }
+        //    catch (TaskCanceledException ex)
+        //    {
+        //        if (retries > Config.ApiRetryCount)
+        //        {
+        //            throw new WizClientTimeoutException($"Wiz API retry count ({Config.ApiRetryCount}) reached.");
+        //        }
+        //        retries++;
+        //        Logger.LogWarning(ex, "TaskCanceled exception thrown, treating as timeout and retrying ({Retries} of {RetryCount} after a short delay.)", retries, Config.ApiRetryCount);
+        //        Task.Delay(60000).Wait();
+        //        return Request(jsonRequestBody, retries);
+        //    }
+        //    return r;
+        //}
 
         private async Task<ApiClientResponse<T>> RequestAsync<T>(string jsonRequestBody, int retries=0, bool suppressError=true) where T : class
         {
+            RateLimiter();
             ApiClientResponse<T> r;
             ApiClient.Options.ExceptionOnFailure = suppressError;
             try
@@ -168,6 +210,16 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
                 await HandleExceptionRetryAsync(retries, "ApiClientTimeout");
                 return await RequestAsync<T>(jsonRequestBody, retries + 1);
             }
+            catch (ApiClientException ex)
+            {
+                // ApiClient doesn't throw a too many requests exception...
+                if (ex.Status == System.Net.HttpStatusCode.TooManyRequests)
+                {
+                    RateLimiter(true);
+                    return await RequestAsync<T>(jsonRequestBody, retries);
+                }
+                throw; // rethrow other ApiClientExceptions
+            }
             catch (TaskCanceledException)
             {
                 await HandleExceptionRetryAsync(retries, "Task canceled / Timeout");
@@ -199,7 +251,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
             if (size != null)
                 IssueRequestSize = size.Value;
             var query = @"{
-                 ""query"": ""query IssuesTable($filterBy: IssueFilters $first: Int $after: String $orderBy: IssueOrder) {     issuesV2(filterBy: $filterBy first: $first after: $after orderBy: $orderBy) {       nodes {         id         control {           id           name           description           resolutionRecommendation         }         createdAt         updatedAt         dueAt         projects {           id           name           slug           businessUnit           riskProfile {             businessImpact           }         }         status         severity         entitySnapshot {           id           type           nativeType           name           status           cloudPlatform           cloudProviderURL           providerId           region           resourceGroupExternalId           subscriptionExternalId           subscriptionName           subscriptionTags           tags           externalId         }         note         serviceTickets {           externalId           name           url         }       }       pageInfo {         hasNextPage         endCursor       }     } }"",
+                 ""query"": ""query IssuesTable($filterBy: IssueFilters $first: Int $after: String $orderBy: IssueOrder) {     issuesV2(filterBy: $filterBy first: $first after: $after orderBy: $orderBy) {       nodes {         id         createdAt         updatedAt         dueAt         projects {           id           name           slug           businessUnit           riskProfile {             businessImpact           }         }         status         severity         entitySnapshot {           id           type           nativeType           name           status           cloudPlatform           cloudProviderURL           providerId           region           resourceGroupExternalId           subscriptionExternalId           subscriptionName           subscriptionTags           tags           externalId         }         note         serviceTickets {           externalId           name           url         }       }       pageInfo {         hasNextPage         endCursor       }     } }"",
                  ""variables"": {
                      ""first"": ~1~, ~2~
                      ""filterBy"": {
@@ -276,7 +328,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Wiz
             if (size != null)
                 IssueRequestSize = size.Value;
             var query = @"{
-                 ""query"": ""query IssuesTable($filterBy: IssueFilters $first: Int $after: String $orderBy: IssueOrder) {     issuesV2(filterBy: $filterBy first: $first after: $after orderBy: $orderBy) {       nodes {         id         control {           id           name           description           resolutionRecommendation         }         createdAt         updatedAt         resolvedAt         dueAt         projects {           id           name           slug           businessUnit           riskProfile {             businessImpact           }         }         status         severity         entitySnapshot {           id           type           nativeType           name           status           cloudPlatform           cloudProviderURL           providerId           region           resourceGroupExternalId           subscriptionExternalId           subscriptionName           subscriptionTags           tags           externalId         }         note         serviceTickets {           externalId           name           url         }       }       pageInfo {         hasNextPage         endCursor       }     } }"",
+                 ""query"": ""query IssuesTable($filterBy: IssueFilters $first: Int $after: String $orderBy: IssueOrder) {     issuesV2(filterBy: $filterBy first: $first after: $after orderBy: $orderBy) {       nodes {         id         type         sourceRules {           id           name           risks           description   }         createdAt         updatedAt         resolvedAt         dueAt         projects {           id           name           slug           businessUnit           riskProfile {             businessImpact           }         }         status         severity         entitySnapshot {           id           type           nativeType           name           status           cloudPlatform           cloudProviderURL           providerId           region           resourceGroupExternalId           subscriptionExternalId           subscriptionName           subscriptionTags           tags           externalId         }         note         serviceTickets {           externalId           name           url         }       }       pageInfo {         hasNextPage         endCursor       }     } }"",
                  ""variables"": {
                     ""first"": ~1~, ~2~
                     ""filterBy"": {

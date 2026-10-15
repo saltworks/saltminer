@@ -1,0 +1,70 @@
+{
+    "index_patterns": [
+        "async_queue*"
+    ],
+    "priority": 100,
+    "template": {
+        "settings": {
+            "number_of_shards": 1,
+            "number_of_replicas": 1,
+            "refresh_interval": "1s",
+            "index.sort.field": [
+                "priority",
+                "created"
+            ],
+            "index.sort.order": [
+                "desc",
+                "asc"
+            ]
+        },
+        "mappings": {
+            "properties": {
+                "completed": {
+                    "type": "date"
+                },
+                "created": {
+                    "type": "date"
+                },
+                "force": {
+                    "type": "boolean"
+                },
+                "lock_id": {
+                    "type": "keyword"
+                },
+                "locked": {
+                    "type": "date"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "target_id": {
+                    "type": "keyword"
+                },
+                "target_instance": {
+                    "type": "keyword"
+                },
+                "target_type": {
+                    "type": "keyword"
+                },
+                "change_reason": {
+                    "type": "text",
+                    "fields": {
+                        "keyword": {
+                            "type": "keyword",
+                            "ignore_above": 256
+                        }
+                    }
+                },
+                "completion_status": {
+                    "type": "keyword"
+                },
+                "PVID": {
+                    "type": "keyword"
+                },
+                "change_trigger_location": {
+                    "type": "keyword"
+                }
+            }
+        }
+    }
+}

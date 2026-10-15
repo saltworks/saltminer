@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Extensions;
@@ -173,9 +177,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
                         }
 
                         //Include: Update sync record to reflect the metric currently processed
-                        SyncRecord.CurrentSourceId = metric.SourceId;
-                        SyncRecord.State = SyncState.InProgress;
-                        LocalData.AddUpdate(SyncRecord, true);
+                        SyncInProgress(SyncRecord, metric.SourceId);
 
                         //Include: Get matching local metric to current metric
                         var localMetric = LocalData.GetSourceMetric(Config.Instance, Config.SourceType, metric.SourceId);
@@ -286,25 +288,22 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
                 //    Logger.LogInformation("Asset retirement processing disabled by configuration, skipping.");
                 //}
 
-                //Include: indicate your done with this source metric
-                SyncRecord.LastSync = (DateTime.UtcNow);
-                SyncRecord.CurrentSourceId = null;
-                SyncRecord.State = SyncState.Completed;
-                LocalData.AddUpdate(SyncRecord, true);
+                //Include: indicate you are finished with sync
+                SyncComplete(SyncRecord);
                 LocalData.SaveAllBatches();
                 Logger.LogInformation("[Sync] Exiting sync loading phase in 5 sec...");
                 await Task.Delay(5000);
-                //Include: Set this to indiciate your done syncing
-                StillLoading = false;
             }
             catch (CancelTokenException cte)
             {
                 Logger.LogWarning(cte, "[Sync] Cancellation requested, aborting processing.");
-                StillLoading = false;
             }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "[Sync] Aborting Dynatrace sync due to exception: [{Type}] {Msg}", ex.GetType().Name, ex.Message);
+            }
+            finally
+            {
                 StillLoading = false;
             }
         }
@@ -358,7 +357,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
                 }
                 else
                 {
-                    afterToken = issueBatch.Records.Last().Id;
+                    afterToken = issueBatch.Records[-1].Id;
 
                     foreach (var issue in issueBatch.Records)
                     {
@@ -387,7 +386,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
                         {
                             AssessmentType = assessmentType,
                             Product = Product,
-                            ReportId = noScan ? GetNoScanReportId(assessmentType) : $"{sourceId}|{scanDate:yyyy-MM-dd}",
+                            ReportId = noScan ? GetNoScanReportId(assessmentType) : $"{sourceId}|{scanDate:yyyyMMdd-HHmm}",
                             ScanDate = noScan ? now : scanDate,
                             ProductType = "Application",
                             Vendor = Vendor,
@@ -437,7 +436,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
                         {
                             Description = asset.Name,
                             Name = asset.Name,
-                            Attributes = [],
+                            Attributes = new() { {"tags", string.Join("|", asset.Tags)} },
                             IsProduction = true,
                             Instance = Config.Instance,
                             IsSaltminerSource = DynatraceConfig.IsSaltminerSource,
@@ -506,6 +505,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.Dynatrace
                         },
                         Saltminer = new SaltMiner.Core.Entities.SaltMinerQueueIssueInfo
                         {
+                            IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
                             Attributes = new Dictionary<string, string> 
                             {
                                 {"remediation", issue.Remediation },

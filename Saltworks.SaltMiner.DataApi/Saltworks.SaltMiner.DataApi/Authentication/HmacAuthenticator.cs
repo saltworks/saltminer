@@ -1,21 +1,26 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.AspNetCore.Http;
 using System;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -23,29 +28,48 @@ namespace Saltworks.SaltMiner.DataApi.Authentication
 {
     public interface IHmacAuthenticator
     {
-        string GetHexHashed(string secret, string message);
+        string GetHashed(string secret, string message);
         bool IsAuthentic(string secret, IHeaderDictionary headers, string payload);
         string MatchHeader { get; }
     }
-    
+
     public class FortifySscHmacAuthenticator: IHmacAuthenticator
     {
         public string MatchHeader => "X-SSC-Signature";
-        public string GetHexHashed(string secret, string message)
+        internal bool IgnoreDateSkew { get; set; } = false;
+        public string GetHashed(string secret, string message)
         {
-            var hash = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-            return Convert.ToHexString(hash.ComputeHash(Encoding.UTF8.GetBytes(message)));
+            byte[] secretBytes = Encoding.UTF8.GetBytes(secret);
+            byte[] messageBytes = Encoding.UTF8.GetBytes(message);
+            using var hmac = new HMACSHA256(secretBytes);
+            var hash = hmac.ComputeHash(messageBytes);
+            var computedHash = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+            return computedHash;
         }
 
         public bool IsAuthentic(string secret, IHeaderDictionary headers, string payload)
         {
+            // X-SSC-Signature is already known to exist
+            var dateHeader = headers.Date.ToString();
+
+            // Validate date skew (≤5 min)
+            var styles = DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal;
+            if (DateTime.TryParseExact(dateHeader, "ddd, dd MMM yyyy HH:mm:ss 'GMT'", CultureInfo.InvariantCulture, styles, out DateTime reqDate))
+            {
+                TimeSpan skew = DateTime.UtcNow - reqDate;
+                if (Math.Abs(skew.TotalMinutes) > 15 && !IgnoreDateSkew)
+                    throw new WebhookValidationException("Date skew too large");
+            }
+            else
+            {
+                throw new WebhookValidationException("Invalid date header format");
+            }
+
+            // Validate signature
             if (!headers.TryGetValue(MatchHeader, out var vals))
                 return false;
-            var hexHashed = vals[0].Replace("sha256=", "");
-            if (!headers.TryGetValue("Date", out vals))
-                return false;
-            var message = vals[0] + payload;
-            return GetHexHashed(secret, message) == hexHashed;
+            var hdrHashed = vals[0].Replace("sha256=", "");
+            return GetHashed(secret, payload + dateHeader) == hdrHashed;
         }
     }
 }

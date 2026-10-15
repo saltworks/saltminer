@@ -36,7 +36,7 @@
 	  <None Update="Work\readme.txt">
 	    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
 	  </None>
-    <None Update="AgentSettings.json">
+    <None Update="appsettings-default.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>
@@ -53,8 +53,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard\Saltworks.SaltMiner.ConfigurationWizard.csproj" />
     <ProjectReference Include="..\..\Saltworks.SaltMiner.DataClient\Saltworks.SaltMiner.DataClient\Saltworks.SaltMiner.DataClient.csproj" />
-    <ProjectReference Include="..\..\Saltworks.SaltMiner.Licensing\Saltworks.SaltMiner.Licensing.Core\Saltworks.SaltMiner.Licensing.Core.csproj" />
     <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.CheckmarxOne\Saltworks.SaltMiner.SourceAdapters.CheckmarxOne.csproj" />
+    <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.CheckmarxSast\Saltworks.SaltMiner.SourceAdapters.CheckmarxSast.csproj" />
     <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.Dynatrace\Saltworks.SaltMiner.SourceAdapters.Dynatrace.csproj" />
     <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.GitLab\Saltworks.SaltMiner.SourceAdapters.GitLab.csproj" />
     <ProjectReference Include="..\..\Saltworks.SaltMiner.SourceAdapters\Saltworks.SaltMiner.SourceAdapters.MendSca\Saltworks.SaltMiner.SourceAdapters.MendSca.csproj" />

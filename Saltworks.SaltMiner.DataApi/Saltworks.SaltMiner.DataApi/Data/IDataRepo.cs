@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using System.Collections.Generic;
 using Saltworks.SaltMiner.Core.Entities;
@@ -92,22 +96,23 @@ namespace Saltworks.SaltMiner.DataApi.Data
         /// <param name="aggList">List to use for aggregations</param>
         /// <param name="assetType">Type of asset to query (* should work)</param>
         /// <returns>Result set including the keys and counts for the keys, as well as scroll information for getting the next batch</returns>
-        ElasticAggResponse SnapshotAggregates(PitPagingInfo pager, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggList, string assetType);
+        ElasticAggResponse SnapshotAggregates(PagingInfo pager, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggList, string assetType);
 
         /// <summary>
         /// Returns snapshot aggregates for the given grouping fields and asset type
         /// </summary>
+        /// <param name="engagementId">Engagement Id to filter on</param>
         /// <param name="pager">Returns next batch of data if the ScrollKeys are included</param>
         /// <param name="sourceFields">Composite Source fields to use for aggregation</param>
         /// <param name="aggList">List to use for aggregations</param>
         /// <param name="assetType">Type of asset to query (* should work)</param>
         /// <returns>Result set including the keys and counts for the keys, as well as scroll information for getting the next batch</returns>
-        ElasticAggResponse EngagementIssueCountAggregates(string engagementId, PitPagingInfo pager, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggList, string assetType);
+        ElasticAggResponse EngagementIssueCountAggregates(string engagementId, PagingInfo pager, IEnumerable<string> sourceFields, IEnumerable<IElasticClientRequestAggregate> aggList, string assetType);
 
         /// <summary>
         /// Returns an entity of type T from the datasource by its id, including locking info needed to call UpdateWithLockingInfo
         /// </summary>
-        /// <seealso cref="UpdateWithLocking{T}(T, string, ILockingInfo{T})"/>
+        /// <seealso cref="UpdateWithLocking{T}(T, string, ILockingInfo)"/>
         /// <typeparam name="T">Type of entity in the datasource</typeparam>
         /// <param name="id">The identifier for the entity to be retrieved</param>
         /// <param name="indexName">The index for the entity to be retrieved</param>
@@ -119,9 +124,10 @@ namespace Saltworks.SaltMiner.DataApi.Data
         /// </summary>
         /// <typeparam name="T">Type of entity in the datasource</typeparam>
         /// <param name="request">The criteria for the search</param>
-        /// <param name="indexName">The index for the entity to be retrieved</param>
+        /// <param name="index">The index for the entity to be retrieved</param>
         /// <returns>The list of results</returns>
-        DataResponse<T> Search<T>(SearchRequest request, string indexName) where T : SaltMinerEntity;
+        /// <remarks>Does not support old paging info classes, only PagingInfo.  This version of Search retrieves the requested page even if AfterKeys are empty ("cold" search)</remarks>
+        DataResponse<T> Search<T>(string index, SearchRequest request) where T : SaltMinerEntity;
 
         /// <summary>
         /// Returns aggregates for a specified group field

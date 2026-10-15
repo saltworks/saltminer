@@ -1,29 +1,43 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
 
 import time
-import json
 import logging
 import datetime
+import uuid
 from xml.dom import NotFoundErr
 
 from dateutil.parser import parse as dtparse
-from requests.exceptions import ConnectionError
 
-from Core.RestClient import RestClient
+from Core.DataClient import DataClient, DataClientException, DataClientNotFoundException
+
+
+# Seconds to wait before the single retry made when a queue scan status update fails.  The api writes the
+# queue scan under an optimistic seq_no/primary_term lock, so with N workers finalizing at once a losing
+# write is a race to wait out, not an error to report.
+QUEUE_STATUS_RETRY_DELAY_SEC = 5
+# Lock id a manager by-ID run uses instead of a registered instance id (QueueProcessor.TransientInstanceId).
+# The api never hands this one out - NewManagerInstance starts at 1 - and excludes it from the instance
+# count, so claiming it here cannot be mistaken for a competing manager instance.
+TRANSIENT_MANAGER_LOCK_ID = "mgr-000"
+
 
 class SmApiClient(object):
     '''
@@ -32,262 +46,241 @@ class SmApiClient(object):
     QueueScan -> QueueAsset -> QueueIssues
     '''
 
-    def __init__(self, appSettings, sourceName, configName="SMv3"):
+    def __init__(self, appSettings, sourceName, configName="SMv3", agent_mode=False):
         '''
         Initializes the class.
 
         appSettings: ApplicationSettings instance containing configuration settings
+        sourceName: Name of the source configuration section
         configName: Configuration key for SMv3 configuration settings
+        agent_mode: set by SyncWorker.  The agent marshals one app version end to end - sync, refresh,
+        then its own manager run for each queue scan it produced.  Two things follow, both of which
+        must stay off for the batch runners:
+          - the queue scans it finalizes are claimed for that hand-off (see _queue_lock_id) rather than
+            left for the manager's cron, which would skip a scan locked to another instance;
+          - finalize_everything does not refresh the queue indices.  It finalizes once per queue item,
+            and an index refresh per item across N workers is a cost the batch runners don't pay; the
+            agent's manager hand-off retries instead.
         '''
         if type(appSettings).__name__ != "ApplicationSettings":
             raise SmApiClientConfigurationException("Type of appSettings must be 'ApplicationSettings'")
-        if not configName or not configName in appSettings.GetConfigNames():
+        if not configName or configName not in appSettings.GetConfigNames():
             raise SmApiClientConfigurationException(f"Invalid or missing configuration for name '{configName}'")
 
-        self.__IssueBatch = { "Documents": [] }
-        self.BatchSize = appSettings.Get(configName, 'BatchSize', 100)
-        self.__KeyMap = {}
-        self.__SourceName = sourceName
-        self.__Es = appSettings.Application.GetElasticClient()
-        self.__AssessmentTypeMap = appSettings.Get(configName, 'AssessmentTypeMap', {})
-        self.__EnableStupidNull = appSettings.FlagSet("Enable-Stupid-Null")
-        self.__DefaultFilterset = appSettings.GetSource(sourceName, "FiltersetId", "")
-        self.__GuiUrlTemplate = appSettings.GetSource(sourceName, "GuiUrlTemplate", "")
-        self.__GuiUrlTemplate = self.__GuiUrlTemplate.replace("{baseUrl}", appSettings.GetSource(sourceName, "BaseUrl"))
-        self.__GuiUrlTemplate = self.__GuiUrlTemplate.replace("{filterset}", self.__DefaultFilterset)
-        self.__GuiUrlTemplate = self.__GuiUrlTemplate.replace("{groupingType}", appSettings.GetSource(sourceName, "GroupingTypeId", ""))
-        self.__InventoryAssetKeyAttribute = appSettings.GetSource(sourceName, "InventoryAssetKeyAttribute", "")
-        self.__AssetType = "app"
-        self.SscSourceType = 'Saltworks.SSC'
-        self.FodSourceType = 'Saltworks.FOD'
-        self.__ManagerApiKeySettingName = "ManagerApiKey"
-        self.__ExpectedAssessmentTypes = appSettings.GetSource(sourceName, "V3ExpectedAssessmentTypes", [])
-        if not isinstance(self.__ExpectedAssessmentTypes, list):
+        self._issue_batch = {"Documents": []}
+        self.batch_size = appSettings.Get(configName, 'BatchSize', 100)
+        self._key_map = {}
+        self._history_done = set()
+        self._queue_scan_ids = []
+        # Queue scan documents this run created, by id, and how many queue issues were written against
+        # each.  Both feed finalize_queue: the api verifies IssueCount against the queue issues it can
+        # actually see when the scan moves Loading -> Pending, so the count has to be on the document
+        # before that call and the document is the only way to set it (there is no count endpoint).
+        self._queue_scan_docs = {}
+        self._issue_counts = {}
+        self._source_name = sourceName
+        self._refresh_indices = not agent_mode
+        # Claimed at finalize time, in the same call that sets Pending.  A batch manager run skips a
+        # queue scan locked to another instance, so this reserves it for the by-ID run this worker is
+        # about to start - which presents the same id and is therefore allowed through.  The lock is
+        # never released by the by-ID run (it is shared, so releasing it would clear siblings' locks);
+        # it is cleared by the api's stale-instance sweep once no by-ID run has been seen for 10 min.
+        self._queue_lock_id = TRANSIENT_MANAGER_LOCK_ID if agent_mode else None
+        self._es = appSettings.Application.GetElasticClient()
+        self._assessment_type_map = appSettings.Get(configName, 'AssessmentTypeMap', {})
+        self._enable_stupid_null = appSettings.FlagSet("Enable-Stupid-Null")
+        self._default_filterset = appSettings.GetSource(sourceName, "FiltersetId", "")
+        self._gui_url_template = appSettings.GetSource(sourceName, "GuiUrlTemplate", "")
+        self._gui_url_template = self._gui_url_template.replace("{baseUrl}", appSettings.GetSource(sourceName, "BaseUrl"))
+        self._gui_url_template = self._gui_url_template.replace("{filterset}", self._default_filterset)
+        self._gui_url_template = self._gui_url_template.replace("{groupingType}", appSettings.GetSource(sourceName, "GroupingTypeId", ""))
+        self._inventory_asset_key_attribute = appSettings.GetSource(sourceName, "InventoryAssetKeyAttribute", "")
+        self._asset_type = "app"
+        self.ssc_source_type = 'Saltworks.SSC'
+        self.fod_source_type = 'Saltworks.FOD'
+        self._expected_assessment_types = appSettings.GetSource(sourceName, "V3ExpectedAssessmentTypes", [])
+        if not isinstance(self._expected_assessment_types, list):
             raise SmApiClientConfigurationException("Invalid source config - list type required for key V3ExpectedAssessmentType")
 
-        baseurl = appSettings.Get(configName, 'ApiUrl')
-        apikey = appSettings.Get(configName, 'ApiKey')
-        mgrkey = appSettings.Get(configName, self.__ManagerApiKeySettingName, "")
-        verify = appSettings.Get(configName, 'SslVerify', True)
-        vcert = appSettings.Get(configName, 'SslVerifyCert')
-        timeout = appSettings.Get(configName, 'TimeoutSec', 240)
-
-        if verify and vcert:
-            verify = vcert
-            if verify.find(","):
-                verify = (verify.split(',')[0], verify.split(',')[1])
-        else:
-            verify = ""
-
-        if not baseurl or not apikey:
-            raise SmApiClientConfigurationException(f"Check '{configName}' configuration, ApiUrl and ApiKey are required for this feature.")
-        if not mgrkey:
-            logging.info("No manager API key found in configuration (%s setting).  Some operations will be unavailable.", self.__ManagerApiKeySettingName)
-
-        headers = {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json;charset=UTF-8',
-            'Authorization': apikey
-        }
-        self.__ManagerHeaders = {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json;charset=UTF-8',
-            'Authorization': mgrkey
-        }
-        RestClient.disableRequestWarnings()
-        self.__Client = RestClient(baseurl, sslVerify=verify, defaultHeaders=headers, timeout=timeout, retryConnectionErrors=True)
-
-        self.AgentId = None
-        self.Role = None
         try:
-            r = self.__Client.Get("register/role")
-            if r.status_code == 200:
-                self.Role = json.loads(r.text)['message']
-            else:
-                raise(SmApiClientException(f"Error initializing connection to SaltMiner API: [{r.status_code}] {r.reason}"))
-            if self.Role.lower() == "agent":
-                r = self.__Client.Get("register/agent")
-                if r.status_code == 200:
-                    self.AgentId = json.loads(r.text)['message']
-            r = self.__Client.Get("admin/version")
-        except ConnectionError as e:
-            logging.exception(f"Failed to connect to SM API: [{type(e).__name__}] {e}")
-            raise
-        except SmApiClientException:
+            self._data_client = DataClient(appSettings.Application, configName, validate_on_init=False)
+            self.role = self._data_client.register_get_role()
+            self._data_client.get_version()
+        except DataClientException as e:
             logging.exception("SM API initialization error")
-            raise
+            raise SmApiClientConfigurationException(f"Error when attempting to connect to SM API: [{type(e).__name__}] {e}") from e
         except Exception as e:
             logging.exception("Error when first connecting to SM API")
             raise SmApiClientConfigurationException(f"Error when attempting to connect to SM API: [{type(e).__name__}] {e}") from e
 
-        logging.debug(f"[SMAPI] SmApiClient initialization complete.  RestClient params - url: '{baseurl}', verify: {verify}, role: {self.Role}, agentID: {self.AgentId}")
+        logging.debug("[SMAPI] SmApiClient initialization complete. Role: %s", self.role)
 
+    # ------------------------------------------------------------------
     # API Calls
-    #region
+    # ------------------------------------------------------------------
 
-    def AddQueueScan(self, qScan, immediate=False):
+    def add_queue_scan(self, q_scan, immediate=False):
         '''
         Adds queue scan.  QueueStatus is initially set to "Loading" to indicate in progress.
         '''
         if immediate:
-            qScan['Saltminer']['Internal']['QueueStatus'] = "Pending"
+            q_scan['Saltminer']['Internal']['QueueStatus'] = "Pending"
         else:
-            qScan['Saltminer']['Internal']['QueueStatus'] = "Loading"
-        qScan['Saltminer']['Internal']['AgentId'] = self.AgentId
-        #qScan['Index'] = 'queue_scans'
-        qScan['Id'] = None
-        r = self.__Client.Post("queuescan", { "Id": None, "Entity": qScan })
-        self.__VerifyResponse("Error submitting new queue scan to API", r)
-        return json.loads(r.text)['data']
+            q_scan['Saltminer']['Internal']['QueueStatus'] = "Loading"
+        q_scan['Id'] = None
+        rsp = self._data_client.queue_scan_add_update(q_scan)
+        if not rsp:
+            raise SmApiClientException("Queue scan add/update returned no data from API.")
+        self._queue_scan_ids.append(rsp['id'])
+        # Keep the document we built, now carrying the id the api assigned, so finalize_queue can put
+        # the issue count on it with an update rather than a re-create.
+        q_scan['Id'] = rsp['id']
+        self._queue_scan_docs[rsp['id']] = q_scan
+        return rsp
 
-    def AddQueueAsset(self, qAsset):
+    def add_queue_asset(self, q_asset):
         '''
         Adds queue asset.  Make sure QueueScanId is set to the id of a valid QueueScan document.
         '''
-        qAsset['Id'] = None
-        #qAsset['Index'] = 'queue_assets'
-        r = self.__Client.Post("queueasset", { "Id": None, "Entity": qAsset })
-        self.__VerifyResponse("[SMAPI] Error submitting new queue asset to API", r)
-        return json.loads(r.text)['data']
+        q_asset['Id'] = None
+        rsp = self._data_client.queue_asset_add_update(q_asset)
+        if not rsp:
+            raise SmApiClientException("Queue asset add/update returned no data from API.")
+        return rsp
 
-    def AddQueueIssue(self, qIssue):
+    def add_queue_issue(self, q_issue):
         '''
-        Adds queue issue (uses batching for better performance).  Make sure Saltminer.QueueScanId and Saltminer.QueueAssetId are set to the ids of valid QueueScan and QueueAsset documents.
-        '''
-        qIssue['Id'] = None
-        #qIssue['Index'] = 'queue_issues'
-        self.__BatchIssue(qIssue)
+        Adds queue issue (uses batching for better performance).  Make sure Saltminer.QueueScanId and
+        Saltminer.QueueAssetId are set to the ids of valid QueueScan and QueueAsset documents.
 
-    def DeleteAsset(self, assetId, sourceType):
+        Counted per queue scan on the way through - every path that queues an issue comes here, so this
+        is the one place the tally can be kept without each caller remembering to.
         '''
-        Removes an asset by parameters provided (all required).  To completely remove an asset, remove issues and scans first (DeleteScan, DeleteScanIssues).
+        q_issue['Id'] = None
+        qsid = (q_issue.get('Saltminer') or {}).get('QueueScanId')
+        if qsid:
+            self._issue_counts[qsid] = self._issue_counts.get(qsid, 0) + 1
+        else:
+            logging.warning("[SMAPI] Queue issue has no QueueScanId - it cannot be counted toward a scan's IssueCount.")
+        self._batch_issue(q_issue)
+
+    def delete_asset(self, asset_id, source_type):
+        '''
+        Removes an asset by parameters provided (all required).  To completely remove an asset,
+        remove issues and scans first (delete_scan, delete_scan_issues).
         NOTE: requires Manager API Key (ManagerApiKey setting) to function.
         '''
-        r = self.__Client.Delete(f"asset/{assetId}/{self.__AssetType}/{sourceType}/{self.__SourceName}", headers=self.__ManagerHeaders)
-        self.__VerifyResponse(f"[SMAPI] Error deleting asset with ID '{assetId}', source type '{sourceType}'", r)
-        logging.debug("[SMAPI] Deleted asset with ID '%s', source type '%s'", assetId, sourceType)
+        self._data_client.asset_delete(asset_id, self._asset_type, source_type, self._source_name)
+        logging.debug("[SMAPI] Deleted asset with ID '%s', source type '%s'", asset_id, source_type)
 
-    def DeleteScan(self, scanId, sourceType):
+    def delete_scan(self, scan_id, source_type):
         '''
-        Removes a scan by parameters provided (all required).  To completely remove an scan, remove issues first (DeleteScanIssues).
+        Removes a scan by parameters provided (all required).  To completely remove a scan,
+        remove issues first (delete_scan_issues).
         NOTE: requires Manager API Key (ManagerApiKey setting) to function.
         '''
-        r = self.__Client.Delete(f"scan/{scanId}/{self.__AssetType}/{sourceType}/{self.__SourceName}", headers=self.__ManagerHeaders)
-        self.__VerifyResponse(f"[SMAPI] Error deleting scan with ID '{scanId}', source type '{sourceType}'", r)
-        logging.debug("[SMAPI] Deleted scan with ID '%s', source type '%s'", scanId, sourceType)
+        self._data_client.scan_delete(scan_id, self._asset_type, source_type, self._source_name)
+        logging.debug("[SMAPI] Deleted scan with ID '%s', source type '%s'", scan_id, source_type)
 
-    def DeleteScanIssues(self, scanId, sourceType):
+    def delete_scan_issues(self, scan_id, source_type):
         '''
         Removes all issues associated with scan by parameters provided (all required).
         NOTE: requires Manager API Key (ManagerApiKey setting) to function.
         '''
-        r = self.__Client.Delete(f"issue/scan/{scanId}/{self.__AssetType}/{sourceType}/{self.__SourceName}", headers=self.__ManagerHeaders)
-        self.__VerifyResponse(f"[SMAPI] Error deleting issue(s) for scan with ID '{scanId}', source type '{sourceType}'", r)
-        logging.debug("[SMAPI] Deleted issue(s) for scan with ID '%s', source type '%s'", scanId, sourceType)
+        self._data_client.issues_delete_by_scan(scan_id, self._asset_type, source_type, self._source_name)
+        logging.debug("[SMAPI] Deleted issue(s) for scan with ID '%s', source type '%s'", scan_id, source_type)
 
-    def GetAssetScans(self, sourceId, sourceType, refreshFirst=False):
+    def get_asset_scans(self, source_id, source_type, refresh_first=False):
         '''
         Retrieves a list of scans by parameters provided.
         NOTE: requires Manager API Key (ManagerApiKey setting) to function.
         '''
         q = {
-          "assetType": self.__AssetType,
-          "sourceType": sourceType,
-          "filter": {
-            "anyMatch": False,
-            "filterMatches": {
-              "saltminer.asset.source_id": str(sourceId)
+            "assetType": self._asset_type,
+            "sourceType": source_type,
+            "filter": {
+                "anyMatch": False,
+                "filterMatches": {
+                    "saltminer.asset.source_id": str(source_id)
+                }
+            },
+            "uiPagingInfo": {
+                "size": 1000,
+                "sortFilters": {
+                    "saltminer.scan.scan_date": False
+                }
             }
-          },
-          "uiPagingInfo": {
-            "size": 1000,
-            "sortFilters": {
-              "saltminer.scan.scan_date": False
-            }
-          }
         }
-        if refreshFirst:
-            ind = f"scans_app_saltworks.{sourceType.lower()}_{self.__SourceName.lower()}"
-            self.RefreshIndex(ind)
-        r = self.__Client.Post("scan/search", q, headers=self.__ManagerHeaders)
-        self.__VerifyResponse(f"[SMAPI] Error searching for scans for asset with source ID '{sourceId}' and source type '{sourceType}'", r)
-        r = json.loads(r.text)
-        if 'data' in r.keys() and len(r['data']):
-            return r['data']
-        else:
-            return None
+        if refresh_first:
+            ind = f"scans_app_saltworks.{source_type.lower()}_{self._source_name.lower()}"
+            self.refresh_index(ind)
+        return self._data_client.scan_search(q)
 
-    def RefreshIndex(self, indexName, suppressError=True):
+    def refresh_index(self, index_name, suppress_error=True):
         '''
         Calls API Refresh Index
         '''
         try:
-            logging.info("Refreshing index '%s' (including a 2 sec delay)", indexName)
-            self.__Client.Post("index/refresh/" + indexName)
+            logging.info("Refreshing index '%s' (including a 2 sec delay)", index_name)
+            self._data_client.refresh_index(index_name)
             time.sleep(2)
         except Exception as e:
-            if not suppressError:
-                raise SmApiClientException(f"Failed to refresh index '{indexName}'") from e
+            if not suppress_error:
+                raise SmApiClientException(f"Failed to refresh index '{index_name}'") from e
 
-    def DeleteAssetAll(self, assetId, sourceId, sourceType, exceptionOnFail=False):
-        ''' 
-        Deletes asset and all scans/issues associated with it.  Returns True for success, False otherwise.  Should NOT return an exception unless specified.
+    def delete_asset_all(self, asset_id, source_id, source_type, exception_on_fail=False):
+        '''
+        Deletes asset and all scans/issues associated with it.  Returns True for success, False otherwise.
         NOTE: requires Manager API Key (ManagerApiKey setting) to function.
         '''
         ok = True
         cancel = False
         try:
-            if not self.__ManagerHeaders['Authorization']:
-                raise SmApiClientConfigurationException("Manager API key (%s setting) is required for this operation.", self.__ManagerApiKeySettingName)
-            scans = self.GetAssetScans(sourceId, sourceType)
+            scans = self.get_asset_scans(source_id, source_type)
             while scans:
                 logging.info("[SMAPI] Found %s scan(s) to delete in this pass.", len(scans))
                 c = 0
                 for scan in scans:
-                    scanId = scan['id']
-
+                    scan_id = scan['id']
                     try:
-                        self.DeleteScanIssues(scanId, sourceType)
+                        self.delete_scan_issues(scan_id, source_type)
                     except KeyboardInterrupt:
                         if cancel:
                             raise KeyboardInterrupt()
                         cancel = True
                         logging.info("Cancel requested, request again to stop immediately")
                     except Exception as e:
-                        logging.info("[SMAPI] Unable to delete issues for scan ID '%s' and source type '%s'", scanId, sourceType)
-                        if exceptionOnFail:
+                        logging.info("[SMAPI] Unable to delete issues for scan ID '%s' and source type '%s'", scan_id, source_type)
+                        if exception_on_fail:
                             raise SmApiClientException("[SMAPI] Error deleting issues, see log for details") from e
                         ok = False
 
                     try:
-                        self.DeleteScan(scanId, sourceType)
+                        self.delete_scan(scan_id, source_type)
                     except KeyboardInterrupt:
                         if cancel:
                             raise KeyboardInterrupt()
                         cancel = True
                         logging.info("Cancel requested, request again to stop immediately")
                     except Exception as e:
-                        logging.info("[SMAPI] Unable to delete scan with ID '%s' and source type '%s'", scanId, sourceType)
-                        if exceptionOnFail:
+                        logging.info("[SMAPI] Unable to delete scan with ID '%s' and source type '%s'", scan_id, source_type)
+                        if exception_on_fail:
                             raise SmApiClientException("[SMAPI] Error deleting scan, see log for details") from e
                         ok = False
                     c += 1
                     if c % 50 == 0 or c == len(scans):
                         logging.info("[SMAPI] Deleted %s of %s scans", c, len(scans))
-                # end for
-                scans = self.GetAssetScans(sourceId, sourceType, True)
-            # end while
+                scans = self.get_asset_scans(source_id, source_type, True)
 
             try:
-                self.DeleteAsset(assetId, sourceType)
+                self.delete_asset(asset_id, source_type)
             except KeyboardInterrupt:
                 cancel = True
                 logging.info("Cancel requested")
-            except SmApiClientNotFoundException as e:
-                logging.info("[SMAPI] Asset '%s' not found, cannot delete.", assetId)
+            except DataClientNotFoundException:
+                logging.info("[SMAPI] Asset '%s' not found, cannot delete.", asset_id)
             except Exception as e:
-                #logging.warning("[SMAPI] Unable to delete asset with ID '%s' and source type '%s'", sourceId, sourceType)
-                if exceptionOnFail:
+                if exception_on_fail:
                     raise SmApiClientException("[SMAPI] Error deleting asset, see log for details") from e
                 ok = False
             if cancel:
@@ -296,247 +289,294 @@ class SmApiClient(object):
             logging.info("Cancelling process...")
             raise KeyboardInterrupt()
         except SmApiClientException:
-            # no need to log or check whether to raise
             raise
         except Exception as e:
-            logging.exception("[SMAPI] Error processing removal of asset, scan, or issues for asset ID '%s' and source type '%s'", sourceId, sourceType)
-            if exceptionOnFail:
+            logging.exception("[SMAPI] Error processing removal of asset, scan, or issues for asset ID '%s' and source type '%s'", source_id, source_type)
+            if exception_on_fail:
                 raise SmApiClientException("[SMAPI] Error deleting asset/scan/issues, see log for details") from e
             ok = False
-        finally:
-            return ok
+        return ok
 
-    def FinalizeQueue(self, qScanId):
+    def _set_issue_count(self, q_scan_id):
         '''
-        Marks the queue scan as Pending, completing the queue load process.
-        '''
-        r = self.__Client.Get(f"queuescan/status/{qScanId}/Pending")
-        self.__VerifyResponse(f"[SMAPI] Error finalizing queue scan with ID {qScanId}", r)
-        msg = f"[SMAPI] Completed queuescan with id {qScanId}, now in Pending status"
-        logging.info(msg)
+        Writes the number of queue issues queued against this scan onto the queue scan document, before
+        it is moved to Pending.
 
-    def SearchLastScan(self, avid, atype, sourceType='Saltworks.SSC'):
+        The api's Loading -> Pending check counts the queue issues it can see and compares them to
+        IssueCount, but skips the comparison entirely when IssueCount is -1 (the value every scan
+        carries until now).  Setting the real number turns that check on, which is the point: a scan
+        whose issues did not all land is rejected at the boundary instead of loading short.
+
+        Only scans this run created are touched - anything else keeps whatever count it has.
         '''
-        Returns last scan (by scan date) matching the passed app version id and assessment type
+        doc = self._queue_scan_docs.get(q_scan_id)
+        if doc is None:
+            return
+        count = self._issue_counts.get(q_scan_id, 0)
+        doc['Saltminer']['Internal']['IssueCount'] = count
+        self._data_client.queue_scan_add_update(doc)
+        logging.debug("[SMAPI] Queue scan %s issue count set to %s", q_scan_id, count)
+
+    def finalize_queue(self, q_scan_id):
+        '''
+        Records the issue count on the queue scan and marks it Pending, completing the queue load
+        process.  Under the agent the same status call also locks it to the by-ID manager run that
+        follows - the api sets LockId from the lockId it is given, and the scan is unlocked at this
+        point so the claim always succeeds.
+
+        Retried once after QUEUE_STATUS_RETRY_DELAY_SEC.  Two things the retry absorbs.  The api reads
+        the queue scan and writes it back under an optimistic seq_no/primary_term lock, so a concurrent
+        write to the same document loses and the update fails - reachable with enough workers finalizing
+        at once.  And the count it validates against is whatever the queue issue index can see, which
+        under the agent is not refreshed on our behalf, so a just-written issue may not be searchable on
+        the first attempt.  The second attempt re-reads and re-counts, so it succeeds unless the
+        conflict is persistent or the issues really are missing.  A second failure propagates;
+        finalize_everything counts it and reports it.
+        '''
+        try:
+            self._set_issue_count(q_scan_id)
+            self._data_client.queue_scan_update_status(q_scan_id, 'Pending', self._queue_lock_id)
+        except Exception as ex:
+            logging.warning("[SMAPI] Failed to finalize queue scan %s ([%s] %s), retrying in %s sec...",
+                            q_scan_id, type(ex).__name__, ex, QUEUE_STATUS_RETRY_DELAY_SEC)
+            time.sleep(QUEUE_STATUS_RETRY_DELAY_SEC)
+            self._set_issue_count(q_scan_id)
+            self._data_client.queue_scan_update_status(q_scan_id, 'Pending', self._queue_lock_id)
+        logging.info("[SMAPI] Completed queuescan with id %s, now in Pending status%s", q_scan_id,
+                     f", locked to '{self._queue_lock_id}'" if self._queue_lock_id else "")
+
+    def search_last_scan(self, avid, atype, source_type='Saltworks.SSC'):
+        '''
+        Returns last scan (by scan date) matching the passed app version id and assessment type.
         '''
         q = {
-          "assetType": self.__AssetType,
-          "sourceType": sourceType,
-          "filter": {
-            "anyMatch": False,
-            "filterMatches": {
-              "saltminer.asset.source_id": avid,
-              "saltminer.scan.assessment_type": atype
+            "assetType": self._asset_type,
+            "sourceType": source_type,
+            "filter": {
+                "anyMatch": False,
+                "filterMatches": {
+                    "saltminer.asset.source_id": avid,
+                    "saltminer.scan.assessment_type": atype
+                }
+            },
+            "uiPagingInfo": {
+                "size": 1000,
+                "sortFilters": {
+                    "saltminer.scan.scan_date": False
+                }
             }
-          },
-          "uiPagingInfo": {
-            "size": 1000,
-            "sortFilters": {
-              "saltminer.scan.scan_date": False
-            }
-          }
         }
-        r = self.__Client.Post("scan/search", q)
-        self.__VerifyResponse(f"[SMAPI] Error searching for last scan for app version {avid} and assessment type '{atype}'", r)
-        r = json.loads(r.text)
-        if 'data' in r.keys() and len(r['data']):
-            return r['data'][0]
-        else:
-            return None
+        data = self._data_client.scan_search(q)
+        return data[0] if data else None
 
-    def GetWebhookEvents(self, sourceId):
+    def get_webhook_events(self, source_id):
         '''
         Retrieves a list of webhook events for the source ID given.
         '''
-        r = self.__Client.Get(f"utility/webhook/{sourceId}")
-        self.__VerifyResponse(f"[SMAPI] Error returning webhook events for source ID '{sourceId}'", r)
-        r = json.loads(r.text)
-        if 'data' in r.keys() and len(r['data']):
-            return r['data']
-        else:
-            return None
+        return self._data_client.webhook_get(source_id)
 
-    #endregion
-
+    # ------------------------------------------------------------------
     # API Helpers
-    #region
+    # ------------------------------------------------------------------
 
-    def __GetGuiUrl(self, avid, isSsc, issueId):
-        if self.__GuiUrlTemplate:
-            if isSsc:
-                return self.__GuiUrlTemplate.replace("{avid}", str(avid)).replace("{instanceId}", issueId)
+    def _get_gui_url(self, avid, is_ssc, issue_id):
+        if self._gui_url_template:
+            if is_ssc:
+                return self._gui_url_template.replace("{avid}", str(avid)).replace("{instanceId}", issue_id)
             else:
-                return self.__GuiUrlTemplate.replace("{avid}", str(avid)).replace("{issueId}", issueId)
-        else:
-            return ""
-    
-    def __ReadResponseErrors(self, response):
-        try:
-            r = json.loads(response.text)
-            errs = []
-            if 'errors' in r.keys():
-                for k in r['errors'].keys():
-                    for e in r['errors'][k]:
-                        errs.append(f"{k}: {e}")
-            return errs
-        except Exception as e:
-            logging.debug("[SMAPI] Failed to read errors in response with status code %s: [%s] %s", response.status_code, type(e).__name__, e)
+                return self._gui_url_template.replace("{avid}", str(avid)).replace("{issueId}", issue_id)
+        return ""
 
-    def __VerifyResponse(self, baseMsg, response, suppressErrorLogging=False):
-        if not 200 <= response.status_code < 300:
-            msg = f"{baseMsg}: "
+    def _batch_issue(self, q_issue):
+        if q_issue:
+            self._issue_batch['Documents'].append(q_issue)
+        doclen = len(self._issue_batch['Documents'])
+        if doclen >= self.batch_size or (not q_issue and doclen > 0):
+            logging.debug("[SMAPI] Sending batch of %s queue issue(s) to API", doclen)
             try:
-                msg = f"{msg}{json.loads(response.text)['message']}"
-            except:
-                msg = f"{msg}[{response.status_code}] {response.reason}"
-            if response.status_code == 400:
-                if response.text.startswith('{') and not response.text.startswith('{"type":"https://tools.ietf.org'):
-                    rj = json.loads(response.text)
-                    if 'message' in rj.keys() and len(rj['message']) > 0:
-                        etype = 'Unknown' if not 'type' in rj.keys() else rj['type']
-                        msg = f"{baseMsg}: Bad request error sending data to SMAPI.  Server response: [{etype}] {rj['message']}"
-                    elif 'errorMessages' in rj.keys() and len(rj['errorMessages']) > 0:
-                        etype = 'Unknown' if not 'errorType' in rj.keys() else rj['errorType']
-                        msg = f"{baseMsg}: Bad request error sending data to SMAPI.  Server response: [{etype}] {rj['errorMessages']}"
-                    else:
-                        msg = f"{baseMsg}: Bad request error sending data to SMAPI.  Server response: {response.text}"
-                    if not suppressErrorLogging:
-                        logging.error(msg)
-                    raise(SmApiClientException(msg))
-                else:
-                    msg = f"{baseMsg}: Validation error sending data to SMAPI.  Validation error(s):"
-                    if not suppressErrorLogging:
-                        logging.error(msg)
-                        for e in self.__ReadResponseErrors(response):
-                            logging.error("[SMAPI]---> %s", e)
-                    raise(SmApiClientException(f'{baseMsg}: Validation error sending data to SMAPI. Details logged previously.'))
-            if not suppressErrorLogging:
-                logging.error(msg)
-                logging.debug("[SMAPI] " + response.text)
-            if response.status_code == 404:
-                raise SmApiClientNotFoundException(msg)
-            raise SmApiClientException(msg)
-
-    def __BatchIssue(self, qIssue):
-        if qIssue:
-            self.__IssueBatch['Documents'].append(qIssue)
-        doclen = len(self.__IssueBatch['Documents'])
-        if doclen >= self.BatchSize or (not qIssue and doclen > 0):
-            msg = f"[SMAPI] Sending batch of {doclen} queue issue(s) to API"
-            logging.debug(msg)
-            try:
-                r = self.__Client.Post("queueissue/bulk", self.__IssueBatch)
-            except Exception as e:
-                logging.error("[SMAPI] Failed sending issue batch to API (%s), retrying in 5 sec...", type(e).__name__)
-                r = self.__Client.Post("queueissue/bulk", self.__IssueBatch)
-            try:
-                self.__VerifyResponse("[SMAPI] Error sending batch of queue issues to API", r)
-            except Exception:
-                raise
+                self._data_client.queue_issues_add_update_bulk(self._issue_batch)
+            except DataClientException as e:
+                raise SmApiClientException("Error sending batch of queue issues to API") from e
             finally:
-                self.__IssueBatch['Documents'] = []
+                self._issue_batch['Documents'] = []
 
-    def __GetLatestSscScan(self, avid, scanType):
+    def _get_latest_ssc_scan(self, avid, scan_type):
         q = {
-          "query": {
-            "bool": {
-              "must": [
-                { "term": { "projectVersionId": { "value": avid } } },
-                { "term": { "type": { "value": scanType } } }
-              ]
-            }
-          },
-          "sort": [ { "artifactUploadDate": { "order": "desc" } } ]
+            "query": {
+                "bool": {
+                    "must": [
+                        {"term": {"projectVersionId": {"value": avid}}},
+                        {"term": {"type": {"value": scan_type}}}
+                    ]
+                }
+            },
+            "sort": [{"artifactUploadDate": {"order": "desc"}}]
         }
-        r = self.__Es.Search("sscprojscans", q)
+        r = self._es.Search("sscprojscans", q)
         if r and isinstance(r, list) and len(r) >= 1:
             return r[0]['_source']
-        else:
-            return None
+        return None
 
-    def __MapAssessmentType(self, atype):
-        # This method may not be needed as configured mapping already happens in PopulateAppVuls.
-        # Will only take action if the passed assessment type isn't a mapped value
-        if atype in self.__AssessmentTypeMap.values():
+    def _map_assessment_type(self, atype):
+        if atype in self._assessment_type_map.values():
             return atype  # already mapped
-        if not atype in self.__AssessmentTypeMap.keys():
+        if atype not in self._assessment_type_map.keys():
             logging.warning("Unmapped assessment type '%s' found.", atype)
             return atype
-        else:
-            return self.__AssessmentTypeMap[atype]
+        return self._assessment_type_map[atype]
 
-    def __Empty(self, strVal):
-        strVal = str(strVal).strip()
-        return not strVal or strVal == "" or len(strVal) == 0
+    def _empty(self, str_val):
+        str_val = str(str_val).strip()
+        return not str_val or str_val == "" or len(str_val) == 0
 
-    def __GetAttribute(self, source, key, default=None):
-        if key in source.keys():
-            if source[key]:
-                if isinstance(source[key], list):
-                    return ','.join([str(val) for val in source[key]])
-                if len(source[key]) > 0:
-                    return str(source[key])
+    def _get_attribute(self, source, key, default=None):
+        if key in source.keys() and source[key]:
+            if isinstance(source[key], list):
+                return ','.join([str(val) for val in source[key]])
+            if len(source[key]) > 0:
+                return str(source[key])
         return default
 
-    #endregion
+    def _nvl(self, obj: dict, prop: str, replace=None):
+        return replace if prop not in obj.keys() else obj[prop]
 
+    # ------------------------------------------------------------------
     # Mapping Methods
-    #region
+    # ------------------------------------------------------------------
 
-    def FinalizeEverything(self):
+    def finalize_everything(self):
         '''
-        NOTE: This clears self.__KeyMap, so don't call it until after using that data
+        Finalizes queues in progress and returns the list of queue scan IDs created (resetting the list)
+
+        NOTE: This clears self._key_map, so don't call it until after using that data.
         '''
         cid = None
-        errCount = 0
-        self.__BatchIssue(None) # send any remaining queue issues
-        try:
-            self.__Es.FlushIndex("queue_issues")
-            self.__Es.FlushIndex("queue_scans")
-        except Exception as e:
-            logging.warning("Error updating v3 indices - this is ok in multi-instance scenarios. %s", e)
+        err_count = 0
+        finalized_ids = []
+        self._batch_issue(None)  # send any remaining queue issues
+        # Refresh, not flush: refresh is the operation that makes writes searchable.  Flush is a Lucene
+        # commit for durability - it was never providing the visibility this code wants, and costs more.
+        #
+        # Skipped entirely under the sync agent, which finalizes once per queue item: a refresh is
+        # index-wide, so N workers refreshing three contended queue indices per item is real load for a
+        # guarantee the manager hand-off already retries for.  The batch runners finalize once per batch,
+        # where the cost is negligible and the caller has no retry of its own.
+        if self._refresh_indices:
+            try:
+                # In the order the manager reads them.
+                self._es.RefreshIndex("queue_issues")
+                self._es.RefreshIndex("queue_assets")
+                self._es.RefreshIndex("queue_scans")
+            except Exception as e:
+                logging.warning("Error refreshing v3 indices - this is ok in multi-instance scenarios. %s", e)
         logging.info("Wait a moment for elasticsearch to catch up...")
         time.sleep(2)
-        for id in self.__KeyMap.keys():
+        for id in self._key_map.keys():
             try:
-                cid = self.__KeyMap[id]['sid']
-                self.FinalizeQueue(cid)
-            except SmApiClientException as ex:
-                errCount += 1
+                cid = self._key_map[id]['sid']
+                self.finalize_queue(cid)
+                finalized_ids.append(cid)
+            except SmApiClientException:
+                err_count += 1
                 # already logged error
             except Exception as ex:
-                errCount += 1
+                err_count += 1
                 logging.error("[SMAPI] Error finalizing queue scan with ID %s: [%s] %s", cid, type(ex).__name__, ex)
-            if errCount > 9:
-                logging.critical("[SMAPI] %s errors encountered while finalizing queue scans, aborting process.", errCount)
+            if err_count > 9:
+                logging.critical("[SMAPI] %s errors encountered while finalizing queue scans, aborting process.", err_count)
                 break
-        if errCount > 0:
-            logging.error("[SMAPI] %s errors encountered while finalizing queue scans - some data will be missing.", errCount)
-        self.__KeyMap = {}
+        if err_count > 0:
+            logging.error("[SMAPI] %s errors encountered while finalizing queue scans - some data will be missing.", err_count)
+        # Return only what we actually finalized - one per app version + assessment type.  Scan-history
+        # queue scans are bulk-created straight into Pending status (see _map_and_add_ssc_scan_history),
+        # never enter _key_map, and there can be hundreds of them for one app version.  They are already
+        # in the state the manager picks up, so the caller must not treat them as work to hand off
+        # individually - that turns one app version into hundreds of manager runs.
+        others = len(set(self._queue_scan_ids) - set(finalized_ids))
+        if others:
+            logging.info("[SMAPI] %s scan-history queue scan(s) created this run are already Pending and left for the manager's normal queue run.", others)
+        self._key_map = {}
+        self._history_done = set()
+        self._queue_scan_ids = []
+        self._queue_scan_docs = {}
+        self._issue_counts = {}
+        return finalized_ids
 
-    def MapScanlessAsset(self, avid, scannerVendor, name, version, description, attributes, isProd=True, assessmentTypes=[]):
-        if len(self.__ExpectedAssessmentTypes) == 0:
+    def cancel_queue_scan(self, queue_scan_id, lock_id=None):
+        '''
+        Cancels one queue scan by ID.  Raises on failure so the caller can decide - see
+        abort_everything for why Cancel rather than Error.
+
+        :lock_id: the lock currently held on the scan, when there is one (the manager reports it).
+        Without it the api rejects the change for any locked scan.
+        '''
+        self._data_client.queue_scan_update_status(queue_scan_id, 'Cancel', lock_id)
+        logging.info("[SMAPI] Cancelled queue scan with ID %s", queue_scan_id)
+
+
+    def abort_everything(self, reason):
+        '''
+        Abandons the queues in progress: discards any batched queue issues that haven't been sent and
+        cancels every queue scan created this run, so the manager never picks up a partial load.
+        Returns the list of queue scan IDs cancelled (resetting the list, like finalize_everything).
+
+        Only the _key_map scans are cancelled - one status update per assessment type.  Scan-history
+        scans are bulk-created straight into Pending and there can be hundreds of them; cancelling those
+        one at a time is too expensive to be worth it, and they are self-correcting either way (the cron
+        manager processes them normally, and cleanup ages out anything left stuck).
+
+        Cancel, not Error: the api only lets an Agent-role caller move a queue scan
+        Loading/Pending -> Loading/Pending/Cancel.  Cancel is excluded from the manager's pending
+        search and aged out by its cleanup run, which is the outcome we want either way.
+
+        NOTE: This clears self._key_map, so don't call it until after using that data.
+        '''
+        logging.error("[SMAPI] Abandoning queue load: %s", reason)
+        dropped = len(self._issue_batch['Documents'])
+        if dropped:
+            logging.warning("[SMAPI] Discarding %s unsent queue issue(s) from the current batch.", dropped)
+            self._issue_batch['Documents'] = []
+        err_count = 0
+        cid = None
+        cancelled_ids = []
+        for id in self._key_map.keys():
+            try:
+                cid = self._key_map[id]['sid']
+                self._data_client.queue_scan_update_status(cid, 'Cancel')
+                cancelled_ids.append(cid)
+                logging.info("[SMAPI] Cancelled queue scan with ID %s", cid)
+            except Exception as ex:
+                err_count += 1
+                logging.error("[SMAPI] Error cancelling queue scan with ID %s: [%s] %s", cid, type(ex).__name__, ex)
+        if err_count > 0:
+            logging.error("[SMAPI] %s error(s) while cancelling queue scans - some may still be picked up by the manager.", err_count)
+        self._key_map = {}
+        self._history_done = set()
+        self._queue_scan_ids = []
+        self._queue_scan_docs = {}
+        self._issue_counts = {}
+        return cancelled_ids
+
+    def map_scanless_asset(self, avid, scanner_vendor, name, version, description, attributes, is_prod=True, assessment_types=[]):
+        if len(self._expected_assessment_types) == 0:
             logging.debug("No expected assessment types configured.  Skipping noscan processing.")
             return
-        for eat in self.__ExpectedAssessmentTypes:
-            if eat in assessmentTypes:
+        for eat in self._expected_assessment_types:
+            if eat in assessment_types:
                 continue
-
             try:
                 logging.info("No scan found for expected assessment type '%s', adding noscan queue data...", eat)
-                dtNow = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                dt_now = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 severity = "noscan"
-                source = self.__GetSource({"scanner_vendor": scannerVendor})
-                ptype = SmApiClient.__GetProduct(source, eat)
-                atype = self.__MapAssessmentType(eat)  # changes atype for rest of method...
-                reportId = 'noscan|' + atype
-                
+                source = self._get_source({"scanner_vendor": scanner_vendor})
+                ptype = SmApiClient._get_product(source, eat)
+                atype = self._map_assessment_type(eat)
+                report_id = 'noscan|' + atype
 
-                qscan = {
-                    "Timestamp": dtNow,
+                q_scan = {
+                    "Timestamp": dt_now,
                     "Saltminer": {
                         "Internal": {
-                            "AgentId": self.AgentId,
                             "IssueCount": -1,
                             "CurrentQueueScanId": None,
                             "ReplaceIssues": True
@@ -544,281 +584,298 @@ class SmApiClient(object):
                         "Scan": {
                             "AssessmentType": atype,
                             "ProductType": ptype,
+                            "ProductVersion": "",
                             "Product": "Fortify",
                             "Vendor": "Fortify",
-                            "ReportId": reportId,
-                            "ScanDate": dtNow,
+                            "ReportId": report_id,
+                            "ScanDate": dt_now,
                             "SourceType": source,
                             "IsSaltMinerSource": True,
-                            "ConfigName": self.__SourceName,
-                            "AssetType": self.__AssetType,
-                            "Instance": self.__SourceName
+                            "ConfigName": self._source_name,
+                            "AssetType": self._asset_type,
+                            "Instance": self._source_name
                         }
                     }
                 }
-                qscan = self.AddQueueScan(qscan)
-                qasset = {
+                q_scan = self.add_queue_scan(q_scan)
+                q_asset = {
                     "Saltminer": {
-                        "Asset": {  
+                        "Asset": {
                             "Name": name,
                             "Description": description,
                             "VersionId": str(avid),
                             "Version": version,
-                            "ConfigName": self.__SourceName,
+                            "ConfigName": self._source_name,
                             "SourceType": source,
                             "IsSaltMinerSource": True,
                             "SourceId": str(avid),
-                            "IsProduction": isProd, 
-                            "AssetType": self.__AssetType,
-                            "Instance": self.__SourceName,
+                            "IsProduction": is_prod,
+                            "AssetType": self._asset_type,
+                            "Instance": self._source_name,
                             "Attributes": {},
                             "LastScanDaysPolicy": "30"
                         },
-                        "InventoryAsset": {
-                            "Key": ""
-                        },
-                        "Internal": {
-                            "QueueScanId": qscan['id']
-                        }
+                        "InventoryAsset": {"Key": ""},
+                        "Internal": {"QueueScanId": q_scan['id']}
                     },
-                    "Timestamp": SmApiClient.CleanDateString(dtNow)
+                    "Timestamp": SmApiClient.clean_date_string(dt_now)
                 }
                 for attrib in attributes.keys():
-                    attribVal = self.__GetAttribute(attributes, attrib)
-                    if attribVal:
-                        qasset['Saltminer']['Asset']['Attributes'][attrib] = attribVal
-                # if configured and present, set inventory asset key from attributes
-                if self.__InventoryAssetKeyAttribute and qasset['Saltminer']['Asset']['Attributes'] and self.__InventoryAssetKeyAttribute in qasset['Saltminer']['Asset']['Attributes'].keys():
-                    qasset['Saltminer']['InventoryAsset']['Key'] = qasset['Saltminer']['Asset']['Attributes'][self.__InventoryAssetKeyAttribute]
-                qasset = self.AddQueueAsset(qasset)
+                    attrib_val = self._get_attribute(attributes, attrib)
+                    if attrib_val:
+                        q_asset['Saltminer']['Asset']['Attributes'][attrib] = attrib_val
+                if self._inventory_asset_key_attribute and q_asset['Saltminer']['Asset']['Attributes'] and self._inventory_asset_key_attribute in q_asset['Saltminer']['Asset']['Attributes'].keys():
+                    q_asset['Saltminer']['InventoryAsset']['Key'] = q_asset['Saltminer']['Asset']['Attributes'][self._inventory_asset_key_attribute]
+                q_asset = self.add_queue_asset(q_asset)
 
-                qissue = {
+                q_issue = {
                     "Saltminer": {
-                        "QueueScanId": qscan['id'],
-                        "QueueAssetId": qasset['id']
+                        "QueueScanId": q_scan['id'],
+                        "QueueAssetId": q_asset['id']
                     },
                     "Vulnerability": {
                         "IsActive": True,
-                        "FoundDate": SmApiClient.CleanDateString(dtNow),
-                        "Id": None,                             # ECS field.  Current code doesn't have a standards identifier, like "cve-1234"
+                        "FoundDate": SmApiClient.clean_date_string(dt_now),
+                        "Id": None,
                         "IsFiltered": False,
                         "IsRemoved": False,
                         "IsSuppressed": False,
                         "Location": "none",
                         "LocationFull": "none",
                         "SourceSeverity": severity,
-                        "ReportId": reportId,
-                        "Category": [ "Application" ],          # ECS always should be this value, defaults to this as well, can leave it out
-                        "Classification": "",                   # ECS not required, current code hard-codes ""
-                        "Description": "",                      # ECS not required
-                        "Enumeration": "",                      # ECS not required, current code hard-codes ""
+                        "ReportId": report_id,
+                        "Category": ["Application"],
+                        "Classification": "",
+                        "Description": "",
+                        "Enumeration": "",
                         "Name": "No scan found for assessment type " + atype,
                         "Reference": "",
-                        "Severity": self.__MapSeverity(severity),
+                        "Severity": self._map_severity(severity),
                         "Scanner": {
                             "ApiUrl": "",
                             "GuiUrl": "",
-                            "Id": reportId,                     # duplicate scan reportId, as noscan will always be one issue
+                            "Id": report_id,
                             "AssessmentType": atype,
                             "Product": ptype,
+                            "ProductType": ptype,
+                            "ProductVersion": "",
                             "Vendor": "Fortify"
                         }
                     },
-                    "Timestamp": SmApiClient.CleanDateString(dtNow)
+                    "Timestamp": SmApiClient.clean_date_string(dt_now)
                 }
-                self.AddQueueIssue(qissue)
+                self.add_queue_issue(q_issue)
                 key = f"{avid}|{atype}"
-                if not key in self.__KeyMap.keys():
-                    self.__KeyMap[key] = { 'sid': qscan['id'], 'aid': qasset['id'] }
+                if key not in self._key_map.keys():
+                    # Product/type must be real values, not None.  This key is claimed before issues are
+                    # mapped, and map_and_add_scan_and_asset skips any key already present - so if issues
+                    # do turn up for this assessment type (an SSC version whose scan artifact was removed
+                    # but whose issues remain), every one of them copies these values.  None here meant
+                    # the whole issue batch came back from the api as "The Product field is required."
+                    self._key_map[key] = {'sid': q_scan['id'], 'aid': q_asset['id'], 'prd': ptype, 'ptyp': ptype, 'pver': ""}
                 else:
-                    logging.error("Unexpected app version ID %s and assessement type %s already found in v3 integration keymap.")
+                    logging.error("Unexpected app version ID %s and assessment type %s already found in v3 integration keymap.", avid, atype)
             except Exception as ex:
                 logging.error("Error!", exc_info=ex)
-                pass
-        # end for
 
-    def MapEverything(self, issue, issueAssetKeys, issueKeys, sscHistoryEnable = False):
+    def map_everything(self, issue, issue_asset_keys, issue_keys, ssc_history_enable=False):
         try:
-            self.MapAndAddScanAndAsset(issue, issueAssetKeys, sscHistoryEnable)
-            self.MapAndAddIssue(issue, issueKeys)
-        except:
+            self.map_and_add_scan_and_asset(issue, issue_asset_keys, ssc_history_enable)
+            self.map_and_add_issue(issue, issue_keys)
+        except Exception:
             logging.error("Failed to map queue resource", exc_info=True)
 
-    def MapScan(self, source, atype, ptype, scanId, timestamp, issue=None, sscV2Scan=None, sscV3ScanId=None):
-        scanDate = self.__GetScanDate(issue, source, sscV2Scan)
-        qscan = {
+    def map_scan(self, source, atype, ptype, scan_id, timestamp, issue=None, ssc_v2_scan=None, ssc_v3_scan_id=None):
+        q_scan = self._build_scan_doc(source, atype, ptype, scan_id, timestamp, issue, ssc_v2_scan, ssc_v3_scan_id)
+        return self.add_queue_scan(q_scan, ssc_v3_scan_id)
+
+    def _build_scan_doc(self, source, atype, ptype, scan_id, timestamp, issue=None, ssc_v2_scan=None, ssc_v3_scan_id=None):
+        '''Builds a queue scan document without submitting it to the API.'''
+        scan_date = self._get_scan_date(issue, source, ssc_v2_scan)
+        q_scan = {
             "Timestamp": timestamp,
             "Saltminer": {
                 "Internal": {
-                    "AgentId": self.AgentId,
-                    "IssueCount": 0 if sscV3ScanId else -1,
-                    "CurrentQueueScanId": sscV3ScanId if sscV3ScanId else ("NULL" if self.__EnableStupidNull else None),
+                    "IssueCount": 0 if ssc_v3_scan_id else -1,
+                    "CurrentQueueScanId": ssc_v3_scan_id or ("NULL" if self._enable_stupid_null else None),
                     "ReplaceIssues": True
                 },
                 "Scan": {
                     "AssessmentType": atype,
                     "ProductType": ptype,
-                    "Product": "Fortify" if not issue else issue['engine_type'],
+                    # Product is required by the api.  _nvl only defends against a missing key - SSC
+                    # regularly sends engine_type present and null, which put a null on every issue
+                    # mapped from this scan (they copy it out of the key map below).
+                    "Product": "Fortify" if not issue else (self._nvl(issue, 'engine_type') or ptype or "Fortify"),
+                    "ProductVersion": None if not issue else self._nvl(issue, 'engine_version'),
                     "Vendor": "Fortify",
-                    "ReportId": scanId,
-                    "ScanDate": scanDate,
+                    "ReportId": scan_id,
+                    "ScanDate": scan_date,
                     "SourceType": source,
                     "IsSaltMinerSource": True,
-                    "ConfigName": self.__SourceName,
-                    "AssetType": self.__AssetType,
-                    "Instance": self.__SourceName,
+                    "ConfigName": self._source_name,
+                    "AssetType": self._asset_type,
+                    "Instance": self._source_name,
                     "Rulepacks": []
                 }
             }
         }
-        if sscV2Scan and 'rulepacks' in sscV2Scan:
-            qscan['Saltminer']['Scan']['Rulepacks'] = []
-            for rp in sscV2Scan['rulepacks']:
-                qscan['Saltminer']['Scan']['Rulepacks'].append({ 
+        if ssc_v2_scan and 'rulepacks' in ssc_v2_scan:
+            q_scan['Saltminer']['Scan']['Rulepacks'] = []
+            for rp in ssc_v2_scan['rulepacks']:
+                q_scan['Saltminer']['Scan']['Rulepacks'].append({
                     'Id': rp['guid'] if 'guid' in rp else '',
                     'Name': rp['name'] if 'name' in rp else '',
                     'Version': rp['version'] if 'version' in rp else '',
                     'Language': rp['language'] if 'language' in rp else ''
                 })
-        return self.AddQueueScan(qscan, sscV3ScanId)
-        
-    def MapAndAddScanAndAsset(self, issue, issueAssetKeys, sscAllHistoryEnable = False):
+        return q_scan
+
+    def map_and_add_scan_and_asset(self, issue, issue_asset_keys, ssc_all_history_enable=False):
         avid = str(issue['application_version_id'])
-        atype = self.__MapAssessmentType(issue['assessment_type'])
+        atype = self._map_assessment_type(issue['assessment_type'])
         key = f"{avid}|{atype}"
-        if key in self.__KeyMap.keys():
-            return # we've already seen this avid/assessment type
-        source = self.__GetSource(issue)
-        product = SmApiClient.__GetProduct(source, atype)
+        if key in self._key_map.keys():
+            return  # already seen this avid/assessment type
+        source = self._get_source(issue)
+        product = SmApiClient._get_product(source, atype)
         sid = str(issue['report_id'])
         if 'SSC' in source.upper():
-            v2SscScan = self.__GetLatestSscScan(avid, issue['engine_type'])
-            if not v2SscScan:
+            v2_ssc_scan = self._get_latest_ssc_scan(avid, issue['engine_type'])
+            if not v2_ssc_scan:
                 logging.error("No SSC scan was found for app version %s and type '%s', scan with id '%s' will be skipped.", avid, issue['engine_type'], sid)
                 return
-            # if SSC we overwrite the report id with a combo of date and id to avoid duplicates
-            # this allows re-uploads to still be considered scan history
-            sid = SmApiClient.__FormatScanId(v2SscScan['artifactUploadDate'], v2SscScan['id'])
+            sid = SmApiClient._format_scan_id(v2_ssc_scan['artifactUploadDate'], v2_ssc_scan['id'])
         else:
-            v2SscScan = None
+            v2_ssc_scan = None
         section = "queue scan"
-        qscan = None
+        q_scan = None
         try:
-            qscan = self.MapScan(source, atype, product, sid, SmApiClient.CleanDateString(issue['timestamp']), issue, v2SscScan)
-            qsid = qscan['id']
-            isProd = True
-            if 'SSC' in source.upper():
-                self.__MapAndAddSscScanHistory(avid, atype, issue['engine_type'], product, qscan, sscAllHistoryEnable)
+            q_scan = self.map_scan(source, atype, product, sid, SmApiClient.clean_date_string(issue['timestamp']), issue, v2_ssc_scan)
+            qsid = q_scan['id']
+            is_prod = True
+            if 'SSC' in source.upper() and key not in self._history_done:
+                self._map_and_add_ssc_scan_history(avid, atype, issue['engine_type'], product, q_scan, ssc_all_history_enable)
+                self._history_done.add(key)  # don't re-send history if a later mapping step fails and this key is retried
             else:
-                 if 'sdlc_status' in issue.keys() and issue['sdlc_status'] != 'Production':
-                     isProd = False
+                if 'sdlc_status' in issue.keys() and issue['sdlc_status'] != 'Production':
+                    is_prod = False
             section = "queue asset"
-            qasset = {
+            q_asset = {
                 "Saltminer": {
-                    "Asset": {  
+                    "Asset": {
                         "Name": issue['application_name'],
                         "Description": issue['application_description'],
                         "VersionId": avid,
                         "Version": issue['application_version_name'],
-                        "ConfigName": self.__SourceName,
+                        "ConfigName": self._source_name,
                         "SourceType": source,
                         "IsSaltMinerSource": True,
                         "SourceId": avid,
-                        "IsProduction": isProd, 
-                        "AssetType": self.__AssetType,
-                        "Instance": self.__SourceName,
+                        "IsProduction": is_prod,
+                        "AssetType": self._asset_type,
+                        "Instance": self._source_name,
                         "Attributes": {},
                         "LastScanDaysPolicy": "30"
                     },
-                    "InventoryAsset": {
-                        "Key": ""
-                    },
-                    "Internal": {
-                        "QueueScanId": qsid
-                    }
+                    "InventoryAsset": {"Key": ""},
+                    "Internal": {"QueueScanId": qsid}
                 },
-                "Timestamp": SmApiClient.CleanDateString(issue['timestamp'])
+                "Timestamp": SmApiClient.clean_date_string(issue['timestamp'])
             }
-            self.AddDiffAttributes(issueAssetKeys, issue, qasset['Saltminer']['Asset']['Attributes'])
-            # if configured and present, set inventory asset key from attributes
-            if self.__InventoryAssetKeyAttribute and qasset['Saltminer']['Asset']['Attributes'] and self.__InventoryAssetKeyAttribute in qasset['Saltminer']['Asset']['Attributes'].keys():
-                qasset['Saltminer']['InventoryAsset']['Key'] = qasset['Saltminer']['Asset']['Attributes'][self.__InventoryAssetKeyAttribute]
-            qasset = self.AddQueueAsset(qasset)
-        
-            # add keys to keymap so can map queue issues to correct queue scan and asset ids
-            if not key in self.__KeyMap.keys():
-                self.__KeyMap[key] = { 'sid': qsid, 'aid': qasset['id'] }
+            self.add_diff_attributes(issue_asset_keys, issue, q_asset['Saltminer']['Asset']['Attributes'])
+            if self._inventory_asset_key_attribute and q_asset['Saltminer']['Asset']['Attributes'] and self._inventory_asset_key_attribute in q_asset['Saltminer']['Asset']['Attributes'].keys():
+                q_asset['Saltminer']['InventoryAsset']['Key'] = q_asset['Saltminer']['Asset']['Attributes'][self._inventory_asset_key_attribute]
+            q_asset = self.add_queue_asset(q_asset)
+
+            if key not in self._key_map.keys():
+                self._key_map[key] = {'sid': qsid, 'aid': q_asset['id'], 'prd': q_scan['saltminer']['scan']['product'], 'ptyp': q_scan['saltminer']['scan']['productType'], 'pver': q_scan['saltminer']['scan']['productVersion']}
 
         except KeyError as e:
-            msg = f"[SMAPI] Error mapping queue {'asset' if qscan else 'scan'} - [KeyError] for field {e} (section {section}, local id {avid})."
+            msg = f"[SMAPI] Error mapping queue {'asset' if q_scan else 'scan'} - [KeyError] for field {e} (section {section}, local id {avid})."
             logging.error(msg)
             raise SmApiClientException(msg) from e
         except SmApiClientException as e:
-            msg = f"[SMAPI] Error mapping queue {'asset' if qscan else 'scan'} - [SmApiClientException] {e})."
+            msg = f"[SMAPI] Error mapping queue {'asset' if q_scan else 'scan'} - [SmApiClientException] {e})."
             logging.error(msg)
-            logging.warning(f"[SMAPI] Failed to add {section} for app / version with local id {avid} and scan with local id {sid}.")
+            logging.warning("[SMAPI] Failed to add %s for app / version with local id %s and scan with local id %s.", section, avid, sid)
             raise SmApiClientException(msg) from e
         except Exception as e:
             msg = f"[SMAPI] Error adding {section} for app / version with local id {avid} and scan with local id {sid}: [{type(e).__name__}] {e}"
             logging.error(msg)
             raise SmApiClientException(msg) from e
 
-    def MapAndAddIssue(self, issue, issueKeys):
-        qscanId = ''
-        qassetId = ''
-        source = self.__GetSource(issue)
-        isSsc = "ssc" in source.lower()
-        sscInstanceId = issue['issue_instance_id'] if isSsc and 'issue_instance_id' in issue.keys() else "instance_id_missing"
+    def map_and_add_issue(self, issue, issue_keys):
+        q_scan_id = ''
+        q_asset_id = ''
+        prd = ''
+        ptyp = ''
+        pver = ''
+        source = self._get_source(issue)
+        is_ssc = "ssc" in source.lower()
+        ssc_instance_id = issue['issue_instance_id'] if is_ssc and 'issue_instance_id' in issue.keys() else "instance_id_missing"
         avid = str(issue['application_version_id'])
-        atype = self.__MapAssessmentType(issue['assessment_type'])
+        atype = self._map_assessment_type(issue['assessment_type'])
         key = f"{avid}|{atype}"
         gui_url = ""
         if not issue['name']:
             issue['name'] = "NAME UNKNOWN"
         if not issue['scanner_id']:
-            if not issue['severity'] == "Zero":
+            if issue['severity'] != "Zero":
                 raise ValueError("Missing scanner_id (required) for issue")
             issue['scanner_id'] = source + '|' + avid + '|' + 'zero'
         else:
-            gui_url = self.__GetGuiUrl(avid, isSsc, str(issue['scanner_id']) if not isSsc else sscInstanceId)
+            gui_url = self._get_gui_url(avid, is_ssc, str(issue['scanner_id']) if not is_ssc else ssc_instance_id)
         try:
-            if key not in self.__KeyMap.keys():
+            if key not in self._key_map:
                 raise SmApiClientException(f"Failure to map issue, KeyMap does not contain App Release id '{avid}' and assessment type '{atype}'.")
-            qscanId = self.__KeyMap[key]['sid']
-            qassetId = self.__KeyMap[key]['aid']
+            q_scan_id = self._key_map[key]['sid']
+            q_asset_id = self._key_map[key]['aid']
+            prd = self._key_map[key]['prd']
+            ptyp = self._key_map[key]['ptyp']
+            pver = self._key_map[key]['pver']
+            if not prd:
+                # Required by the api, and it rejects the whole batch one message per issue - fill it in
+                # and say so once per key rather than losing the load.
+                prd = SmApiClient._get_product(source, atype)
+                logging.warning("Queue scan for app version '%s' / assessment type '%s' has no product set; defaulting issue product to '%s'.", avid, atype, prd)
+                self._key_map[key]['prd'] = prd
+            if not ptyp:
+                ptyp = SmApiClient._get_product(source, atype)
+                self._key_map[key]['ptyp'] = ptyp
 
             if not issue['severity']:
-                logging.warning("Issue '{}' is missing a severity", issue['scanner_id'])
-            tags = None if not issue['tags'] else [ issue['tags'] ]
+                logging.warning("Issue '%s' is missing a severity", issue['scanner_id'])
+            tags = None if not issue['tags'] else [issue['tags']]
 
             issue['location'] = str(issue['location'])
             issue['location_full'] = str(issue['location_full'])
-            if self.__Empty(issue['location']):
+            if self._empty(issue['location']):
                 issue['location'] = issue['location_full']
-            if self.__Empty(issue['location']):
+            if self._empty(issue['location']):
                 issue['location'] = "[empty]"
-            if self.__Empty(issue['location_full']):
+            if self._empty(issue['location_full']):
                 issue['location_full'] = issue['location']
-            if self.__Empty(issue['location']):
+            if self._empty(issue['location']):
                 raise ValueError("Location missing/invalid.")
 
-            customAttr = {}
+            custom_attr = {}
             if 'customAttributes' in issue.keys():
-                customAttr = issue['customAttributes']
-                for k in customAttr.keys():
+                custom_attr = issue['customAttributes']
+                for k in custom_attr.keys():
                     if k == 'customAttributes':
-                        continue # in case bug pushes this through
-                    customAttr[k] = str(customAttr[k])
-            if not customAttr:
-                customAttr = {}
+                        continue  # in case bug pushes this through
+                    custom_attr[k] = str(custom_attr[k])
+            if not custom_attr:
+                custom_attr = {}
             if 'customTagValues' in issue.keys():
                 for kv in issue['customTagValues']:
-                    customAttr[kv['keyValue']['name']] = str(kv['keyValue']['value'])
+                    custom_attr[kv['keyValue']['name']] = str(kv['keyValue']['value'])
 
-            qissue = {
+            q_issue = {
                 "Saltminer": {
-                    "QueueScanId": qscanId,
-                    "QueueAssetId": qassetId,
+                    "QueueScanId": q_scan_id,
+                    "QueueAssetId": q_asset_id,
                     "Source": {
                         "Analyzer": issue['analyzer'],
                         "Confidence": float(issue['confidence']),
@@ -827,143 +884,151 @@ class SmApiClient(object):
                         "Kingdom": issue['kingdom'],
                         "Likelihood": float(issue['likelihood'])
                     },
-                    "Attributes": customAttr
+                    "Attributes": custom_attr
                 },
                 "Vulnerability": {
                     "IsActive": issue['active'],
                     "Audit": {
                         "Audited": issue['audited'],
-                        "Auditor": "",                      # Not available
-                        "LastAudit": None                   # Not available
+                        "Auditor": "",
+                        "LastAudit": None
                     },
-                    "FoundDate": SmApiClient.CleanDateString(issue['found_date']),
-                    "Id": None,                             # ECS field.  Current code doesn't have a standards identifier, like "cve-1234"
+                    "FoundDate": SmApiClient.clean_date_string(issue['found_date']),
+                    "Id": None,
                     "IsFiltered": issue['hidden'],
                     "IsRemoved": issue['removed'],
                     "IsSuppressed": issue['suppressed'],
                     "Location": issue['location'],
                     "LocationFull": issue['location_full'],
-                    "RemovedDate": SmApiClient.CleanDateString(issue['removed_date']),
+                    "RemovedDate": SmApiClient.clean_date_string(issue['removed_date']),
                     "SourceSeverity": issue['severity'],
                     "ReportId": str(issue['report_id']),
-                    "Category": [ "Application" ],          # ECS always should be this value, defaults to this as well, can leave it out
-                    "Classification": "",                   # ECS not required, current code hard-codes ""
-                    "Description": "",                      # ECS not required
-                    "Enumeration": "",                      # ECS not required, current code hard-codes ""
+                    "Category": ["Application"],
+                    "Classification": "",
+                    "Description": "",
+                    "Enumeration": "",
                     "Name": issue['name'],
                     "Reference": issue['reference'],
-                    "Severity": self.__MapSeverity(issue['severity']),
+                    "Severity": self._map_severity(issue['severity']),
                     "Scanner": {
                         "ApiUrl": issue['sor_url'],
                         "GuiUrl": gui_url,
                         "Id": str(issue['scanner_id']),
                         "AssessmentType": atype,
-                        "Product": SmApiClient.__GetProduct(source, atype),
+                        "Product": prd,
+                        "ProductType": ptyp,
+                        "ProductVersion": pver,
                         "Vendor": "Fortify"
                     },
                     "Score": {
-                        "Base": float(issue['score_base']),  # Hard-coded to "0" in current code
-                        "Environmental": float(issue['score_environmental']),    # Hard-coded to "0" in current code
-                        "Temporal": float(issue['score_temporal']),              # Hard-coded to "0" in current code
-                        "Version": None                                             # Hard-coded to "2.0" in current code (?!)
+                        "Base": float(issue['score_base']),
+                        "Environmental": float(issue['score_environmental']),
+                        "Temporal": float(issue['score_temporal']),
+                        "Version": None
                     }
                 },
-                "Labels": {},                               # ECS field. Not available
-                "Message": None,                            # ECS field. Not available
-                "Tags": tags,                               # ECS field.
-                "Timestamp": SmApiClient.CleanDateString(issue['timestamp'])
+                "Labels": {},
+                "Message": None,
+                "Tags": tags,
+                "Timestamp": SmApiClient.clean_date_string(issue['timestamp'])
             }
             if 'issue_instance_id' in issue.keys():
-                qissue['Saltminer']['Attributes']['issue_instance_id'] = issue['issue_instance_id']
+                q_issue['Saltminer']['Attributes']['issue_instance_id'] = issue['issue_instance_id']
             if 'primary_rule_guid' in issue.keys():
-                qissue['Saltminer']['Attributes']['primary_rule_guid'] = issue['primary_rule_guid']
-            self.AddDiffAttributes(issueKeys, issue, qissue['Saltminer']['Attributes'])
-            self.AddQueueIssue(qissue)
+                q_issue['Saltminer']['Attributes']['primary_rule_guid'] = issue['primary_rule_guid']
+            self.add_diff_attributes(issue_keys, issue, q_issue['Saltminer']['Attributes'])
+            self.add_queue_issue(q_issue)
         except KeyError as e:
             logging.error("[SMAPI] Error mapping queue issue - KeyError for field %s (local scan id '%s').", e, avid)
-            logging.warning(f"[SMAPI] Scan with local id '%s' may be out of sync with queue scan id '%s'.", avid, qscanId)
+            logging.warning("[SMAPI] Scan with local id '%s' may be out of sync with queue scan id '%s'.", avid, q_scan_id)
             raise SmApiClientException("Mapping error") from e
         except SmApiClientException as e:
             logging.error("[SMAPI] Error mapping queue issue - [SmApiClientException] %s", e)
-            logging.warning("[SMAPI] Scan with local id '%s' may be out of sync with queue scan id '%s'.", avid, qscanId)
+            logging.warning("[SMAPI] Scan with local id '%s' may be out of sync with queue scan id '%s'.", avid, q_scan_id)
         except Exception as ex:
-            scanId = '[unknown]' if not 'scan_id' in issue.keys() else issue['scan_id']
-            logging.error("[SMAPI] Error adding issue with local id '%s' to local scan id '%s' (queue scan id %s): [%s] %s", issue['scanner_id'], scanId, qscanId, type(ex).__name__, ex)
-            logging.warning("[SMAPI] Scan with local id '%s' may be out of sync with queue scan id '%s'.", avid, qscanId)
+            scan_id = '[unknown]' if 'scan_id' not in issue.keys() else issue['scan_id']
+            logging.error("[SMAPI] Error adding issue with local id '%s' to local scan id '%s' (queue scan id %s): [%s] %s", issue['scanner_id'], scan_id, q_scan_id, type(ex).__name__, ex)
+            logging.warning("[SMAPI] Scan with local id '%s' may be out of sync with queue scan id '%s'.", avid, q_scan_id)
 
-    def __MapAndAddSscScanHistory(self, avid, atype, etype, product, sscV3QueueScan, sscAllHistoryEnable=False):
-        '''
-        atype: assessment type (v3)
-        etype: engine type (v2)
-        '''
+    def _map_and_add_ssc_scan_history(self, avid, atype, etype, product, ssc_v3_queue_scan, ssc_all_history_enable=False):
         q = {
-          "query": {
-            "bool": {
-              "must": [
-                { "term": { "projectVersionId": { "value": avid } } },
-                { "term": { "type": { "value": etype } } }
-              ]
-            }
-          },
-          "sort": [ { "artifactUploadDate": { "order": "desc" } } ]
+            "query": {
+                "bool": {
+                    "must": [
+                        {"term": {"projectVersionId": {"value": avid}}},
+                        {"term": {"type": {"value": etype}}}
+                    ]
+                }
+            },
+            "sort": [{"artifactUploadDate": {"order": "desc"}}]
         }
-        scanScroller = self.__Es.SearchScroll("sscprojscans", q, 200)
-        timestamp = SmApiClient.CleanDateString(datetime.datetime.utcnow().isoformat())
-        source = self.SscSourceType
-        v3LastScan = self.SearchLastScan(avid, atype, source)
-        v3LastScanDate = datetime.datetime.fromisoformat('1900-01-01') if not v3LastScan else v3LastScan['saltminer']['scan']['scanDate'] # use returned json format
+        scan_scroller = self._es.SearchScroll("sscprojscans", q, 200)
+        timestamp = SmApiClient.clean_date_string(datetime.datetime.now(datetime.timezone.utc).isoformat())
+        source = self.ssc_source_type
+        v3_last_scan = self.search_last_scan(avid, atype, source)
+        v3_last_scan_date = datetime.datetime.fromisoformat('1900-01-01') if not v3_last_scan else v3_last_scan['saltminer']['scan']['scanDate']
         count = 0
-        while scanScroller.Results:
-            for scanCont in scanScroller.Results:
-                scan = scanCont['_source']
-                hScanDate = SmApiClient.CleanDateString(scan['artifactUploadDate'])
+        history_batch = []
+        while scan_scroller.Results:
+            for scan_cont in scan_scroller.Results:
+                scan = scan_cont['_source']
+                h_scan_date = SmApiClient.clean_date_string(scan['artifactUploadDate'])
                 try:
-                    v3LastScanDate = dtparse(v3LastScanDate)
-                except:
+                    v3_last_scan_date = dtparse(v3_last_scan_date)
+                except Exception:
                     pass
-                if not v3LastScanDate or not 'datetime.datetime' in str(type(v3LastScanDate)):
-                    logging.error("Invalid v3 last scan date '%s' for app version id %s and assessment type '%s'. Skipping scan history record", v3LastScanDate, avid, atype)
+                if not v3_last_scan_date or 'datetime.datetime' not in str(type(v3_last_scan_date)):
+                    logging.error("Invalid v3 last scan date '%s' for app version id %s and assessment type '%s'. Skipping scan history record", v3_last_scan_date, avid, atype)
                     continue
-                # if the last scan we have in SMv3 is newer then skip this one (unless all history enabled)
-                if not sscAllHistoryEnable and v3LastScanDate.date() >= dtparse(hScanDate).date():
+                # changed to > instead of >= so can catch multiple same day scans
+                if not ssc_all_history_enable and v3_last_scan_date.date() > dtparse(h_scan_date).date():
                     continue
-                v3ScanIdCurrent = sscV3QueueScan['saltminer']['scan']['reportId']
-                v3ScanIdNew = SmApiClient.__FormatScanId(scan['artifactUploadDate'], scan['id'])
-                # if this is the latest scan or of the wrong assessment type, don't load it
-                if v3ScanIdNew == v3ScanIdCurrent or etype != scan['type']:
+                v3_scan_id_current = ssc_v3_queue_scan['saltminer']['scan']['reportId']
+                v3_scan_id_new = SmApiClient._format_scan_id(scan['artifactUploadDate'], scan['id'])
+                if v3_scan_id_new == v3_scan_id_current or etype != scan['type']:
                     continue
-                self.MapScan(source, atype, product, v3ScanIdNew, timestamp, None, scan, sscV3QueueScan['id'])
+                # Build the doc and send in bulk batches - history scans don't need finalization
+                # (QueueStatus goes straight to Pending), so 1x1 POSTs aren't needed.  Pre-assign the
+                # doc ID so it can be tracked - the API uses a provided ID as-is (generates one only if empty).
+                doc = self._build_scan_doc(source, atype, product, v3_scan_id_new, timestamp, None, scan, ssc_v3_queue_scan['id'])
+                doc['Saltminer']['Internal']['QueueStatus'] = "Pending"
+                doc['Id'] = str(uuid.uuid4())
+                history_batch.append(doc)
                 count += 1
+                if len(history_batch) >= self.batch_size:
+                    self._data_client.queue_scans_add_update_bulk(history_batch)
+                    self._queue_scan_ids.extend(d['Id'] for d in history_batch)
+                    history_batch = []
             try:
-                scanScroller.GetNext()
+                scan_scroller.GetNext()
             except NotFoundErr:
-                logging.warning(f"[SMAPI] History query failed due to scroll expiration.  History may be truncated for app version {avid}")
+                logging.warning("[SMAPI] History query failed due to scroll expiration.  History may be truncated for app version %s", avid)
+        if history_batch:
+            self._data_client.queue_scans_add_update_bulk(history_batch)
+            self._queue_scan_ids.extend(d['Id'] for d in history_batch)
         logging.info("[SMAPI] Processed v3 scan history for app version %s and assessment type %s - %s history scan(s).", avid, atype, count)
         try:
-            scanScroller.Clear()
-        except:
-            pass # don't care if error on clear
+            scan_scroller.Clear()
+        except Exception:
+            pass  # don't care if error on clear
 
-    #endregion
-
+    # ------------------------------------------------------------------
     # Helpers
-    #region
+    # ------------------------------------------------------------------
 
-    
     @staticmethod
-    def __FormatScanId(artUploadDate, id):
-        return f"{artUploadDate}~{id}"
+    def _format_scan_id(art_upload_date, id):
+        return f"{art_upload_date}~{id}"
 
-    def __GetSource(self, issue):
-        if not 'scanner_vendor' in issue.keys():
+    def _get_source(self, issue):
+        if 'scanner_vendor' not in issue.keys():
             return 'Unknown'
         if issue['scanner_vendor'] == "Fortify":
-            return self.SscSourceType
-        else:
-            return self.FodSourceType
+            return self.ssc_source_type
+        return self.fod_source_type
 
     @staticmethod
-    def __GetProduct(source, atype="any"):
+    def _get_product(source, atype="any"):
         if 'SSC' in source:
             if atype == "DAST":
                 return "Fortify WebInspect"
@@ -973,71 +1038,69 @@ class SmApiClient(object):
         return "FOD"
 
     @staticmethod
-    def __MapSeverity(sev):
+    def _map_severity(sev):
         sev = sev.lower()
-        map = { "critical": "Critical", "high": "High", "medium": "Medium", "low": "Low", "zero": "Zero", "noscan": "NoScan" }
-        return map[sev] if sev in map.keys() else "Info"
+        sev_map = {"critical": "Critical", "high": "High", "medium": "Medium", "low": "Low", "zero": "Zero", "noscan": "NoScan"}
+        return sev_map[sev] if sev in sev_map else "Info"
 
     @staticmethod
-    def __GetScanDate(issue, source, v2SscScan):
-        if not issue and not v2SscScan:
-            raise SmApiClientException("Invalid call to __GetScanDate, must include non-null issue or v2SscScan")
+    def _get_scan_date(issue, source, v2_ssc_scan):
+        if not issue and not v2_ssc_scan:
+            raise SmApiClientException("Invalid call to _get_scan_date, must include non-null issue or v2_ssc_scan")
         if not issue:
-            lastScanDate = None
-            foundDate = None
-            scanDate = None
+            last_scan_date = None
+            found_date = None
+            scan_date = None
         else:
-            lastScanDate = issue['last_scan_date']
-            foundDate = issue['found_date']
-            scanDate = SmApiClient.CleanDateString(lastScanDate) if lastScanDate else SmApiClient.CleanDateString(foundDate)
-        uploadDate = None if not v2SscScan else v2SscScan['artifactUploadDate']
-        # we use the artifactUploadDate instead of the last_scan_date imported from v2 for SSC to support multiple uploads of the same artifact (cheating, but what can you do?)
+            last_scan_date = issue['last_scan_date']
+            found_date = issue['found_date']
+            scan_date = SmApiClient.clean_date_string(last_scan_date) if last_scan_date else SmApiClient.clean_date_string(found_date)
+        upload_date = None if not v2_ssc_scan else v2_ssc_scan['artifactUploadDate']
         if 'SSC' in source.upper():
-            scanDate = SmApiClient.CleanDateString(uploadDate) if uploadDate else scanDate
-        if not scanDate:
-            raise SmApiClientException(f"ScanDate cannot be null (last_scan_date: {lastScanDate}, found_date: {foundDate}, artifactUploadDate (SSC): {uploadDate}")
-        return scanDate
+            scan_date = SmApiClient.clean_date_string(upload_date) if upload_date else scan_date
+        if not scan_date:
+            raise SmApiClientException(f"ScanDate cannot be null (last_scan_date: {last_scan_date}, found_date: {found_date}, artifactUploadDate (SSC): {upload_date}")
+        return scan_date
 
     @staticmethod
-    def AddDiffAttributes(orgKeys, source, target):
+    def add_diff_attributes(org_keys, source, target):
         '''
-        Update target dict to add fields in source that weren't there when the source's keys (fields) were captured.  For attribute handling
-        
-        Parameters:
-        
-        orgKeys - source.keys() before additions
-        source - source dict
-        target - target dict that will receive the additions
+        Update target dict to add fields in source that weren't there when the source's keys (fields) were captured.
 
+        Parameters:
+        org_keys - source.keys() before additions
+        source   - source dict
+        target   - target dict that will receive the additions
         '''
         for k in source.keys():
-            if not k in orgKeys:
+            if k not in org_keys:
                 target[k] = str(source[k])
 
     @staticmethod
-    def CleanDateString(ds):
-        if not ds: return ds
+    def clean_date_string(ds):
+        if not ds:
+            return ds
         # Handle python bug that leaves out a digit sometimes on zero seconds
         if len(ds) == 18:
             ds += '0'
         if len(ds) < 19:
             try:
                 ds = dtparse(ds).isoformat()
-            except:
-                raise(ValueError(f"Date string '{ds}' is incorrect"))
+            except Exception:
+                raise ValueError(f"Date string '{ds}' is incorrect")
         i = ds.find(".")
         if i > -1:
             return ds[0:i]
-        else:
-            return ds
+        return ds
 
-    #endregion
 
 class SmApiClientException(Exception):
     pass
 
+
 class SmApiClientNotFoundException(SmApiClientException):
     pass
+
 
 class SmApiClientConfigurationException(SmApiClientException):
     pass

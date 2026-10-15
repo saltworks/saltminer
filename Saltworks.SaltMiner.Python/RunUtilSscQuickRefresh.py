@@ -1,15 +1,19 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
@@ -44,7 +48,7 @@ for i in range(1, len(sys.argv)):
             exit(1)
         logInstance = logInstance.replace(":", "")
 
-app = Application(loggingInstance=logInstance)
+app = Application(loggingCustomTag=logInstance)
 prog = os.path.splitext(os.path.basename(__file__))[0]
 prmSourceName = None
 prmRunRefresh = True
@@ -131,7 +135,8 @@ try:
             WriteUpdateQueueDoc(count['key'])
     if prmRunRefresh:
         logging.info("Comparison complete. Updates needed: %s  Begin refresh...", processed)
-        es.FlushIndex('sscupdatequeue')
+        # Refresh, not flush - PopulateVuls reads these queue docs straight back.
+        es.RefreshIndex('sscupdatequeue')
         ssc.PopulateVuls()
     else:
         logging.info("Comparison complete.  Refresh disabled by parameter, so process is complete.")

@@ -1,18 +1,25 @@
 **/*/.DS_Store
+.vs/
+.vscode/
 **/*/.vscode
 **/*/[Oo]bj/
 **/*/[Dd]ebug/
 **/*/[Bb]in/
 **/*/.vs/
+.vs
 **/*/[Pp]roperties/
 **/*/TestResults/
 **/*/ConfigPath.json
 **/*.log
 **/*IntegrationTests/settings.json
 **/*.csproj.user
+/Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi/RunData
 /Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager/Template/*
 !/Saltworks.SaltMiner.JobManager/Saltworks.SaltMiner.JobManager/Template/Saltworks
 /Saltworks.SaltMiner.Ui/static/config*.json
+/Saltworks.SaltMiner.Ui/chrome
+/Saltworks.SaltMiner.DataApi/Saltworks.SaltMiner.DataApi.Tests/settings.json
+/Saltworks.SaltMiner.ElasticClient/Saltworks.SaltMiner.ElasticClient.IntegrationTests/settings.json
 
 # Python
 **/*/__pycache__/
@@ -28,4 +35,20 @@ Saltworks.SaltMiner.Python/Custom/*
 !Saltworks.SaltMiner.Python/Custom/*.py
 Saltworks.SaltMiner.Python/**/*/saltworks.key
 Saltworks.SaltMiner.Python/sm-run-config-location.json
+Saltworks.SaltMiner.Python/docs/plans/
 **/*/[Dd]ebug*.py
+*.tmp
+sm-run-config-location.json
+
+# AI testing
+ai-*.ps1
+*.http
+
+.claude
+.DS_Store
+ai/scratch/
+.env
+
+# Private AI team repo-in-a-repo (never committed to the public repo)
+/ai-team/
+CLAUDE.local.md

@@ -1,15 +1,19 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
@@ -21,7 +25,10 @@ import datetime
 import ntpath
 
 from .EncryptionHelper import EncryptionHelper
-from .ApplicationExceptions import *
+from .ElasticClient import ElasticClient
+from .ApplicationExceptions import ApplicationConfigurationException
+
+_MISSING = object()  # sentinel: distinguishes "no default provided" from default=None
 
 class ApplicationSettings(object):
     """Settings class - automatic handling of encryption/decryption for settings ending in 'Secret' or 'Password'"""
@@ -35,7 +42,12 @@ class ApplicationSettings(object):
         self.__Sources = {}
         self.__SourceConfigFiles = {}
         self.Load(configFiles, sourceConfigFiles)
-        self.__KeyFile = keyFile
+        self.__EncryptSuffixes = self.Get("Main", "EncryptedPropertySuffixes", [ "password", "secret", "apikey", "token" ])
+        cs_env = os.environ.get(ElasticClient.ELASTIC_CONNECT_STR_ENV, "")
+        if cs_env:
+            self.__Log("info", f"Found {ElasticClient.ELASTIC_CONNECT_STR_ENV} environment variable, overriding Elastic connection string")
+            self.Set("Elastic", ElasticClient.ELASTIC_CONNECT_STR_CONFIG, cs_env, save=False)
+        
         self.__Eh = EncryptionHelper(keyFile)
         self.Application = None
         if autoEncryptCreds:
@@ -78,8 +90,9 @@ class ApplicationSettings(object):
             self.Set(section, key, val, save)
 
     def __ShouldBeEncrypted(self, key, value):
-        k = key.lower()
-        return (k.endswith("password") or k.endswith("secret") or k.endswith("apikey")) and not self.__IsEncrypted(value) and value
+        for k in self.__EncryptSuffixes:
+            return key.lower().endswith(k.lower()) and not self.__IsEncrypted(value) and value
+        return False
 
     def __MakeItDirty(self, section, isSource):
         if isSource:
@@ -89,8 +102,8 @@ class ApplicationSettings(object):
 
     def __GetFromConfig(self, config, section, key, default, isSource):
         template = (f"source '{section}' and key '{key}'." if isSource else f"config '{section}' and key '{key}'.")
-        if not section in config.keys() or not key in config[section].keys():
-            if not default is None:
+        if section not in config.keys() or key not in config[section].keys():
+            if default is not _MISSING:
                 return default
             msg = f"Settings incorrect or missing value for {template}"
             self.__Log("error", msg)
@@ -116,6 +129,11 @@ class ApplicationSettings(object):
         template = (f"source '{section}' and key '{key}'." if isSource else f"config '{section} and key '{key}'.")
 
         config[key] = value
+        
+        # if save == False then it's ephemeral and doesn't need to be saved to file, encrypted, etc.
+        if not save:
+            return
+        
         self.__MakeItDirty(section, isSource)
 
         # Encrypt if needed
@@ -129,8 +147,7 @@ class ApplicationSettings(object):
             raise ApplicationConfigurationException(errMsg) from e
 
         try:
-            if save:
-                self.Save()
+            self.Save()
         except Exception as e:
             errMsg = f"Failed to save {template}"
             self.__Log("error", errMsg)
@@ -174,12 +191,14 @@ class ApplicationSettings(object):
                 self.__Log("debug", f"Saving config '{cf}' to file '{key['file']}'")
                 with open(key['file'], "w") as file:
                     json.dump(self.__Config[cf], file, indent=2)
+                key['dirty'] = False
         for cf in self.__SourceConfigFiles.keys():
             key = self.__SourceConfigFiles[cf]
             if key['dirty']:
                 self.__Log("debug", f"Saving source config '{cf}' to file '{key['file']}'")
                 with open(key['file'], "w") as file:
                     json.dump(self.__Sources[cf], file, indent=2)
+                key['dirty'] = False
 
     def FlagSet(self, key):
         ''' Returns True if requested flag is present in settings, False if not '''
@@ -194,13 +213,13 @@ class ApplicationSettings(object):
 
     def GetSourceDict(self, sourceName):
         ''' Returns an entire source config as a Dict '''
-        if not sourceName in self.__Sources.keys():
+        if sourceName not in self.__Sources.keys():
             msg = f"Source '{sourceName}' not found in configuration."
             self.__Log("error", msg)
             raise ApplicationConfigurationException(msg)
         return self.__Sources[sourceName]
 
-    def GetSource(self, sourceName, key, default=None):
+    def GetSource(self, sourceName, key, default=_MISSING):
         ''' Gets a source config setting value by passed source name and key, returning an optional default value if setting is not found and automatically decrypting if needed '''
         return self.__GetFromConfig(self.__Sources, sourceName, key, default, True)
 
@@ -210,13 +229,13 @@ class ApplicationSettings(object):
 
     def GetDict(self, section):
         ''' Gets an entire config file as a Dict '''
-        if not section in self.__Config.keys():
+        if section not in self.__Config.keys():
             msg = f"Configuration section '{section}' not found - check to make sure '{section}.json' exists."
             self.__Log("error", msg)
             raise ApplicationConfigurationException(msg)
         return self.__Config[section]
 
-    def Get(self, section, key, default=None):
+    def Get(self, section, key, default=_MISSING):
         ''' Gets a setting value by passed section and key, returning an optional default value if setting is not found and automatically decrypting if needed '''
         return self.__GetFromConfig(self.__Config, section, key, default, False)
     

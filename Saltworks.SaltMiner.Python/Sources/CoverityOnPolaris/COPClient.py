@@ -1,0 +1,207 @@
+''' --[auto-generated, do not modify this block]--
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+'''
+
+import json
+import logging
+import requests
+
+class COPClient:
+
+    def __init__(self, settings):
+        self.api_key = settings.GetSource("COP", "API_Key")
+        self.base_url = settings.GetSource("COP", "Base Url")
+
+        self.token = self.get_token()
+        self.headers = {
+            "Authorization": f"Bearer {self.token}"
+        }
+
+    def get_token(self):
+        token_url = self.base_url + "/api/auth/authenticate"
+        payload = {
+            "accesstoken":self.api_key
+        }
+        try:
+            response = requests.post(url=token_url, data=payload, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            return data['jwt']
+        
+        except requests.exceptions.RequestException as e:
+            logging.error("[COPClient] Token request failed: %s", e)
+            return
+        
+        
+    def get_projects_generator(self, in_trash = False):
+        projects_endpoint = self.base_url + "/api/common/v0/projects"
+        params = {
+            "page[limit]": 100,
+            "page[offset]": 0
+        }
+        if in_trash:
+            params["filter[project][in-trash][$eq]"] = True
+        try:
+            response = requests.get(
+                url=projects_endpoint,
+                params=params,
+                headers=self.headers,
+                timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        except requests.exceptions.RequestException as e:
+            logging.error("[COPClient] Token request failed: %s", e)
+            return
+        
+        yield from data.get('data', [])
+
+        while data.get('links', {}).get('next'):
+            try:
+                data = self.get_next(url=data['links']['next'], headers=self.headers)
+
+                yield from data.get('data', [])
+            except requests.exceptions.RequestException as e:
+                logging.error("Pagination request failed: %s", e)
+
+                break
+
+
+    def get_project_branches_generator(self, project_id):
+        branches_endpoint = self.base_url + "/api/common/v0/branches"
+        params = {
+            "page[limit]": 1000,
+            "filter[branch][project][id][$eq]": project_id
+        }
+        try:
+            response = requests.get(
+                url=branches_endpoint,
+                params=params,
+                headers=self.headers,
+                timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        except requests.exceptions.RequestException as e:
+            logging.error("Request failed: %s", e)
+            return
+        
+        yield from data.get('data', [])
+
+        while data.get('links', {}).get('next'):
+            try:
+                data = self.get_next(url=data['links']['next'], headers=self.headers)
+
+                yield from data.get('data', [])
+            except requests.exceptions.RequestException as e:
+                logging.error("Pagination request failed: %s", e)
+
+                break
+
+    def get_runs_generator(self, project_id = None, recipe= None):
+        runs_endpoint = self.base_url +  "/api/common/v0/runs"
+        params = {
+            "page[limit]":100,
+        }
+        if project_id:
+            params["filter[run][project][id][$eq]"] = project_id
+
+        if recipe:
+            params["recipe"] = recipe
+        try:
+            response = requests.get(
+                url=runs_endpoint,
+                params=params,
+                headers=self.headers,
+                timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        except requests.exceptions.RequestException as e:
+            logging.error("Request failed: %s", e)
+            return
+        
+        yield from data.get('data', [])
+
+        while data.get('links', {}).get('next'):
+            try:
+                data = self.get_next(url=data['links']['next'], headers=self.headers)
+
+                yield from data.get('data', [])
+            except requests.exceptions.RequestException as e:
+                logging.error("Pagination request failed: %s", e)
+
+                break
+        
+        
+
+    def get_issues_by_run_generator(self,project_id, run_id):
+        issues_endpoint = self.base_url + "/api/query/v0/issues?include[issue]=severity&include[issue]=issue-kind&include[issue]=related-indicators"
+        params = {
+            "page[limit]":100000,
+            "project-id": project_id,
+            "run-id[]": run_id,
+        }
+
+        try:
+            response = requests.get(
+                url= issues_endpoint,
+                params=params,
+                headers=self.headers,
+                timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        except requests.exceptions.RequestException as e:
+            logging.error("[COPClient] Issues by run request failed: %s", e)
+            return
+        
+        yield data
+        
+        while data.get('links', {}).get('next'):
+            try:
+                data = self.get_next(url=data['links']['next'], headers=self.headers)
+
+                yield data
+            except requests.exceptions.RequestException as e:
+                logging.error("Pagination request failed: %s", e)
+
+                break
+        
+
+
+
+    def get_next(self, url, headers):
+        """
+        This method allows us to get the next page within the COP api's enabling pagination.
+        """
+        try:
+            response= requests.get(url=url, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            return response.json()
+        
+        except Exception as e:
+            logging.error("[SnykClient][get_next] Get_next failed with error of %s", e)
+ 
+     

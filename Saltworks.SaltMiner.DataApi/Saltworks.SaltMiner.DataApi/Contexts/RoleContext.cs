@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Data;
@@ -36,7 +40,7 @@ namespace Saltworks.SaltMiner.DataApi.Contexts
                 throw new ApiValidationException($"Invalid role name, can only contain alphanumeric, dash, or underscore.");
             // If new, does it already exist as an AppRole?
             var filter = new Dictionary<string, string>() { { "name", request.Entity.Name } };
-            if (isnew && Search<AppRole>(new() { Filter = new() { FilterMatches = filter } }, idx).Data.Any())
+            if (isnew && Search<AppRole>(idx, new() { Filter = new() { FilterMatches = filter } }).Data.Any())
                 throw new ApiValidationException($"Role name '{request.Entity.Name}' already exists.");
             // If new, does it already exist in elasticsearch?
             if (isnew && ElasticClient.RoleExists(erolename).IsSuccessful)

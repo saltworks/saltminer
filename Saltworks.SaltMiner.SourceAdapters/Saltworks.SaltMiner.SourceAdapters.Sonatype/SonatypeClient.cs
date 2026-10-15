@@ -1,96 +1,148 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.SourceAdapters.Core;
-using Saltworks.SaltMiner.SourceAdapters.Core.Data;
 using Saltworks.Utility.ApiHelper;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Threading.Tasks;
 
 namespace Saltworks.SaltMiner.SourceAdapters.Sonatype
 {
-    public class SonatypeClient : SourceClient
+    internal class SonatypeClient : SourceClient
     {
         private readonly SonatypeConfig Config;
-        public SonatypeClient(ApiClient client, SonatypeConfig config, ILogger logger) : base(client, logger)
+        private List<Organization> Organizations { get; set; } = [];
+        internal SonatypeClient(ApiClient client, SonatypeConfig config, ILogger logger) : base(client, logger)
         {
             Config = config;
             SetApiClientDefaults(config.BaseAddress, config.Timeout, ApiClientHeaders.AuthorizationBasicHeader(config.UserName, config.Password), true);
         }
 
-        public async Task<ApplicationCollectionDto> GetAppsAsync()
+        private async Task HandleExceptionRetryAsync(int retries, string exceptionName)
         {
-            var result = await ApiClient.GetAsync<ApplicationCollectionDto>("applications");
-
-            if(Config.TestingAssetLimit > 0)
+            if (retries > Config.ApiRetryCount)
             {
-                result.Content.Applications = result.Content.Applications.Take(Config.TestingAssetLimit).ToList();
+                throw new SonatypeClientException($"Sonatype API retry count ({Config.ApiRetryCount}) reached.");
             }
-            return result.Content;
+            Logger.LogWarning("{Name} exception thrown, retrying ({Retries} of {RetryCount} after a 90s delay.)", exceptionName, retries, Config.ApiRetryCount);
+            await Task.Delay(90000);
         }
 
-        public async Task<IEnumerable<Report>> GetAppReportsAsync(string appId, string stage)
+        private async Task<ApiClientResponse<T>> RequestAsync<T>(string url, string jsonRequestBody=null, int retries = 0, bool suppressError = true) where T : class
         {
-            var reports = (await ApiClient.GetAsync<IEnumerable<Report>>($"reports/applications/{appId}")).Content;
-            return reports.OrderByDescending(x => x.EvaluationDate.ToUniversalTime()).GroupBy(x => x.Stage).SelectMany(g => g).Where(x => x.Stage == stage);
-        }
-
-        public async Task<IEnumerable<ComponentDto>> GetAppReportComponentsAsync(string appId, string reportId)
-        {
-            var result = await ApiClient.GetAsync<ComponentCollectionsDto>($"applications/{appId}/reports/{reportId}/policy");
-
-            return result.Content.Components;
-        }
-
-        public async Task<OrganizationDto> GetOrganizationByOrgIdAsync(string orgId)
-        {
-            var result = await ApiClient.GetAsync<OrganizationDto>($"organizations/{orgId}");
-
-            return result.Content;
-        }
-
-        public async Task<SourceClientResult<SourceMetric>> SourceMetricsAsync(ApplicationDto app, SonatypeConfig config)
-        {
-                var results = new List<SourceMetric>();
-                var reports = await ApiClient.GetAsync<IEnumerable<Report>>($"reports/applications/{app.Id}");
-
-                var groupedReports = reports.Content.OrderByDescending(x => x.EvaluationDate.ToUniversalTime()).GroupBy(x => x.Stage).Select(x => x.First());
-
-                if (groupedReports != null && groupedReports.Count() > 0)
-                {
-                    results.AddRange(groupedReports.Select(x => x.GetSourceMetric(app, config)));
-                }
+            ApiClientResponse<T> r;
+            ApiClient.Options.ExceptionOnFailure = !suppressError;
+            try
+            {
+                if (string.IsNullOrEmpty(jsonRequestBody))
+                    r = await ApiClient.GetAsync<T>(url);
                 else
-                {
-                    results.Add(new SourceMetric
-                    {
-                        LastScan = null,
-                        Instance = Config.Instance,
-                        IsSaltminerSource = SonatypeConfig.IsSaltminerSource,
-                        SourceType = config.SourceType,
-                        SourceId = $"{app.Id}|",
-                        VersionId = null,
-                        Attributes = new Dictionary<string, string>()
-                    });
-                }
+                    r = await ApiClient.PostAsync<T>(url, jsonRequestBody);
 
-                return new SourceClientResult<SourceMetric>() { Results = results };
+                HttpStatusCode[] retryStatuses = [HttpStatusCode.InternalServerError, HttpStatusCode.BadGateway, HttpStatusCode.Forbidden];
+                if (retryStatuses.Contains(r.StatusCode))
+                {
+                    var rc = r.RawContent.Length > 1000 ? r.RawContent[..999] : r.RawContent;
+                    if (retries > Config.ApiRetryCount)
+                    {
+                        Logger.LogError("API call failure (http {Status} response) - first 1000 chars of raw content: {Rc}", r.StatusCode.GetHashCode(), rc);
+                        throw new SonatypeClientException($"API call failed with error '{r.StatusCode.GetHashCode()}', max retries of {retries} reached.");
+                    }
+                    else
+                    {
+                        Logger.LogWarning("API call failure (http {Status} response), will retry in 90 sec - first 1000 chars of raw content: {Rc}", r.StatusCode.GetHashCode(), rc);
+                        await Task.Delay(90000);
+                        return await RequestAsync<T>(url, jsonRequestBody, retries + 1);
+                    }
+                }
+            }
+            catch (TimeoutException)
+            {
+                await HandleExceptionRetryAsync(retries, "Timeout");
+                return await RequestAsync<T>(url, jsonRequestBody, retries + 1);
+            }
+            catch (ApiClientTimeoutException)
+            {
+                await HandleExceptionRetryAsync(retries, "ApiClientTimeout");
+                return await RequestAsync<T>(url, jsonRequestBody, retries + 1);
+            }
+            catch (TaskCanceledException)
+            {
+                await HandleExceptionRetryAsync(retries, "Task canceled / Timeout");
+                return await RequestAsync<T>(url, jsonRequestBody, retries + 1);
+            }
+            return r;
+        }
+
+        internal async Task<IEnumerable<Application>> GetAllApplicationsAsync()
+        {
+            var result = await RequestAsync<ApplicationCollection>("applications");
+            if (!result.IsSuccessStatusCode)
+                throw new ApiClientException($"Failed to retrieve application list - API response was {result.StatusCode:g}.");
+            if ((result?.Content?.Applications?.Count ?? 0) == 0)
+            {
+                Logger.LogWarning("No applications found for configured Sonatype instance.");
+                return [];
+            }
+            return result.Content.Applications;
+        }
+
+        internal async Task<IEnumerable<Component>> GetAppReportComponentsAsync(string appId, string reportId)
+        {
+            var rsp = await RequestAsync<ComponentCollections>($"applications/{appId}/reports/{reportId}/policy");
+            if (rsp.IsSuccessStatusCode)
+                return rsp.Content.Components;
+            if (rsp.StatusCode == HttpStatusCode.NotFound)
+                return null;
+            throw new ApiClientException($"Failed to retrieve report details for application (app ID {appId}, rpt ID {reportId}) - API response was {rsp.StatusCode:g}.");
+        }
+
+        internal async Task<Organization> GetOrganizationByOrgIdAsync(string orgId)
+        {
+            // Total organizations shouldn't be huge, so cache them to avoid an API call for org info with each application processed
+            if (Organizations.Count == 0)
+            {
+                var result = await RequestAsync<OrganizationCollection>($"organizations");
+                if (!result.IsSuccessStatusCode)
+                {
+                    if (result.StatusCode == HttpStatusCode.NotFound)
+                        return null;
+                    throw new ApiClientException($"Failed to retrieve organization ID {orgId} - API response was {result.StatusCode:g}.");
+                }
+                Organizations = result.Content.Organizations;
+            }
+            return Organizations.FirstOrDefault(x => x.Id == orgId);
+        }
+
+        internal async Task<IEnumerable<Report>> GetReportsAsync(Application app)
+        {
+            var rsp = await RequestAsync<IEnumerable<Report>>($"reports/applications/{app.Id}");
+            if (rsp.IsSuccessStatusCode)
+                return rsp.Content;
+            if (rsp.StatusCode == HttpStatusCode.NotFound)
+                return [];
+            throw new ApiClientException($"Failed to retrieve reports for application '{app.Name}' (ID {app.Id}) - API response was {rsp.StatusCode:g}.");
         }
     }
 }

@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.Extensions.Logging;
 using Saltworks.SaltMiner.Core.Extensions;
@@ -105,16 +109,16 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S1854:Unused assignments should be removed", Justification = "False positives herein, where variable is assigned based on location in code")]
         private async Task SyncAsync(GitLabClient client)
         {
-            CheckCancel();
-
-            if (Config.SourceType != SourceType.GitLab.GetDescription())
-            {
-                Logger.LogCritical("[Sync] Invalid configuration - SourceType expected to be 'Saltworks.{Etype}' but was found to be '{Atype}'", SourceType.GitLab.GetDescription(), Config.SourceType);
-                throw new GitLabValidationException("Invalid configuration - source type");
-            }
-
             try
             {
+                CheckCancel(true);
+
+                if (Config.SourceType != SourceType.GitLab.GetDescription())
+                {
+                    Logger.LogCritical("[Sync] Invalid configuration - SourceType expected to be 'Saltworks.{Etype}' but was found to be '{Atype}'", SourceType.GitLab.GetDescription(), Config.SourceType);
+                    throw new GitLabValidationException("Invalid configuration - source type");
+                }
+
                 Logger.LogInformation($"[Sync] Starting GitLab sync...");
 
                 if (Config.TestingAssetLimit > 0)
@@ -225,9 +229,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                             }
 
                             //Include: Update sync record to reflect the metric currently processed
-                            SyncRecord.CurrentSourceId = metric.SourceId;
-                            SyncRecord.State = SyncState.InProgress;
-                            LocalData.AddUpdate(SyncRecord, true);
+                            SyncInProgress(SyncRecord, metric.SourceId);
 
                             //Include: Get matching local metric to current metric
                             var localMetric = LocalData.GetSourceMetric(Config.Instance, Config.SourceType, metric.SourceId);
@@ -390,26 +392,24 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                 //    Logger.LogInformation("Asset retirement processing disabled by configuration, skipping.");
                 //}
 
-                //Include: indicate your done with this source metric
-                SyncRecord.LastSync = (DateTime.UtcNow);
-                SyncRecord.CurrentSourceId = null;
-                SyncRecord.State = SyncState.Completed;
-                LocalData.AddUpdate(SyncRecord, true);
+                //Include: indicate you are finished with sync
+                SyncComplete(SyncRecord);
                 LocalData.SaveAllBatches();
                 Logger.LogInformation("[Sync] Exiting sync loading phase in 5 sec...");
                 await Task.Delay(5000);
-                //Include: Set this to indiciate your done syncing
-                StillLoading = false;
             }
             catch (CancelTokenException ex)
             {
                 Logger.LogWarning(ex, "[Sync] Cancellation requested, aborting processing.");
-                StillLoading = false;
             }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "[Sync] Aborting GitLab sync due to exception: [{Type}] {Msg}", ex.GetType().Name, ex.Message);
                 DumpException("GitLabSyncOuter", ex);
+            }
+            finally
+            {
+                // Tells SendAsync we are finished with Sync
                 StillLoading = false;
             }
         }
@@ -647,7 +647,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                         {
                             Description = project.Description,
                             Name = project.Name,
-                            Attributes = new Dictionary<string, string> { { "group_name", project.Group.Name }, { "group_fullpath", project.Group.FullPath } },
+                            Attributes = new Dictionary<string, string> {{ "group_name", project.Group.Name }, { "group_fullpath", project.Group.FullPath }, { "project_is_archived", project.Archived.ToString() }},
                             IsProduction = true,
                             Instance = Config.Instance,
                             IsSaltminerSource = GitLabConfig.IsSaltminerSource,
@@ -669,7 +669,6 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
 
         private void MapIssue(ProjectNodeDto project, IssueNodeDto issue, QueueScan queueScan, QueueAsset queueAsset, bool zeroRecord = false)
         {
-            var sourceId = $"{project.FullPath}";
             List<QueueIssue> queueIssues = new();
             var assessmentType = queueScan.Entity.Saltminer.Scan.AssessmentType;
 
@@ -705,6 +704,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                                 Id = issue.Id,
                                 AssessmentType = assessmentType,
                                 Product = issue.Scanner.Name ?? string.Empty,
+                                ProductType = queueScan.Entity?.Saltminer.Scan.ProductType ?? string.Empty,
                                 Vendor = Vendor,
                                 ApiUrl = issue.VulnerabilityPath,
                                 GuiUrl = issue.WebUrl
@@ -717,6 +717,7 @@ namespace Saltworks.SaltMiner.SourceAdapters.GitLab
                         },
                         Saltminer = new SaltMiner.Core.Entities.SaltMinerQueueIssueInfo
                         {
+                            IssueType = queueScan.Entity.Saltminer.Scan.AssessmentType,
                             Attributes = new Dictionary<string, string>
                             {
                                 { "state", issue.State ?? string.Empty },

@@ -1,15 +1,19 @@
 ''' --[auto-generated, do not modify this block]--
 *
-* Copyright (c) 2025 Saltworks Security, LLC
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
 *
-* Use of this software is governed by the Business Source License included
-* in the LICENSE file.
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
 *
-* Change Date: 2029-04-09
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 *
-* On the date above, in accordance with the Business Source License, use
-* of this software will be governed by version 2 or later of the General
-* Public License.
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 *
 * ----
 '''
@@ -22,33 +26,28 @@ import time
 import glob
 import json
 
-import ecs_logging
-from logging.handlers import RotatingFileHandler
-
 from .ApplicationSettings import ApplicationSettings
-from .ApplicationExceptions import *
+from .ApplicationExceptions import ApplicationConfigurationException
 from .ElasticClient import ElasticClient
-
-class AppLoggingFilter(logging.Filter):
-    def __init__(self, name="", suppressBaseWarnings=True):
-        super(AppLoggingFilter, self).__init__(name)
-        self.__suppressBaseWarnings = suppressBaseWarnings
-
-    def filter(self, record):
-        if self.__suppressBaseWarnings:
-            return record.module not in ["base", "connectionpool"] or record.levelno > logging.WARNING
-        return record.module not in ["base", "connectionpool"] or record.levelno > logging.INFO
+from .LoggingProvider import LoggingProvider
 
 
 class Application(object):
     """Application class - Settings, Logging, Helpers, and more"""
 
-    def __init__(self, configPath=None, keyFile='saltworks.key', autoEncryptCreds = True, loggingInstance=None, skipCleanFiles=False):
+    DEFAULT_CONFIG_PATH_FILE = "ConfigPath.txt"
+    SALTMINER_CONFIG_ENV_VAR = "SALTMINER_CONFIG_PATH"
+    APP_FOLDER = "python"
+    
+    def __init__(self, configPath=None, keyFile='saltworks.key', autoEncryptCreds = True, loggingCustomTag=None, skipCleanFiles=False, **kwargs):
         self.__Init = False
         self.__ElasticClient = None
         self.__ElasticConfigName = "Elastic"
         self.__DeprecatedWarnings = {}
         self.DebugMode = True
+        if ('loggingInstance' in kwargs):
+            self.LogWarning("Parameter 'loggingInstance' is deprecated, please use 'loggingCustomTag' instead to specify a custom tag for application logging.")
+            loggingCustomTag = kwargs['loggingInstance']
         verfile = "version.txt"
         ver = "version not specified"
         if os.path.isfile(verfile):
@@ -56,33 +55,37 @@ class Application(object):
                 ver = fs.read()
         self.__Log(logging.INFO, f"SaltMiner {ver}")
         try:
-            self.__GetConfig(configPath, keyFile, autoEncryptCreds)
+            self.__InitConfig(configPath, keyFile, autoEncryptCreds)
         except ApplicationConfigurationException as e:
             self.HandleException(e, "Configuration error when loading application configuration")
         except Exception as e:
             self.HandleException(e, "Failed to load application configuration", "CRITICAL")
         self.__SuppressBaseWarnings = self.Settings.Get("logging", "SuppressBaseWarnings", True)
         try:
-            self.__ConfigLogging(loggingInstance)
+            self.logging_provider = LoggingProvider(self, loggingCustomTag, self.__SuppressBaseWarnings)
             self.Settings.EnableLogging = True
         except Exception as e:
-            self.HandleException(e, f"Failed to configure application logging", "CRITICAL")
+            self.HandleException(e, "Failed to configure application logging", "CRITICAL")
         self.DebugMode = self.Settings.Get('Logging', 'LogLevel', 'DEBUG') == "DEBUG"
         self.__Init = True
         if not skipCleanFiles:
-            self.CleanFiles(self.Settings.Get('Logging', 'Folder', '.\\logs\\'), "*SaltMiner*", self.Settings.Get('Logging', 'FileRemoveAfterDays', 7))
+            self.CleanFiles(self.Settings.Get('Logging', 'Folder', '.\\logs\\'), "smpy-*", self.Settings.Get('Logging', 'FileRemoveAfterDays', 7))
             self.CleanFiles('.', "*.tmp", 1)
         self.__Log(logging.DEBUG, "Application class initialization complete")
 
-    def __GetConfig(self, configPath, keyFileName, autoEncrypt):
+    def __InitConfig(self, configPath, keyFileName, autoEncrypt):
+        # NOTE: This method only locates existing configuration - it does not create a default config
+        # on first run.  In containerized deployments, default config and custom dirs are seeded into
+        # their expected paths by Saltworks.SaltMiner.Deploy/services-entrypoint.sh (from the image's
+        # baked-in python/Defaults folder - see .dockerfiles/Dockerfile-services).
         # Config rework - now looking for Env variable or local "Config" folder to contain config
         # All config files in config folder will be loaded automatically (they should have unique keys to avoid one stepping on another)
         # Source configs will be expected to be in a "Source" folder within the config folder
-        envVar = "SALTMINER_2_CONFIG_PATH"
+        envVar = self.SALTMINER_CONFIG_ENV_VAR
 
         # Don't use settings.json
         if os.path.isfile("settings.json"):
-            raise ApplicationConfigurationException(f"Local settings.json is no longer supported.  Config files have been separated by function and should now be placed into the Config folder.  Config folder location also can be specified using the {envVar} environment variable.")
+            raise ApplicationConfigurationException(f"Local settings.json is no longer supported.  Config folder can be specified using the {envVar} environment variable or in a config path file ({self.DEFAULT_CONFIG_PATH_FILE}).")
 
         # Many checks for new path
         # 1. Passed into class init
@@ -90,24 +93,30 @@ class Application(object):
         pathSource = "local"
         # 2. Env variable
         if not ok:
-            configPath = os.getenv(envVar)
-            ok = configPath and os.path.isdir(configPath)
+            parentPath = os.getenv(self.SALTMINER_CONFIG_ENV_VAR)
+            configPath = os.path.join(parentPath, self.APP_FOLDER) if parentPath else None
+            ok = parentPath and os.path.isdir(parentPath)
             pathSource = "EnvVar" if ok else pathSource
         # 3. File - ConfigPath.txt
-        if not ok and os.path.exists("ConfigPath.txt"):
-            with open("ConfigPath.txt") as fs:
-                configPath = fs.read()
+        if not ok and os.path.exists(self.DEFAULT_CONFIG_PATH_FILE):
+            configPath = None
+            try:
+                with open(self.DEFAULT_CONFIG_PATH_FILE) as fs:
+                    configPath = fs.read()
+            except Exception as e:
+                self.__Log(logging.ERROR, f"Error reading {self.DEFAULT_CONFIG_PATH_FILE}: {e}")
             ok = configPath and os.path.isdir(configPath)
-            pathSource = "ConfigPath.txt" if ok else pathSource
+            pathSource = self.DEFAULT_CONFIG_PATH_FILE if ok else pathSource
         # 4. Default - look for local Config dir
         if not ok and os.path.isdir("Config"):
             ok = True
             configPath = "Config"
-        # 5. If all else fails and it exists, use the run location from last run
-        # TODO: add this
-        # Dump resulting config path to help with troubleshooting
-        with open("sm-run-config-location.json", "w") as f:
-            f.write(json.dumps({ "Method": pathSource, "Path": configPath if ok else "Unknown" }))
+        # Dump resulting config path to help with troubleshooting - usually this will fail
+        try:
+            with open("sm-run-config-location.json", "w") as f:
+                f.write(json.dumps({ "Method": pathSource, "Path": configPath if ok else "Unknown" }))
+        except Exception as e:
+            self.__Log(logging.DEBUG, f"Error writing sm-run-config-location.json: {e}")
         self.LogInfo(f"Configuration location: {configPath if ok else 'Unknown'}")
         if not ok:
             raise ApplicationConfigurationException(f"Unable to locate configuration path.  Please do one of the following:\n1. Make sure it can be found in a local Config folder\n2. Set the {envVar} environment variable to the correct config directory path (ex. export {envVar}=/etc/saltworks/saltminer-2.5.0).\n3. Create a ConfigPath.txt file and put the config directory path in it (straight text, no json).")
@@ -129,48 +138,6 @@ class Application(object):
 
         self.Settings = ApplicationSettings(configFiles, sourceConfigFiles, keyFilePath, autoEncrypt)
         self.Settings.Application = self
-
-    def __ConfigLogging(self, loggingInstance):
-        logFolder = self.Settings.Get('Logging', 'Folder', '.\\logs\\')
-        logMaxBytes = self.Settings.Get('Logging', 'FileMaxBytes', 536870912)
-        logMaxFileCount = self.Settings.Get('Logging', 'FileCountLimit', 9)
-        if not os.path.exists(logFolder):
-            os.makedirs(logFolder)
-
-        t = datetime.datetime.now()
-        level = self.__LogLevelParse(self.Settings.Get('Logging', 'LogLevel', 'DEBUG'))
-        logFile = '{}{}.SaltMiner.'.format(logFolder, t.strftime('%Y.%m.%d'))
-        if loggingInstance:
-            logFile += str(loggingInstance) + "."
-        logFile += "log"
-        print('SaltMiner logging to: {}'.format(logFile))
-
-        fileHandler = RotatingFileHandler(logFile, 'a', maxBytes=logMaxBytes, backupCount=logMaxFileCount)
-        fileHandler.setFormatter(ecs_logging.StdlibFormatter(stack_trace_limit=self.Settings.Get('Logging', 'StackTraceLimit', 3)))
-        fileHandler.level = level
-        fileHandler.addFilter(AppLoggingFilter(suppressBaseWarnings=self.__SuppressBaseWarnings))
-        consoleHandler = logging.StreamHandler(sys.stdout)
-        consoleHandler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(funcName)s in %(filename)s: %(message)s', '%Y-%m-%d %H:%M'))
-        consoleHandler.level = level
-        consoleHandler.addFilter(AppLoggingFilter(suppressBaseWarnings=self.__SuppressBaseWarnings))
-        logging.basicConfig(level=level, handlers=[consoleHandler, fileHandler])
-
-        # GROK PATTERN:
-        # %{TIMESTAMP_ISO8601:timestamp},%{LOGLEVEL:loglevel},%{DATA:file},%{DATA:function},%{QUOTEDSTRING:message}.*
-
-    def __LogLevelParse(self, logLevel):
-        logLevel = logLevel.upper()
-        if logLevel == "WARN":
-            return logging.WARN
-        if logLevel == "DEBUG":
-            return logging.DEBUG
-        if logLevel == "ERROR":
-            return logging.ERROR
-        if logLevel == "INFO":
-            return logging.INFO
-        if logLevel == "CRITICAL":
-            return logging.CRITICAL
-        return logging.NOTSET
 
     def __Log(self, level, msg):
         if self.__Init:
@@ -233,7 +200,7 @@ class Application(object):
         msg = f"{message + ': ' if message is not None else ''}[type(exception).__name__] {exception}"
         try:
             self.__Log(severity, msg)
-        except:
+        except Exception:
             # eat logging exception and just print info about exception
             print(f"{datetime.datetime.now():%Y-%m-%d %H:%M} [{severity.upper()}] {msg}")
         # if debug mode, raise the exception so can see the stack

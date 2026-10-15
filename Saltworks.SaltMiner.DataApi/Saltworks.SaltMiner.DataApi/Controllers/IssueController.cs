@@ -1,18 +1,22 @@
 /* --[auto-generated, do not modify this block]--
- *
- * Copyright (c) 2025 Saltworks Security, LLC
- *
- * Use of this software is governed by the Business Source License included
- * in the LICENSE file.
- *
- * Change Date: 2029-04-09
- *
- * On the date above, in accordance with the Business Source License, use
- * of this software will be governed by version 2 or later of the General
- * Public License.
- *
- * ----
- */
+*
+* SaltMiner - The open source vulnerability and pen testing management platform
+* Copyright (C) 2024-2026 Saltworks Security, LLC
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*
+* ----
+*/
 
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -58,13 +62,13 @@ namespace Saltworks.SaltMiner.DataApi.Controllers
         /// <response code="200">Returns a batch from a search request</response>
         // Agent needs access to this so Wiz adapter (and possibly others later) can pull existing issues
         [ProducesResponseType(200, Type = typeof(DataResponse<Issue>))]
-        [Auth(Role.Manager, Role.Admin, Role.Pentester, Role.PentesterViewer, Role.Agent)]
+        [Auth(Role.Manager, Role.Admin, Role.Pentester, Role.PentesterViewer, Role.Agent, Role.JobManager)]
         [HttpPost("[action]")]
         public ActionResult<DataResponse<Issue>> Search([FromBody] SearchRequest search)
         {
             Logger.LogInformation("Search action called");
            
-            return Ok(Context.Search<Issue>(search, Issue.GenerateIndex(search.AssetType, search.SourceType, search.Instance)));
+            return Ok(Context.Search<Issue>(Issue.GenerateIndex(search.AssetType, search.SourceType, search.Instance), search));
         }
 
         /// <summary>

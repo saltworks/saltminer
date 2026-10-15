@@ -21,6 +21,13 @@
       }
     },
     "aliases": {
+      "issues_current": {
+        "filter": {
+          "term": {
+            "saltminer.is_historical": false
+          }
+        }
+      },
       "issues_active": {
         "filter": {
           "bool": {
@@ -197,6 +204,14 @@
                   "type": "keyword"
                 },
                 "product": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": {
+                      "type": "text"
+                    }
+                  }
+                },
+                "product_type": {
                   "type": "keyword",
                   "fields": {
                     "text": {
@@ -428,6 +443,12 @@
                     "text": {
                       "type": "text"
                     }
+                  }
+                },
+                "product_version": {
+                  "type": "keyword",
+                  "fields": {
+                    "text": { "type": "text" }
                   }
                 },
                 "vendor": {

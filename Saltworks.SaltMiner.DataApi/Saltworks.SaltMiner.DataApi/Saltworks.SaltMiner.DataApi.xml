@@ -4,6 +4,19 @@
         <name>Saltworks.SaltMiner.DataApi</name>
     </assembly>
     <members>
+        <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.BulkAddUpdate(Saltworks.SaltMiner.Core.Data.JsonDataRequest,System.String)">
+            <summary>
+            Bulk Add/Update
+            </summary>
+            <param name="request">DataRequest containing documents to add/update</param>
+            <param name="index">The index name for which to add/update the documents</param>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.ClosePitSearch(System.String)">
+            <summary>
+            Closes PIT search in elasticsearch
+            </summary>
+            <param name="id">PIT ID</param>
+        </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Contexts.IndexContext.DeleteIndex(System.String)">
             <summary>
             Deletes Index by name
@@ -286,36 +299,30 @@
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.Get(System.String)">
             <summary>
-            Returns a single Config
+            Returns a single config setting by ID
             </summary>
             <returns>The item inside a response object</returns>
             <response code="200">Returns the requested object</response>
         </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.GetAll">
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.GetSection(System.String,System.String)">
             <summary>
-            Returns a all Configs
+            Returns config settings by section and optional subsection.
             </summary>
-            <returns>The item inside a response object</returns>
-            <response code="200">Returns the requested objects</response>
+            <returns>The matching settings inside a response object</returns>
+            <param name="section">The section to return</param>
+            <param name="subsection">The optional subsection to return</param>
+            <response code="200">Returns the requested data</response>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.Post(Saltworks.SaltMiner.Core.Data.DataItemRequest{Saltworks.SaltMiner.Core.Entities.Config})">
             <summary>
-            Adds or Updates an Config
+            Adds or Updates a config setting
             </summary>
             <returns>The updated entity</returns>
             <response code="202">Returns a response object containing the updated entity</response>
-            <remarks>Any child type of config can be sent in</remarks>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.Delete(System.String)">
             <summary>
             Deletes an Config entity
-            </summary>
-            <returns>Non data response</returns>
-            <response code="200">Returns response indicating success</response>
-        </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.ConfigController.DeleteByType(System.String)">
-            <summary>
-            Deletes an Config entity by type
             </summary>
             <returns>Non data response</returns>
             <response code="200">Returns response indicating success</response>
@@ -413,7 +420,10 @@
             <summary>
             Returns issue counts grouped by severity for engagement
             </summary>
-            <param name="request">Request supports PagingInfo.Size, PagingInfo.ScrollKeys, and FilterMatches</param>
+            <param name="assetType">Asset type for the target issues</param>
+            <param name="id">Engagement ID</param>
+            <param name="instance">Pentest instance for the target issues</param>
+            <param name="sourceType">Pentest source type</param>
             <returns>A dictionary response of type string, double that represents the key values (joined with |) and counts</returns>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.EngagementController.Status(System.String,System.String)">
@@ -688,6 +698,11 @@
             Supports operations with QueueAssets
             </summary>
         </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController.#ctor(Microsoft.Extensions.Logging.ILogger{Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController},Saltworks.SaltMiner.DataApi.Contexts.QueueAssetContext)">
+            <summary>
+            Supports operations with QueueAssets
+            </summary>
+        </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueAssetController.Get(System.String)">
             <summary>
             Returns a QueueAsset given id
@@ -906,18 +921,27 @@
             <returns>The item inside a response object</returns>
             <response code="200">Returns the requested object</response>
         </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Status(System.String,System.String,System.String)">
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Status(System.String,System.String,System.String,System.String)">
             <summary>
             Sets status for given id and new status value
             </summary>
             <param name="id">queue scan ID</param>
-            <param name="status">new status</param>
+            <param name="oldStatus">old status, fail update if status doesn't match (can be left empty to not check)</param>
+            <param name="newStatus">new status</param>
             <param name="lockId">if included, lock this queue scan to the provided lock ID</param>
             <returns>Container indicating success or failure</returns>
             <remarks>
             This update uses locking to ensure consistency.  Status should be one of these values:  Loading, Pending, Processing, Complete, Cancel, Error.
             State transition rules will be enforced, for example Agent should only use Loading/Pending/Cancel.
             </remarks>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Unlock(System.String,System.Boolean)">
+            <summary>
+            Clears lock ID for all queue scans currently set for the given lock ID
+            </summary>
+            <param name="lockId">Lock ID to unlock</param>
+            <param name="resetProcessing">If set and status is Processing, reset status to Pending</param>
+            <returns>Response indicating success or failure and count of affected queue scans</returns>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.Delete(System.String)">
             <summary>
@@ -933,10 +957,19 @@
             <returns>Non data response</returns>
             <response code="200">Returns response indicating success</response>
         </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.DeleteAllByList(System.Collections.Generic.List{System.String})">
+            <summary>
+            Deletes multiple QueueScan entities by Id and all assets and issues associated with them.
+            </summary>
+            <param name="ids">List of queue scan IDs to remove</param>
+            <returns>Non data response indicating the number of IDs attempted (results not guaranteed)</returns>
+            <response code="200">Returns response indicating success</response>
+        </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.QueueScanController.DeleteByQuery(Saltworks.SaltMiner.Core.Data.SearchRequest)">
             <summary>
             Deletes multiple QueueScan entities by Id and all assets and issues associated with them.
             </summary>
+            <param name="request">Search request that will work for all 3 queue entities</param>
             <returns>Non data response</returns>
             <response code="200">Returns response indicating success</response>
         </member>
@@ -945,6 +978,27 @@
             Returns role of caller
             </summary>
             <returns>The response object will indicate success and message will contain the role</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RegisterController.ManagerIdCount">
+            <summary>
+            Returns a count of active manager instances
+            </summary>
+            <returns>The response object will indicate success and message will contain the count</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RegisterController.ManagerId">
+            <summary>
+            Returns new manager instance ID
+            </summary>
+            <returns>The response object will indicate success and message will contain the instance ID</returns>
+            <response code="200">Returns the requested object</response>
+        </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RegisterController.ManagerId(System.String)">
+            <summary>
+            Removes manager instance ID from active instance list
+            </summary>
+            <returns>The response object will indicate success</returns>
             <response code="200">Returns the requested object</response>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.RoleController.UpdateByQuery(Saltworks.SaltMiner.Core.Data.UpdateQueryRequest{Saltworks.SaltMiner.Core.Entities.AppRole})">
@@ -1018,7 +1072,7 @@
             <summary>
             Returns a list of Scans by search
             </summary>
-            <param name="search">Search request payload</param>
+            <param name="request">Search request payload</param>
             <returns>The list inside a response object</returns>
             <response code="200">Returns a batch from a search request</response>
         </member>
@@ -1181,6 +1235,11 @@
             Returns API version
             </summary>
         </member>
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.Tasks">
+            <summary>
+            Returns cluster task count
+            </summary>
+        </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.CreateBackup">
             <summary>
             Create complete backup of Elastic and zip to file
@@ -1193,12 +1252,11 @@
             </summary>
             <returns>NoDataResponse with boolean indicating success</returns>
         </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.AddSyncQueueItem(System.String,System.Text.Json.Nodes.JsonObject)">
+        <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.AddSyncQueueItem(System.String)">
             <summary>
             Receives new queue sync items (webhook events), storing them in a "queue" for later processing
             </summary>
             <param name="source">Webhook source key (must be configured)</param>
-            <param name="payload">Webhook payload (ignore the swagger generated model)</param>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Controllers.UtilityController.GetSyncQueueItems(System.String)">
             <summary>
@@ -1267,7 +1325,7 @@
             </summary>
             <returns>The Index Template Json</returns>
         </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.SnapshotAggregates(Saltworks.SaltMiner.Core.Data.PitPagingInfo,System.Collections.Generic.IEnumerable{System.String},System.Collections.Generic.IEnumerable{Saltworks.SaltMiner.ElasticClient.IElasticClientRequestAggregate},System.String)">
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.SnapshotAggregates(Saltworks.SaltMiner.Core.Data.PagingInfo,System.Collections.Generic.IEnumerable{System.String},System.Collections.Generic.IEnumerable{Saltworks.SaltMiner.ElasticClient.IElasticClientRequestAggregate},System.String)">
             <summary>
             Returns snapshot aggregates for the given grouping fields and asset type
             </summary>
@@ -1277,10 +1335,11 @@
             <param name="assetType">Type of asset to query (* should work)</param>
             <returns>Result set including the keys and counts for the keys, as well as scroll information for getting the next batch</returns>
         </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.EngagementIssueCountAggregates(System.String,Saltworks.SaltMiner.Core.Data.PitPagingInfo,System.Collections.Generic.IEnumerable{System.String},System.Collections.Generic.IEnumerable{Saltworks.SaltMiner.ElasticClient.IElasticClientRequestAggregate},System.String)">
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.EngagementIssueCountAggregates(System.String,Saltworks.SaltMiner.Core.Data.PagingInfo,System.Collections.Generic.IEnumerable{System.String},System.Collections.Generic.IEnumerable{Saltworks.SaltMiner.ElasticClient.IElasticClientRequestAggregate},System.String)">
             <summary>
             Returns snapshot aggregates for the given grouping fields and asset type
             </summary>
+            <param name="engagementId">Engagement Id to filter on</param>
             <param name="pager">Returns next batch of data if the ScrollKeys are included</param>
             <param name="sourceFields">Composite Source fields to use for aggregation</param>
             <param name="aggList">List to use for aggregations</param>
@@ -1291,20 +1350,21 @@
             <summary>
             Returns an entity of type T from the datasource by its id, including locking info needed to call UpdateWithLockingInfo
             </summary>
-            <seealso cref="!:UpdateWithLocking&lt;T&gt;(T, string, ILockingInfo&lt;T&gt;)"/>
+            <seealso cref="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.UpdateWithLocking``1(``0,System.String,Saltworks.SaltMiner.DataApi.Data.ILockingInfo)"/>
             <typeparam name="T">Type of entity in the datasource</typeparam>
             <param name="id">The identifier for the entity to be retrieved</param>
             <param name="indexName">The index for the entity to be retrieved</param>
             <returns>Tuple containing the requested entity (or null if not found) and locking information</returns>
         </member>
-        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.Search``1(Saltworks.SaltMiner.Core.Data.SearchRequest,System.String)">
+        <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.Search``1(System.String,Saltworks.SaltMiner.Core.Data.SearchRequest)">
             <summary>
             Returns a list of entities of type T that match the passed filter criteria on specified data index
             </summary>
             <typeparam name="T">Type of entity in the datasource</typeparam>
             <param name="request">The criteria for the search</param>
-            <param name="indexName">The index for the entity to be retrieved</param>
+            <param name="index">The index for the entity to be retrieved</param>
             <returns>The list of results</returns>
+            <remarks>Does not support old paging info classes, only PagingInfo.  This version of Search retrieves the requested page even if AfterKeys are empty ("cold" search)</remarks>
         </member>
         <member name="M:Saltworks.SaltMiner.DataApi.Data.IDataRepo.SingleGroupAggregation(System.String,System.String,System.Collections.Generic.Dictionary{System.String,System.String},Saltworks.SaltMiner.Core.Data.SearchRequest)">
             <summary>
@@ -1332,6 +1392,24 @@
             <param name="indexName">The index for the entity to be retrieved</param>
             <param name="alias">Alias to add</param>
             <returns>Success</returns>
+        </member>
+        <member name="F:Saltworks.SaltMiner.DataApi.Models.ManagerInstanceManager.TransientInstanceId">
+            <summary>
+            Shared instance ID used by manager runs that process a single queue scan by ID (the sync agent
+            hand-off).  Those runs don't register, but they still need a lock ID so a concurrent batch run
+            can't grab the same queue scan.  Never handed out by NewManagerInstance (which starts at 1), and
+            excluded from the instance count so a burst of hand-offs can't make batch runs bail out.
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.DataApi.Models.ManagerInstanceManager.RegisteredInstanceCount">
+            <summary>
+            Count of registered instances, ignoring the shared transient one - see TransientInstanceId.
+            </summary>
+        </member>
+        <member name="P:Saltworks.SaltMiner.DataApi.Models.ApiConfig.EnableManagerUnlockUpdateByQuery">
+            <summary>
+            If set, uses update by query to unlock manager locked queues.  Otherwise, uses search and bulk update (the old way).  Disable if this is breaking.
+            </summary>
         </member>
         <member name="P:Saltworks.SaltMiner.DataApi.Upgrade.IUpgradeStep.AppliesToVersion">
             <summary>
