@@ -109,7 +109,7 @@ namespace Saltworks.SaltMiner.Manager
         {
             var cursor = returned?.AggregateKeys;
 
-            if ((cursor?.Count ?? 0) == 0)
+            if (cursor == null || cursor.Count == 0)
             {
                 logger.LogError("Snapshot batch {batchCount} returned data but no cursor for the next page, stopping the run to avoid re-reading the same page", batchNumber);
                 return null;

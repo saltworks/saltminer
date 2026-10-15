@@ -24,6 +24,7 @@ using Saltworks.SaltMiner.Core.Data;
 using Saltworks.SaltMiner.Core.Entities;
 using Saltworks.SaltMiner.Core.Extensions;
 using Saltworks.SaltMiner.Core.Util;
+using Saltworks.SaltMiner.DataClient;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -141,10 +142,10 @@ namespace Saltworks.SaltMiner.Manager.IntegrationTests
                     if (all.PagingInfo?.TotalHits == groups && CountSnapshots(client, snapshotIndex, sourceId) == groups)
                         client.DeleteIndex(snapshotIndex);
                 }
-                catch (Exception) { /* best effort */ }
-                try { client.DeleteIndex(assetIndex); } catch (Exception) { /* best effort */ }
-                try { client.DeleteIndex(issueIndex); } catch (Exception) { /* best effort */ }
-                try { client.DeleteIndex(scanIndex); } catch (Exception) { /* best effort */ }
+                catch (DataClientException) { /* best effort */ }
+                try { client.DeleteIndex(assetIndex); } catch (DataClientException) { /* best effort */ }
+                try { client.DeleteIndex(issueIndex); } catch (DataClientException) { /* best effort */ }
+                try { client.DeleteIndex(scanIndex); } catch (DataClientException) { /* best effort */ }
             }
         }
 
