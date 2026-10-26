@@ -37,21 +37,70 @@ from .RateLimiter import ApiThrottle
 class _FodKey(object):
     '''
     One FOD API key of a pool: its credential, its own bearer token and headers, and its own
-    throttle.  The secret is held in `_Secret` and is never formatted into a log line or repr.
+    throttle.  The secret is never exposed or formatted into a log line or repr; the only thing
+    that reads it is LoginBody.
     '''
-    __slots__ = ("ClientId", "_Secret", "Token", "Headers", "Throttle", "Live", "RetryAt")
+    __slots__ = ("__ClientId", "__Secret", "__Token", "__Headers", "__Throttle", "__Live", "__RetryAt")
 
     def __init__(self, clientId:str, secret:str, throttle:ApiThrottle):
-        self.ClientId = clientId
-        self._Secret = secret
-        self.Token = None
-        self.Headers = None
-        self.Throttle = throttle
-        self.Live = False
-        self.RetryAt = 0.0
+        self.__ClientId = clientId
+        self.__Secret = secret
+        self.__Token = None
+        self.__Headers = None
+        self.__Throttle = throttle
+        self.__Live = False
+        self.__RetryAt = 0.0
 
     def __repr__(self) -> str:
-        return f"_FodKey(ClientId={self.ClientId!r}, Live={self.Live})"
+        return f"_FodKey(ClientId={self.__ClientId!r}, Live={self.__Live})"
+
+    @property
+    def ClientId(self) -> str:
+        return self.__ClientId
+
+    @property
+    def Token(self):
+        return self.__Token
+
+    @property
+    def Headers(self):
+        return self.__Headers
+
+    @property
+    def Throttle(self) -> ApiThrottle:
+        return self.__Throttle
+
+    @property
+    def Live(self) -> bool:
+        return self.__Live
+
+    @property
+    def RetryAt(self) -> float:
+        return self.__RetryAt
+
+    def LoginBody(self) -> str:
+        '''The form body of this key's /oauth/token request.'''
+        return urllib.parse.urlencode({
+            'grant_type': 'client_credentials',
+            'scope': 'api-tenant',
+            'client_id': self.__ClientId,
+            'client_secret': self.__Secret
+        })
+
+    def SetToken(self, token:str):
+        '''Stores a fresh token, rebuilds the headers wholesale and puts the key in rotation.'''
+        self.__Token = token
+        # Replaced wholesale rather than mutated, so nothing can observe a half-updated header set.
+        self.__Headers = {
+            'Authorization': f"Bearer {token}",
+            'Accept': 'application/json'
+        }
+        self.__Live = True
+
+    def MarkDead(self, retryAt:float):
+        '''Takes the key out of rotation until `retryAt` (epoch seconds).'''
+        self.__Live = False
+        self.__RetryAt = retryAt
 
 
 class FodClient(object):
@@ -63,8 +112,8 @@ class FodClient(object):
 
     # Round-robin position per source name, shared by every client (every worker thread) in this
     # process, so all workers on one source rotate through its keys together.
-    _RotationCounters = {}
-    _RotationLock = threading.Lock()
+    __RotationCounters = {}
+    __RotationLock = threading.Lock()
 
     def __init__(self, appSettings:ApplicationSettings, sourceName:str, logger=None, heartbeat=None):
         '''
@@ -134,8 +183,7 @@ class FodClient(object):
             try:
                 self.__Authenticate(key, initial=True)
             except Exception as ex:
-                key.Live = False
-                key.RetryAt = time.time() + FodClient.KEY_RETRY_SECS
+                key.MarkDead(time.time() + FodClient.KEY_RETRY_SECS)
                 failures.append((key, ex))
         if not any(k.Live for k in self.__Keys):
             if len(failures) == 1:
@@ -190,7 +238,7 @@ class FodClient(object):
         with self.__KeyLock:
             for k in self.__Keys:
                 if not k.Live and k.RetryAt <= now:
-                    k.RetryAt = now + FodClient.KEY_RETRY_SECS
+                    k.MarkDead(now + FodClient.KEY_RETRY_SECS)
                     due.append(k)
         for k in due:
             try:
@@ -202,9 +250,9 @@ class FodClient(object):
             live = [k for k in self.__Keys if k.Live]
         if not live:
             raise FodClientAuthenticationException("No FOD key is live: " + ", ".join(f"ClientId '{k.ClientId}'" for k in self.__Keys))
-        with FodClient._RotationLock:
-            n = FodClient._RotationCounters.get(self.__SourceName, 0)
-            FodClient._RotationCounters[self.__SourceName] = n + 1
+        with FodClient.__RotationLock:
+            n = FodClient.__RotationCounters.get(self.__SourceName, 0)
+            FodClient.__RotationCounters[self.__SourceName] = n + 1
         return live[n % len(live)]
 
     def __MarkDead(self, key:_FodKey) -> bool:
@@ -215,8 +263,7 @@ class FodClient(object):
         with self.__KeyLock:
             if not any(k.Live and k is not key for k in self.__Keys):
                 return False
-            key.Live = False
-            key.RetryAt = time.time() + FodClient.KEY_RETRY_SECS
+            key.MarkDead(time.time() + FodClient.KEY_RETRY_SECS)
             return True
 
     def __Authenticate(self, key:_FodKey, initial=False):
@@ -227,12 +274,7 @@ class FodClient(object):
         :initial: only changes the wording of the failure - a bad credential at construction is a
         configuration problem, while a failure later means a token could not be renewed.
         '''
-        body = urllib.parse.urlencode({
-            'grant_type': 'client_credentials',
-            'scope': 'api-tenant',
-            'client_id': key.ClientId,
-            'client_secret': key._Secret
-        })
+        body = key.LoginBody()
         headers = {
             'Accept': 'application/json',
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
@@ -249,13 +291,7 @@ class FodClient(object):
             self.__Logger.error("FodClient %s failure (auth) for ClientId '%s': (%s) %s", stage, key.ClientId, response.Status, response.Reason)
             raise FodClientAuthenticationException(f"FodClient {stage} failure (auth) for ClientId '{key.ClientId}': ({response.Status}) {response.Reason}")
 
-        key.Token = token
-        # Replaced wholesale rather than mutated, so nothing can observe a half-updated header set.
-        key.Headers = {
-            'Authorization': f"Bearer {token}",
-            'Accept': 'application/json'
-        }
-        key.Live = True
+        key.SetToken(token)
         if not initial:
             self.__Logger.info("FOD access token renewed for ClientId '%s'.", key.ClientId)
         return token

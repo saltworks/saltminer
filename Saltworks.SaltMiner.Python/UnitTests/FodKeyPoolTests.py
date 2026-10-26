@@ -24,9 +24,9 @@ import os
 import tempfile
 import threading
 import unittest
+import unittest.mock
 import urllib.parse
 from collections import Counter
-from unittest import mock
 
 from Core.ApplicationExceptions import ApplicationConfigurationException
 from Core.ApplicationSettings import ApplicationSettings
@@ -103,9 +103,9 @@ class FodKeyPoolTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         ApiThrottle._instances.clear()
-        FodClient._RotationCounters.clear()
+        FodClient._FodClient__RotationCounters.clear()
         self.fake = _FakeFod()
-        patcher = mock.patch("Core.FodClient.requests.request", side_effect=self.fake)
+        patcher = unittest.mock.patch("Core.FodClient.requests.request", side_effect=self.fake)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -355,7 +355,7 @@ class FodKeyPoolTests(unittest.TestCase):
         """A key whose login failed gets another attempt after KEY_RETRY_SECS and rejoins the rotation."""
         self.fake.login_failures["kB"] = 1
         s = self._settings(ApiKeys=self._pool("kA", "kB"))
-        with mock.patch.object(FodClient, "KEY_RETRY_SECS", 0):
+        with unittest.mock.patch.object(FodClient, "KEY_RETRY_SECS", 0):
             c = FodClient(s, "FOD1")
             self.assertFalse(c.Keys[1].Live)
             for _ in range(6):
