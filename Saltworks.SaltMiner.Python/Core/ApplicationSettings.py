@@ -223,6 +223,37 @@ class ApplicationSettings(object):
         ''' Gets a source config setting value by passed source name and key, returning an optional default value if setting is not found and automatically decrypting if needed '''
         return self.__GetFromConfig(self.__Sources, sourceName, key, default, True)
 
+    def GetSourceKeyList(self, sourceName, key="ApiKeys"):
+        '''
+        Returns the list setting `key` of a source as copies, with the ClientSecret of each entry
+        decrypted.  Returns [] when the key is absent.  The in-memory config keeps the ciphertext,
+        so a later Save() never writes a plain-text secret.
+        '''
+        source = self.GetSourceDict(sourceName)
+        entries = source.get(key)
+        if not entries:
+            return []
+        if not isinstance(entries, list):
+            msg = f"Source '{sourceName}' setting '{key}' must be a list."
+            self.__Log("error", msg)
+            raise ApplicationConfigurationException(msg)
+        result = []
+        for i, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                result.append(entry)  # the caller names the bad entry; nothing here to decrypt
+                continue
+            copy = dict(entry)
+            secret = copy.get("ClientSecret")
+            if secret and self.__IsEncrypted(secret):
+                try:
+                    copy["ClientSecret"] = self.__Eh.Decrypt(secret)
+                except Exception as e:
+                    msg = f"Failed to decrypt {key} entry {i} (ClientId '{copy.get('ClientId')}') for source '{sourceName}'"
+                    self.__Log("error", msg)
+                    raise ApplicationConfigurationException(msg) from e
+            result.append(copy)
+        return result
+
     def GetSourceNames(self):
         ''' Gets a list of source config names '''
         return self.__Sources.keys()
@@ -266,6 +297,19 @@ class ApplicationSettings(object):
             for key in self.__Sources[source].keys():
                 if self.__ShouldBeEncrypted(key, self.__Sources[source][key]):
                     self.__EncryptSetting(self.__Sources, source, key, True)
+                    didit = True
+        # FOD API key pool: the secrets inside the ApiKeys list are encrypted here because the
+        # suffix check above only sees top-level string settings.
+        for source in self.__Sources.keys():
+            keys = self.__Sources[source].get("ApiKeys")
+            if self.__Sources[source].get("Source") != "FOD" or not isinstance(keys, list):
+                continue
+            for entry in keys:
+                secret = entry.get("ClientSecret") if isinstance(entry, dict) else None
+                if secret and isinstance(secret, str) and not self.__IsEncrypted(secret):
+                    self.__Log("debug", f"Encrypting 'ApiKeys' ClientSecret for source '{source}'")
+                    entry["ClientSecret"] = self.__Eh.Encrypt(secret)
+                    self.__MakeItDirty(source, True)
                     didit = True
         if didit:
             self.Save()
