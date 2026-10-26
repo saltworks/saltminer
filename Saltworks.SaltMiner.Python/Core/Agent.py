@@ -57,6 +57,14 @@ class AgentArgs():
         :source_field: optional dotted path to the field holding the source key, both in the queue
         document (for the elasticsearch term filter) and in its parsed dto.  Defaults to
         "data.target_type".  Only used when source_limits is set.
+        :source_name_limits: optional dict of {source name: max concurrent items}, e.g. {"FOD1": 8}.  Same
+        idea as source_limits but counted per configured source (the queue item's source name) rather
+        than per source type, and it takes precedence: items of a source named here are not counted
+        against their type's limit.  Built at start by RunAgentService from the per-credential and
+        per-source settings.
+        :source_name_field: optional dotted path to the field holding the source name, in the queue
+        document and its parsed dto.  Defaults to "data.target_instance".  Only used when
+        source_name_limits is set.
         :defunct_worker_timeout_secs: optional integer, defaults to 120; if a worker goes this many seconds without a heartbeat while holding an item, the agent releases its item and abandons it. 0 disables defunct-worker detection.  Must exceed the longest expected time a single item can spend between heartbeats (heartbeats fire on item pickup, on each agent.update()/complete(), and - for workers that pass a Core.Heartbeat delegate to their collaborators - as those make progress).  Note this must clear the source API clients' own timeout and retry budgets, since no beat can fire from inside a blocking request or a retry sleep.
         """
         self._queue_index_pattern_tag = queue_index_pattern_tag
@@ -69,7 +77,30 @@ class AgentArgs():
         self._defunct_worker_timeout_secs = kwargs.get("defunct_worker_timeout_secs", 120)
         self._agent_id = kwargs.get("agent_id")
         self._source_field = kwargs.get("source_field") or "data.target_type"
+        self._source_name_field = kwargs.get("source_name_field") or "data.target_instance"
         self.source_limits = kwargs.get("source_limits")
+        self.source_name_limits = kwargs.get("source_name_limits")
+
+    @staticmethod
+    def __NormaliseLimits(value:dict, what:str) -> dict:
+        """Normalized once here rather than defended against on every feed: config is hand-edited json,
+        so a string count or a stray null is a live possibility and a bad entry must not silently
+        become "uncapped" (which is the one outcome the setting exists to prevent).
+        `what` names the kind of limit in the log lines."""
+        limits = {}
+        for key, count in (value or {}).items():
+            try:
+                count = int(count)
+            except (TypeError, ValueError):
+                logging.error("Ignoring %s for '%s': '%s' is not a number.", what, key, count)
+                continue
+            if count < 0:
+                logging.error("Ignoring %s for '%s': %s is negative.", what, key, count)
+                continue
+            if count == 0:
+                logging.warning("%s for '%s' is 0 - no items for that source will be processed.", what.capitalize(), key)
+            limits[str(key)] = count
+        return limits
 
     @property
     def queue_index_pattern_tag(self) -> str:
@@ -139,23 +170,21 @@ class AgentArgs():
         return self._source_limits
     @source_limits.setter
     def source_limits(self, value:dict):
-        # Normalized once here rather than defended against on every feed: config is hand-edited json,
-        # so a string count or a stray null is a live possibility and a bad entry must not silently
-        # become "uncapped" (which is the one outcome the setting exists to prevent).
-        limits = {}
-        for key, count in (value or {}).items():
-            try:
-                count = int(count)
-            except (TypeError, ValueError):
-                logging.error("Ignoring source worker limit for '%s': '%s' is not a number.", key, count)
-                continue
-            if count < 0:
-                logging.error("Ignoring source worker limit for '%s': %s is negative.", key, count)
-                continue
-            if count == 0:
-                logging.warning("Source worker limit for '%s' is 0 - no items for that source will be processed.", key)
-            limits[str(key)] = count
-        self._source_limits = limits
+        self._source_limits = AgentArgs.__NormaliseLimits(value, "source worker limit")
+
+    @property
+    def source_name_limits(self) -> dict:
+        return self._source_name_limits
+    @source_name_limits.setter
+    def source_name_limits(self, value:dict):
+        self._source_name_limits = AgentArgs.__NormaliseLimits(value, "source name worker limit")
+
+    @property
+    def source_name_field(self) -> str:
+        return self._source_name_field
+    @source_name_field.setter
+    def source_name_field(self, value:str):
+        self._source_name_field = value or "data.target_instance"
 
     @property
     def source_field(self) -> str:
@@ -203,6 +232,9 @@ class Agent():
         # True when the last feed fetched nothing only because a capped source was at its limit -
         # work remains, so an empty queue must not be read as a drained one.
         self._feed_withheld = False
+        # Sources (names or types) whose current saturation episode has already been logged; a source
+        # leaves the set when it next has headroom, so the next episode logs again.
+        self.__SaturatedSources = set()
 
     @property
     def app(self) -> Application:
@@ -232,14 +264,15 @@ class Agent():
         return self._wrk_factory
 
 
-    def _item_source(self, item:QueueClientDto) -> str:
-        """Source key of a queue item, read by args.source_field path (e.g. data.target_type).
+    def _item_source(self, item:QueueClientDto, field:str=None) -> str:
+        """Source key of a queue item, read by the `field` path (default args.source_field, e.g.
+        data.target_type; args.source_name_field reads the source name).
         None when the item has no value there - such items are never capped."""
         if item is None:
             return None
         try:
             cur = item.doc.dto()
-            for part in self.args.source_field.split('.'):
+            for part in (field or self.args.source_field).split('.'):
                 if not isinstance(cur, dict):
                     return None
                 cur = cur.get(part)
@@ -248,21 +281,29 @@ class Agent():
             return None
 
 
-    def _source_in_use_counts(self) -> dict:
+    def _source_in_use_counts(self, name_capped=()) -> tuple:
         """Items per source that this agent is already committed to: in flight on a worker, plus
         fetched-and-waiting in the internal queue.  Both count against a source's limit - a queued
-        item is already locked in elasticsearch and will run as soon as a worker frees up."""
-        counts = {}
+        item is already locked in elasticsearch and will run as soon as a worker frees up.
+
+        Returns (by_type, by_name).  An item whose source name is in name_capped counts against its
+        name only: a name limit replaces the type limit for that source."""
+        by_type = {}
+        by_name = {}
         with self._state_lock:
             in_flight = [st.get('item') for st in self._worker_state.values()]
         # Snapshot under the queue's own mutex; the deque behind Queue is not safe to read without it.
         with self._queue.mutex:
             waiting = list(self._queue.queue)
         for item in in_flight + waiting:
+            name = self._item_source(item, self.args.source_name_field)
+            if name is not None and name in name_capped:
+                by_name[name] = by_name.get(name, 0) + 1
+                continue
             src = self._item_source(item)
             if src is not None:
-                counts[src] = counts.get(src, 0) + 1
-        return counts
+                by_type[src] = by_type.get(src, 0) + 1
+        return by_type, by_name
 
 
     def _fetch_batch(self, size:int, custom_body:dict=None) -> list:
@@ -299,44 +340,84 @@ class Agent():
         return len(items)
 
 
+    def __WorkWaiting(self, field:str, value:str, must_not:list=None) -> bool:
+        """True when at least one pending (not completed, not locked) item matches the term.
+        A read only search of size 1 - it locks nothing, so it is safe to ask about a source
+        that is at its limit."""
+        try:
+            body = self.queue_client.get_search_body(exclude_completed=True, exclude_locked=True)
+            body['query']['bool']['must'].append({"term": {field: value}})
+            body['query']['bool']['must_not'].extend(must_not or [])
+            return next(iter(self.queue_client.get_search(size=1, custom_body=body) or []), None) is not None
+        except Exception:
+            logging.warning("Could not check whether work is waiting for source '%s'.", value, exc_info=True)
+            return False
+
+
+    def __FeedCapped(self, field:str, value:str, limit:int, in_use:int, room:int, must_not:list=None) -> list:
+        """Fetch what one capped source (a type or a name) has headroom for, and report saturation.
+
+        field/value: the term identifying the source.  limit/in_use: its cap and what is committed.
+        room: how much of this pass's batch is still unspent.  must_not: extra exclusions."""
+        headroom = min(limit - in_use, room)
+        if limit - in_use > 0:
+            self.__SaturatedSources.discard(value)
+        if headroom <= 0:
+            if in_use > 0:
+                # At the cap because we're busy, not because the source is drained.  Say so, or
+                # run() reads a zero fetch on an empty queue as "nothing left" and shuts down
+                # with the rest of this source's backlog still pending.
+                self._feed_withheld = True
+                logging.debug("Source '%s' is at its limit of %s, not fetching more this pass.", value, limit)
+                if limit - in_use <= 0 and value not in self.__SaturatedSources and self.__WorkWaiting(field, value, must_not):
+                    self.__SaturatedSources.add(value)
+                    logging.info("Source '%s' is at its worker cap of %s with work waiting; more items start as slots free.", value, limit)
+            return []
+        body = self.queue_client.get_next_queue_batch_body()
+        body['query']['bool']['must'].append({"term": {field: value}})
+        body['query']['bool']['must_not'].extend(must_not or [])
+        batch = self._fetch_batch(headroom, body)
+        if batch:
+            logging.debug("Fetched %s item(s) for source '%s' (limit %s, %s already in use).", len(batch), value, limit, in_use)
+        return batch
+
+
     def _feed_queue(self) -> int:
         """Fetch a batch of pending items from ES for each source and enqueue them. Returns total enqueued, or -1 on error."""
         try:
             batch_size = self.args.worker_count * 2
             limits = self.args.source_limits
+            name_limits = self.args.source_name_limits
             self._feed_withheld = False
-            if not limits:
+            if not limits and not name_limits:
                 return self._enqueue(self._fetch_batch(batch_size))
 
             # Capped sources are fetched one query at a time, each sized to that source's remaining
             # headroom.  The cap has to be applied in the query: get_next_queue_batch locks every
             # document it returns, so anything fetched and then discarded would be left locked.
-            in_use = self._source_in_use_counts()
+            # Named sources first (their limit replaces their type's), then types, then the rest.
+            name_capped = sorted(name_limits.keys())
+            type_capped = sorted(limits.keys())
+            by_type, by_name = self._source_in_use_counts(name_limits.keys())
+            name_field = self.args.source_name_field
+            type_field = self.args.source_field
             fetched_items = []
-            capped = sorted(limits.keys())
-            for src in capped:
-                headroom = min(limits[src] - in_use.get(src, 0), batch_size - len(fetched_items))
-                if headroom <= 0:
-                    if in_use.get(src, 0) > 0:
-                        # At the cap because we're busy, not because the source is drained.  Say so, or
-                        # run() reads a zero fetch on an empty queue as "nothing left" and shuts down
-                        # with the rest of this source's backlog still pending.
-                        self._feed_withheld = True
-                        logging.debug("Source '%s' is at its limit of %s, not fetching more this pass.", src, limits[src])
-                    continue
-                body = self.queue_client.get_next_queue_batch_body()
-                body['query']['bool']['must'].append({"term": {self.args.source_field: src}})
-                batch = self._fetch_batch(headroom, body)
-                if batch:
-                    logging.debug("Fetched %s item(s) for source '%s' (limit %s, %s already in use).",
-                                  len(batch), src, limits[src], in_use.get(src, 0))
-                fetched_items.extend(batch)
+            for name in name_capped:
+                fetched_items.extend(self.__FeedCapped(name_field, name, name_limits[name], by_name.get(name, 0),
+                                                       batch_size - len(fetched_items)))
+            for src in type_capped:
+                excl = [{"terms": {name_field: name_capped}}] if name_capped else []
+                fetched_items.extend(self.__FeedCapped(type_field, src, limits[src], by_type.get(src, 0),
+                                                       batch_size - len(fetched_items), excl))
 
             # Everything else, with the capped sources excluded.  Without that exclusion a large backlog
             # for a capped source fills this query and starves the uncapped ones out of the fifo.
             if batch_size - len(fetched_items) > 0:
                 body = self.queue_client.get_next_queue_batch_body()
-                body['query']['bool']['must_not'].append({"terms": {self.args.source_field: capped}})
+                if type_capped:
+                    body['query']['bool']['must_not'].append({"terms": {type_field: type_capped}})
+                if name_capped:
+                    body['query']['bool']['must_not'].append({"terms": {name_field: name_capped}})
                 fetched_items.extend(self._fetch_batch(batch_size - len(fetched_items), body))
             return self._enqueue(fetched_items)
         except Exception:

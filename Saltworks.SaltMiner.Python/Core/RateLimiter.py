@@ -185,13 +185,16 @@ class ApiThrottle:
         path = path.split('?', 1)[0].split('#', 1)[0]
         return re.sub(r'/\d+(?=/|$)', '/{id}', path) or '/'
 
-    def acquire(self, endpoint, beat=None):
+    def acquire(self, endpoint, beat=None, label=None):
         """
         Blocks until this endpoint is out of cooldown and the shared rate gate allows a request.
 
         beat: optional zero-arg callable invoked while waiting out a cooldown.  A cooldown can run
         to the server's reset window, which is long enough to look like a dead worker to the agent -
         the beat is per-caller, so this stays shared across clients.
+
+        label: optional text naming who is calling (source and key), added to the log line.  A call
+        argument, not throttle state, because one throttle serves every client using the same key.
         """
         while True:
             wait = self._cooldown_remaining(endpoint)
@@ -200,30 +203,37 @@ class ApiThrottle:
             # Stagger per waiting thread, not per cooldown - a stagger baked into the shared
             # cooldown would still release every thread on the same tick.
             wait += self._stagger()
-            self._logger.info("Rate limit cooldown on '%s': waiting %.1fs before next request", endpoint, wait)
+            self._logger.info("Rate limit cooldown on '%s'%s: waiting %.1fs before next request", endpoint, self.__For(label), wait)
             BeatingSleep(wait, beat)
         self._gate.acquire()
 
-    def observe(self, endpoint, status_code, headers):
+    def observe(self, endpoint, status_code, headers, label=None):
         """
         Records the outcome of a request.
 
         Returns the number of seconds to wait before retrying if the request was throttled,
         or None if it was not (in which case the caller proceeds as normal).
+
+        label: optional text naming who is calling (source and key), added to the log lines.
         """
         reset = self._header_int(headers, self._reset_header)
         if status_code == self._throttled_status:
             wait = self._start_cooldown(endpoint, reset if reset is not None else self._default_reset_secs)
-            self._logger.warning("Rate limited (%s) on '%s' - retrying in %.1fs (server reset: %ss, %d client(s) sharing this key)",
-                                 status_code, endpoint, wait, reset if reset is not None else 'not reported', self._contenders)
+            self._logger.warning("Rate limited (%s) on '%s'%s - retrying in %.1fs (server reset: %ss, %d client(s) sharing this key)",
+                                 status_code, endpoint, self.__For(label), wait, reset if reset is not None else 'not reported', self._contenders)
             return wait
         # Not throttled yet, but out of budget - pause here rather than earn a 429 on the next call.
         remaining = self._header_int(headers, self._remaining_header)
         if remaining is not None and remaining <= 0 and reset:
             wait = self._start_cooldown(endpoint, reset)
-            self._logger.info("Rate limit budget exhausted on '%s' (limit %s) - pausing %.1fs until reset",
-                              endpoint, self._header_int(headers, self._limit_header), wait)
+            self._logger.info("Rate limit budget exhausted on '%s'%s (limit %s) - pausing %.1fs until reset",
+                              endpoint, self.__For(label), self._header_int(headers, self._limit_header), wait)
         return None
+
+    @staticmethod
+    def __For(label):
+        """The ' for <label>' suffix of a log line; empty when no label was given."""
+        return f" for {label}" if label else ""
 
     def _start_cooldown(self, endpoint, reset_secs):
         """Holds all clients off this endpoint until its window resets.  Returns the wait in seconds."""
