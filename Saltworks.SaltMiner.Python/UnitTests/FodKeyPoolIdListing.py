@@ -20,8 +20,9 @@
 
 USAGE = '''
 PBI-130 AC-7 helper: lists what a FOD release produced in SM2, and compares two listings.
-app_vuls_fod is listed by vulnerability.scanner.id (the issue unique identifier), app_scan_history_fod
-by _id. Every _id in both indices must start with FOD1-; snapshot exits 1 if one does not.
+app_vuls_fod is listed by the top-level scanner_id field (the scanner issue id, what AC-7 calls
+vulnerability.scanner.id; Sources/FOD/AppVulsProcessor.py sets it from Issue['id']), app_scan_history_fod
+by _id. An empty scanner_id fails snapshot and compare. Every _id in both indices must start with FOD1-; snapshot exits 1 if one does not.
 
   python3 UnitTests/FodKeyPoolIdListing.py snapshot <releaseId> <out.json>
   python3 UnitTests/FodKeyPoolIdListing.py compare <a.json> <b.json>
@@ -44,16 +45,14 @@ SCANNER_ID_INDICES = ("app_vuls_fod",)
 
 
 def _ScannerId(hit:dict) -> str:
-    ''' Returns vulnerability.scanner.id from a hit, or an empty string when absent. '''
-    value = hit.get("_source", {})
-    for part in ("vulnerability", "scanner", "id"):
-        value = value.get(part, {}) if isinstance(value, dict) else {}
-    return value if isinstance(value, str) else ""
+    ''' Returns the top-level scanner_id of an app_vuls_fod hit as a string, or an empty string when absent. '''
+    value = hit.get("_source", {}).get("scanner_id", "")
+    return "" if value is None else str(value)
 
 
 def Snapshot(releaseId:str, outFile:str, indices=DEFAULT_INDICES) -> dict:
     ''' Writes {index: sorted list} for the documents whose application_version_id is the release: the
-    vulnerability.scanner.id values for app_vuls_fod, the _ids for the others. Raises ValueError, after
+    scanner_id values for app_vuls_fod, the _ids for the others. Raises ValueError, after
     writing the file, when any _id lacks the FOD1- prefix. '''
     from Core.Application import Application
     app = Application(skipCleanFiles=True)
@@ -63,7 +62,7 @@ def Snapshot(releaseId:str, outFile:str, indices=DEFAULT_INDICES) -> dict:
     for index in indices:
         byField = index in SCANNER_ID_INDICES
         query = {"query": {"term": {"application_version_id": {"value": str(releaseId)}}}, "sort": ["_doc"],
-                 "_source": ["vulnerability.scanner.id"] if byField else False}
+                 "_source": ["scanner_id"] if byField else False}
         values = []
         with es.SearchScroll(index, query, scrollSize=1000) as scroller:
             for hit in scroller.Generator():
@@ -74,9 +73,11 @@ def Snapshot(releaseId:str, outFile:str, indices=DEFAULT_INDICES) -> dict:
     with open(outFile, "w") as f:
         json.dump(listing, f, indent=2)
     for index, values in listing.items():
-        print(f"{index}: {len(values)} {'vulnerability.scanner.id values' if index in SCANNER_ID_INDICES else 'document ids'}")
+        if any(v == "" for v in values) and index in SCANNER_ID_INDICES:
+            badIds.append(f"{index}: empty scanner_id")
+        print(f"{index}: {len(values)} {'scanner_id values' if index in SCANNER_ID_INDICES else 'document ids'}")
     if badIds:
-        raise ValueError(f"{len(badIds)} _id values lack the {ID_PREFIX} prefix, first: {badIds[:5]}")
+        raise ValueError(f"{len(badIds)} problems (_id without the {ID_PREFIX} prefix, or empty scanner_id), first: {badIds[:5]}")
     print(f"every _id starts with {ID_PREFIX}")
     return listing
 
@@ -90,6 +91,10 @@ def Compare(fileA:str, fileB:str) -> int:
     same = True
     for index in sorted(set(a) | set(b)):
         ida, idb = a.get(index, []), b.get(index, [])
+        if any(v == "" for v in ida + idb):
+            same = False
+            print(f"DIFFERENT {index}: empty listed value(s), {ida.count('')} in first, {idb.count('')} in second")
+            continue
         if len(ida) != len(idb) or set(ida) != set(idb) or len(set(ida)) != len(ida) or len(set(idb)) != len(idb):
             same = False
             print(f"DIFFERENT {index}: {len(ida)} vs {len(idb)} values; only in first: {sorted(set(ida) - set(idb))[:10]}; only in second: {sorted(set(idb) - set(ida))[:10]}")
