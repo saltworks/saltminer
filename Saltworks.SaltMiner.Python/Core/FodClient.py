@@ -401,7 +401,7 @@ class FodClient(object):
                 self.__Logger.error("Rate limit retry count (%s) reached for api call '%s' - returning throttled response.", self.__RateLimitMaxRetries, url)
                 break
 
-        msg = f"FodClient {method} called. Url: '{_url}', Headers: {headers}.  Response: ({resp.status_code}) {resp.reason}"
+        msg = f"FodClient {method} called with ClientId '{key.ClientId}'. Url: '{_url}', Headers: {headers}.  Response: ({resp.status_code}) {resp.reason}"
         self.__Logger.debug(msg)
         # Everything FOD documents that is not success and not already handled above is permanent
         # for this request: 400/422 (malformed), 403 (authenticated but not entitled to this

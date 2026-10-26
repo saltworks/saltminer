@@ -264,10 +264,24 @@ class FodKeyPoolTests(unittest.TestCase):
             for _ in range(20):
                 self.assertEqual(c.Get(DATA_URL).Status, 200)
         text = "\n".join(logs.output)
-        self.assertIn("kB", text)
+        # The startup line lists every ClientId, so "kB" in the text proves nothing. The failure
+        # line itself, the one at ERROR level about the auth failure, must name the failing key.
+        failureLines = [r for r in logs.records if r.levelname == "ERROR" and "failure (auth)" in r.getMessage()]
+        self.assertTrue(failureLines, "no ERROR line reports the failed login")
+        self.assertTrue(any("kB" in r.getMessage() for r in failureLines))
+        self.assertFalse(any("kA" in r.getMessage() or "kC" in r.getMessage() for r in failureLines))
         self.assertNotIn("secret-kB", text)
         self.assertNotIn("secret-kA", text)
         self.assertEqual({cid for cid, _, _ in self.fake.data_calls}, {"kA", "kC"})
+
+    def test_debug_request_line_names_the_key(self):
+        """AC-7 evidence: each request logs the ClientId it used, so a live run can count calls per key."""
+        c = self._client(ApiKeys=self._pool("kA", "kB"))
+        with self.assertLogs("Core.FodClient", level="DEBUG") as logs:
+            for _ in range(6):
+                c.Get(DATA_URL)
+        used = {cid for cid in ("kA", "kB") if any(f"called with ClientId '{cid}'" in r.getMessage() for r in logs.records)}
+        self.assertEqual(used, {"kA", "kB"})
 
     def test_all_keys_failing_raises_naming_every_client_id(self):
         for cid in ("kA", "kB"):
