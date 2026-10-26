@@ -20,17 +20,51 @@
 
 import json
 import logging
+import threading
+import time
 import weakref
 
 import urllib3
 import urllib.parse
 import requests
 
+from .ApplicationExceptions import ApplicationConfigurationException
 from .ApplicationSettings import ApplicationSettings
 from .Heartbeat import BeatingSleep
 from .RateLimiter import ApiThrottle
 
+
+class _FodKey(object):
+    '''
+    One FOD API key of a pool: its credential, its own bearer token and headers, and its own
+    throttle.  The secret is held in `_Secret` and is never formatted into a log line or repr.
+    '''
+    __slots__ = ("ClientId", "_Secret", "Token", "Headers", "Throttle", "Live", "RetryAt")
+
+    def __init__(self, clientId:str, secret:str, throttle:ApiThrottle):
+        self.ClientId = clientId
+        self._Secret = secret
+        self.Token = None
+        self.Headers = None
+        self.Throttle = throttle
+        self.Live = False
+        self.RetryAt = 0.0
+
+    def __repr__(self) -> str:
+        return f"_FodKey(ClientId={self.ClientId!r}, Live={self.Live})"
+
+
 class FodClient(object):
+
+    # Seconds a key that failed login or renewal stays out of rotation before it is tried again.
+    # Clients live as long as their worker thread, so without this a key lost to one timeout on
+    # /oauth/token would stay out until the agent restarted.
+    KEY_RETRY_SECS = 300
+
+    # Round-robin position per source name, shared by every client (every worker thread) in this
+    # process, so all workers on one source rotate through its keys together.
+    _RotationCounters = {}
+    _RotationLock = threading.Lock()
 
     def __init__(self, appSettings:ApplicationSettings, sourceName:str, logger=None, heartbeat=None):
         '''
@@ -70,39 +104,125 @@ class FodClient(object):
         if (not self.__BatchSize or self.__BatchSize < 50 or self.__BatchSize > 500):
             self.__BatchSize = 50 # default if unreasonable
         self.__BaseAddress = appSettings.GetSource(sourceName, 'BaseUrl')
-        clientId = appSettings.GetSource(sourceName, 'ClientId')
-        clientSecret = appSettings.GetSource(sourceName, 'ClientSecret')
 
         # FOD rate limits per endpoint and per user/key, so every worker's client shares one
-        # server-side budget - the throttle is keyed on the credential, not the source name, and
+        # server-side budget - each throttle is keyed on its credential, not the source name, and
         # is shared by all FodClient instances in this process.  Default of 10/sec is FOD's
         # documented limit for endpoints without a specific (lower) one.
         self.__RateLimitMaxRetries = max(1, int(appSettings.GetSource(sourceName, 'RateLimitMaxRetries', 5)))
-        self.__Throttle = ApiThrottle.for_key(
-            clientId or sourceName,
-            max_per_second = appSettings.GetSource(sourceName, 'RateLimitMaxPerSecond', 10),
-            buffer_secs = appSettings.GetSource(sourceName, 'RateLimitBufferSeconds', 2),
-            logger = self.__Logger)
-        self.__Throttle.register()
-        weakref.finalize(self, self.__Throttle.unregister)
+        self.__KeyLock = threading.Lock()
+        self.__Keys = []
+        for clientId, clientSecret in self.__ReadCredentials(appSettings, sourceName):
+            throttle = ApiThrottle.for_key(
+                clientId or sourceName,
+                max_per_second = appSettings.GetSource(sourceName, 'RateLimitMaxPerSecond', 10),
+                buffer_secs = appSettings.GetSource(sourceName, 'RateLimitBufferSeconds', 2),
+                logger = self.__Logger)
+            throttle.register()
+            weakref.finalize(self, throttle.unregister)
+            self.__Keys.append(_FodKey(clientId, clientSecret, throttle))
 
         if self.__VerifySsl == "False":
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             self.__Logger.warning("SSL verification has been disabled in config.  This is insecure and should be enabled in production systems.")
 
-        # Re-authenticate on a 401 rather than letting every subsequent call fail.
-        self.__ClientId = clientId
-        self.__ClientSecret = clientSecret
-        self.__Token = None
-        self.__DefaultHeaders = None
+        # Every key logs in at construction.  A key that fails is left out of rotation (and
+        # retried later); only when no key can log in does construction fail, which for a source
+        # with one key is exactly where it failed before the pool existed.
+        failures = []
+        for key in self.__Keys:
+            try:
+                self.__Authenticate(key, initial=True)
+            except Exception as ex:
+                key.Live = False
+                key.RetryAt = time.time() + FodClient.KEY_RETRY_SECS
+                failures.append((key, ex))
+        if not any(k.Live for k in self.__Keys):
+            if len(failures) == 1:
+                raise failures[0][1]
+            ids = ", ".join(f"ClientId '{k.ClientId}'" for k, _ in failures)
+            raise FodClientAuthenticationException(f"FodClient initialization failure (auth): no FOD key could log in: {ids}")
+        self.__Logger.info("FodClient initialized. BaseAddress: '%s', ClientId(s): %s, Proxy? %s", self.__BaseAddress,
+                           ", ".join(f"'{k.ClientId}'" for k in self.__Keys), len(proxy) > 0)
 
-        self.__Authenticate(initial=True)
-        self.__Logger.info("FodClient initialized. BaseAddress: '%s', ClientId: '%s', Proxy? %s", self.__BaseAddress, clientId, len(proxy) > 0)
-
-    def __Authenticate(self, initial=False):
+    @staticmethod
+    def __ReadCredentials(appSettings:ApplicationSettings, sourceName:str) -> list:
         '''
-        Fetches a bearer token and rebuilds the default headers.  Called once at construction and
-        again by __Request whenever FOD rejects the current token with a 401.
+        Returns the (ClientId, ClientSecret) pairs of the source: the top-level pair when either
+        half is set, then every ApiKeys entry.  Deduplicated by ClientId, first one wins.
+        '''
+        logger = logging.getLogger(__name__)
+        pairs = []
+        seen = set()
+        clientId = appSettings.GetSource(sourceName, 'ClientId', "")
+        clientSecret = appSettings.GetSource(sourceName, 'ClientSecret', "")
+        if clientId or clientSecret:
+            pairs.append((clientId, clientSecret))
+            seen.add(clientId)
+        for i, entry in enumerate(appSettings.GetSourceKeyList(sourceName)):
+            entryId = entry.get('ClientId') if isinstance(entry, dict) else None
+            named = f" (ClientId '{entryId}')" if entryId else ""
+            if (not isinstance(entry, dict) or not isinstance(entry.get('ClientId'), str) or not entry.get('ClientId')
+                    or not isinstance(entry.get('ClientSecret'), str) or not entry.get('ClientSecret')):
+                raise ApplicationConfigurationException(
+                    f"Source '{sourceName}' ApiKeys entry {i}{named} must be an object with a non-empty ClientId and ClientSecret")
+            if entryId in seen:
+                logger.warning("Source '%s' ApiKeys entry %s repeats ClientId '%s'; ignoring the repeat.", sourceName, i, entryId)
+                continue
+            seen.add(entryId)
+            pairs.append((entryId, entry['ClientSecret']))
+        if not pairs:
+            raise FodClientConfigurationException(f"Source '{sourceName}' has no ClientId/ClientSecret and no ApiKeys entries")
+        return pairs
+
+    @property
+    def Keys(self) -> tuple:
+        '''The pool's keys, for tests and logs.  Their repr never shows a secret.'''
+        return tuple(self.__Keys)
+
+    def __NextKey(self) -> _FodKey:
+        '''
+        Round robin over the live keys, rotating together with every other client on this source in
+        the process.  First gives any dead key whose retry time has passed another login attempt.
+        '''
+        now = time.time()
+        due = []
+        with self.__KeyLock:
+            for k in self.__Keys:
+                if not k.Live and k.RetryAt <= now:
+                    k.RetryAt = now + FodClient.KEY_RETRY_SECS
+                    due.append(k)
+        for k in due:
+            try:
+                self.__Authenticate(k)
+                self.__Logger.info("FOD key ClientId '%s' back in rotation", k.ClientId)
+            except Exception as ex:
+                self.__Logger.error("FOD key ClientId '%s' still failing login: %s", k.ClientId, ex)
+        with self.__KeyLock:
+            live = [k for k in self.__Keys if k.Live]
+        if not live:
+            raise FodClientAuthenticationException("No FOD key is live: " + ", ".join(f"ClientId '{k.ClientId}'" for k in self.__Keys))
+        with FodClient._RotationLock:
+            n = FodClient._RotationCounters.get(self.__SourceName, 0)
+            FodClient._RotationCounters[self.__SourceName] = n + 1
+        return live[n % len(live)]
+
+    def __MarkDead(self, key:_FodKey) -> bool:
+        '''
+        Takes the key out of rotation unless it is the only live key.  Returns True when it was
+        taken out.  Checked and set under one lock so two threads cannot empty the pool together.
+        '''
+        with self.__KeyLock:
+            if not any(k.Live and k is not key for k in self.__Keys):
+                return False
+            key.Live = False
+            key.RetryAt = time.time() + FodClient.KEY_RETRY_SECS
+            return True
+
+    def __Authenticate(self, key:_FodKey, initial=False):
+        '''
+        Fetches a bearer token for one key and rebuilds that key's headers.  Called for every key at
+        construction and again by __Request whenever FOD rejects a key's token with a 401.
 
         :initial: only changes the wording of the failure - a bad credential at construction is a
         configuration problem, while a failure later means a token could not be renewed.
@@ -110,8 +230,8 @@ class FodClient(object):
         body = urllib.parse.urlencode({
             'grant_type': 'client_credentials',
             'scope': 'api-tenant',
-            'client_id': self.__ClientId,
-            'client_secret': self.__ClientSecret
+            'client_id': key.ClientId,
+            'client_secret': key._Secret
         })
         headers = {
             'Accept': 'application/json',
@@ -119,36 +239,37 @@ class FodClient(object):
         }
         # isAuth stops __Request treating a 401 on this call as "refresh and retry" - the refresh
         # IS this call, and retrying it would recurse.
-        response = self.__Request("post", '/oauth/token', data=body, headers=headers, timeout=5, isAuth=True)
+        response = self.__Request("post", '/oauth/token', data=body, headers=headers, timeout=5, isAuth=True, key=key)
         auth = response.Content if response.Content else {}
 
         try:
             token = auth["access_token"]
         except (KeyError, AttributeError, TypeError):
             stage = "initialization" if initial else "token refresh"
-            self.__Logger.error("FodClient %s failure (auth): (%s) %s", stage, response.Status, response.Reason)
-            raise FodClientAuthenticationException(f"FodClient {stage} failure (auth): ({response.Status}) {response.Reason}")
+            self.__Logger.error("FodClient %s failure (auth) for ClientId '%s': (%s) %s", stage, key.ClientId, response.Status, response.Reason)
+            raise FodClientAuthenticationException(f"FodClient {stage} failure (auth) for ClientId '{key.ClientId}': ({response.Status}) {response.Reason}")
 
-        self.__Token = token
+        key.Token = token
         # Replaced wholesale rather than mutated, so nothing can observe a half-updated header set.
-        self.__DefaultHeaders = {
+        key.Headers = {
             'Authorization': f"Bearer {token}",
             'Accept': 'application/json'
         }
+        key.Live = True
         if not initial:
-            self.__Logger.info("FOD access token renewed.")
+            self.__Logger.info("FOD access token renewed for ClientId '%s'.", key.ClientId)
         return token
 
-    def __RefreshToken(self):
+    def __RefreshToken(self, key:_FodKey):
         '''
-        Renews the token.  Returns True when a usable one is in place.  Never raises - a failed
+        Renews one key's token.  Returns True when a usable one is in place.  Never raises - a failed
         renewal has to leave the original 401 to flow back to the caller rather than replacing it.
         '''
         try:
-            self.__Authenticate()
+            self.__Authenticate(key)
             return True
         except Exception as ex:
-            self.__Logger.error("FOD token renewal failed: %s", ex)
+            self.__Logger.error("FOD token renewal failed for ClientId '%s': %s", key.ClientId, ex)
             return False
 
     @property
@@ -188,7 +309,13 @@ class FodClient(object):
     # ***********************************************************************************************************
     # Requests mini-client
     # ***********************************************************************************************************
-    def __Request(self, method, url, json=None, data=None, headers=None, verify=None, timeout=None, isAuth=False):
+    def __Request(self, method, url, json=None, data=None, headers=None, verify=None, timeout=None, isAuth=False, key=None):
+        '''
+        key: the pool key to send on (login passes its own); when None one is taken in round robin
+        and kept for the whole retry loop, so its token, headers and throttle go together.
+        '''
+        if key is None:
+            key = self.__NextKey()
         if self.__BaseAddress is not None and not url.startswith("http:") and not url.startswith("https:"):
             _url = self.__BaseAddress + ("/" if not url.startswith("/") else "") + url
         else:
@@ -203,7 +330,7 @@ class FodClient(object):
         # they carry their own auth by contract, so refreshing ours would not help them.
         useDefaultHeaders = headers is None
         if useDefaultHeaders:
-            headers = self.__DefaultHeaders
+            headers = key.Headers
         if not timeout:
             timeout = self.__DefaultTimeout
         endpoint = ApiThrottle.endpoint_key(_url)
@@ -214,7 +341,7 @@ class FodClient(object):
         while True:
             # Waits out any cooldown this endpoint is in (set by this thread or another worker's
             # client) and keeps the aggregate call rate for this credential within limits.
-            self.__Throttle.acquire(endpoint, self._Beat)
+            key.Throttle.acquire(endpoint, self._Beat)
             try:
                 if (self.__ProxyDict):
                     resp = requests.request(method, _url, json=json, data=data, headers=headers, timeout=timeout, verify=verify, proxies=self.__ProxyDict)
@@ -239,9 +366,16 @@ class FodClient(object):
             # Expired or revoked token
             if resp.status_code == 401 and not isAuth and useDefaultHeaders and not authRetried:
                 authRetried = True
-                self.__Logger.warning("FOD returned 401 for '%s' - access token appears expired, renewing and retrying once.", url)
-                if self.__RefreshToken():
-                    headers = self.__DefaultHeaders
+                self.__Logger.warning("FOD returned 401 for '%s' (ClientId '%s') - access token appears expired, renewing and retrying once.", url, key.ClientId)
+                if self.__RefreshToken(key):
+                    headers = key.Headers
+                    continue
+                # Renewal failed.  With another live key the request is resent once on it; a key
+                # that is the only live one stays in rotation and the 401 goes back to the caller.
+                if self.__MarkDead(key):
+                    self.__Logger.error("FOD key ClientId '%s' taken out of rotation after a failed renewal; retrying '%s' on another key.", key.ClientId, url)
+                    key = self.__NextKey()
+                    headers = key.Headers
                     continue
 
             # Server-side failures come back as responses, not exceptions, so they need retrying
@@ -259,7 +393,7 @@ class FodClient(object):
             # response and the loop ends here.  A wait is deliberately NOT slept on at this point:
             # it is recorded as an endpoint cooldown and served by acquire() at the top of the next
             # pass, so every client sharing this credential holds off, not just this one.
-            wait = self.__Throttle.observe(endpoint, resp.status_code, resp.headers)
+            wait = key.Throttle.observe(endpoint, resp.status_code, resp.headers)
             if wait is None:
                 break
             rateLimitCount += 1
@@ -297,7 +431,7 @@ class FodClient(object):
         headers: optional override headers.  Don't use this unless you know what you're doing (and include auth)
         '''
         headers = {
-            'Authorization': 'Bearer {}'.format(self.__Token),
+            'Authorization': 'Bearer {}'.format(self.__NextKey().Token),
             'Accept': 'application/octet-stream'
         }
         return requests.get(url, headers=headers, stream=True, timeout=240, proxies=self.__ProxyDict)
@@ -430,7 +564,11 @@ class FodClient(object):
         Connects to FOD
         '''
         try:
-            FodClient(appSettings, sourceName)
+            client = FodClient(appSettings, sourceName)
+            failed = [k.ClientId for k in client.Keys if not k.Live]
+            if failed:
+                names = ", ".join(f"ClientId '{c}'" for c in failed)
+                return False, f"{len(failed)} of {len(client.Keys)} FOD keys failed login: {names}"
             return True,""
         except Exception as e:
             return False, f"[{type(e).__name__}] {e}"
