@@ -19,13 +19,15 @@
 '''
 
 USAGE = '''
-PBI-130 AC-7 helper: lists the SM2 document ids a FOD release produced, and compares two listings.
+PBI-130 AC-7 helper: lists what a FOD release produced in SM2, and compares two listings.
+app_vuls_fod is listed by vulnerability.scanner.id (the issue unique identifier), app_scan_history_fod
+by _id. Every _id in both indices must start with FOD1-; snapshot exits 1 if one does not.
 
   python3 UnitTests/FodKeyPoolIdListing.py snapshot <releaseId> <out.json>
   python3 UnitTests/FodKeyPoolIdListing.py compare <a.json> <b.json>
 
 Run from the Saltworks.SaltMiner.Python directory, against the agent's Elasticsearch.
-`compare` exits 0 only when the id sets and the counts are equal in every index.
+`compare` exits 0 only when the listed value sets and the counts are equal in every index.
 '''
 
 import json
@@ -36,27 +38,51 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 DEFAULT_INDICES = ("app_vuls_fod", "app_scan_history_fod")
+ID_PREFIX = "FOD1-"
+# Indices listed by a source field instead of _id
+SCANNER_ID_INDICES = ("app_vuls_fod",)
+
+
+def _ScannerId(hit:dict) -> str:
+    ''' Returns vulnerability.scanner.id from a hit, or an empty string when absent. '''
+    value = hit.get("_source", {})
+    for part in ("vulnerability", "scanner", "id"):
+        value = value.get(part, {}) if isinstance(value, dict) else {}
+    return value if isinstance(value, str) else ""
 
 
 def Snapshot(releaseId:str, outFile:str, indices=DEFAULT_INDICES) -> dict:
-    ''' Writes {index: sorted list of _id} for the documents whose application_version_id is the release. '''
+    ''' Writes {index: sorted list} for the documents whose application_version_id is the release: the
+    vulnerability.scanner.id values for app_vuls_fod, the _ids for the others. Raises ValueError, after
+    writing the file, when any _id lacks the FOD1- prefix. '''
     from Core.Application import Application
     app = Application(skipCleanFiles=True)
     es = app.GetElasticClient()
     listing = {}
+    badIds = []
     for index in indices:
-        query = {"query": {"term": {"application_version_id": {"value": str(releaseId)}}}, "sort": ["_doc"], "_source": False}
+        byField = index in SCANNER_ID_INDICES
+        query = {"query": {"term": {"application_version_id": {"value": str(releaseId)}}}, "sort": ["_doc"],
+                 "_source": ["vulnerability.scanner.id"] if byField else False}
+        values = []
         with es.SearchScroll(index, query, scrollSize=1000) as scroller:
-            listing[index] = sorted(hit["_id"] for hit in scroller.Generator())
+            for hit in scroller.Generator():
+                if not hit["_id"].startswith(ID_PREFIX):
+                    badIds.append(f"{index}: {hit['_id']}")
+                values.append(_ScannerId(hit) if byField else hit["_id"])
+        listing[index] = sorted(values)
     with open(outFile, "w") as f:
         json.dump(listing, f, indent=2)
-    for index, ids in listing.items():
-        print(f"{index}: {len(ids)} document ids")
+    for index, values in listing.items():
+        print(f"{index}: {len(values)} {'vulnerability.scanner.id values' if index in SCANNER_ID_INDICES else 'document ids'}")
+    if badIds:
+        raise ValueError(f"{len(badIds)} _id values lack the {ID_PREFIX} prefix, first: {badIds[:5]}")
+    print(f"every _id starts with {ID_PREFIX}")
     return listing
 
 
 def Compare(fileA:str, fileB:str) -> int:
-    ''' Returns 0 when both listings hold equal id sets and equal counts in every index, 1 otherwise. '''
+    ''' Returns 0 when both listings hold equal value sets and equal counts in every index, 1 otherwise. '''
     with open(fileA) as f:
         a = json.load(f)
     with open(fileB) as f:
@@ -66,15 +92,19 @@ def Compare(fileA:str, fileB:str) -> int:
         ida, idb = a.get(index, []), b.get(index, [])
         if len(ida) != len(idb) or set(ida) != set(idb) or len(set(ida)) != len(ida) or len(set(idb)) != len(idb):
             same = False
-            print(f"DIFFERENT {index}: {len(ida)} vs {len(idb)} ids; only in first: {sorted(set(ida) - set(idb))[:10]}; only in second: {sorted(set(idb) - set(ida))[:10]}")
+            print(f"DIFFERENT {index}: {len(ida)} vs {len(idb)} values; only in first: {sorted(set(ida) - set(idb))[:10]}; only in second: {sorted(set(idb) - set(ida))[:10]}")
         else:
-            print(f"EQUAL {index}: {len(ida)} ids")
+            print(f"EQUAL {index}: {len(ida)} values")
     return 0 if same else 1
 
 
 if __name__ == "__main__":
     if len(sys.argv) == 4 and sys.argv[1] == "snapshot":
-        Snapshot(sys.argv[2], sys.argv[3])
+        try:
+            Snapshot(sys.argv[2], sys.argv[3])
+        except ValueError as e:
+            print(f"FAIL {e}")
+            sys.exit(1)
     elif len(sys.argv) == 4 and sys.argv[1] == "compare":
         sys.exit(Compare(sys.argv[2], sys.argv[3]))
     else:
