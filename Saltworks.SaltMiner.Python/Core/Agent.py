@@ -77,7 +77,7 @@ class AgentArgs():
         self._defunct_worker_timeout_secs = kwargs.get("defunct_worker_timeout_secs", 120)
         self._agent_id = kwargs.get("agent_id")
         self._source_field = kwargs.get("source_field") or "data.target_type"
-        self._source_name_field = kwargs.get("source_name_field") or "data.target_instance"
+        self.__source_name_field = kwargs.get("source_name_field") or "data.target_instance"
         self.source_limits = kwargs.get("source_limits")
         self.source_name_limits = kwargs.get("source_name_limits")
 
@@ -174,17 +174,17 @@ class AgentArgs():
 
     @property
     def source_name_limits(self) -> dict:
-        return self._source_name_limits
+        return self.__source_name_limits
     @source_name_limits.setter
     def source_name_limits(self, value:dict):
-        self._source_name_limits = AgentArgs.__NormaliseLimits(value, "source name worker limit")
+        self.__source_name_limits = AgentArgs.__NormaliseLimits(value, "source name worker limit")
 
     @property
     def source_name_field(self) -> str:
-        return self._source_name_field
+        return self.__source_name_field
     @source_name_field.setter
     def source_name_field(self, value:str):
-        self._source_name_field = value or "data.target_instance"
+        self.__source_name_field = value or "data.target_instance"
 
     @property
     def source_field(self) -> str:
