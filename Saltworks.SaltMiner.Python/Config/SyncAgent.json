@@ -3,6 +3,8 @@
     "SourceWorkerLimits": {
         "FOD": 4
     },
+    "PerCredentialWorkerLimits": {},
+    "SourceNameWorkerLimits": {},
     "LowThresholdCount": 10,
     "PollingIntervalSecs": 10,
     "QueueBatchSize": 20,

@@ -223,6 +223,19 @@ class FodClient(object):
             raise FodClientConfigurationException(f"Source '{sourceName}' has no ClientId/ClientSecret and no ApiKeys entries")
         return pairs
 
+    @staticmethod
+    def CredentialIds(appSettings:ApplicationSettings, sourceName:str) -> tuple:
+        '''
+        The distinct ClientIds of the source's key pool, by the same rules the client itself uses
+        (top-level pair plus ApiKeys, deduplicated by ClientId).  Never returns a secret.  Raises
+        what the pool reader raises for an invalid key list.
+        '''
+        return tuple(clientId for clientId, _ in FodClient.__ReadCredentials(appSettings, sourceName))
+
+    def __Label(self, key:_FodKey) -> str:
+        '''Names the source and key for a throttle log line.  Never the secret.'''
+        return f"source '{self.__SourceName}', ClientId '{key.ClientId or '(empty)'}'"
+
     @property
     def Keys(self) -> tuple:
         '''The pool's keys, for tests and logs.  Their repr never shows a secret.'''
@@ -377,7 +390,7 @@ class FodClient(object):
         while True:
             # Waits out any cooldown this endpoint is in (set by this thread or another worker's
             # client) and keeps the aggregate call rate for this credential within limits.
-            key.Throttle.acquire(endpoint, self._Beat)
+            key.Throttle.acquire(endpoint, self._Beat, label=self.__Label(key))
             try:
                 if (self.__ProxyDict):
                     resp = requests.request(method, _url, json=json, data=data, headers=headers, timeout=timeout, verify=verify, proxies=self.__ProxyDict)
@@ -429,7 +442,7 @@ class FodClient(object):
             # response and the loop ends here.  A wait is deliberately NOT slept on at this point:
             # it is recorded as an endpoint cooldown and served by acquire() at the top of the next
             # pass, so every client sharing this credential holds off, not just this one.
-            wait = key.Throttle.observe(endpoint, resp.status_code, resp.headers)
+            wait = key.Throttle.observe(endpoint, resp.status_code, resp.headers, label=self.__Label(key))
             if wait is None:
                 break
             rateLimitCount += 1
