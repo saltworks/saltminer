@@ -1,13 +1,16 @@
 {
-  "_Comments": "To enable the FOD adapter set Enabled to true, set the ClientId and ClientSecret. Optional: list further API keys as ApiKeys entries of ClientId and ClientSecret; each gets its own token and 10-a-second throttle.",
+  "_Comments": "To enable the FOD adapter set Enabled to true and set the ClientId and ClientSecret of the ApiKeys entry. Optional: add further ApiKeys entries of ClientId and ClientSecret; each gets its own token and 10-a-second throttle. A top-level ClientId and ClientSecret outside ApiKeys is deprecated in 3.6.",
   "Source": "FOD",
   "SourceName": "FOD1",
   "Enabled": false,
   "BaseUrl": "https://api.ams.fortify.com",
   "GuiUrlTemplate": "https://ams.fortify.com/Releases/{avid}/Issues/{issueId}",
-  "ClientId": "<your_client_id_here>",
-  "ClientSecret": "<your_client_secret_here>",
-  "ApiKeys": [],
+  "ApiKeys": [
+    {
+      "ClientId": "<your_client_id_here>",
+      "ClientSecret": "<your_client_secret_here>"
+    }
+  ],
   "Proxy": "",
   "BatchSize": 50,
   "SyncVisibilityAttempts": 3,
