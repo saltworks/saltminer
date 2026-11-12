@@ -50,7 +50,6 @@ from pathlib import Path
 DEFAULT_TIMEOUT_SECONDS = 120
 DEFAULT_ATTACHMENT_TYPE = "Word"
 _VALID_ATTACHMENT_TYPES = ("Word", "Pdf", "All")
-_PDF_TAG_EXAMPLE = "jobmanager-3.6-pdf"
 
 
 class ConverterError(RuntimeError):
@@ -300,10 +299,10 @@ def _copy_docx(docx_path: Path, output_dir: Path) -> Path:
 
 
 def check_pdf_converter(attachment_type: str) -> bool:
-    """Whether this image variant can satisfy `attachment_type`, logging a named error if not.
+    """Whether this image can satisfy `attachment_type`, logging a named error if not.
 
     `Word` needs no converter and always returns `True`. `Pdf` and `All` return `True` when
-    `soffice` is on PATH, or `False` and log one error naming the `-pdf` tag when it is not. An
+    `soffice` is on PATH, or `False` and log one error naming `soffice` when it is not. An
     unrecognised value logs one error naming the three valid values and returns `False`. Never
     raises: the caller (PBI-051, at container start) must be free to carry on serving Word
     reports even when PDF is unavailable.
@@ -321,8 +320,8 @@ def check_pdf_converter(attachment_type: str) -> bool:
         return True
     logging.error(
         "[PdfConverter][check_pdf_converter] ReportAttachmentType is %s but soffice is not on the "
-        "path: this deployment runs the plain JobManager image variant. Set "
-        "SM_JOBMANAGER_IMAGE_VERSION to the -pdf tag, for example %s, for PDF reports. Word reports "
-        "are unaffected.", attachment_type, _PDF_TAG_EXAMPLE,
+        "path: this JobManager image is missing its PDF converter (LibreOffice). Use a 3.6 or "
+        "later JobManager image, which always carries it, for PDF reports. Word reports "
+        "are unaffected.", attachment_type,
     )
     return False

@@ -19,9 +19,9 @@
 # ----
 
 # A `soffice` stand-in for test_pdf_converter_live.py: placed first on PATH, it runs the real
-# converter inside the built `-pdf` image via `docker run`, so `PdfConverter.convert_to_pdf`
+# converter inside the built JobManager image via `docker run`, so `PdfConverter.convert_to_pdf`
 # exercises the actual LibreOffice install rather than a stub. `$SM_SOFFICE_IMAGE` names the
-# image (for example jobmanager-3.6-pdf, or a local `docker build --target os-pdf` tag). The
+# image (for example jobmanager-3.6, or a local `docker build --target os` tag). The
 # test's own temp root is mounted at the identical path inside the container, because every URI
 # PdfConverter builds (profile, output, error file) is an absolute path on the host.
 

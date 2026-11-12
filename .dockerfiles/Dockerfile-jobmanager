@@ -1,15 +1,12 @@
-# Which OS layer the app stage builds on: "plain" (default, every deployment pulls this) or
-# "pdf" (adds headless LibreOffice, published as the jobmanager-<ver>-pdf tag; PBI-049).
-ARG VARIANT=plain
-
-FROM mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64 AS os-plain
+# Every build carries headless LibreOffice for PDF reports (PBI-049, PBI-148). The "os" stage
+# is the OS layer the app stage builds on; build with --target os to test the converter alone.
+FROM mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64 AS os
 
 LABEL base-image="mcr.microsoft.com/dotnet/aspnet:8.0.20-alpine3.22-amd64"
 LABEL vendor="Saltworks Security, LLC"
 
-# fontconfig and real font files for headless LibreOffice's Word->PDF conversion (the -pdf
-# variant below, PBI-049) and its field/index refresh. Installed in the shared base so both
-# variants carry the same fonts; only the -pdf variant carries the LibreOffice binary itself.
+# fontconfig and real font files for headless LibreOffice's Word->PDF conversion (below,
+# PBI-049) and its field/index refresh.
 # Liberation is metric-compatible with Arial/Times New Roman/Courier New.
 # Carlito is metric-compatible with Calibri, the report template's body font.
 RUN apk add --no-cache fontconfig freetype font-dejavu font-liberation font-carlito \
@@ -30,15 +27,13 @@ RUN if [ "$INSTALL_MS_FONTS" = "true" ]; then \
       && fc-cache -f; \
     fi
 
-# PDF conversion variant (PBI-049): headless LibreOffice, invoked by the Python report package
-# to render a filled .docx to PDF. Built only when --build-arg VARIANT=pdf selects this stage; a
-# plain build never sees it, so the everyday image stays the size it is today. Trimmed in the
-# same layer as the install: Alpine's libreoffice-writer pulls in Qt6, GTK3/4, GStreamer and
+# PDF conversion (PBI-049): headless LibreOffice, invoked by the Python report package to
+# render a filled .docx to PDF. Part of every build (PBI-148). Trimmed in the
+# same layer as the install: Alpine's LibreOffice Writer package pulls in Qt6, GTK3/4, GStreamer and
 # Mesa's software GL drivers (libLLVM, gallium) for VCL backends a headless converter never
 # selects. Measured on this base 2026-09-22 (PBI-049): untrimmed +964 MB, trimmed +554 MB, same
 # byte-comparable PDF. SAL_USE_VCLPLUGIN=svp makes LibreOffice pick the headless plugin directly
 # rather than probing for the GUI ones this layer removes.
-FROM os-plain AS os-pdf
 ENV SAL_USE_VCLPLUGIN=svp
 RUN apk add --no-cache libreoffice-writer \
     && rm -rf /usr/lib/libreoffice/program/libvclplug_qt6* \
@@ -66,7 +61,7 @@ RUN apk add --no-cache libreoffice-writer \
     && test -s /tmp/s.pdf \
     && rm -rf /tmp/s.* /tmp/sp
 
-FROM os-${VARIANT}
+FROM os
 
 ENV APP_ROOT=/opt/saltworks/saltminer
 WORKDIR ${APP_ROOT}/app/jobmanager

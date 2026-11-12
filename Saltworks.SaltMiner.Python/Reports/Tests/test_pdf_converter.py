@@ -25,7 +25,7 @@
 # checks the seed landed (SaltMinerPdf.xba exists, script.xlb lists it) and records the result,
 # then, per SM_STUB_SOFFICE_MODE, writes an empty PDF, exits 1 printing "boom", exits 0 writing
 # nothing, or sleeps past the caller's timeout. No real LibreOffice runs here; that is
-# test_pdf_converter_live.py, against the built `-pdf` image.
+# test_pdf_converter_live.py, against the built JobManager image.
 
 import os
 import shutil
@@ -247,21 +247,23 @@ class WriteAttachments(_StubSofficeTestCase):
 
 
 class CheckPdfConverter(_StubSofficeTestCase):
-    def test_pdf_without_converter_logs_one_error_naming_pdf_tag_and_returns_false(self):
+    def test_pdf_without_converter_logs_one_error_naming_soffice_and_returns_false(self):
         self._no_soffice_on_path()
         with self.assertLogs(level="ERROR") as logs:
             result = pdf_converter.check_pdf_converter("Pdf")
         self.assertFalse(result)
         self.assertEqual(len(logs.records), 1)
-        self.assertIn("-pdf", logs.records[0].getMessage())
+        self.assertIn("soffice", logs.records[0].getMessage())
+        self.assertNotIn("-pdf", logs.records[0].getMessage())
 
-    def test_all_without_converter_logs_one_error_naming_pdf_tag_and_returns_false(self):
+    def test_all_without_converter_logs_one_error_naming_soffice_and_returns_false(self):
         self._no_soffice_on_path()
         with self.assertLogs(level="ERROR") as logs:
             result = pdf_converter.check_pdf_converter("All")
         self.assertFalse(result)
         self.assertEqual(len(logs.records), 1)
-        self.assertIn("-pdf", logs.records[0].getMessage())
+        self.assertIn("soffice", logs.records[0].getMessage())
+        self.assertNotIn("-pdf", logs.records[0].getMessage())
 
     def test_word_logs_nothing_and_returns_true(self):
         self._no_soffice_on_path()
