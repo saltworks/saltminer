@@ -18,14 +18,14 @@
 * ----
 '''
 
-# Integration test against the real, built `-pdf` JobManager image. Skipped unless
-# SM_SOFFICE_IMAGE names it (for example jobmanager-3.6-pdf, or a local
-# `docker build --target os-pdf .dockerfiles/Dockerfile-jobmanager` tag). docker_soffice.sh
+# Integration test against the real, built JobManager image. Skipped unless
+# SM_SOFFICE_IMAGE names it (for example jobmanager-3.6, or a local
+# `docker build --target os .dockerfiles/Dockerfile-jobmanager` tag). docker_soffice.sh
 # stands in for `soffice` on PATH, so PdfConverter.convert_to_pdf runs unmodified against the
 # real converter inside that image.
 #
-#   docker build --target os-pdf -f .dockerfiles/Dockerfile-jobmanager -t jobmanager-pdf-local .
-#   SM_SOFFICE_IMAGE=jobmanager-pdf-local \
+#   docker build --target os -f .dockerfiles/Dockerfile-jobmanager -t jobmanager-os-local .
+#   SM_SOFFICE_IMAGE=jobmanager-os-local \
 #   SM_REPORT_SPIKE_DOCX=<tracker checkout>/Spikes/PBI-025-report-merge/output/engagement-report.docx \
 #   python -m pytest Reports/Tests/test_pdf_converter_live.py -q -s
 #
