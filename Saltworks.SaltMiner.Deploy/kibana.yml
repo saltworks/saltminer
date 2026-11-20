@@ -29,6 +29,9 @@ server.publicBaseUrl: "http://localhost"
 # The Kibana server's name.  This is used for display purposes.
 server.name: "SaltMiner"
 
+# Needed for Kibana 9.x: the ui-api calls internal/security/me without the x-elastic-internal-origin header.
+server.restrictInternalApis: false
+
 # =================== System: Kibana Server (Optional) ===================
 # Enables SSL and paths to the PEM-format SSL certificate and SSL key files, respectively.
 # These settings enable SSL for outgoing requests from the Kibana server to the browser.
